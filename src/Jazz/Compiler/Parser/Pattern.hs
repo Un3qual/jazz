@@ -16,7 +16,7 @@ import Control.Monad (void)
 import Data.Char (isUpper)
 import Data.Text (Text)
 import qualified Data.Text as Text
-import Jazz.Compiler.Diagnostics (Diagnostic, SourceSpan)
+import Jazz.Compiler.Diagnostics (Diagnostic, SourceSpan, spanColumn, spanLine)
 import Jazz.Compiler.Name (mkIdentifier)
 import Jazz.Compiler.Parser.AST
   ( SurfaceLambdaParameter (..),
@@ -44,6 +44,7 @@ import Jazz.Compiler.Parser.TokenParser
     peekToken,
     runTokenParserPrefix,
     runTokenStreamParserPrefix,
+    withConsumedSpan,
   )
 import Jazz.Compiler.Parser.TokenStream (TokenStream)
 import qualified Text.Megaparsec as MP
@@ -65,34 +66,22 @@ parseLambdaParameterTokens =
   runTokenParserPrefix "lambda parameter" parseLambdaParameterParser
 
 parseCaseArmPatternParser :: Parser SurfacePattern
-parseCaseArmPatternParser = do
+parseCaseArmPatternParser = withConsumedSpan locatePatternRange $ do
   maybeStartToken <- peekToken
   firstPattern <- parseCasePatternParser
   collectCasePatternAlternatives
     (maybe (surfacePatternSpan firstPattern) tokenSpan maybeStartToken)
-    [firstPattern]
+    firstPattern
 
-collectCasePatternAlternatives :: SourceSpan -> [SurfacePattern] -> Parser SurfacePattern
-collectCasePatternAlternatives patternSpan reversedPatterns = do
-  maybeToken <- peekToken
-  case maybeToken of
-    Just Token {tokenKind = TOperator "|"} -> do
-      void parseAnyToken
-      nextPattern <- parseCasePatternParser
-      collectCasePatternAlternatives patternSpan (nextPattern : reversedPatterns)
-    _ ->
-      case reverse reversedPatterns of
-        [singlePattern] -> pure singlePattern
-        alternatives@(_ : _) ->
-          pure
-            ( SurfacePattern
-                patternSpan
-                (SPOr alternatives)
-            )
-        [] -> failTokenParser (ExpectedSyntax "case pattern" ParserEndOfInput)
+collectCasePatternAlternatives :: SourceSpan -> SurfacePattern -> Parser SurfacePattern
+collectCasePatternAlternatives patternSpan firstPattern = do
+  remaining <- MP.many (parseToken (TOperator "|") *> parseCasePatternParser)
+  pure $ case remaining of
+    [] -> firstPattern
+    _ -> SurfacePattern patternSpan (SPOr (firstPattern : remaining))
 
 parseCasePatternParser :: Parser SurfacePattern
-parseCasePatternParser = do
+parseCasePatternParser = withConsumedSpan locatePatternRange $ do
   maybeToken <- peekToken
   case maybeToken of
     Just token@Token {tokenKind = TInt value} -> do
@@ -145,7 +134,7 @@ parseTuplePattern leftParenToken = do
       case maybeComma of
         Just Token {tokenKind = TComma} -> do
           void parseAnyToken
-          tuplePatterns <- parseTuplePatternElements [firstPattern]
+          tuplePatterns <- (firstPattern :) <$> (parseCasePatternParser `MP.sepBy1` parseToken TComma)
           void (parseToken TRParen)
           pure (locatedPattern leftParenToken (SPTuple tuplePatterns))
         Just Token {tokenKind = TRParen} -> do
@@ -160,42 +149,14 @@ parseTuplePattern leftParenToken = do
             (tokenSpan token)
             (ExpectedSyntax "',' or ')'" (ParserFoundToken (tokenKind token) (tokenLexeme token)))
 
-parseTuplePatternElements :: [SurfacePattern] -> Parser [SurfacePattern]
-parseTuplePatternElements reversedPatterns = do
-  nextPattern <- parseCasePatternParser
-  maybeComma <- peekToken
-  case maybeComma of
-    Just Token {tokenKind = TComma} -> do
-      void parseAnyToken
-      parseTuplePatternElements (nextPattern : reversedPatterns)
-    _ ->
-      pure (reverse (nextPattern : reversedPatterns))
-
 parseConstructorPattern :: Token -> Text -> Parser SurfacePattern
 parseConstructorPattern constructorToken constructorName =
-  go []
-  where
-    go reversedArguments = do
-      maybeToken <- peekToken
-      case maybeToken of
-        Just token
-          | patternArgumentBoundary token ->
-              finish reversedArguments
-          | startsCasePattern token -> do
-              nextArgument <- parseConstructorArgumentPattern
-              go (nextArgument : reversedArguments)
-        _ ->
-          finish reversedArguments
-
-    finish reversedArguments =
-      pure
-        ( locatedPattern
-            constructorToken
-            (SPConstructor (mkIdentifier constructorName) (reverse reversedArguments))
-        )
+  locatedPattern constructorToken . SPConstructor (mkIdentifier constructorName)
+    <$> MP.many
+      (MP.lookAhead (MP.satisfy startsCasePattern) *> parseConstructorArgumentPattern)
 
 parseConstructorArgumentPattern :: Parser SurfacePattern
-parseConstructorArgumentPattern = do
+parseConstructorArgumentPattern = withConsumedSpan locatePatternRange $ do
   maybeToken <- peekToken
   case maybeToken of
     Just token@Token {tokenKind = TInt value} -> do
@@ -264,16 +225,6 @@ parseAsPatternOrVariable identifierToken parseAsTail name = do
     _ ->
       pure (locatedPattern identifierToken (SPVariable (mkIdentifier name)))
 
-patternArgumentBoundary :: Token -> Bool
-patternArgumentBoundary token =
-  case tokenKind token of
-    TArrow -> True
-    TComma -> True
-    TRBracket -> True
-    TRParen -> True
-    TRBrace -> True
-    _ -> False
-
 startsCasePattern :: Token -> Bool
 startsCasePattern token =
   case tokenKind token of
@@ -293,28 +244,21 @@ parseListPattern leftBracketToken = do
       void parseAnyToken
       pure (locatedPattern leftBracketToken (SPList []))
     _ -> do
-      firstPattern <- parseCasePatternParser
-      collectListPatterns [firstPattern]
-  where
-    collectListPatterns reversedPatterns = do
-      maybeToken <- peekToken
-      case maybeToken of
-        Just Token {tokenKind = TComma} -> do
-          void parseAnyToken
-          nextPattern <- parseCasePatternParser
-          collectListPatterns (nextPattern : reversedPatterns)
+      patterns <- parseCasePatternParser `MP.sepBy1` parseToken TComma
+      afterPatterns <- peekToken
+      case afterPatterns of
         Just Token {tokenKind = TOperator "|"} -> do
           void parseAnyToken
           tailPattern <- parseCasePatternParser
           void (parseToken TRBracket)
-          case reverse reversedPatterns of
+          case patterns of
             [headPattern] ->
               pure (locatedPattern leftBracketToken (SPConsList headPattern tailPattern))
             _ ->
               failTokenParser (PatternFailure ConsLikeListPatternHeadCount)
         Just Token {tokenKind = TRBracket} -> do
           void parseAnyToken
-          pure (locatedPattern leftBracketToken (SPList (reverse reversedPatterns)))
+          pure (locatedPattern leftBracketToken (SPList patterns))
         Nothing ->
           failTokenParser (ExpectedSyntax "']'" (ParserEndOfInputIn "list pattern"))
         Just token ->
@@ -323,7 +267,7 @@ parseListPattern leftBracketToken = do
             (ExpectedSyntax "',' or ']'" (ParserFoundToken (tokenKind token) (tokenLexeme token)))
 
 parseLambdaParameterParser :: Parser SurfaceLambdaParameter
-parseLambdaParameterParser = do
+parseLambdaParameterParser = withConsumedSpan locateLambdaParameter $ do
   maybeToken <- peekToken
   case maybeToken of
     Just Token {tokenKind = TInt _} ->
@@ -347,10 +291,10 @@ parseLambdaParameterParser = do
           case maybeTail of
             Just Token {tokenKind = TAt} ->
               SurfaceLambdaPattern
-                <$> (parseIdentifierCasePattern token parameterName >>= collectCasePatternAlternatives (tokenSpan token) . (: []))
+                <$> (parseIdentifierCasePattern token parameterName >>= collectCasePatternAlternatives (tokenSpan token))
             Just Token {tokenKind = TOperator "|"} ->
               SurfaceLambdaPattern
-                <$> (parseIdentifierCasePattern token parameterName >>= collectCasePatternAlternatives (tokenSpan token) . (: []))
+                <$> (parseIdentifierCasePattern token parameterName >>= collectCasePatternAlternatives (tokenSpan token))
             _ ->
               pure (SurfaceLambdaIdentifier (tokenSpan token) (mkIdentifier parameterName))
     Nothing ->
@@ -375,3 +319,18 @@ isReservedLiteralName name = name == "True" || name == "False"
 
 locatedPattern :: Token -> SurfacePatternForm -> SurfacePattern
 locatedPattern token = SurfacePattern (tokenSpan token)
+
+-- Grouping parentheses have no pattern node of their own.
+locatePatternRange :: SourceSpan -> SurfacePattern -> SurfacePattern
+locatePatternRange spanValue patternValue
+  | (spanLine spanValue, spanColumn spanValue)
+      == (spanLine original, spanColumn original) =
+      patternValue {surfacePatternSpan = spanValue}
+  | otherwise = patternValue
+  where
+    original = surfacePatternSpan patternValue
+
+locateLambdaParameter :: SourceSpan -> SurfaceLambdaParameter -> SurfaceLambdaParameter
+locateLambdaParameter spanValue parameter = case parameter of
+  SurfaceLambdaPattern patternValue -> SurfaceLambdaPattern (locatePatternRange spanValue patternValue)
+  SurfaceLambdaIdentifier _ name -> SurfaceLambdaIdentifier spanValue name

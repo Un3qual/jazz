@@ -650,7 +650,7 @@ testGroupedTypeExportsRejectUnknownType = do
     result
   assertLeftDiagnosticMetadata
     "unknown grouped type metadata"
-    (Just (SourceSpanIn "src/Lib/Types.jz" 1 25))
+    (Just (SourceRangeIn "src/Lib/Types.jz" 1 25 1 32))
     Nothing
     (Just "Missing")
     result
@@ -668,7 +668,7 @@ testGroupedTypeExportsRejectUnknownConstructor = do
     result
   assertLeftDiagnosticMetadata
     "unknown grouped constructor metadata"
-    (Just (SourceSpanIn "src/Lib/Types.jz" 1 32))
+    (Just (SourceRangeIn "src/Lib/Types.jz" 1 32 1 39))
     Nothing
     (Just "Missing")
     result
@@ -686,7 +686,7 @@ testGroupedTypeExportsRejectWrongOwner = do
     result
   assertLeftDiagnosticMetadata
     "wrong-owner grouped constructor metadata"
-    (Just (SourceSpanIn "src/Lib/Types.jz" 1 30))
+    (Just (SourceRangeIn "src/Lib/Types.jz" 1 30 1 36))
     Nothing
     (Just "RightC")
     result
@@ -704,7 +704,7 @@ testGroupedTypeExportsRejectImportedConstructor = do
     result
   assertLeftDiagnosticMetadata
     "imported grouped constructor metadata"
-    (Just (SourceSpanIn "src/Lib/Wrapper.jz" 1 33))
+    (Just (SourceRangeIn "src/Lib/Wrapper.jz" 1 33 1 39))
     Nothing
     (Just "Origin")
     result
@@ -752,7 +752,7 @@ testRejectsUnknownModuleExport = do
     result
   assertLeftDiagnosticMetadata
     "unknown module export metadata"
-    (Just (SourceSpanIn "src/Lib/Value.jz" 1 1))
+    (Just (SourceRangeIn "src/Lib/Value.jz" 1 1 1 7))
     Nothing
     (Just "missing")
     result
@@ -1049,25 +1049,25 @@ testRetainsCheckedImportExposureInDeclarationOrder =
         ]
     expectedImports =
       [ ResolvedImportSummary
-          { summaryImportSpan = SourceSpanIn "src/App/Main.jz" 1 1,
+          { summaryImportSpan = SourceRangeIn "src/App/Main.jz" 1 1 1 7,
             summaryImportPath = ["Lib", "Zulu"],
             summaryImportAlias = Just "Zed",
             summaryImportExposure = QualifiedOnlySummary
           },
         ResolvedImportSummary
-          { summaryImportSpan = SourceSpanIn "src/App/Main.jz" 2 1,
+          { summaryImportSpan = SourceRangeIn "src/App/Main.jz" 2 1 2 7,
             summaryImportPath = ["Lib", "Alpha"],
             summaryImportAlias = Nothing,
             summaryImportExposure = OnlyUnqualifiedSummary ["second", "first"]
           },
         ResolvedImportSummary
-          { summaryImportSpan = SourceSpanIn "src/App/Main.jz" 3 1,
+          { summaryImportSpan = SourceRangeIn "src/App/Main.jz" 3 1 3 7,
             summaryImportPath = ["Lib", "Middle"],
             summaryImportAlias = Nothing,
             summaryImportExposure = AllUnqualifiedSummary
           },
         ResolvedImportSummary
-          { summaryImportSpan = SourceSpanIn "src/App/Main.jz" 4 1,
+          { summaryImportSpan = SourceRangeIn "src/App/Main.jz" 4 1 4 7,
             summaryImportPath = ["Lib", "Alpha"],
             summaryImportAlias = Nothing,
             summaryImportExposure = OnlyUnqualifiedSummary ["second", "first"]
@@ -1685,7 +1685,7 @@ testReportsMissingImportSymbol = do
   assertLeftContains "importer context" "App::Main" result
   assertLeftDiagnosticMetadata
     "missing symbol metadata"
-    (Just (SourceSpan 1 1))
+    (Just (SourceRange 1 1 1 7))
     Nothing
     (Just "subtract")
     result
@@ -1711,7 +1711,7 @@ testReportsHiddenExplicitImportValueReference = do
   assertLeftContains "importer context" "App::Main" result
   assertLeftDiagnosticMetadata
     "explicit hidden value metadata"
-    (Just (SourceSpan 1 1))
+    (Just (SourceRange 1 1 1 7))
     Nothing
     (Just "subtract")
     result
@@ -1743,8 +1743,8 @@ testReportsImportSymbolCollision = do
   assertLeftContains "importer context" "App::Main" result
   assertLeftDiagnosticMetadata
     "symbol collision metadata"
-    (Just (SourceSpan 2 1))
-    (Just (SourceSpan 1 1))
+    (Just (SourceRange 2 1 2 7))
+    (Just (SourceRange 1 1 1 7))
     (Just "map")
     result
   where
@@ -1785,8 +1785,8 @@ testReportsBareImportSymbolCollision = do
       assertLeftContains (label <> " collision symbol") "symbol 'map'" result
       assertLeftDiagnosticMetadata
         (label <> " collision metadata")
-        (Just (SourceSpan 2 1))
-        (Just (SourceSpan 1 1))
+        (Just (SourceRange 2 1 2 7))
+        (Just (SourceRange 1 1 1 7))
         (Just "map")
         result
 
@@ -1805,8 +1805,8 @@ testReportsMixedImportSymbolCollision = do
   assertLeftContains "mixed collision symbol" "symbol 'map'" result
   assertLeftDiagnosticMetadata
     "mixed collision metadata"
-    (Just (SourceSpan 2 1))
-    (Just (SourceSpan 1 1))
+    (Just (SourceRange 2 1 2 7))
+    (Just (SourceRange 1 1 1 7))
     (Just "map")
     result
   where
@@ -1834,8 +1834,8 @@ testReportsImportAliasCollision = do
   assertLeftContains "importer context" "App::Main" result
   assertLeftDiagnosticMetadata
     "alias collision metadata"
-    (Just (SourceSpan 2 1))
-    (Just (SourceSpan 1 1))
+    (Just (SourceRange 2 1 2 7))
+    (Just (SourceRange 1 1 1 7))
     (Just "Ops")
     result
   where
@@ -1862,7 +1862,7 @@ testReportsHiddenExplicitImportConstructorPatternReference = do
   assertLeftContains "importer context" "App::Main" result
   assertLeftDiagnosticMetadata
     "explicit hidden constructor metadata"
-    (Just (SourceSpan 1 1))
+    (Just (SourceRange 1 1 1 7))
     Nothing
     (Just "Just")
     result
@@ -1889,7 +1889,7 @@ testReportsUnqualifiedAliasImportReference = do
   assertLeftContains "importer context" "App::Main" result
   assertLeftDiagnosticMetadata
     "alias visibility metadata"
-    (Just (SourceSpan 1 1))
+    (Just (SourceRange 1 1 1 7))
     Nothing
     (Just "subtract")
     result
@@ -1921,7 +1921,7 @@ testReportsHiddenAliasImportConstructorPatternReference = do
   assertLeftContains "importer context" "App::Main" result
   assertLeftDiagnosticMetadata
     "alias hidden constructor metadata"
-    (Just (SourceSpan 1 1))
+    (Just (SourceRange 1 1 1 7))
     Nothing
     (Just "Just")
     result
@@ -2126,7 +2126,7 @@ testReportsMissingQualifiedAliasExport = do
   assertLeftContains "importer context" "App::Main" result
   assertLeftDiagnosticMetadata
     "missing qualified alias metadata"
-    (Just (SourceSpan 1 1))
+    (Just (SourceRange 1 1 1 7))
     Nothing
     (Just "subtract")
     result

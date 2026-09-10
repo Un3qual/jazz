@@ -13,9 +13,6 @@ import Jazz.Compiler.Diagnostics
 import Jazz.Compiler.Name
   ( Identifier,
   )
-import Jazz.Compiler.Parser
-  ( parseSurfaceProgram,
-  )
 import Jazz.Compiler.Parser.AST
   ( SurfaceExpr (..),
     SurfaceExprForm (..),
@@ -36,6 +33,7 @@ import Jazz.TestCore
     loweredBlock,
     loweredLet,
     loweredLiteral,
+    parseSurfaceProgramPoints,
   )
 import Jazz.TestHarness
   ( NamedTest,
@@ -89,7 +87,7 @@ testDeclaredTier2OperatorPrecedence =
             ]
         )
     )
-    ( parseSurfaceProgram
+    ( parseSurfaceProgramPoints
         """
         operator %% tier 2.
         x = 1 + 2 %% 3 * 4.
@@ -115,7 +113,7 @@ testDeclaredCustomPrecedenceOperatorPrecedence =
             ]
         )
     )
-    ( parseSurfaceProgram
+    ( parseSurfaceProgramPoints
         """
         operator %% precedence 99.
         x = 1 + 2 %% 3 * 4.
@@ -137,7 +135,7 @@ testDeclaredCustomPrecedenceOperatorAssociativity =
             ]
         )
     )
-    ( parseSurfaceProgram
+    ( parseSurfaceProgramPoints
         """
         operator %% precedence 25.
         x = 10 %% 3 %% 1.
@@ -159,7 +157,7 @@ testDeclaredOperatorExplicitLeftAssociativity =
             ]
         )
     )
-    ( parseSurfaceProgram
+    ( parseSurfaceProgramPoints
         """
         operator %% tier 2 left.
         x = 10 %% 3 %% 1.
@@ -181,7 +179,7 @@ testDeclaredOperatorExplicitRightAssociativity =
             ]
         )
     )
-    ( parseSurfaceProgram
+    ( parseSurfaceProgramPoints
         """
         operator <| precedence 10 right.
         x = a <| b <| c.
@@ -214,7 +212,7 @@ testDeclaredOperatorBindingParsesAsHiddenBinding =
             ]
         )
     )
-    ( parseSurfaceProgram
+    ( parseSurfaceProgramPoints
         """
         operator %% tier 2.
         (%%) = \\(left, right) -> left + right.
@@ -257,7 +255,7 @@ testDeclaredOperatorSignatureParsesAsHiddenSignature =
             ]
         )
     )
-    ( parseSurfaceProgram
+    ( parseSurfaceProgramPoints
         """
         operator %% tier 2.
         (%%) :: Int -> Int -> Int.
@@ -289,7 +287,7 @@ testDeclaredOperatorBindingParsesInsideModuleBody =
             ]
         )
     )
-    ( parseSurfaceProgram
+    ( parseSurfaceProgramPoints
         """
         module Demo {
         operator %% tier 2.
@@ -313,7 +311,7 @@ testDeclaredTier5OperatorAssociativity =
             ]
         )
     )
-    ( parseSurfaceProgram
+    ( parseSurfaceProgramPoints
         """
         operator ~~ tier 5.
         x = f ~~ g ~~ z.
@@ -335,7 +333,7 @@ testDeclaredArrowPrefixedOperator =
             ]
         )
     )
-    ( parseSurfaceProgram
+    ( parseSurfaceProgramPoints
         """
         operator ->? tier 4.
         x = 1 ->? 2.
@@ -356,7 +354,7 @@ testDeclaredOperatorValueAndSections =
             ]
         )
     )
-    ( parseSurfaceProgram
+    ( parseSurfaceProgramPoints
         """
         operator %% tier 2.
         op = (%%).
@@ -380,7 +378,7 @@ testMultiplicationBeforeAddition =
             ]
         )
     )
-    (parseSurfaceProgram "x = 1 + 2 * 3.")
+    (parseSurfaceProgramPoints "x = 1 + 2 * 3.")
 
 testEqualityAfterArithmetic :: IO ()
 testEqualityAfterArithmetic =
@@ -397,7 +395,7 @@ testEqualityAfterArithmetic =
             ]
         )
     )
-    (parseSurfaceProgram "ok = 1 + 2 == 3.")
+    (parseSurfaceProgramPoints "ok = 1 + 2 == 3.")
 
 testDollarRightAssociative :: IO ()
 testDollarRightAssociative =
@@ -414,7 +412,7 @@ testDollarRightAssociative =
             ]
         )
     )
-    (parseSurfaceProgram "x = f $ g $ z.")
+    (parseSurfaceProgramPoints "x = f $ g $ z.")
 
 testSubtractionLeftAssociative :: IO ()
 testSubtractionLeftAssociative =
@@ -431,7 +429,7 @@ testSubtractionLeftAssociative =
             ]
         )
     )
-    (parseSurfaceProgram "x = 10 - 3 - 1.")
+    (parseSurfaceProgramPoints "x = 10 - 3 - 1.")
 
 testSamePrecedenceArithmeticAssociatesLeft :: IO ()
 testSamePrecedenceArithmeticAssociatesLeft =
@@ -448,7 +446,7 @@ testSamePrecedenceArithmeticAssociatesLeft =
             ]
         )
     )
-    (parseSurfaceProgram "x = 1 + 2 - 3.")
+    (parseSurfaceProgramPoints "x = 1 + 2 - 3.")
 
 testApplicationBeforeInfix :: IO ()
 testApplicationBeforeInfix =
@@ -469,7 +467,7 @@ testApplicationBeforeInfix =
             ]
         )
     )
-    (parseSurfaceProgram "x = f x + g y * z.")
+    (parseSurfaceProgramPoints "x = f x + g y * z.")
 
 testOperatorValueApplicationBeforeInfix :: IO ()
 testOperatorValueApplicationBeforeInfix =
@@ -490,13 +488,13 @@ testOperatorValueApplicationBeforeInfix =
             ]
         )
     )
-    (parseSurfaceProgram "x = (+) 1 2 * 3.")
+    (parseSurfaceProgramPoints "x = (+) 1 2 * 3.")
 
 testLowerFixityTree :: IO ()
 testLowerFixityTree =
   assertRight
     "parse + lower fixity"
-    (parseSurfaceProgram "x = 1 + 2 * 3.")
+    (parseSurfaceProgramPoints "x = 1 + 2 * 3.")
     (\surfaceProgram -> assertLoweredCoreEqual "lowered AST" expectedProgram (lowerSurfaceExpr surfaceProgram))
   where
     expectedProgram =

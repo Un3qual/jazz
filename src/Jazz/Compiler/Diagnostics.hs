@@ -9,8 +9,16 @@
 module Jazz.Compiler.Diagnostics
   ( Diagnostic,
     DiagnosticLabel,
+    DiagnosticContext (..),
+    appendDiagnosticContext,
+    diagnosticContexts,
+    diagnosticTypeError,
+    mkTypeErrorDiagnostic,
     DiagnosticOrigin (..),
     SourceSpan (..),
+    sourceSpanStart,
+    sourceSpanEnd,
+    spanThrough,
     appendDiagnosticNote,
     appendDiagnosticSecondaryLabel,
     diagnosticCode,
@@ -59,22 +67,8 @@ import Jazz.Compiler.DiagnosticCatalog
     errorCode,
     warningCode,
   )
-
--- | 1-based source location used throughout the compiler. Standalone parsing
--- uses the compact constructor; resolved modules qualify spans with their
--- source paths before per-module semantic analysis.
-data SourceSpan
-  = SourceSpan
-      { spanLine :: Int,
-        spanColumn :: Int
-      }
-  | SourceSpanIn
-      { spanSourcePath :: FilePath,
-        spanLine :: Int,
-        spanColumn :: Int
-      }
-  deriving stock (Eq, Generic, Ord, Show)
-  deriving anyclass (NFData)
+import Jazz.Compiler.SourceSpan (SourceSpan (..), sourceSpanEnd, sourceSpanStart, spanThrough)
+import Jazz.Compiler.TypeInference.DiagnosticCause (DiagnosticType, TypeErrorCause, renderTypeErrorCause)
 
 -- | Broad ownership needed by result filtering without coupling the common
 -- report to phase-specific compiler types.
@@ -94,12 +88,28 @@ data DiagnosticLabel = DiagnosticLabel
   deriving stock (Eq, Generic, Ord, Show)
   deriving anyclass (NFData)
 
+-- | Enclosing operations, ordered from the innermost operation outwards.
+data DiagnosticContext
+  = CheckingBinding Text
+  | CheckingImplMethod Text
+  | SatisfyingConstraint Text
+  deriving stock (Eq, Generic, Ord, Show)
+  deriving anyclass (NFData)
+
+data DiagnosticMessage
+  = PlainMessage Text
+  | TypeErrorMessage (TypeErrorCause DiagnosticType)
+  deriving stock (Eq, Generic, Ord, Show)
+  deriving anyclass (NFData)
+
 data Diagnostic = Diagnostic
   { diagnosticSeverity :: DiagnosticSeverity,
     diagnosticCode :: DiagnosticCode,
     diagnosticWarningCategory :: Maybe WarningCategory,
     diagnosticOrigin :: DiagnosticOrigin,
-    diagnosticSummary :: Text,
+    diagnosticMessage :: DiagnosticMessage,
+    diagnosticSummaryPrefix :: Text,
+    diagnosticContexts :: [DiagnosticContext],
     diagnosticPrimaryLabel :: Maybe DiagnosticLabel,
     diagnosticSecondaryLabels :: [DiagnosticLabel],
     diagnosticSubject :: Maybe Text,
@@ -116,7 +126,9 @@ mkErrorDiagnostic code origin summary =
       diagnosticCode = errorCode code,
       diagnosticWarningCategory = Nothing,
       diagnosticOrigin = origin,
-      diagnosticSummary = summary,
+      diagnosticMessage = PlainMessage summary,
+      diagnosticSummaryPrefix = "",
+      diagnosticContexts = [],
       diagnosticPrimaryLabel = Nothing,
       diagnosticSecondaryLabels = [],
       diagnosticSubject = Nothing,
@@ -131,13 +143,36 @@ mkWarningDiagnostic category origin summary =
       diagnosticCode = warningCode category,
       diagnosticWarningCategory = Just category,
       diagnosticOrigin = origin,
-      diagnosticSummary = summary,
+      diagnosticMessage = PlainMessage summary,
+      diagnosticSummaryPrefix = "",
+      diagnosticContexts = [],
       diagnosticPrimaryLabel = Nothing,
       diagnosticSecondaryLabels = [],
       diagnosticSubject = Nothing,
       diagnosticNotes = [],
       diagnosticHelp = Nothing
     }
+
+-- | Keep the cause structured until a consumer asks for its summary.
+mkTypeErrorDiagnostic :: ErrorCode -> TypeErrorCause DiagnosticType -> Diagnostic
+mkTypeErrorDiagnostic code cause =
+  (mkErrorDiagnostic code CompilationOrigin "") {diagnosticMessage = TypeErrorMessage cause}
+
+diagnosticTypeError :: Diagnostic -> Maybe (TypeErrorCause DiagnosticType)
+diagnosticTypeError diagnostic = case diagnosticMessage diagnostic of
+  PlainMessage _ -> Nothing
+  TypeErrorMessage cause -> Just cause
+
+diagnosticSummary :: Diagnostic -> Text
+diagnosticSummary diagnostic =
+  diagnosticSummaryPrefix diagnostic <> case diagnosticMessage diagnostic of
+    PlainMessage summary -> summary
+    TypeErrorMessage cause -> renderTypeErrorCause cause
+
+appendDiagnosticContext :: DiagnosticContext -> Diagnostic -> Diagnostic
+appendDiagnosticContext context diagnostic
+  | context `elem` diagnosticContexts diagnostic = diagnostic
+  | otherwise = diagnostic {diagnosticContexts = diagnosticContexts diagnostic <> [context]}
 
 promoteDiagnostic :: Diagnostic -> Diagnostic
 promoteDiagnostic diagnostic =
@@ -200,7 +235,7 @@ setDiagnosticSubject subject diagnostic =
 
 prependDiagnosticSummary :: Text -> Diagnostic -> Diagnostic
 prependDiagnosticSummary prefix diagnostic =
-  diagnostic {diagnosticSummary = prefix <> diagnosticSummary diagnostic}
+  diagnostic {diagnosticSummaryPrefix = prefix <> diagnosticSummaryPrefix diagnostic}
 
 appendDiagnosticNote :: Text -> Diagnostic -> Diagnostic
 appendDiagnosticNote note diagnostic =
@@ -224,7 +259,9 @@ qualifyDiagnosticSpans sourcePath diagnostic =
 
 qualifySourceSpan :: FilePath -> SourceSpan -> SourceSpan
 qualifySourceSpan sourcePath spanValue =
-  SourceSpanIn sourcePath (spanLine spanValue) (spanColumn spanValue)
+  case sourceSpanEnd spanValue of
+    Nothing -> SourceSpanIn sourcePath (spanLine spanValue) (spanColumn spanValue)
+    Just (endLine, endColumn) -> SourceRangeIn sourcePath (spanLine spanValue) (spanColumn spanValue) endLine endColumn
 
 mkSameScopeRebindingWarning :: Text -> SourceSpan -> SourceSpan -> Diagnostic
 mkSameScopeRebindingWarning variableName primarySpan previousSpan =

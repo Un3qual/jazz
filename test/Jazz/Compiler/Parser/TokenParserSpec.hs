@@ -2,6 +2,7 @@
 
 module Main (main) where
 
+import Control.Applicative ((<|>))
 import qualified Data.Text as Text
 import Jazz.Compiler.DiagnosticCatalog
   ( ErrorCode (E0001),
@@ -60,6 +61,7 @@ tests =
     ("detailed token failures preserve expected and found syntax", testDetailedTokenFailure),
     ("detailed end-of-input failures have no token span", testDetailedEndOfInputFailure),
     ("detailed trailing-token failures preserve the offending token", testDetailedTrailingTokenFailure),
+    ("token alternatives preserve consumption and exact error ranges", testTokenAlternativeConsumption),
     ("trailing-token diagnostics preserve the offending token", testTrailingTokenDiagnostic),
     ("recognizes lexically adjacent tokens", testRecognizesLexicallyAdjacentTokens),
     ("tokenizes then as a reserved keyword", testTokenizesThenKeyword),
@@ -161,6 +163,20 @@ testDetailedTrailingTokenFailure = do
     )
     (runTokenParserDetailed "token parser spec" parseIdentifier tokens)
 
+testTokenAlternativeConsumption :: IO ()
+testTokenAlternativeConsumption =
+  case tokenize "entry 42" of
+    Left diagnostic -> failTest (renderDiagnostic diagnostic)
+    Right tokens -> do
+      assertEqual
+        "non-consuming mismatch permits the next alternative"
+        (Right (TInt 42))
+        (runTokenParserDetailed "alternative" ((parseTokenKind TEquals <|> (TEquals <$ parseIdentifier)) *> parseTokenKind (TInt 42)) tokens)
+      assertEqual
+        "consumed identifier commits the failure and retains its range"
+        (Left (ParserFailure E0001 (Just (SourceRange 1 7 1 9)) (ExpectedSyntax "'='" (ParserFoundToken (TInt 42) "42"))))
+        (runTokenParserDetailed "committed alternative" ((parseIdentifier *> parseTokenKind TEquals) <|> (TEquals <$ parseIdentifier <* parseTokenKind (TInt 42))) tokens)
+
 testTrailingTokenDiagnostic :: IO ()
 testTrailingTokenDiagnostic = do
   tokens <- lexSource "entry 42."
@@ -219,6 +235,9 @@ testPreservesDerivedAndZeroPaddedLexemes = do
     "derived and zero-padded lexemes"
     ["value", "00042", "->", "=="]
     (map tokenLexeme tokens)
+  large <- lexSource "000123456789012345678901234567890"
+  assertEqual "decimal has arbitrary precision" [TInt 123456789012345678901234567890] (map tokenKind large)
+  assertEqual "decimal preserves all leading zeros" ["000123456789012345678901234567890"] (map tokenLexeme large)
 
 testPreservesQuotedLiteralLexemesAndSpans :: IO ()
 testPreservesQuotedLiteralLexemesAndSpans = do
@@ -314,6 +333,7 @@ testIgnoredInputAtEndOfInput =
     )
     [ ("empty input", ""),
       ("whitespace-only input", " \t\n  "),
+      ("Unicode whitespace and consecutive comments", "\x2003# one\r\n\xA0# two\n\t"),
       ("final comment without newline", "# final comment")
     ]
 
@@ -360,7 +380,10 @@ testRejectsMalformedCharAndTextLiterals = do
           ("empty scalar escape", "'\\u{}'", "Unicode escape must contain 1-6 hexadecimal digits"),
           ("surrogate scalar", "'\\u{D800}'", "Unicode escape is not a scalar value"),
           ("large scalar", "'\\u{110000}'", "Unicode escape is not a scalar value"),
-          ("raw newline", "\"a\nb\"", "raw newline is not allowed in a text literal")
+          ("raw newline", "\"a\nb\"", "raw newline is not allowed in a text literal"),
+          ("raw carriage return", "\"a\rb\"", "raw newline is not allowed in a text literal"),
+          ("Haskell named escapes remain invalid", "'\\NUL'", "invalid escape '\\N'"),
+          ("Haskell numeric escapes remain invalid", "'\\65'", "invalid escape '\\6'")
         ]
   mapM_
     ( \(label, source, expected) ->

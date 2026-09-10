@@ -1,0 +1,151 @@
+# Reviewed GHC 9.14 baseline; keep new unreachable declarations visible.
+roots = [
+  '^Main\.main$',
+  # Cabal-generated package metadata is not maintained Haskell source.
+  '^Paths_jazz\.',
+  # Shared benchmark driver compiled into both the benchmark and its tests.
+  '^Jazz\.Benchmark\.Stages\.runBenchmarkMain$',
+  # Shared benchmark/corpus API; each Cabal component uses only a subset.
+  # benchmark/Jazz/Benchmark/Metadata.hs
+  '^Jazz\.Benchmark\.Metadata\.(BenchmarkArtifactPaths|BenchmarkBuildMode|BenchmarkEnvironment|BenchmarkEnvironmentCapture|BenchmarkTimeMode|CompatibilityDecision|CompatibilityField|CompatibilityMismatch|CompatibilityPolicy|EnvironmentFact|benchmarkArtifactPaths|benchmarkBuildModeForProfiling|benchmarkEnvironmentJson|benchmarkRunIdentity|benchmarkTimeModeFromArguments|captureBenchmarkEnvironment|checkBenchmarkCompatibility|classifyProcessFact|createBenchmarkArtifactDirectory|writeBenchmarkEnvironment)$',
+  # Shared benchmark inspection API; component usage differs.
+  '^Jazz\.Benchmark\.ScaleCases\.compilerScaleCaseSourceCount$',
+  # Shared benchmark/corpus API; each Cabal component uses only a subset.
+  # benchmark/Jazz/Benchmark/Stages.hs
+  '^Jazz\.Benchmark\.Stages\.(runBenchmarkMain|runBenchmarkMainWithArguments|runBenchmarkMainWithEnvironmentCapture)$',
+  # Shared benchmark/corpus API; each Cabal component uses only a subset.
+  # program-support/Jazz/ProgramCorpus/Manifest.hs
+  '^Jazz\.ProgramCorpus\.Manifest\.(loadProgramCorpusAt|loadProgramCorpusAtWithManifestReader|programCaseById)$',
+  # Shared benchmark/corpus API; each Cabal component uses only a subset.
+  # program-support/Jazz/ProgramCorpus/Runner.hs
+  '^Jazz\.ProgramCorpus\.Runner\.(loadProgramCaseEntrySource|prepareProgramCase|programCaseBudgetViolations|runProgramCaseObserved)$',
+  # Shared benchmark/corpus API; each Cabal component uses only a subset.
+  # program-support/Jazz/ProgramCorpus/Types.hs
+  '^Jazz\.ProgramCorpus\.Types\.(ProgramBudgetViolation)$',
+  # Benchmark forcing and profiling tooling API.
+  # src/Jazz/Compiler/Force.hs
+  '^Jazz\.Compiler\.Force\.(forceAnalyzedModule|forceAnalyzedModules|forceAnalyzedProgram|forceResolvedExpr|forceResolvedModule)$',
+  # Retained legacy compiler adapter/inspection API; review before deletion.
+  # src/Jazz/Compiler/Parser/Expression.hs
+  '^Jazz\.Compiler\.Parser\.Expression\.(parseExpressionTokens)$',
+  # Retained legacy compiler adapter/inspection API; review before deletion.
+  # src/Jazz/Compiler/Parser/Signature.hs
+  '^Jazz\.Compiler\.Parser\.Signature\.(parseSignatureTypePrefixDetailed)$',
+  # Retained legacy compiler adapter/inspection API; review before deletion.
+  # src/Jazz/Compiler/Parser/TokenStream.hs
+  '^Jazz\.Compiler\.Parser\.TokenStream\.(tokenStreamDrop)$',
+  # Benchmark forcing and profiling tooling API.
+  # src/Jazz/Compiler/Profiling.hs
+  '^Jazz\.Compiler\.Profiling\.(compilerProfilingEnabled)$',
+  # Retained legacy compiler adapter/inspection API; review before deletion.
+  # src/Jazz/Compiler/Runtime.hs
+  '^Jazz\.Compiler\.Runtime\.(evaluateRuntimeExprWithSourceUnitStatements)$',
+  # Shared test-support API; each Cabal component uses only a subset.
+  # test/Jazz/Compiler/Bootstrap/CanonicalCoreComparison.hs
+  '^Jazz\.Compiler\.Bootstrap\.CanonicalCoreComparison\.(canonicalCoreModuleResultRuntimeValue|canonicalCoreModuleRuntimeValue|canonicalCoreSourceResultRuntimeValue)$',
+  # Shared test-support API; each Cabal component uses only a subset.
+  # test/Jazz/Compiler/Bootstrap/CanonicalLexerComparison.hs
+  '^Jazz\.Compiler\.Bootstrap\.CanonicalLexerComparison\.(CanonicalKeyword|CanonicalLexError|CanonicalLexErrorReason|CanonicalLexResult|CanonicalLiteralKind|CanonicalPunctuation|CanonicalToken|CanonicalTokenKind|canonicalLexErrorRuntimeValue|canonicalLexResultRuntimeValue|canonicalTokenKindRuntimeValue|canonicalTokenRuntimeValue|canonicalizeFailure|canonicalizeLexResult|canonicalizeTokenKind|renderCanonicalLexResult)$',
+  # Shared test-support API; each Cabal component uses only a subset.
+  # test/Jazz/Compiler/Bootstrap/CanonicalParserComparison.hs
+  '^Jazz\.Compiler\.Bootstrap\.CanonicalParserComparison\.(CanonicalParserResult|CanonicalSourceResult|canonicalParserResultRuntimeValue|canonicalSourceResultRuntimeValue|canonicalizeParserResult|canonicalizeSourceResult|parserFailureRuntimeValue|renderCanonicalParserResult|renderCanonicalSourceResult|surfaceExprRuntimeValue)$',
+  # Shared test-support API; each Cabal component uses only a subset.
+  # test/Jazz/Compiler/Bootstrap/CanonicalValue.hs
+  '^Jazz\.Compiler\.Bootstrap\.CanonicalValue\.(CanonicalSpan|canonicalList|canonicalMaybe|canonicalSpanRuntimeValue|canonicalizeSpan|decodeInt|decodeInteger|decodeList|decodeText|expectArity|expectConstructor|expectNamedConstructor|expectNullary|runtimeValueCategory)$',
+  # Shared test-support API; each Cabal component uses only a subset.
+  # test/Jazz/Compiler/Bootstrap/JazzCoreParity.hs
+  '^Jazz\.Compiler\.Bootstrap\.JazzCoreParity\.(expectedCanonicalExpressionBatchRendering|expectedControlFlowPatternsBatchRendering|expectedControlFlowPatternsSourceBatchRendering|expectedCoreCorpusRendering|expectedCoreSourceBatchRendering|expectedFoundationBatchRendering|expectedFoundationSourceBatchRendering|expectedModuleBatchRendering|expectedParserSourceBatchRendering|expectedSignaturesDeclarationsOperatorsBatchRendering|expectedSignaturesDeclarationsOperatorsSourceBatchRendering|runJazzCanonicalExpressionBatch|runJazzControlFlowPatternsBatch|runJazzControlFlowPatternsSourceBatch|runJazzCoreCorpus|runJazzCoreSourceBatch|runJazzFoundationBatch|runJazzFoundationSourceBatch|runJazzModuleBatch|runJazzParserSourceBatch|runJazzSignaturesDeclarationsOperatorsBatch|runJazzSignaturesDeclarationsOperatorsSourceBatch)$',
+  # Shared scale runner: full components use one family; smoke uses all four.
+  '^Jazz\.Compiler\.Bootstrap\.JazzParserScale\.(runJazzParserControlFlowScale|runJazzParserDeclarationsScale|runJazzParserOperatorScale|runJazzParserScale)$',
+  # Shared test-support API; each Cabal component uses only a subset.
+  # test/Jazz/Compiler/Bootstrap/JazzParserScaleAssertions.hs
+  '^Jazz\.Compiler\.Bootstrap\.JazzParserScaleAssertions\.(fullControlFlowLimits|fullDeclarationsLimits|fullExpressionLimits|fullOperatorLimits|fullScaleWorkload|assertDeterministicScalePair|smokeControlFlowLimits|smokeDeclarationsLimits|smokeExpressionLimits|smokeOperatorLimits|smokeScaleWorkload)$',
+  # Shared test-support API; each Cabal component uses only a subset.
+  # test/Jazz/Compiler/Parser/FixtureCorpus.hs
+  '^Jazz\.Compiler\.Parser\.FixtureCorpus\.(ParserFixture|ParserFixtureExpectation|ParserFixtureFamily|ParserFixtureManifestViolation|lookupParserFixtureFamily|parserFixtureCorpus|parserFixtureFamilyNames|validateParserFixtureManifest)$',
+  # Shared test-support API; each Cabal component uses only a subset.
+  # test/Jazz/Compiler/Parser/TestSupport.hs
+  '^Jazz\.Compiler\.Parser\.TestSupport\.(surfaceExprAt|surfacePatternAt)$',
+  # Shared test-support API; each Cabal component uses only a subset.
+  # test/Jazz/Compiler/Semantics/Runtime/Fixtures.hs
+  '^Jazz\.Compiler\.Semantics\.Runtime\.Fixtures\.(caseArm|classMethodSignature|dataConstructor|expressionBinary|expressionConstrainedAs|expressionConstructor|expressionIf|expressionLambda|expressionOperatorValue|expressionPatternCase|expressionQualifiedMethod|expressionSectionLeft|expressionSectionRight|expressionTuple|expressionTypeApplication|fixtureAmbientTypeVariable|fixtureResolvedTypeName|fixtureTypeName|fixtureTypeVariable|fixtureValueName|implMethod|patternConstructor|patternLiteral|patternTuple|patternVariable|patternWildcard|statementClass|statementData|statementImpl|statementLet|statementSignature)$',
+  # Shared test-support API; each Cabal component uses only a subset.
+  # test/Jazz/Compiler/Semantics/Runtime/Shared.hs
+  '^Jazz\.Compiler\.Semantics\.Runtime\.Shared\.(runtimePickStatements|runtimeTypedCallableArgumentHintExpr|runtimeTypedCallableArgumentHintThroughPrefixDollarExpr)$',
+  # Shared test-support API; each Cabal component uses only a subset.
+  # test/Jazz/Repository/SourceLayout.hs
+  '^Jazz\.Repository\.SourceLayout\.(JazzSourceModule|SourceLayoutViolation|renderSourceLayoutViolation|sourceModuleFromSurface|validateSourceLayering)$',
+  # Shared test-support API; each Cabal component uses only a subset.
+  # test/Jazz/TestCore.hs
+  '^Jazz\.TestCore\.(assertLoweredCoreEqual|loweredApply|loweredAsPattern|loweredBinary|loweredBlock|loweredCaseArm|loweredClass|loweredClassMethodSignature|loweredConsListPattern|loweredConstructor|loweredConstructorAt|loweredConstructorPattern|loweredData|loweredExpression|loweredIf|loweredImpl|loweredImplMethod|loweredImport|loweredLambda|loweredLet|loweredList|loweredListPattern|loweredLiteral|loweredLiteralPattern|loweredModule|loweredOperatorValue|loweredOrPattern|loweredPatternCase|loweredSectionLeft|loweredSectionRight|loweredSignature|loweredTuple|loweredTuplePattern|loweredTypeApplication|loweredVariable|loweredVariablePattern|loweredWildcardPattern|parseSurfaceProgramPoints)$',
+  # Shared test-support API; each Cabal component uses only a subset.
+  # test/Jazz/TestHarness.hs
+  '^Jazz\.TestHarness\.(assertContains|assertDiagnosticContains|assertEqual|assertJust|assertLeftContains|assertLeftDiagnosticCodeAndContains|assertLeftDiagnosticContains|assertRight|assertSingleDiagnosticCode|assertSingleDiagnosticContains|assertSingleDiagnosticPrimaryStart|assertSingleDiagnosticRelatedStart|assertSingleDiagnosticSubject|assertSingleErrorContains)$',
+  # Shared test-support API; each Cabal component uses only a subset.
+  # test/Jazz/TestSource.hs
+  '^Jazz\.TestSource\.(readCheckedInJazzModuleSource|readCheckedInJazzProjectModuleSource|readCheckedInJazzSource|readCheckedInJazzTestFixture)$',
+]
+
+type-class-roots = false
+unused-types = true
+root-modules = []
+
+# Retain structural contracts only for the named migration-baseline types.
+# Weeder matches module against source paths. Instance patterns match the entire
+# result head, so a retained type in a constraint cannot root a new wrapper.
+# New types and source files require review before entering this baseline.
+root-instances = [
+  # Persisted benchmark metadata readers are part of the artifact format API.
+  { instance = '^FromJSON (BenchmarkBuildMode|BenchmarkTimeMode|BenchmarkEnvironment)$' },
+  { instance = '^FromJSON value => FromJSON \(EnvironmentFact value\)$' },
+  { module = '^benchmark/Jazz/Benchmark/Metadata\.hs$', instance = '(^|=> )(Eq|Ord|Show|Generic|NFData|Enum|Bounded|Functor|Foldable|Traversable) (\(EnvironmentFact value\)|BenchmarkArtifactPaths|BenchmarkBuildMode|BenchmarkEnvironment|BenchmarkEnvironmentCapture|BenchmarkTimeMode|CompatibilityDecision|CompatibilityField|CompatibilityMismatch|CompatibilityPolicy)$' },
+  { module = '^benchmark/Jazz/Benchmark/ScaleCases\.hs$', instance = '(^|=> )(Eq|Ord|Show|Generic|NFData|Enum|Bounded|Functor|Foldable|Traversable) (CompilerScaleCase|CompilerScaleScenario)$' },
+  { module = '^program-support/Jazz/ProgramCorpus/Runner\.hs$', instance = '(^|=> )(Eq|Ord|Show|Generic|NFData|Enum|Bounded|Functor|Foldable|Traversable) (ProgramCaseResult)$' },
+  { module = '^program-support/Jazz/ProgramCorpus/Types\.hs$', instance = '(^|=> )(Eq|Ord|Show|Generic|NFData|Enum|Bounded|Functor|Foldable|Traversable) (FeatureTag|ProgramBudgetMetric|ProgramBudgetViolation|ProgramBudgets|ProgramCase|ProgramCaseDocument|ProgramCorpus|ProgramCorpusDocument|ProgramCorpusViolation|ProgramPathField|ProgramTermination|WorkloadClass)$' },
+  { module = '^src/Jazz/CLI/Main\.hs$', instance = '(^|=> )(Eq|Ord|Show|Generic|NFData|Enum|Bounded|Functor|Foldable|Traversable) (CliOptions|CliOutput|RawCliOptions)$' },
+  { module = '^src/Jazz/Compiler/AST\.hs$', instance = '(^|=> )(Eq|Ord|Show|Generic|NFData|Enum|Bounded|Functor|Foldable|Traversable) (\(CoreNode phase sort\))$' },
+  { module = '^src/Jazz/Compiler/Analyzer\.hs$', instance = '(^|=> )(Eq|Ord|Show|Generic|NFData|Enum|Bounded|Functor|Foldable|Traversable) (AnalysisBinding|AnalysisInputs)$' },
+  { module = '^src/Jazz/Compiler/BuiltinCatalog\.hs$', instance = '(^|=> )(Eq|Ord|Show|Generic|NFData|Enum|Bounded|Functor|Foldable|Traversable) (BuiltinOwnership|BuiltinSymbol)$' },
+  { module = '^src/Jazz/Compiler/DiagnosticCatalog\.hs$', instance = '(^|=> )(Eq|Ord|Show|Generic|NFData|Enum|Bounded|Functor|Foldable|Traversable) (DiagnosticCode|DiagnosticMetadata|DiagnosticSeverity|DiagnosticSubsystem)$' },
+  { module = '^src/Jazz/Compiler/Diagnostics\.hs$', instance = '(^|=> )(Eq|Ord|Show|Generic|NFData|Enum|Bounded|Functor|Foldable|Traversable) (Diagnostic|DiagnosticContext|DiagnosticLabel|DiagnosticMessage|DiagnosticOrigin)$' },
+  { module = '^src/Jazz/Compiler/Driver\.hs$', instance = '(^|=> )(Eq|Ord|Show|Generic|NFData|Enum|Bounded|Functor|Foldable|Traversable) (CompileResult|RunExecution|RunResult)$' },
+  { module = '^src/Jazz/Compiler/ModuleExports\.hs$', instance = '(^|=> )(Eq|Ord|Show|Generic|NFData|Enum|Bounded|Functor|Foldable|Traversable) (LocatedModuleExportName|ModuleExportSelector|ModuleImportMode|ModuleTypeConstructorSelector)$' },
+  { module = '^src/Jazz/Compiler/ModuleGraph\.hs$', instance = '(^|=> )(Eq|Ord|Show|Generic|NFData|Enum|Bounded|Functor|Foldable|Traversable) (DeclaredImportExposure|DeclaredModuleExports|DeclaredModuleFacts|ProgramInvariantFailure|ResolvedModuleFacts)$' },
+  { module = '^src/Jazz/Compiler/ModuleIdentity\.hs$', instance = '(^|=> )(Eq|Ord|Show|Generic|NFData|Enum|Bounded|Functor|Foldable|Traversable) (ModuleIdentity|ModuleQualifier|SourceFile|SourceUnitOwner)$' },
+  { module = '^src/Jazz/Compiler/ModuleResolver\.hs$', instance = '(^|=> )(Eq|Ord|Show|Generic|NFData|Enum|Bounded|Functor|Foldable|Traversable) (ModuleResolutionConfig)$' },
+  { module = '^src/Jazz/Compiler/Name\.hs$', instance = '(^|=> )(Eq|Ord|Show|Generic|NFData|Enum|Bounded|Functor|Foldable|Traversable) (Name)$' },
+  { module = '^src/Jazz/Compiler/Parser/Context\.hs$', instance = '(^|=> )(Eq|Ord|Show|Generic|NFData|Enum|Bounded|Functor|Foldable|Traversable) (ParserContext|StatementContext)$' },
+  { module = '^src/Jazz/Compiler/Parser/Lexer\.hs$', instance = '(^|=> )(Eq|Ord|Show|Generic|NFData|Enum|Bounded|Functor|Foldable|Traversable) (LexerError)$' },
+  { module = '^src/Jazz/Compiler/Parser/Lower\.hs$', instance = '(^|=> )(Eq|Ord|Show|Generic|NFData|Enum|Bounded|Functor|Foldable|Traversable) (ModuleDeclaration|ModuleLoweringFailure)$' },
+  { module = '^src/Jazz/Compiler/Parser/Operator\.hs$', instance = '(^|=> )(Eq|Ord|Show|Generic|NFData|Enum|Bounded|Functor|Foldable|Traversable) (Associativity|OperatorInfo|OperatorTable)$' },
+  { module = '^src/Jazz/Compiler/Parser/TokenParser\.hs$', instance = '(^|=> )(Eq|Ord|Show|Generic|NFData|Enum|Bounded|Functor|Foldable|Traversable) (ParserError)$' },
+  { module = '^src/Jazz/Compiler/PatternCoverage\.hs$', instance = '(^|=> )(Eq|Ord|Show|Generic|NFData|Enum|Bounded|Functor|Foldable|Traversable) (ConstructorWitnessName|DataConstructorInventory|VisibleConstructor)$' },
+  { module = '^src/Jazz/Compiler/Prelude\.hs$', instance = '(^|=> )(Eq|Ord|Show|Generic|NFData|Enum|Bounded|Functor|Foldable|Traversable) (PreparedPrelude|ResolvedPrelude)$' },
+  { module = '^src/Jazz/Compiler/Profiling\.hs$', instance = '(^|=> )(Eq|Ord|Show|Generic|NFData|Enum|Bounded|Functor|Foldable|Traversable) (CompilerStage|CompilerStageBoundary)$' },
+  { module = '^src/Jazz/Compiler/Runtime/Engine\.hs$', instance = '(^|=> )(Eq|Ord|Show|Generic|NFData|Enum|Bounded|Functor|Foldable|Traversable) (RuntimeResultObligation)$' },
+  { module = '^src/Jazz/Compiler/Runtime/Observation\.hs$', instance = '(^|=> )(Eq|Ord|Show|Generic|NFData|Enum|Bounded|Functor|Foldable|Traversable) (\(RuntimeObservationResult value\)|RuntimeApplicationKind|RuntimeBuiltinKind|RuntimeConstructionKind|RuntimeDeferredCacheKind|RuntimeHostOperationKind|RuntimeObservationRequest|RuntimeProfileEvent|RuntimeProfileFrame|RuntimeTermination)$' },
+  { module = '^src/Jazz/Compiler/Runtime/Types\.hs$', instance = '(^|=> )(Eq|Ord|Show|Generic|NFData|Enum|Bounded|Functor|Foldable|Traversable) (DeferredHostBindingKey|DeferredHostScopeId|ModuleEvaluationMode|RuntimeConstructorShape|RuntimeExplicitResultHints|RuntimeFloatMetadata|RuntimeIntMetadata)$' },
+  { module = '^src/Jazz/Compiler/RuntimeHost\.hs$', instance = '(^|=> )(Eq|Ord|Show|Generic|NFData|Enum|Bounded|Functor|Foldable|Traversable) (HostIOCategory|RuntimeHostExit)$' },
+  { module = '^src/Jazz/Compiler/SemanticFacts\.hs$', instance = '(^|=> )(Eq|Ord|Show|Generic|NFData|Enum|Bounded|Functor|Foldable|Traversable) (AnalyzedMethodSignature|AnalyzedNumericConstraint|AnalyzedPrimitiveConstraint|AnalyzedScheme|AnalyzedSchemeConstraint|CapabilityId|EvidenceReference|ImplId|MethodId|PatternConstructorFact|PatternRefutability|SemanticFactInvariantFailure|SemanticInstantiation)$' },
+  { module = '^src/Jazz/Compiler/TypeInference/DiagnosticCause\.hs$', instance = '(^|=> )(Eq|Ord|Show|Generic|NFData|Enum|Bounded|Functor|Foldable|Traversable) (\(TypeErrorCause typeValue\))$' },
+  { module = '^src/Jazz/Compiler/TypeInference/Pattern\.hs$', instance = '(^|=> )(Eq|Ord|Show|Generic|NFData|Enum|Bounded|Functor|Foldable|Traversable) (PatternBindings)$' },
+  { module = '^src/Jazz/Compiler/TypeInference/Result\.hs$', instance = '(^|=> )(Eq|Ord|Show|Generic|NFData|Enum|Bounded|Functor|Foldable|Traversable) (InferenceResult)$' },
+  { module = '^src/Jazz/Compiler/TypeInference/Signature\.hs$', instance = '(^|=> )(Eq|Ord|Show|Generic|NFData|Enum|Bounded|Functor|Foldable|Traversable) (SignatureTypeFailure)$' },
+  { module = '^src/Jazz/Compiler/TypeInference/Traversal\.hs$', instance = '(^|=> )(Eq|Ord|Show|Generic|NFData|Enum|Bounded|Functor|Foldable|Traversable) (InferenceMode)$' },
+  { module = '^src/Jazz/Compiler/TypeInference/Types\.hs$', instance = '(^|=> )(Eq|Ord|Show|Generic|NFData|Enum|Bounded|Functor|Foldable|Traversable) (IntegerLiteralRange|SchemePrimitiveConstraint)$' },
+  { module = '^src/Jazz/Compiler/TypeRepresentation\.hs$', instance = '(^|=> )(Eq|Ord|Show|Generic|NFData|Enum|Bounded|Functor|Foldable|Traversable) (\(SignatureConstraint typeName variable\)|\(SignatureConstraint typeName\)|\(SignaturePayload typeName variable tokenName\)|\(SignatureToken name\)|\(SignatureType typeName variable\)|\(SignatureType typeName\)|SignatureToken)$' },
+  { module = '^src/Jazz/Compiler/WarningConfig\.hs$', instance = '(^|=> )(Eq|Ord|Show|Generic|NFData|Enum|Bounded|Functor|Foldable|Traversable) (WarningSettings)$' },
+  { module = '^test/Jazz/Compiler/Bootstrap/CanonicalLexerComparison\.hs$', instance = '(^|=> )(Eq|Ord|Show|Generic|NFData|Enum|Bounded|Functor|Foldable|Traversable) (CanonicalKeyword|CanonicalLexError|CanonicalLexErrorReason|CanonicalLexResult|CanonicalLiteralKind|CanonicalPunctuation|CanonicalToken|CanonicalTokenKind)$' },
+  { module = '^test/Jazz/Compiler/Bootstrap/CanonicalParserComparison\.hs$', instance = '(^|=> )(Eq|Ord|Show|Generic|NFData|Enum|Bounded|Functor|Foldable|Traversable) (CanonicalParserResult|CanonicalSourceResult)$' },
+  { module = '^test/Jazz/Compiler/Bootstrap/CanonicalValue\.hs$', instance = '(^|=> )(Eq|Ord|Show|Generic|NFData|Enum|Bounded|Functor|Foldable|Traversable) (CanonicalSourcePath|CanonicalSpan)$' },
+  { module = '^test/Jazz/Compiler/Bootstrap/JazzCoreModulesCorpusClosureSpec\.hs$', instance = '(^|=> )(Eq|Ord|Show|Generic|NFData|Enum|Bounded|Functor|Foldable|Traversable) (CoreCorpusManifestEntry)$' },
+  { module = '^test/Jazz/Compiler/Parser/FixtureCorpus\.hs$', instance = '(^|=> )(Eq|Ord|Show|Generic|NFData|Enum|Bounded|Functor|Foldable|Traversable) (ParserFixture|ParserFixtureExpectation|ParserFixtureFamily|ParserFixtureManifestViolation)$' },
+  { module = '^test/Jazz/Repository/SourceLayout\.hs$', instance = '(^|=> )(Eq|Ord|Show|Generic|NFData|Enum|Bounded|Functor|Foldable|Traversable) (JazzSourceModule|JazzSourceRole|SourceLayoutViolation)$' },
+  # Literal construction interfaces used by test/tooling clients.
+  { instance = '^IsString (Identifier|UnresolvedName)$' },
+  # Megaparsec stream/error interfaces, including its optional default renderer.
+  { instance = '^ShowErrorComponent (LexerError|ParserError)$' },
+  { instance = '^(VisualStream|TraversableStream) TokenStream$' },
+  # RuntimePlan's composition contract is retained and covered by law tests.
+  { instance = '^(Semigroup|Monoid) RuntimePlan$' },
+]

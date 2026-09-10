@@ -19,9 +19,6 @@ import Jazz.Compiler.Name
     IdentifierLike (..),
     generatedName,
   )
-import Jazz.Compiler.Parser
-  ( parseSurfaceProgram,
-  )
 import Jazz.Compiler.Parser.AST
   ( SurfaceCaseArm (..),
     SurfaceDataConstructor (..),
@@ -123,7 +120,7 @@ testParsesBasicCaseExpression :: IO ()
 testParsesBasicCaseExpression =
   assertRight
     "surface case AST"
-    (parseSurfaceProgram "x = case n { | 0 -> True | _ -> False }.")
+    (parseSurfaceProgramPoints "x = case n { | 0 -> True | _ -> False }.")
     ( \surfaceProgram -> do
         assertSurfaceCasePatterns
           "surface case patterns"
@@ -150,7 +147,7 @@ testParsesVariablePatternCaseArm :: IO ()
 testParsesVariablePatternCaseArm =
   assertRight
     "variable pattern case arm"
-    (parseSurfaceProgram "x = case subject { | item -> item }.")
+    (parseSurfaceProgramPoints "x = case subject { | item -> item }.")
     ( \surfaceProgram -> do
         assertSurfaceCasePatterns
           "variable surface pattern"
@@ -172,7 +169,7 @@ testParsesAsPatternCaseArm :: IO ()
 testParsesAsPatternCaseArm =
   assertRight
     "as-pattern case arm parse + lower"
-    (parseSurfaceProgram "x = case subject { | whole @ Just item -> whole | _ -> subject }.")
+    (parseSurfaceProgramPoints "x = case subject { | whole @ Just item -> whole | _ -> subject }.")
     ( \surfaceProgram -> do
         assertSurfaceCasePatterns
           "as-pattern surface AST"
@@ -203,7 +200,7 @@ testParsesGuardedCaseArm :: IO ()
 testParsesGuardedCaseArm =
   assertRight
     "guarded case arm parse + lower"
-    (parseSurfaceProgram "x = case subject { | Just item if item > 0 -> item | _ -> 0 }.")
+    (parseSurfaceProgramPoints "x = case subject { | Just item if item > 0 -> item | _ -> 0 }.")
     ( \surfaceProgram -> do
         assertSurfaceCasePatterns
           "guarded case arm surface AST"
@@ -237,7 +234,7 @@ testParsesCaseArmOrPatterns :: IO ()
 testParsesCaseArmOrPatterns =
   assertRight
     "or-pattern case arm parse + lower"
-    (parseSurfaceProgram "x = case subject { | Just item | Also item if item > 0 -> item | Nothing -> 0 }.")
+    (parseSurfaceProgramPoints "x = case subject { | Just item | Also item if item > 0 -> item | Nothing -> 0 }.")
     ( \surfaceProgram -> do
         assertSurfaceCasePatterns
           "or-pattern surface AST"
@@ -282,7 +279,7 @@ testKeepsAllLiteralPipeBodyBeforeLiteralArmBoundary :: IO ()
 testKeepsAllLiteralPipeBodyBeforeLiteralArmBoundary =
   assertRight
     "all-literal pipe body before literal arm boundary parse + lower"
-    (parseSurfaceProgram "x = case n { | _ -> 0 | 1 | 2 -> 1 }.")
+    (parseSurfaceProgramPoints "x = case n { | _ -> 0 | 1 | 2 -> 1 }.")
     ( \surfaceProgram -> do
         assertSurfaceCasePatterns
           "all-literal pipe body surface AST"
@@ -314,7 +311,7 @@ testParsesWildcardLedLaterOrPatternArmAfterBody :: IO ()
 testParsesWildcardLedLaterOrPatternArmAfterBody =
   assertRight
     "wildcard-led later or-pattern case arm parse + lower"
-    (parseSurfaceProgram "x = case n { | 0 -> 0 | _ | 2 -> 1 }.")
+    (parseSurfaceProgramPoints "x = case n { | 0 -> 0 | _ | 2 -> 1 }.")
     ( \surfaceProgram -> do
         assertSurfaceCasePatterns
           "wildcard-led later or-pattern surface AST"
@@ -348,7 +345,7 @@ testParsesVariableLedLaterOrPatternArmAfterBody :: IO ()
 testParsesVariableLedLaterOrPatternArmAfterBody =
   assertRight
     "variable-led later or-pattern case arm parse + lower"
-    (parseSurfaceProgram "x = case n { | 0 -> 0 | item | other -> item }.")
+    (parseSurfaceProgramPoints "x = case n { | 0 -> 0 | item | other -> item }.")
     ( \surfaceProgram -> do
         assertSurfaceCasePatterns
           "variable-led later or-pattern surface AST"
@@ -382,7 +379,7 @@ testParsesVariableLedMixedLaterOrPatternArmAfterBody :: IO ()
 testParsesVariableLedMixedLaterOrPatternArmAfterBody =
   assertRight
     "variable-led mixed later or-pattern case arm parse + lower"
-    (parseSurfaceProgram "x = case n { | 0 -> 0 | item | item @ _ -> item }.")
+    (parseSurfaceProgramPoints "x = case n { | 0 -> 0 | item | item @ _ -> item }.")
     ( \surfaceProgram -> do
         assertSurfaceCasePatterns
           "variable-led mixed later or-pattern surface AST"
@@ -423,7 +420,7 @@ testKeepsPipeOperatorInOrPatternArmBody :: IO ()
 testKeepsPipeOperatorInOrPatternArmBody =
   assertRight
     "or-pattern arm body keeps infix pipe operator"
-    (parseSurfaceProgram "x = case subject { | Just item | Also item -> item | f | Nothing -> 0 }.")
+    (parseSurfaceProgramPoints "x = case subject { | Just item | Also item -> item | f | Nothing -> 0 }.")
     (\surfaceProgram -> assertLoweredCoreEqual "or-pattern pipe body lowered AST" expectedLoweredProgram (lowerSurfaceExpr surfaceProgram))
   where
     expectedLoweredProgram =
@@ -453,7 +450,7 @@ testParsesGuardedCaseArmWithPipeExpressionAfterPreviousArm :: IO ()
 testParsesGuardedCaseArmWithPipeExpressionAfterPreviousArm =
   assertRight
     "guarded pipe expression after previous arm"
-    (parseSurfaceProgram "x = case subject { | 0 -> 0 | item if left | right -> 1 }.")
+    (parseSurfaceProgramPoints "x = case subject { | 0 -> 0 | item if left | right -> 1 }.")
     ( \surfaceProgram -> do
         assertSurfaceCasePatterns
           "guarded pipe expression surface AST"
@@ -485,7 +482,7 @@ testParsesGuardedCaseArmWithDefinitePipeRhsGuards :: IO ()
 testParsesGuardedCaseArmWithDefinitePipeRhsGuards =
   assertRight
     "guarded pipe expression with literal and constructor-shaped RHS"
-    (parseSurfaceProgram "x = case subject { | item if left | True -> 1 | other if left | Nothing -> 2 }.")
+    (parseSurfaceProgramPoints "x = case subject { | item if left | True -> 1 | other if left | Nothing -> 2 }.")
     ( \surfaceProgram -> do
         assertSurfaceCasePatterns
           "guarded definite pipe RHS surface AST"
@@ -517,7 +514,7 @@ testKeepsConstructorIfExpressionPipeRhsBeforeArmArrow :: IO ()
 testKeepsConstructorIfExpressionPipeRhsBeforeArmArrow =
   assertRight
     "constructor if-expression pipe RHS before arm arrow"
-    (parseSurfaceProgram "x = case m { | item if item == 0 | Just if ok then 1 else 2 -> item | _ -> m }.")
+    (parseSurfaceProgramPoints "x = case m { | item if item == 0 | Just if ok then 1 else 2 -> item | _ -> m }.")
     ( \surfaceProgram -> do
         assertSurfaceCasePatterns
           "constructor if-expression pipe RHS surface AST"
@@ -559,7 +556,7 @@ testKeepsAsPatternConstructorArgumentsAtomic :: IO ()
 testKeepsAsPatternConstructorArgumentsAtomic =
   assertRight
     "as-pattern constructor argument parse + lower"
-    (parseSurfaceProgram "x = case subject { | Pair whole @ Nothing item -> item | _ -> 0 }.")
+    (parseSurfaceProgramPoints "x = case subject { | Pair whole @ Nothing item -> item | _ -> 0 }.")
     ( \surfaceProgram -> do
         assertSurfaceCasePatterns
           "as-pattern constructor argument surface AST"
@@ -601,7 +598,7 @@ testParsesAsPatternLambdaParameter :: IO ()
 testParsesAsPatternLambdaParameter =
   assertRight
     "as-pattern lambda parameter"
-    (parseSurfaceProgram "f = \\(whole @ [head | tail]) -> head.")
+    (parseSurfaceProgramPoints "f = \\(whole @ [head | tail]) -> head.")
     ( \surfaceProgram -> do
         assertSurfaceLambdaPattern
           "as-pattern lambda surface AST"
@@ -640,7 +637,7 @@ testParsesConstructorPatternCaseArms :: IO ()
 testParsesConstructorPatternCaseArms =
   assertRight
     "constructor pattern parse + lower"
-    (parseSurfaceProgram "x = case subject { | Just item -> item | Nothing -> 0 }.")
+    (parseSurfaceProgramPoints "x = case subject { | Just item -> item | Nothing -> 0 }.")
     ( \surfaceProgram -> do
         assertSurfaceCasePatterns
           "constructor pattern surface AST"
@@ -674,7 +671,7 @@ testParsesMultiArgumentConstructorPatternsWithNullarySubpatterns :: IO ()
 testParsesMultiArgumentConstructorPatternsWithNullarySubpatterns =
   assertRight
     "multi-argument constructor pattern parse + lower"
-    (parseSurfaceProgram "x = case subject { | Pair Nothing item -> item | _ -> 0 }.")
+    (parseSurfaceProgramPoints "x = case subject { | Pair Nothing item -> item | _ -> 0 }.")
     ( \surfaceProgram -> do
         assertSurfaceCasePatterns
           "multi-argument constructor pattern surface AST"
@@ -714,7 +711,7 @@ testParsesNullaryConstructorSubpatterns :: IO ()
 testParsesNullaryConstructorSubpatterns =
   assertRight
     "nullary constructor subpattern parse + lower"
-    (parseSurfaceProgram "x = case subject { | Just Nothing -> 1 | _ -> 0 }.")
+    (parseSurfaceProgramPoints "x = case subject { | Just Nothing -> 1 | _ -> 0 }.")
     ( \surfaceProgram -> do
         assertSurfaceCasePatterns
           "nullary constructor subpattern surface AST"
@@ -748,7 +745,7 @@ testParsesListPatternCaseArms :: IO ()
 testParsesListPatternCaseArms =
   assertRight
     "list pattern parse + lower"
-    (parseSurfaceProgram "x = case values { | [head, _] -> head | [] -> 0 }.")
+    (parseSurfaceProgramPoints "x = case values { | [head, _] -> head | [] -> 0 }.")
     ( \surfaceProgram -> do
         assertSurfaceCasePatterns
           "list pattern surface AST"
@@ -782,7 +779,7 @@ testParsesCanonicalDataDeclarationAndLowersConstructorArities :: IO ()
 testParsesCanonicalDataDeclarationAndLowersConstructorArities =
   assertRight
     "data declaration parse + lower"
-    (parseSurfaceProgram "data Maybe a = Just a | Nothing.")
+    (parseSurfaceProgramPoints "data Maybe a = Just a | Nothing.")
     ( \surfaceProgram -> do
         assertSurfaceDataShape "data declaration surface AST" ("Maybe", ["a"], [("Just", 1), ("Nothing", 0)]) surfaceProgram
         assertLoweredCoreEqual "data declaration lowered AST" expectedLoweredProgram (lowerSurfaceExpr surfaceProgram)
@@ -803,7 +800,7 @@ testParsesNestedCaseExpression :: IO ()
 testParsesNestedCaseExpression =
   assertRight
     "nested case parse + lower"
-    (parseSurfaceProgram "x = case n { | 0 -> case y { | 1 -> True | _ -> False } | _ -> False }.")
+    (parseSurfaceProgramPoints "x = case n { | 0 -> case y { | 1 -> True | _ -> False } | _ -> False }.")
     (\surfaceProgram -> assertLoweredCoreEqual "nested lowered case AST" expectedProgram (lowerSurfaceExpr surfaceProgram))
   where
     expectedProgram =
@@ -831,7 +828,7 @@ testParsesIfExpressionInsideCaseArmBody :: IO ()
 testParsesIfExpressionInsideCaseArmBody =
   assertRight
     "if expression remains within first case arm"
-    (parseSurfaceProgram "x = case n { | 0 -> if True then 1 else 2 | _ -> 3 }.")
+    (parseSurfaceProgramPoints "x = case n { | 0 -> if True then 1 else 2 | _ -> 3 }.")
     (\surfaceProgram -> assertLoweredCoreEqual "if-in-arm lowered case AST" expectedProgram (lowerSurfaceExpr surfaceProgram))
   where
     expectedProgram =
@@ -854,7 +851,7 @@ testParsesLambdaExpressionInsideCaseArmBody :: IO ()
 testParsesLambdaExpressionInsideCaseArmBody =
   assertRight
     "lambda expression remains within first case arm"
-    (parseSurfaceProgram "x = case n { | 0 -> \\(y) -> y | _ -> 3 }.")
+    (parseSurfaceProgramPoints "x = case n { | 0 -> \\(y) -> y | _ -> 3 }.")
     (\surfaceProgram -> assertLoweredCoreEqual "lambda-in-arm lowered case AST" expectedProgram (lowerSurfaceExpr surfaceProgram))
   where
     expectedProgram =
@@ -877,7 +874,7 @@ testParsesMixedLiteralWildcardLaterOrPatternArmAfterBody :: IO ()
 testParsesMixedLiteralWildcardLaterOrPatternArmAfterBody =
   assertRight
     "mixed literal-wildcard later or-pattern case arm parse + lower"
-    (parseSurfaceProgram "x = case n { | 0 -> 1 | 2 | _ -> 3 }.")
+    (parseSurfaceProgramPoints "x = case n { | 0 -> 1 | 2 | _ -> 3 }.")
     ( \surfaceProgram -> do
         assertSurfaceCasePatterns
           "mixed literal-wildcard later or-pattern surface AST"
@@ -911,7 +908,7 @@ testKeepsPipeOperatorInsideBodyBeforeConstructorArmBoundary :: IO ()
 testKeepsPipeOperatorInsideBodyBeforeConstructorArmBoundary =
   assertRight
     "pipe operator stays in constructor arm body"
-    (parseSurfaceProgram "x = case subject { | Just item -> 1 | 2 | Nothing -> 3 }.")
+    (parseSurfaceProgramPoints "x = case subject { | Just item -> 1 | 2 | Nothing -> 3 }.")
     (\surfaceProgram -> assertLoweredCoreEqual "constructor arm boundary lowered AST" expectedProgram (lowerSurfaceExpr surfaceProgram))
   where
     expectedProgram =
@@ -937,7 +934,7 @@ testKeepsPipeOperatorInsideBodyBeforeLiteralArmBoundary :: IO ()
 testKeepsPipeOperatorInsideBodyBeforeLiteralArmBoundary =
   assertRight
     "pipe operator stays in body before literal arm boundary"
-    (parseSurfaceProgram "x = case subject { | _ -> 1 | 2 | 3 -> 4 }.")
+    (parseSurfaceProgramPoints "x = case subject { | _ -> 1 | 2 | 3 -> 4 }.")
     (\surfaceProgram -> assertLoweredCoreEqual "literal arm boundary lowered AST" expectedProgram (lowerSurfaceExpr surfaceProgram))
   where
     expectedProgram =
@@ -963,7 +960,7 @@ testKeepsBareListLiteralAfterPipeOperator :: IO ()
 testKeepsBareListLiteralAfterPipeOperator =
   assertRight
     "bare list literal stays in case arm body"
-    (parseSurfaceProgram "x = case subject { | _ -> 1 | [2] }.")
+    (parseSurfaceProgramPoints "x = case subject { | _ -> 1 | [2] }.")
     (\surfaceProgram -> assertLoweredCoreEqual "list literal in arm body lowered AST" expectedProgram (lowerSurfaceExpr surfaceProgram))
   where
     expectedProgram =
@@ -985,7 +982,7 @@ testKeepsBareConstructorValueAfterPipeOperator :: IO ()
 testKeepsBareConstructorValueAfterPipeOperator =
   assertRight
     "bare constructor subject stays in case arm body"
-    (parseSurfaceProgram "x = case subject { | _ -> 1 | Nothing }.")
+    (parseSurfaceProgramPoints "x = case subject { | _ -> 1 | Nothing }.")
     (\surfaceProgram -> assertLoweredCoreEqual "constructor subject in arm body lowered AST" expectedProgram (lowerSurfaceExpr surfaceProgram))
   where
     expectedProgram =
@@ -1007,7 +1004,7 @@ testKeepsListApplicationAfterPipeOperator :: IO ()
 testKeepsListApplicationAfterPipeOperator =
   assertRight
     "list application stays in case arm body"
-    (parseSurfaceProgram "x = case values { | _ -> 1 | [head] 2 }.")
+    (parseSurfaceProgramPoints "x = case values { | _ -> 1 | [head] 2 }.")
     (\surfaceProgram -> assertLoweredCoreEqual "list application in arm body lowered AST" expectedProgram (lowerSurfaceExpr surfaceProgram))
   where
     expectedProgram =
@@ -1029,7 +1026,7 @@ testKeepsConstructorApplicationAfterPipeOperator :: IO ()
 testKeepsConstructorApplicationAfterPipeOperator =
   assertRight
     "constructor application stays in case arm body"
-    (parseSurfaceProgram "x = case subject { | _ -> 1 | Just a b }.")
+    (parseSurfaceProgramPoints "x = case subject { | _ -> 1 | Just a b }.")
     (\surfaceProgram -> assertLoweredCoreEqual "constructor application in arm body lowered AST" expectedProgram (lowerSurfaceExpr surfaceProgram))
   where
     expectedProgram =
@@ -1051,7 +1048,7 @@ testParsesCaseScrutineeWithBlockArgument :: IO ()
 testParsesCaseScrutineeWithBlockArgument =
   assertRight
     "case scrutinee keeps block argument"
-    (parseSurfaceProgram "x = case f { y = 1. y. } { | 1 -> True | _ -> False }.")
+    (parseSurfaceProgramPoints "x = case f { y = 1. y. } { | 1 -> True | _ -> False }.")
     (\surfaceProgram -> assertLoweredCoreEqual "block-argument scrutinee lowered case AST" expectedProgram (lowerSurfaceExpr surfaceProgram))
   where
     expectedProgram =
@@ -1078,14 +1075,14 @@ testParsesTuplePatternCaseArms :: IO ()
 testParsesTuplePatternCaseArms =
   assertRight
     "tuple pattern case arm"
-    (parseSurfaceProgram "x = case pair { | (left, right) -> left | _ -> 0 }.")
+    (parseSurfaceProgramPoints "x = case pair { | (left, right) -> left | _ -> 0 }.")
     (\_ -> pure ())
 
 testParsesConsLikeListPattern :: IO ()
 testParsesConsLikeListPattern =
   assertRight
     "cons-like list pattern parse + lower"
-    (parseSurfaceProgram "x = case values { | [head | tail] -> head | _ -> 0 }.")
+    (parseSurfaceProgramPoints "x = case values { | [head | tail] -> head | _ -> 0 }.")
     ( \surfaceProgram -> do
         assertSurfaceCasePatterns
           "cons-like list pattern surface AST"
@@ -1119,7 +1116,7 @@ testParsesConsLikeListPatternInsideConstructorPattern :: IO ()
 testParsesConsLikeListPatternInsideConstructorPattern =
   assertRight
     "cons-like list pattern inside constructor pattern parse + lower"
-    (parseSurfaceProgram "x = case subject { | Just [head | tail] -> head | _ -> 0 }.")
+    (parseSurfaceProgramPoints "x = case subject { | Just [head | tail] -> head | _ -> 0 }.")
     ( \surfaceProgram -> do
         assertSurfaceCasePatterns
           "cons-like list constructor surface AST"
@@ -1159,7 +1156,7 @@ testLowerCaseExpression :: IO ()
 testLowerCaseExpression =
   assertRight
     "parse + lower case"
-    (parseSurfaceProgram "x = case n { | 0 -> True | _ -> False }.")
+    (parseSurfaceProgramPoints "x = case n { | 0 -> True | _ -> False }.")
     (\surfaceProgram -> assertLoweredCoreEqual "lowered case AST" expectedProgram (lowerSurfaceExpr surfaceProgram))
   where
     expectedProgram =

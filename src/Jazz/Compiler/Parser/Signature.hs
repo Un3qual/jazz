@@ -240,10 +240,7 @@ identifierStartsLower identifier =
     Nothing -> False
 
 topLevelCommaTokensParser :: TokenParser.Parser [[Token]]
-topLevelCommaTokensParser = do
-  firstGroup <- commaTokenGroupParser
-  remainingGroups <- MP.many (commaParser *> commaTokenGroupParser)
-  pure (firstGroup : remainingGroups)
+topLevelCommaTokensParser = commaTokenGroupParser `MP.sepBy1` commaParser
 
 commaTokenGroupParser :: TokenParser.Parser [Token]
 commaTokenGroupParser =
@@ -298,11 +295,8 @@ commaParser =
   TokenParser.parseTokenKind TComma
 
 betweenTokenKinds :: TokenKind -> TokenKind -> TokenParser.Parser a -> TokenParser.Parser a
-betweenTokenKinds openKind closeKind parser = do
-  _ <- TokenParser.parseTokenKind openKind
-  value <- parser
-  _ <- TokenParser.parseTokenKind closeKind
-  pure value
+betweenTokenKinds openKind closeKind =
+  MP.between (TokenParser.parseTokenKind openKind) (TokenParser.parseTokenKind closeKind)
 
 singleton :: a -> [a]
 singleton value = [value]

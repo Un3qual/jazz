@@ -3,7 +3,8 @@
 -- | Phase-exact builders for tests whose contract is canonical shape rather
 -- than Task 7's independently verified node identity and span metadata.
 module Jazz.TestCore
-  ( assertLoweredCoreEqual,
+  ( parseSurfaceProgramPoints,
+    assertLoweredCoreEqual,
     loweredApply,
     loweredAsPattern,
     loweredBinary,
@@ -59,8 +60,11 @@ import Jazz.Compiler.AST
     SignatureType,
     Statement (..),
   )
-import Jazz.Compiler.Diagnostics (SourceSpan (..))
+import Jazz.Compiler.Diagnostics (Diagnostic, SourceSpan (..), sourceSpanStart)
 import Jazz.Compiler.Name (UnresolvedName)
+import Jazz.Compiler.Parser (parseSurfaceProgramTokens)
+import Jazz.Compiler.Parser.AST (SurfaceExpr)
+import Jazz.Compiler.Parser.Lexer (Token (..), tokenize)
 import Jazz.TestHarness (assertEqual)
 
 fixtureNode :: CoreNode 'Lowered sort
@@ -254,3 +258,11 @@ eraseClassMethodMetadata (ClassMethodSignature node name payload) =
 eraseImplMethodMetadata :: ImplMethod 'Lowered -> ImplMethod 'Lowered
 eraseImplMethodMetadata (ImplMethod node name body) =
   ImplMethod (eraseNodeMetadata node) name (eraseExprMetadata body)
+
+-- | Legacy syntax fixtures compare point-only ASTs. Feed an explicitly
+-- projected token stream through the real parser; production range behavior
+-- is checked separately by SourceRangesSpec without this adapter.
+parseSurfaceProgramPoints :: Text -> Either Diagnostic SurfaceExpr
+parseSurfaceProgramPoints source = do
+  tokens <- tokenize source
+  parseSurfaceProgramTokens [token {tokenSpan = sourceSpanStart (tokenSpan token)} | token <- tokens]

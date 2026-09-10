@@ -12,31 +12,32 @@ module Jazz.TestHarness
     assertRight,
     assertSingleDiagnosticCode,
     assertSingleDiagnosticContains,
-    assertSingleDiagnosticPrimarySpan,
-    assertSingleDiagnosticRelatedSpan,
+    assertSingleDiagnosticPrimaryStart,
+    assertSingleDiagnosticRelatedStart,
     assertSingleDiagnosticSubject,
     assertSingleErrorContains,
     failTest,
-    runTestSuite
+    runTestSuite,
   )
 where
 
 import Control.Exception (Exception, catch, throwIO)
 import Data.Text (Text)
 import qualified Data.Text as Text
+import Jazz.Compiler.DiagnosticCatalog
+  ( diagnosticCodeText,
+  )
 import Jazz.Compiler.Diagnostics
   ( Diagnostic,
     SourceSpan,
     diagnosticCode,
     diagnosticPrimarySpan,
     diagnosticRelatedSpan,
-    diagnosticSubject
+    diagnosticSubject,
+    sourceSpanStart,
   )
 import Jazz.Compiler.Diagnostics.Render
-  ( renderDiagnostic
-  )
-import Jazz.Compiler.DiagnosticCatalog
-  ( diagnosticCodeText
+  ( renderDiagnostic,
   )
 import System.Exit (exitFailure, exitSuccess)
 
@@ -63,9 +64,10 @@ runTestSuite suiteName tests = do
 
 runNamed :: NamedTest -> IO Bool
 runNamed (name, action) = do
-  failed <- (action >> pure False) `catchFailure` \message -> do
-    putStrLn ("FAIL: " <> Text.unpack name <> "\n  " <> Text.unpack message)
-    pure True
+  failed <-
+    (action >> pure False) `catchFailure` \message -> do
+      putStrLn ("FAIL: " <> Text.unpack name <> "\n  " <> Text.unpack message)
+      pure True
   if not failed then putStrLn ("PASS: " <> Text.unpack name) else pure ()
   pure failed
 
@@ -101,31 +103,30 @@ assertJust label value =
     Just _ -> pure ()
     Nothing -> failTest (label <> ": expected Just, got Nothing")
 
-assertLeftContains :: Show a => Text -> Text -> Either Diagnostic a -> IO ()
+assertLeftContains :: (Show a) => Text -> Text -> Either Diagnostic a -> IO ()
 assertLeftContains label needle value =
   case value of
     Left err ->
       let rendered = renderDiagnostic err
-       in
-        if needle `Text.isInfixOf` rendered
-          then pure ()
-          else failTest (label <> ": expected error containing '" <> needle <> "', got '" <> rendered <> "'")
+       in if needle `Text.isInfixOf` rendered
+            then pure ()
+            else failTest (label <> ": expected error containing '" <> needle <> "', got '" <> rendered <> "'")
     Right ok -> failTest (label <> ": expected Left, got Right " <> Text.pack (show ok))
 
-assertRight :: Show e => Text -> Either e a -> (a -> IO ()) -> IO ()
+assertRight :: (Show e) => Text -> Either e a -> (a -> IO ()) -> IO ()
 assertRight label value check =
   case value of
     Left err -> failTest (label <> ": expected Right, got Left " <> Text.pack (show err))
     Right ok -> check ok
 
-assertLeftDiagnosticContains :: Show a => Text -> Text -> Either Diagnostic a -> IO ()
+assertLeftDiagnosticContains :: (Show a) => Text -> Text -> Either Diagnostic a -> IO ()
 assertLeftDiagnosticContains label needle value =
   case value of
     Left diagnostic ->
       assertDiagnosticContains label needle diagnostic
     Right ok -> failTest (label <> ": expected Left, got Right " <> Text.pack (show ok))
 
-assertLeftDiagnosticCodeAndContains :: Show a => Text -> Text -> Text -> Either Diagnostic a -> IO ()
+assertLeftDiagnosticCodeAndContains :: (Show a) => Text -> Text -> Text -> Either Diagnostic a -> IO ()
 assertLeftDiagnosticCodeAndContains label expectedCode needle value =
   case value of
     Left diagnostic -> do
@@ -159,11 +160,13 @@ assertSingleDiagnosticCode label expectedCode diagnostics =
             <> if null diagnostics then "" else ": " <> Text.pack (show diagnostics)
         )
 
-assertSingleDiagnosticPrimarySpan :: Text -> SourceSpan -> [Diagnostic] -> IO ()
-assertSingleDiagnosticPrimarySpan label expectedSpan diagnostics =
+-- Legacy diagnostic fixtures assert start positions only. Exact primary and
+-- related extents are covered by SourceRangesSpec and StructuredErrorDiagnosticsSpec.
+assertSingleDiagnosticPrimaryStart :: Text -> SourceSpan -> [Diagnostic] -> IO ()
+assertSingleDiagnosticPrimaryStart label expectedSpan diagnostics =
   case diagnostics of
     [diagnostic] ->
-      assertEqual label (Just expectedSpan) (diagnosticPrimarySpan diagnostic)
+      assertEqual label (Just expectedSpan) (sourceSpanStart <$> diagnosticPrimarySpan diagnostic)
     _ ->
       failTest
         ( label
@@ -172,11 +175,11 @@ assertSingleDiagnosticPrimarySpan label expectedSpan diagnostics =
             <> if null diagnostics then "" else ": " <> Text.pack (show diagnostics)
         )
 
-assertSingleDiagnosticRelatedSpan :: Text -> SourceSpan -> [Diagnostic] -> IO ()
-assertSingleDiagnosticRelatedSpan label expectedSpan diagnostics =
+assertSingleDiagnosticRelatedStart :: Text -> SourceSpan -> [Diagnostic] -> IO ()
+assertSingleDiagnosticRelatedStart label expectedSpan diagnostics =
   case diagnostics of
     [diagnostic] ->
-      assertEqual label (Just expectedSpan) (diagnosticRelatedSpan diagnostic)
+      assertEqual label (Just expectedSpan) (sourceSpanStart <$> diagnosticRelatedSpan diagnostic)
     _ ->
       failTest
         ( label

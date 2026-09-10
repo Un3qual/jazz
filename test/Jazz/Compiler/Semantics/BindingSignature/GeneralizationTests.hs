@@ -231,8 +231,8 @@ testSourceRejectsVariableConstrainedTypeApplicationWithoutShiftingState = do
       use = [] 1.
       """
   assertContains
-    "later diagnostic keeps deterministic type variable id"
-    "cannot apply function of type [t3] to argument of type Int"
+    "later diagnostic names its variable independently of earlier allocations"
+    "cannot apply function of type [t0] to argument of type Int"
     (Text.unlines (map renderDiagnostic (compileErrors result)))
 
 testSourceRetainsSharedOuterVariableAfterRebinding :: IO ()

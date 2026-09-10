@@ -8,9 +8,6 @@ import Jazz.Compiler.AST
 import Jazz.Compiler.Diagnostics
   ( SourceSpan (..),
   )
-import Jazz.Compiler.Parser
-  ( parseSurfaceProgram,
-  )
 import Jazz.Compiler.Parser.AST
   ( SurfaceExpr (..),
     SurfaceExprForm (..),
@@ -26,6 +23,7 @@ import Jazz.TestCore
     loweredIf,
     loweredLet,
     loweredLiteral,
+    parseSurfaceProgramPoints,
   )
 import Jazz.TestHarness
   ( NamedTest,
@@ -71,7 +69,7 @@ testParsesBasicIfExpression =
             )
         )
     )
-    (parseSurfaceProgram "x = if True then 1 else 2.")
+    (parseSurfaceProgramPoints "x = if True then 1 else 2.")
 
 testParsesNestedIfNearestElse :: IO ()
 testParsesNestedIfNearestElse =
@@ -98,7 +96,7 @@ testParsesNestedIfNearestElse =
             )
         )
     )
-    (parseSurfaceProgram "x = if cond then if inner then a else b else c.")
+    (parseSurfaceProgramPoints "x = if cond then if inner then a else b else c.")
 
 testParsesIfInfixConditionBoundary :: IO ()
 testParsesIfInfixConditionBoundary =
@@ -125,7 +123,7 @@ testParsesIfInfixConditionBoundary =
             )
         )
     )
-    (parseSurfaceProgram "x = if x > 0 then 1 else 2.")
+    (parseSurfaceProgramPoints "x = if x > 0 then 1 else 2.")
 
 testParsesIfApplicationConditionBoundary :: IO ()
 testParsesIfApplicationConditionBoundary =
@@ -152,55 +150,55 @@ testParsesIfApplicationConditionBoundary =
             )
         )
     )
-    (parseSurfaceProgram "x = if predicate subject then yes else no.")
+    (parseSurfaceProgramPoints "x = if predicate subject then yes else no.")
 
 testRejectsMissingThen :: IO ()
 testRejectsMissingThen =
   assertLeftDiagnosticContains
     "missing then keyword"
     "expected 'then'"
-    (parseSurfaceProgram "x = if cond yes else no.")
+    (parseSurfaceProgramPoints "x = if cond yes else no.")
 
 testRejectsMissingElse :: IO ()
 testRejectsMissingElse =
   assertLeftDiagnosticContains
     "missing else branch"
     "expected 'else'"
-    (parseSurfaceProgram "x = if cond then x.")
+    (parseSurfaceProgramPoints "x = if cond then x.")
 
 testRejectsExtraElse :: IO ()
 testRejectsExtraElse =
   assertLeftDiagnosticContains
     "extra else branch"
     "expected '.'"
-    (parseSurfaceProgram "x = if cond then x else y else z.")
+    (parseSurfaceProgramPoints "x = if cond then x else y else z.")
 
 testRejectsKeywordAsBindingName :: IO ()
 testRejectsKeywordAsBindingName =
   assertLeftDiagnosticContains
     "keyword binding name"
     "expected expression"
-    (parseSurfaceProgram "if = 1.")
+    (parseSurfaceProgramPoints "if = 1.")
 
 testRejectsTrueAsBindingName :: IO ()
 testRejectsTrueAsBindingName =
   assertLeftDiagnosticContains
     "True binding rejection"
     "reserved literal 'True' cannot be used as a binding name"
-    (parseSurfaceProgram "True = 1.")
+    (parseSurfaceProgramPoints "True = 1.")
 
 testRejectsFalseAsSignatureName :: IO ()
 testRejectsFalseAsSignatureName =
   assertLeftDiagnosticContains
     "False signature rejection"
     "reserved literal 'False' cannot be used as a binding name"
-    (parseSurfaceProgram "False :: Bool.")
+    (parseSurfaceProgramPoints "False :: Bool.")
 
 testLowerIfExpression :: IO ()
 testLowerIfExpression =
   assertRight
     "parse + lower if"
-    (parseSurfaceProgram "x = if True then 1 else 2.")
+    (parseSurfaceProgramPoints "x = if True then 1 else 2.")
     (\surfaceProgram -> assertLoweredCoreEqual "lowered if AST" expectedProgram (lowerSurfaceExpr surfaceProgram))
   where
     expectedProgram =
@@ -215,7 +213,7 @@ testLoweredIfIsCanonical :: IO ()
 testLoweredIfIsCanonical =
   assertRight
     "parse + canonical lower if"
-    (parseSurfaceProgram "x = if True then 1 else 2.")
+    (parseSurfaceProgramPoints "x = if True then 1 else 2.")
     ( \surfaceProgram ->
         assertLoweredCoreEqual
           "canonical lowered if AST"

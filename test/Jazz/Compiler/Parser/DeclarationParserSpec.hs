@@ -88,7 +88,7 @@ testFailureSpanAfterOwnedDeclaration :: IO ()
 testFailureSpanAfterOwnedDeclaration =
   case parseSurfaceProgram "import Lib::Math.\nentry = )." of
     Left diagnostic -> do
-      assertEqual "post-import failure span" (Just (SourceSpan 2 9)) (diagnosticPrimarySpan diagnostic)
+      assertEqual "post-import failure span" (Just (SourceRange 2 9 2 10)) (diagnosticPrimarySpan diagnostic)
       assertEqual "post-import failure summary" "unexpected token ')'; expected expression" (diagnosticSummary diagnostic)
     Right _ -> failTest "expected the malformed statement after the import to fail"
 
@@ -149,7 +149,7 @@ testRejectsNestedImport =
   case parseSurfaceProgram "main = {\n  import Lib::Value.\n  result.\n}." of
     Left diagnostic -> do
       assertEqual "nested import code" "E0001" (diagnosticCodeText (diagnosticCode diagnostic))
-      assertEqual "nested import span" (Just (SourceSpan 2 3)) (diagnosticPrimarySpan diagnostic)
+      assertEqual "nested import span" (Just (SourceRange 2 3 2 9)) (diagnosticPrimarySpan diagnostic)
     Right _ -> failTest "expected nested import to fail"
 
 testDetailedNestedImport :: IO ()
@@ -185,7 +185,7 @@ testRejectsNestedData =
         "nested data diagnostic summary"
         "data declaration must remain at file scope or directly in a module body"
         (diagnosticSummary diagnostic)
-      assertEqual "nested data diagnostic span" (Just (SourceSpan 2 3)) (diagnosticPrimarySpan diagnostic)
+      assertEqual "nested data diagnostic span" (Just (SourceRange 2 3 2 7)) (diagnosticPrimarySpan diagnostic)
     Right _ -> failTest "expected nested data declaration to fail"
 
 testDetailedDuplicateDataTypeParameter :: IO ()

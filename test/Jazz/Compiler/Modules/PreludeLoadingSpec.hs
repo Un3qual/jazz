@@ -32,8 +32,8 @@ import Jazz.TestHarness
     assertContains,
     assertEqual,
     assertSingleDiagnosticCode,
-    assertSingleDiagnosticPrimarySpan,
-    assertSingleDiagnosticRelatedSpan,
+    assertSingleDiagnosticPrimaryStart,
+    assertSingleDiagnosticRelatedStart,
     assertSingleDiagnosticSubject,
     assertSingleErrorContains,
     runTestSuite,
@@ -149,7 +149,7 @@ testPreludeUnknownBridgeSymbolDiagnostic = do
     "unknown kernel bridge symbol code"
     "E0004"
     diagnostics
-  assertSingleDiagnosticPrimarySpan
+  assertSingleDiagnosticPrimaryStart
     "unknown kernel bridge primary span"
     (SourceSpan 1 1)
     diagnostics
@@ -199,11 +199,11 @@ testPreludeBridgeRebindingDiagnostic = do
     "bridge rebinding code"
     "E0005"
     diagnostics
-  assertSingleDiagnosticPrimarySpan
+  assertSingleDiagnosticPrimaryStart
     "bridge rebinding primary span"
     (SourceSpan 2 1)
     diagnostics
-  assertSingleDiagnosticRelatedSpan
+  assertSingleDiagnosticRelatedStart
     "bridge rebinding related span"
     (SourceSpan 1 1)
     diagnostics

@@ -11,9 +11,6 @@ import Jazz.Compiler.AST
 import Jazz.Compiler.Diagnostics
   ( SourceSpan (..),
   )
-import Jazz.Compiler.Parser
-  ( parseSurfaceProgram,
-  )
 import Jazz.Compiler.Parser.AST
   ( SurfaceCaseArm (..),
     SurfaceDataConstructor (..),
@@ -58,7 +55,7 @@ testKeepsHigherPrecedencePipeInComparisonGuardRhs :: IO ()
 testKeepsHigherPrecedencePipeInComparisonGuardRhs =
   assertRight
     "comparison guard keeps pipe expression in RHS"
-    (parseSurfaceProgram "x = case subject { | item if left == right | True -> 1 }.")
+    (parseSurfaceProgramPoints "x = case subject { | item if left == right | True -> 1 }.")
     ( \surfaceProgram -> do
         assertEqual "comparison guard pipe RHS surface AST" expectedSurfaceProgram surfaceProgram
         assertLoweredCoreEqual "comparison guard pipe RHS lowered AST" expectedLoweredProgram (lowerSurfaceExpr surfaceProgram)
@@ -115,7 +112,7 @@ testKeepsLiteralPipeOperandInEqualityGuardRhs :: IO ()
 testKeepsLiteralPipeOperandInEqualityGuardRhs =
   assertRight
     "equality guard keeps literal pipe operand in RHS"
-    (parseSurfaceProgram "x = case m { | item if item == 0 | Just -> item | _ -> m }.")
+    (parseSurfaceProgramPoints "x = case m { | item if item == 0 | Just -> item | _ -> m }.")
     ( \surfaceProgram -> do
         assertEqual "equality guard literal pipe RHS surface AST" expectedSurfaceProgram surfaceProgram
         assertLoweredCoreEqual "equality guard literal pipe RHS lowered AST" expectedLoweredProgram (lowerSurfaceExpr surfaceProgram)
@@ -180,7 +177,7 @@ testKeepsLiteralPipeOperandInInequalityGuardRhs :: IO ()
 testKeepsLiteralPipeOperandInInequalityGuardRhs =
   assertRight
     "inequality guard keeps literal pipe operand in RHS"
-    (parseSurfaceProgram "x = case m { | item if item != 0 | Just -> item | _ -> m }.")
+    (parseSurfaceProgramPoints "x = case m { | item if item != 0 | Just -> item | _ -> m }.")
     ( \surfaceProgram -> do
         assertEqual "inequality guard literal pipe RHS surface AST" expectedSurfaceProgram surfaceProgram
         assertLoweredCoreEqual "inequality guard literal pipe RHS lowered AST" expectedLoweredProgram (lowerSurfaceExpr surfaceProgram)
@@ -251,7 +248,7 @@ testKeepsLiteralPipeOperandInOrderingGuardRhs = do
     assertOrderingGuard operator pipeExpressionColumn source =
       assertRight
         ("ordering guard keeps literal pipe operand in RHS for " <> operator)
-        (parseSurfaceProgram source)
+        (parseSurfaceProgramPoints source)
         ( \surfaceProgram -> do
             assertEqual
               "ordering guard literal pipe RHS surface AST"
@@ -331,7 +328,7 @@ testParsesGenericDataDeclarationParameters :: IO ()
 testParsesGenericDataDeclarationParameters =
   assertRight
     "generic data declaration parse + lower"
-    (parseSurfaceProgram "data Maybe a = Nothing | Just a.")
+    (parseSurfaceProgramPoints "data Maybe a = Nothing | Just a.")
     ( \surfaceProgram -> do
         assertEqual "generic data declaration surface AST" expectedSurfaceProgram surfaceProgram
         assertLoweredCoreEqual "generic data declaration lowered AST" expectedLoweredProgram (lowerSurfaceExpr surfaceProgram)
@@ -366,7 +363,7 @@ testParsesStructuredDataConstructorFieldTypes :: IO ()
 testParsesStructuredDataConstructorFieldTypes =
   assertRight
     "structured data constructor fields parse + lower"
-    ( parseSurfaceProgram
+    ( parseSurfaceProgramPoints
         """
         data Tree a
           = Leaf a
@@ -439,7 +436,7 @@ testKeepsLambdaApplicationAfterPipeOperator :: IO ()
 testKeepsLambdaApplicationAfterPipeOperator =
   assertRight
     "lambda application stays in case arm body"
-    (parseSurfaceProgram "x = case subject { | _ -> 1 | f \\(y) -> y }.")
+    (parseSurfaceProgramPoints "x = case subject { | _ -> 1 | f \\(y) -> y }.")
     (\surfaceProgram -> assertLoweredCoreEqual "lambda application in arm body lowered AST" expectedProgram (lowerSurfaceExpr surfaceProgram))
   where
     expectedProgram =
@@ -465,7 +462,7 @@ testKeepsUnderscoreApplicationAfterPipeOperator :: IO ()
 testKeepsUnderscoreApplicationAfterPipeOperator =
   assertRight
     "underscore application stays in case arm body"
-    (parseSurfaceProgram "x = case subject { | 0 -> 1 | _ y }.")
+    (parseSurfaceProgramPoints "x = case subject { | 0 -> 1 | _ y }.")
     (\surfaceProgram -> assertLoweredCoreEqual "underscore application in arm body lowered AST" expectedProgram (lowerSurfaceExpr surfaceProgram))
   where
     expectedProgram =
@@ -487,7 +484,7 @@ testKeepsUnderscoreBooleanApplicationAfterPipeOperator :: IO ()
 testKeepsUnderscoreBooleanApplicationAfterPipeOperator =
   assertRight
     "underscore boolean application stays in case arm body"
-    (parseSurfaceProgram "x = case subject { | 0 -> 1 | _ False }.")
+    (parseSurfaceProgramPoints "x = case subject { | 0 -> 1 | _ False }.")
     (\surfaceProgram -> assertLoweredCoreEqual "underscore boolean application in arm body lowered AST" expectedProgram (lowerSurfaceExpr surfaceProgram))
   where
     expectedProgram =

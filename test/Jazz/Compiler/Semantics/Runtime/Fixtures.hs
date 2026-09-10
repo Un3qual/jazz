@@ -118,14 +118,9 @@ patternNode =
     (PatternFacts Map.empty PatternHasNoConstructor RefutablePattern)
 
 statementNode :: SourceSpan -> CoreNode 'Analyzed 'StatementSort
-statementNode spanValue@(SourceSpan line column) =
+statementNode spanValue =
   CoreNode
-    (CoreNodeId (line * 1000 + column))
-    spanValue
-    (StatementFacts [] Map.empty ExpressionDeclaration)
-statementNode spanValue@(SourceSpanIn _ line column) =
-  CoreNode
-    (CoreNodeId (line * 1000 + column))
+    (CoreNodeId (spanLine spanValue * 1000 + spanColumn spanValue))
     spanValue
     (StatementFacts [] Map.empty ExpressionDeclaration)
 

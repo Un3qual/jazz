@@ -54,6 +54,7 @@ import Jazz.Compiler.Parser.TokenParser
     parseAnyToken,
     peekToken,
     runTokenParserDetailed,
+    withConsumedSpan,
   )
 import qualified Text.Megaparsec as MP
 
@@ -78,7 +79,7 @@ parseSurfaceProgramTokensDetailed tokens =
     expressionParser = parseExpressionParser blockParser
     statementParser = parseStatementParser expressionParser blockParser
     blockParser = parseStatementsUntilBrace statementParser
-    programParser = do
+    programParser = withConsumedSpan (\spanValue expression -> expression {surfaceExprSpan = spanValue}) $ do
       maybeFirstToken <- peekToken
       statements <- parseProgramStatements statementParser initialParserContext
       pure
@@ -91,7 +92,7 @@ parseSurfaceProgramTokensDetailed tokens =
 -- already-tokenized stream.
 parseProgramStatements :: StatementParser -> ParserContext -> Parser [SurfaceStatement]
 parseProgramStatements parseStatement context = do
-  tokens <- MP.lookAhead MP.getInput
+  tokens <- MP.getInput
   let scopeContext =
         context
           { parserKnownAliases =
@@ -137,7 +138,7 @@ parseStatementsUntilBrace parseStatement context = do
     case parserStatementContext context of
       NestedBlockContext -> pure context
       _ -> do
-        tokens <- MP.lookAhead MP.getInput
+        tokens <- MP.getInput
         pure
           context
             { parserKnownAliases =

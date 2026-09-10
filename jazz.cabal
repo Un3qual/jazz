@@ -26,6 +26,9 @@ extra-doc-files:
 
 extra-source-files:
     .gitignore
+    .hlint.yaml
+    weeder-production.toml
+    weeder.toml
     examples/README.md
     examples/**/*.jz
     jazz/stdlib/*.jz
@@ -52,6 +55,7 @@ extra-source-files:
     cabal.project.profile-stages
     scripts/*.py
     scripts/*.sh
+    scripts/ci/*.sh
 
 source-repository head
   type: git
@@ -108,6 +112,7 @@ library jazz-internal
       Jazz.Compiler.FractionalLiteral
       Jazz.Compiler.Identifier
       Jazz.Compiler.ModuleGraph
+      Jazz.Compiler.ModuleAnalysis
       Jazz.Compiler.ModuleIdentity
       Jazz.Compiler.ModuleExports
       Jazz.Compiler.ModuleInterface
@@ -156,15 +161,18 @@ library jazz-internal
       Jazz.Compiler.SemanticFacts
       Jazz.Compiler.SignatureRendering
       Jazz.Compiler.SourceProgram
+      Jazz.Compiler.SourceSpan
       Jazz.Compiler.SourceUnitOwnership
       Jazz.Compiler.StableSet
       Jazz.Compiler.TypeInference
       Jazz.Compiler.TypeInference.Analyzed
       Jazz.Compiler.TypeInference.Capabilities
+      Jazz.Compiler.TypeInference.DiagnosticCause
       Jazz.Compiler.TypeInference.Diagnostics
       Jazz.Compiler.TypeInference.Environment
       Jazz.Compiler.TypeInference.Evidence
       Jazz.Compiler.TypeInference.Instantiation
+      Jazz.Compiler.TypeInference.ImplChecking
       Jazz.Compiler.TypeInference.Operator
       Jazz.Compiler.TypeInference.Pattern
       Jazz.Compiler.TypeInference.Result
@@ -187,6 +195,7 @@ library jazz-internal
       directory >= 1.3 && < 1.4,
       filepath >= 1.5 && < 1.6,
       megaparsec >= 9 && < 10,
+      parser-combinators >= 1.3 && < 1.4,
       text >= 2.1 && < 2.2,
       transformers >= 0.6 && < 0.7,
       vector >= 0.13 && < 0.14
@@ -331,6 +340,13 @@ test-suite profiling-spec
   main-is: Jazz/Compiler/ProfilingSpec.hs
   build-depends:
       deepseq >= 1.5 && < 1.6
+
+test-suite generated-invariants-spec
+  import: test-common
+  type: exitcode-stdio-1.0
+  main-is: Jazz/Compiler/GeneratedInvariantsSpec.hs
+  build-depends:
+      QuickCheck >= 2.15 && < 2.16
 
 test-suite haskell-typeclass-contracts-spec
   import: test-common
@@ -669,6 +685,11 @@ test-suite declaration-parser-spec
   main-is: Jazz/Compiler/Parser/DeclarationParserSpec.hs
   other-modules:
       Jazz.Compiler.Parser.TestSupport
+
+test-suite source-ranges-spec
+  import: test-common
+  type: exitcode-stdio-1.0
+  main-is: Jazz/Compiler/Parser/SourceRangesSpec.hs
 
 test-suite expression-parser-spec
   import: test-common

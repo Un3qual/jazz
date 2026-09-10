@@ -30,7 +30,7 @@ import Jazz.TestHarness
     assertEqual,
     assertSingleDiagnosticCode,
     assertSingleDiagnosticContains,
-    assertSingleDiagnosticPrimarySpan,
+    assertSingleDiagnosticPrimaryStart,
   )
 
 constraintTests :: [NamedTest]
@@ -1078,7 +1078,7 @@ testSourceRejectsImplMethodBeforeClassMethodMetadata = do
     "impl-before-class method metadata"
     "class method metadata for 'Eq::equals' must be declared before impl method body"
     (compileErrors result)
-  assertSingleDiagnosticPrimarySpan
+  assertSingleDiagnosticPrimaryStart
     "impl-before-class method metadata span"
     (SourceSpan 2 1)
     (compileErrors result)

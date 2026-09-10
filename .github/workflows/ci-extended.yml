@@ -36,7 +36,7 @@ jobs:
           primary-key: nix-v1-${{ runner.os }}-${{ runner.arch }}-compiler-${{ hashFiles('flake.lock', 'flake.nix', 'jazz.cabal') }}
 
       - name: Prepare Nix toolchain
-        run: nix develop --command true
+        run: nix develop .#quality --command true
 
       # Save before compiler checks so a test failure does not discard the toolchain.
       - name: Save Nix toolchain
@@ -54,6 +54,9 @@ jobs:
           key: ${{ runner.os }}-${{ runner.arch }}-cabal-v2-${{ hashFiles('flake.lock', 'jazz.cabal', 'cabal.project', 'flake.nix') }}-${{ github.sha }}
           restore-keys: |
             ${{ runner.os }}-${{ runner.arch }}-cabal-v2-${{ hashFiles('flake.lock', 'jazz.cabal', 'cabal.project', 'flake.nix') }}-
+
+      - name: Check Haskell lint, dead code, and generated invariants
+        run: nix develop .#quality --command bash scripts/ci/haskell-quality.sh
 
       - name: Run extended verification
         id: extended

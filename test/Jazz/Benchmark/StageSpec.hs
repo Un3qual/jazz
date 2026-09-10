@@ -34,7 +34,7 @@ import Jazz.Benchmark.Stages
     benchmarkIngredientsWithFinalizer,
     parseBenchmarkCommand,
   )
-import Jazz.Compiler.Diagnostics (SourceSpan (SourceSpan))
+import Jazz.Compiler.Diagnostics (SourceSpan (SourceRange))
 import Jazz.Compiler.Name (identifierText)
 import Jazz.Compiler.Parser (parseSurfaceProgram)
 import Jazz.Compiler.Parser.AST
@@ -574,7 +574,7 @@ testAmbiguousCaseArmPipesParseLower = do
             ]
         ) -> do
         assertEqual "ambiguous case-arm pipe binding" "ambiguousPipe" (identifierText bindingName)
-        assertEqual "ambiguous case-arm pipe binding span" (SourceSpan 1 1) bindingSpan
+        assertEqual "ambiguous case-arm pipe binding span" (SourceRange 1 1 1 14) bindingSpan
         assertEqual "ambiguous case-arm pipe scrutinee" 0 scrutinee
         case leftAssociatedPipeOperands body of
           Nothing -> failTest ("ambiguous case-arm pipe body was not exactly left-associated: " <> Text.pack (show body))

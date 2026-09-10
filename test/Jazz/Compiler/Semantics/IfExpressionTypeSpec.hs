@@ -31,7 +31,7 @@ import Jazz.TestHarness
     assertEqual,
     assertSingleDiagnosticCode,
     assertSingleDiagnosticContains,
-    assertSingleDiagnosticPrimarySpan,
+    assertSingleDiagnosticPrimaryStart,
     runTestSuite,
   )
 
@@ -61,7 +61,7 @@ testRejectsNonBoolCondition = do
     "condition type error"
     "if condition must have type Bool"
     (compileErrors result)
-  assertSingleDiagnosticPrimarySpan
+  assertSingleDiagnosticPrimaryStart
     "condition type error primary span"
     (SourceSpan 1 1)
     (compileErrors result)
@@ -140,7 +140,7 @@ testSourcePipelineAcceptsWellTypedIf = do
 testSourcePipelineRejectsNonBoolCondition :: IO ()
 testSourcePipelineRejectsNonBoolCondition = do
   result <- compileSource defaultWarningSettings "x = if 1 then 2 else 3."
-  assertSingleDiagnosticPrimarySpan
+  assertSingleDiagnosticPrimaryStart
     "source condition type error primary span"
     (SourceSpan 1 1)
     (compileErrors result)

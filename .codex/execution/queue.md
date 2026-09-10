@@ -14,10 +14,9 @@ public behavior.
 | --- | ----- | -------- | ---- | ---- | ---------------- | ---------- | ---- | ------------ | ------------ | ----------- | ------------ | ------------- |
 
 Current executor status (`2026-09-09`, terminal):
-`JN-HASKELL-POLYMORPHISM-EFFECTS-001` completed and verified in `339183f4`.
-`Ready Now` is empty. There is no source-backed next curation target and no named
-candidate currently. Further implementation needs a concrete goal and an
-accepted plan.
+`JN-QUALITY-REVIEW-FIXES-001` is complete; verification is recorded in its
+completed plan. `Ready Now` is empty.
+There is no source-backed next curation target and no named candidate currently.
 
 ## Next Curation Target
 

@@ -53,7 +53,7 @@ class CiScriptTests(unittest.TestCase):
         self.jazz_bin = self.root / "jazz"
         self.jazz_bin.write_text("#!/bin/bash\nexit 0\n", encoding="utf-8")
         self.jazz_bin.chmod(0o755)
-        for command in ("actionlint", "nix", "python3", "pnpm", "cmp"):
+        for command in ("actionlint", "hlint", "weeder", "nix", "python3", "pnpm", "cmp"):
             self.write_stub(command)
         # Artifact verification has its own tests; these fixtures let the shell
         # reach every command without building compiler or release artifacts.
@@ -300,10 +300,40 @@ class CiScriptTests(unittest.TestCase):
                 self.assertNotEqual(result.returncode, 0)
                 self.assertEqual(self.logged_commands(), [])
 
+    def test_quality_worker_count_rejects_zero_padded_zero_before_work(self) -> None:
+        script = REPOSITORY_ROOT / "scripts/ci/haskell-quality.sh"
+        for invalid in ("00", "000"):
+            with self.subTest(invalid=invalid):
+                result = self.run_script(script, JAZZ_CABAL_JOBS=invalid)
+                self.assertEqual(result.returncode, 2, result.stdout + result.stderr)
+                self.assertEqual(self.logged_commands(), [])
+        result = self.run_script(script, JAZZ_CABAL_JOBS="004")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertTrue(any("--jobs=004" in command for command in self.logged_commands()))
+
+    def test_production_weeds_stop_before_test_roots_enter_the_graph(self) -> None:
+        weeder = self.bin_root / "weeder"
+        with weeder.open("a", encoding="utf-8") as stub:
+            stub.write("exit 228\n")
+
+        result = self.run_script(REPOSITORY_ROOT / "scripts/ci/haskell-quality.sh")
+
+        self.assertEqual(result.returncode, 228, result.stdout + result.stderr)
+        builds = [line for line in self.logged_commands() if line.startswith("cabal ")]
+        self.assertEqual(len(builds), 1, builds)
+        self.assertIn("--disable-tests", builds[0].split())
+        self.assertIn("--disable-benchmarks", builds[0].split())
+        build_directory = next(
+            arg.removeprefix("--builddir=") for arg in builds[0].split()
+            if arg.startswith("--builddir=")
+        )
+        self.assertFalse(Path(build_directory).exists(), "failed scan leaked its temporary tree")
+
     def test_worker_limits_in_each_executable_tier(self) -> None:
         tiers = (
             ("scripts/ci/main-functional.sh", 2, ["scripts/check-examples.sh"]),
             ("scripts/ci/fast-compiler.sh", 2, ["scripts/check-examples.sh"]),
+            ("scripts/ci/haskell-quality.sh", 3, []),
             ("scripts/check-examples.sh", 1, []),
             ("scripts/ci/determinism.sh", 1, []),
             ("scripts/ci/extended.sh", 6, ["scripts/ci/determinism.sh"]),

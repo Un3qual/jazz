@@ -9,6 +9,7 @@ module Jazz.Compiler.Parser.TokenStream
   ( TokenStream,
     pattern EmptyTokens,
     pattern (:<),
+    tokenStreamAt,
     tokenStreamDrop,
     tokenStreamFromList,
     tokenStreamLength,
@@ -36,6 +37,10 @@ import Text.Megaparsec.Pos (SourcePos (..), mkPos)
 
 newtype TokenStream = TokenStream (Vector.Vector Lexer.Token)
   deriving (Eq, Ord, Show)
+
+-- | Constant-time lookup in the current slice.
+tokenStreamAt :: Int -> TokenStream -> Maybe Lexer.Token
+tokenStreamAt index (TokenStream tokens) = tokens Vector.!? index
 
 tokenStreamFromList :: [Lexer.Token] -> TokenStream
 tokenStreamFromList = TokenStream . Vector.fromList

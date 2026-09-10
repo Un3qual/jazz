@@ -31,6 +31,7 @@ import Jazz.Compiler.Semantics.BindingSignature.Shared (resolvedProgram)
 import Jazz.Compiler.TypeInference.Capabilities
   ( typeSchemeReferencedCapabilityFacts,
   )
+import Jazz.Compiler.TypeInference.ImplChecking (checkImplMethodBodies)
 import Jazz.Compiler.TypeInference.Operator
   ( builtinSectionOperatorSymbol,
     hasOperatorRule,
@@ -89,7 +90,8 @@ import Jazz.Compiler.TypeInference.TypeOps
     replaceTypeVariables,
   )
 import Jazz.Compiler.TypeInference.Types
-  ( ExpressionType,
+  ( ClassMethodType (..),
+    ExpressionType,
     NumericConstraint (..),
     SchemeConstraint (..),
     SchemePrimitiveConstraint (..),
@@ -108,6 +110,7 @@ import Jazz.Compiler.TypeRepresentation
     pattern TypeInt,
     pattern TypeList,
     pattern TypeName,
+    pattern TypeTuple,
     pattern TypeVariable,
   )
 import Jazz.TestHarness
@@ -118,7 +121,8 @@ import Jazz.TestHarness
 
 inferenceOwnershipTests :: [NamedTest]
 inferenceOwnershipTests =
-  [ ("concrete signature projection rejects variable children", testConcreteSignatureChildFailuresPropagate),
+  [ ("impl checks roll back failed unification before subsequent bodies", testImplChecksPreserveRollback),
+    ("concrete signature projection rejects variable children", testConcreteSignatureChildFailuresPropagate),
     ("duplicate constraints report the first repeated name", testDuplicateConstraintsReportFirstRepeatedName),
     ("state record modifiers update only their owned partitions", testStateRecordModifiers),
     ("inference output preserves constraint order and explicit cursors", testInferenceOutputConstraintCursors),
@@ -719,3 +723,27 @@ testOperatorRulePresenceAndSectionSupport = do
   mapM_
     (assertEqual "unsupported section" False . builtinSectionOperatorSymbol)
     ["$", "|", "%%"]
+
+-- The first tuple unification would bind a variable before failing on Bool.
+-- The next body must still see that variable unbound, while retaining the
+-- first diagnostic and method result in source order.
+testImplChecksPreserveRollback :: IO ()
+testImplChecksPreserveRollback = do
+  let (variable, allocated) = freshTypeVar initialInferState
+      signature = ClassMethodType "a" (SignatureType (TypeTuple [TypeInt, TypeInt]))
+      initialState =
+        modifyDeclarationState
+          (\declarations -> declarations {declarationClassMethodSignatures = Map.fromList [("Probe::first", signature), ("Probe::second", signature)]})
+          allocated
+      inferBody _ current expected expression =
+        case expression of
+          ELit _ _ -> ((Just (SemanticTuple [variable, SemanticBool]), resolveType current variable), current)
+          _ -> ((Just expected, resolveType current variable), current)
+  case resolvedProgram "class Probe(a) { first :: (Int, Int). second :: (Int, Int). }. impl Probe(Int) { first = 0. second = (1, 2). }." of
+    EBlock _ [SClass {}, SImpl _ capability arguments methods] -> do
+      let (finalState, results) = checkImplMethodBodies inferBody fst Map.empty initialState capability arguments methods
+      assertEqual "both bodies checked in source order" [0, 1] (map fst results)
+      assertEqual "failed tuple unification did not leak into next body" [variable, variable] (map (snd . snd) results)
+      assertEqual "one mismatch survives the successful subsequent body" 1 (inferErrorCount finalState)
+      assertEqual "failed substitutions remain absent at completion" variable (resolveType finalState variable)
+    _ -> failTest "expected resolved impl fixture"

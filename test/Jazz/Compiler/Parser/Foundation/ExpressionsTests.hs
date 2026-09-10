@@ -16,9 +16,6 @@ import Jazz.Compiler.AST
 import Jazz.Compiler.Diagnostics
   ( SourceSpan (..),
   )
-import Jazz.Compiler.Parser
-  ( parseSurfaceProgram,
-  )
 import Jazz.Compiler.Parser.AST
   ( SurfaceCaseArm (..),
     SurfaceExpr (..),
@@ -39,6 +36,7 @@ import Jazz.TestCore
     loweredLet,
     loweredLiteral,
     loweredVariable,
+    parseSurfaceProgramPoints,
   )
 import Jazz.TestHarness
   ( NamedTest,
@@ -51,7 +49,7 @@ import Jazz.TestHarness
 expressionTests :: [NamedTest]
 expressionTests =
   [ ("parses let binding and expression statement", testParseLetAndExpr),
-    ("parseSurfaceProgram accepts Text input", testParseSurfaceProgramAcceptsTextInput),
+    ("parseSurfaceProgramPoints accepts Text input", testParseSurfaceProgramAcceptsTextInput),
     ("parses tuple literal into structured nodes", testParseTupleLiteral),
     ("tracks every nested expression location", testTracksEveryNestedExpressionLocation),
     ("lowers Char and Text literals into analyzer AST", testLowersCharAndTextLiterals),
@@ -79,7 +77,7 @@ testTracksEveryNestedExpressionLocation :: IO ()
 testTracksEveryNestedExpressionLocation =
   assertRight
     "nested expression locations parse"
-    ( parseSurfaceProgram
+    ( parseSurfaceProgramPoints
         ( Text.unlines
             [ "entry = \\(input) ->",
               "  (f @Int input,",
@@ -173,7 +171,7 @@ testParseLetAndExpr =
     ( Right
         (e 1 1 $ SEBlock [SSLet "x" (SourceSpan 1 1) (e 1 5 $ SELit (SLInt 1)), SSExpr (SourceSpan 2 1) (e 2 1 $ SEVar "x")])
     )
-    ( parseSurfaceProgram
+    ( parseSurfaceProgramPoints
         """
         x = 1.
         x.
@@ -193,7 +191,7 @@ testParseSurfaceProgramAcceptsTextInput = do
     ( Right
         (e 1 1 $ SEBlock [SSLet "x" (SourceSpan 1 1) (e 1 5 $ SELit (SLInt 1)), SSExpr (SourceSpan 2 1) (e 2 1 $ SEVar "x")])
     )
-    (parseSurfaceProgram sourceText)
+    (parseSurfaceProgramPoints sourceText)
 
 testParseTupleLiteral :: IO ()
 testParseTupleLiteral =
@@ -208,7 +206,7 @@ testParseTupleLiteral =
               ]
         )
     )
-    (parseSurfaceProgram "(1, True).")
+    (parseSurfaceProgramPoints "(1, True).")
 
 testLowersCharAndTextLiterals :: IO ()
 testLowersCharAndTextLiterals = do
@@ -219,7 +217,7 @@ testParseFractionalLiteral :: IO ()
 testParseFractionalLiteral =
   assertRight
     "fractional literal parse"
-    ( parseSurfaceProgram
+    ( parseSurfaceProgramPoints
         """
         x = 1.5.
         y = 2.
@@ -236,7 +234,7 @@ testParseFractionalLiteralSuffixes :: IO ()
 testParseFractionalLiteralSuffixes =
   assertRight
     "fractional literal suffix parse"
-    ( parseSurfaceProgram
+    ( parseSurfaceProgramPoints
         """
         x16 = 1.5f16.
         x32 = 2.5f32.
@@ -258,7 +256,7 @@ testIgnoresHashLineComments =
     ( Right
         (e 1 1 $ SEBlock [SSLet "x" (SourceSpan 1 1) (e 1 5 $ SELit (SLInt 1)), SSExpr (SourceSpan 3 1) (e 3 1 $ SEVar "x")])
     )
-    (parseSurfaceProgram "x = 1.\n# parser should ignore this line comment\nx.")
+    (parseSurfaceProgramPoints "x = 1.\n# parser should ignore this line comment\nx.")
 
 testTabAlignedExpressionSpan :: IO ()
 testTabAlignedExpressionSpan =
@@ -267,7 +265,7 @@ testTabAlignedExpressionSpan =
     ( Right
         (e 1 9 $ SEBlock [SSExpr (SourceSpan 1 9) (e 1 9 $ SEVar "x")])
     )
-    (parseSurfaceProgram "\tx.")
+    (parseSurfaceProgramPoints "\tx.")
 
 testParseNestedScopeExpression :: IO ()
 testParseNestedScopeExpression =
@@ -283,7 +281,7 @@ testParseNestedScopeExpression =
               ]
         )
     )
-    ( parseSurfaceProgram
+    ( parseSurfaceProgramPoints
         """
         x = 1.
         { x. }.
@@ -313,7 +311,7 @@ testParseBlockArgumentExpression =
               ]
         )
     )
-    ( parseSurfaceProgram
+    ( parseSurfaceProgramPoints
         """
         result = f {
           x = 1.
@@ -326,7 +324,7 @@ testLowerSurfaceProgram :: IO ()
 testLowerSurfaceProgram =
   assertRight
     "parse + lower"
-    ( parseSurfaceProgram
+    ( parseSurfaceProgramPoints
         """
         x = 1.
         x.
@@ -344,7 +342,7 @@ testLowerFractionalLiteralProgram :: IO ()
 testLowerFractionalLiteralProgram =
   assertRight
     "surface parse"
-    (parseSurfaceProgram "1.5.")
+    (parseSurfaceProgramPoints "1.5.")
     ( \surfaceProgram ->
         assertContains
           "lowered fractional literal"
@@ -356,7 +354,7 @@ testLowerFractionalLiteralSuffixesProgram :: IO ()
 testLowerFractionalLiteralSuffixesProgram =
   assertRight
     "parse + lower suffixed fractional literals"
-    ( parseSurfaceProgram
+    ( parseSurfaceProgramPoints
         """
         x16 = 1.5f16.
         x32 = 2.5f32.
@@ -374,7 +372,7 @@ testParsesLargeIntegerLiteral :: IO ()
 testParsesLargeIntegerLiteral =
   assertRight
     "large integer literal"
-    (parseSurfaceProgram "x = 9223372036854775808.")
+    (parseSurfaceProgramPoints "x = 9223372036854775808.")
     ( assertEqual
         "large integer surface AST"
         (e 1 1 $ SEBlock [SSLet "x" (SourceSpan 1 1) (e 1 5 $ SELit (SLInt 9223372036854775808))])
@@ -393,7 +391,7 @@ testParsesAbstractionKeywordsAsBindingNames =
               ]
         )
     )
-    ( parseSurfaceProgram
+    ( parseSurfaceProgramPoints
         """
         class = 1.
         impl = class.
@@ -413,7 +411,7 @@ testParsesOperatorKeywordAsBindingName =
               ]
         )
     )
-    ( parseSurfaceProgram
+    ( parseSurfaceProgramPoints
         """
         operator = 1.
         result = operator.
@@ -439,7 +437,7 @@ testParsesOperatorKeywordAsNestedBlockBindingName =
               ]
         )
     )
-    ( parseSurfaceProgram
+    ( parseSurfaceProgramPoints
         """
         scope = {
           operator = 1.
@@ -459,7 +457,7 @@ testParsesParameterizedClassCapabilityDeclaration =
               ]
         )
     )
-    (parseSurfaceProgram "class Eq(a) { }.")
+    (parseSurfaceProgramPoints "class Eq(a) { }.")
 
 testParsesImplCapabilityDeclaration :: IO ()
 testParsesImplCapabilityDeclaration =
@@ -476,13 +474,13 @@ testParsesImplCapabilityDeclaration =
               ]
         )
     )
-    (parseSurfaceProgram "impl Eq(Int) { }.")
+    (parseSurfaceProgramPoints "impl Eq(Int) { }.")
 
 testLowersCapabilityDeclarations :: IO ()
 testLowersCapabilityDeclarations =
   assertRight
     "surface parse"
-    ( parseSurfaceProgram
+    ( parseSurfaceProgramPoints
         """
         class Eq(a) { }.
         impl Eq(Int) { }.
@@ -503,7 +501,7 @@ testParsesImplMethodBindingMetadata :: IO ()
 testParsesImplMethodBindingMetadata =
   assertRight
     "surface impl method binding metadata parse"
-    ( parseSurfaceProgram
+    ( parseSurfaceProgramPoints
         """
         impl Eq(Int) {
         equals = \\(left, right) -> left == right.
@@ -521,7 +519,7 @@ testLowersImplMethodBindingMetadata :: IO ()
 testLowersImplMethodBindingMetadata =
   assertRight
     "surface impl method binding metadata parse"
-    ( parseSurfaceProgram
+    ( parseSurfaceProgramPoints
         """
         impl Eq(Int) {
         equals = \\(left, right) -> left == right.

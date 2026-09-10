@@ -57,7 +57,7 @@ import Jazz.TestHarness
     assertEqual,
     assertSingleDiagnosticCode,
     assertSingleDiagnosticContains,
-    assertSingleDiagnosticPrimarySpan,
+    assertSingleDiagnosticPrimaryStart,
   )
 
 validSignatureProgram :: Expr 'Lowered
@@ -122,7 +122,7 @@ assertSourceSingleErrorCodeAndPrimarySpan :: Text.Text -> Text.Text -> SourceSpa
 assertSourceSingleErrorCodeAndPrimarySpan src expectedCode expectedSpan = do
   result <- compileSource defaultWarningSettings src
   assertSingleDiagnosticCode "source error code" expectedCode (compileErrors result)
-  assertSingleDiagnosticPrimarySpan "source error primary span" expectedSpan (compileErrors result)
+  assertSingleDiagnosticPrimaryStart "source error primary span" expectedSpan (compileErrors result)
 
 qualifiedEqSource :: Text.Text
 qualifiedEqSource =

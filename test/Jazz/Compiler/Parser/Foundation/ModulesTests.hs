@@ -18,9 +18,6 @@ import Jazz.Compiler.Name
   ( NameNamespace (ValueNamespace),
     qualifiedName,
   )
-import Jazz.Compiler.Parser
-  ( parseSurfaceProgram,
-  )
 import Jazz.Compiler.Parser.AST
   ( SurfaceExpr (..),
     SurfaceExprForm (..),
@@ -39,6 +36,7 @@ import Jazz.TestCore
     loweredLet,
     loweredLiteral,
     loweredVariable,
+    parseSurfaceProgramPoints,
   )
 import Jazz.TestHarness
   ( NamedTest,
@@ -70,7 +68,7 @@ testParsesValueExportSelector =
               ]
         )
     )
-    ( parseSurfaceProgram
+    ( parseSurfaceProgramPoints
         """
         module Example (value answer) {
           answer = 42.
@@ -91,7 +89,7 @@ testParsesOperatorKeywordAsModuleBodyBindingName =
               ]
         )
     )
-    ( parseSurfaceProgram
+    ( parseSurfaceProgramPoints
         """
         module App::Core {
         operator = 1.
@@ -112,7 +110,7 @@ testParsesTraitAsImportAlias =
               ]
         )
     )
-    ( parseSurfaceProgram
+    ( parseSurfaceProgramPoints
         """
         import Lib::Math as trait.
         trait::subtract.
@@ -123,7 +121,7 @@ testLowersClassQualifiedMethodReference :: IO ()
 testLowersClassQualifiedMethodReference =
   assertRight
     "parse + lower class-qualified method reference"
-    ( parseSurfaceProgram
+    ( parseSurfaceProgramPoints
         """
         result = Eq::equals 1 1.
         result.
@@ -159,7 +157,7 @@ testParsesCapabilityDeclarationsInModuleBody =
               ]
         )
     )
-    ( parseSurfaceProgram
+    ( parseSurfaceProgramPoints
         """
         module App::Core {
         class Eq(a) { }.

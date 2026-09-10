@@ -44,7 +44,7 @@ import Jazz.Compiler.DiagnosticCatalog
 import Jazz.Compiler.Diagnostics
   ( Diagnostic,
     DiagnosticOrigin (..),
-    SourceSpan (..),
+    SourceSpan,
     mkErrorDiagnostic,
     setDiagnosticPrimarySpan,
     setDiagnosticRelatedSpan,
@@ -69,6 +69,7 @@ import Jazz.Compiler.Name
   ( NameNamespace (..),
     identifierText,
   )
+import Jazz.Compiler.SourceSpan (unqualifySourceSpan)
 
 -- | Origin metadata for imported bindings/aliases used in collision
 -- diagnostics.
@@ -79,8 +80,7 @@ data BindingOrigin = BindingOrigin
 
 declaredImportSpan :: ModuleGraph.ModuleImport 'Lowered -> SourceSpan
 declaredImportSpan importDecl =
-  let spanValue = coreNodeSpan (ModuleGraph.moduleImportNode importDecl)
-   in SourceSpan (spanLine spanValue) (spanColumn spanValue)
+  unqualifySourceSpan (coreNodeSpan (ModuleGraph.moduleImportNode importDecl))
 
 declaredImportAliasText :: ModuleGraph.ModuleImport 'Lowered -> Maybe Text
 declaredImportAliasText = fmap (identifierText . moduleQualifierIdentifier) . ModuleGraph.importAlias

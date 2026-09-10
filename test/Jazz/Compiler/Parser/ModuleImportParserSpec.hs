@@ -29,9 +29,6 @@ import Jazz.Compiler.Name
     NameNamespace (..),
     qualifiedName,
   )
-import Jazz.Compiler.Parser
-  ( parseSurfaceProgram,
-  )
 import Jazz.Compiler.Parser.AST
   ( SurfaceExpr (..),
     SurfaceExprForm (..),
@@ -54,6 +51,7 @@ import Jazz.TestCore
     loweredImport,
     loweredModule,
     loweredVariable,
+    parseSurfaceProgramPoints,
   )
 import Jazz.TestHarness
   ( NamedTest,
@@ -1055,7 +1053,7 @@ testRejectsImportSymbolListWithAlias =
     (parseNormalized "import Std::List (map) as List.")
 
 parseNormalized :: Text -> Either Diagnostic SurfaceExpr
-parseNormalized = fmap normalizeSurfaceExpr . parseSurfaceProgram
+parseNormalized = fmap normalizeSurfaceExpr . parseSurfaceProgramPoints
 
 normalizeSurfaceExpr :: SurfaceExpr -> SurfaceExpr
 normalizeSurfaceExpr expression =
