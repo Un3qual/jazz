@@ -71,6 +71,10 @@ aliasClassTests =
        ]
     ++ [ ("qualified class diagnostics identify the failing source component", testDiagnosticComponents),
          ("qualified class constraints reject spaced qualification", assertRejected "same :: @{Facts :: Eq(Int)}: Int. same = 1." "E4004"),
+         ("parenthesized class constraints reject spaced qualification", assertRejected "same :: @{((Facts :: Eq(Int)))}: Int. same = 1." "E4004"),
+         ("parenthesized class constraints reject overlong qualification", assertRejected "same :: @{(Facts::Eq::Extra(Int))}: Int. same = 1." "E4004"),
+         ("later parenthesized constraints reject spaced qualification", assertRejected "same :: @{((Facts::Eq(Int))), (Facts :: Eq(Int))}: Int. same = 1." "E4004"),
+         ("parenthesized class constraints preserve valid qualification", assertProgram "same :: @{((Facts::Eq(Int)))}: Int. same = 1. same." "1"),
          ("qualified class constraints reject overlong qualification", assertRejected "same :: @{Facts::Eq::Extra(Int)}: Int. same = 1." "E4004")
        ]
     ++ [ ( "qualified method lookup diagnoses a missing method",
@@ -160,6 +164,8 @@ testDiagnosticComponents =
       ("Facts::Hidden::hidden 1.", 8),
       ("Facts::Eq::absent 1 1.", 12),
       ("stored = Facts::Eq::absent.", 21),
+      ("stored = Facts::Eq::absent @Int.", 21),
+      ("Facts::Eq::absent @Int 1 1.", 12),
       ("same :: @{Facts::Hidden(Int)}: Int. same = 1.", 18),
       ("impl Facts::Hidden(Int) { }.", 13)
     ]

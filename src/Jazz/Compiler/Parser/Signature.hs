@@ -88,11 +88,12 @@ parseSignaturePayload signatureTokens =
 parseSignaturePayloadDetailed :: [Token] -> Either ParserFailure SurfaceSignaturePayload
 parseSignaturePayloadDetailed tokens = do
   case tokens of
-    Token {tokenKind = TAt} : Token {tokenKind = TLBrace} : rest -> validateHead rest
+    Token {tokenKind = TAt} : Token {tokenKind = TLBrace} : rest -> validateHead 0 rest
     _ -> Right ()
   pure (parseSignaturePayload tokens)
   where
-    validateHead (alias : colon@Token {tokenKind = TColonColon} : member : rest) = do
+    validateHead depth (Token {tokenKind = TLParen} : rest) = validateHead (depth + 1) rest
+    validateHead depth (alias : colon@Token {tokenKind = TColonColon} : member : rest) = do
       if isImmediatelyAfter alias colon && isImmediatelyAfter colon member
         then Right ()
         else invalid colon "adjacent alias-qualified class name"
@@ -101,8 +102,8 @@ parseSignaturePayloadDetailed tokens = do
         _ -> invalid member "class name after '::'"
       case rest of
         extra@Token {tokenKind = TColonColon} : _ -> invalid extra "two-component class name"
-        _ -> scan 0 rest
-    validateHead rest = scan 0 rest
+        _ -> scan depth rest
+    validateHead depth rest = scan depth rest
 
     scan :: Int -> [Token] -> Either ParserFailure ()
     scan _ [] = Right ()
@@ -111,7 +112,7 @@ parseSignaturePayloadDetailed tokens = do
       TLBracket -> scan (depth + 1) rest
       TRParen -> scan (max 0 (depth - 1)) rest
       TRBracket -> scan (max 0 (depth - 1)) rest
-      TComma | depth == 0 -> validateHead rest
+      TComma | depth == 0 -> validateHead 0 rest
       TRBrace | depth == 0 -> Right ()
       _ -> scan depth rest
 

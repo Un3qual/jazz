@@ -16,11 +16,12 @@ import Data.Text
   ( Text,
   )
 import Jazz.Compiler.AST
-  ( CoreNode (coreNodeId),
+  ( CoreNode (coreNodeId, coreNodeSpan),
     CoreNodeId,
     CorePhase (..),
     Expr (..),
     SignatureType,
+    expressionNode,
   )
 import Jazz.Compiler.Diagnostics
   ( SourceSpan,
@@ -39,6 +40,7 @@ import Jazz.Compiler.TypeInference.Capabilities
   )
 import Jazz.Compiler.TypeInference.Diagnostics
   ( addTypeError,
+    annotateNewErrorsWithPrimarySpan,
     mkExplicitTypeApplicationTargetError,
     mkInvalidExplicitTypeApplicationArgumentError,
   )
@@ -160,7 +162,11 @@ inferExplicitTypeApplication inferExpression mode env state applicationNodeId fu
                   (ExplicitQualifiedMethodInstantiation targetName)
                   explicitArgumentType
                   maybeInstantiatedType
-                  (recordExplicitFunctionFact functionExpr maybeInstantiatedType nextState)
+                  ( recordExplicitFunctionFact
+                      functionExpr
+                      maybeInstantiatedType
+                      (annotateNewErrorsWithPrimarySpan (coreNodeSpan (expressionNode functionExpr)) state nextState)
+                  )
               )
     (Just typeScheme, Just explicitArgumentType)
       | Just targetName <- explicitTypeApplicationTargetName functionExpr ->

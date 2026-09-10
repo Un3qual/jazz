@@ -162,3 +162,20 @@ diagnostics. The Haskell grammar now accepts or diagnoses those forms differentl
 from the unchanged hosted parser. These failures remain explicitly deferred;
 the full bootstrap-inclusive suite is not green. No hosted tests were removed
 or weakened to hide this difference.
+
+## Review follow-up — 2026-09-10
+
+The maintainer requested fixes for both reproduced review findings. Work stayed
+inline, with bootstrap still deferred.
+
+- Qualified constraint validation now descends through grouping parentheses
+  while retaining delimiter depth, so spacing and excess qualification cannot
+  bypass validation. Regressions cover nested grouping, a later grouped
+  constraint, malformed qualification, and valid grouped qualification.
+- Explicit class-method instantiation now attaches the method expression's
+  source span to new unlocated errors. Regressions check missing methods in
+  both stored explicit instantiations and explicitly instantiated calls.
+- Focused loader, parser-foundation, source-range and structured-diagnostic
+  suites passed after reproducing the failures. HLint and Ormolu checks passed.
+- Final verification: all 47 non-bootstrap suites passed, along with plan
+  formatting, execution-queue validation and `git diff --check`.
