@@ -24,6 +24,7 @@ reexportTests =
     ("direct and facade ADTs share nominal identity in a diamond", testNominalDiamond),
     ("re-exported classes retain original evidence across aliases and diamonds", testClassDiamond),
     ("facades publish their own impls alongside a re-exported class", testFacadeImpl),
+    ("class re-exports combine distinct facade impls and deduplicate repeated paths", testFacadeImplDiamond),
     ("re-exported values carry hidden nominal types without exporting them", testHiddenType),
     ("constructor-only facades retain ownership when reunited with an abstract type", testConstructorOnly),
     ("facade diamonds reuse dependency effects and suppress dependency expressions", testEffects),
@@ -89,12 +90,26 @@ testClassDiamond =
 
 testFacadeImpl :: IO ()
 testFacadeImpl =
+  mapM_ check ["impl Choose(Int) { choose = \\(n) -> 0. }.", ""]
+  where
+    check originalImpl =
+      assertGraph
+        [ ("src/Lib/Source.jz", "module Lib::Source (class Choose) { class Choose(a) { choose :: a -> Int. }. " <> originalImpl <> " }"),
+          ("src/Lib/API.jz", "module Lib::API (class Choose, type Marker(..), value chooseIt, value local) { import Lib::Source. data Marker = Marker. impl Choose(Marker) { choose = \\(n) -> 42. }. chooseIt :: @{Choose(a)}: a -> Int. chooseIt = \\(n) -> Choose::choose n. local = Choose::choose Marker. }"),
+          ("src/App/Main.jz", "module App::Main { import Lib::API as API. (API::local, API::Choose::choose API::Marker, API::chooseIt API::Marker). }")
+        ]
+        "(42, 42, 42)"
+
+testFacadeImplDiamond :: IO ()
+testFacadeImplDiamond =
   assertGraph
-    [ ("src/Lib/Source.jz", "module Lib::Source (class Equal) { class Equal(a) { equal :: a -> a -> Bool. }. impl Equal(Int) { equal = \\(a, b) -> a == b. }. }"),
-      ("src/Lib/API.jz", "module Lib::API (class Equal, type Marker(..), value same) { import Lib::Source. data Marker = Marker. impl Equal(Marker) { equal = \\(a, b) -> True. }. same :: @{Equal(a)}: a -> a -> Bool. same = \\(a, b) -> Equal::equal a b. }"),
-      ("src/App/Main.jz", "module App::Main { import Lib::API as API. (API::Equal::equal API::Marker API::Marker, API::same 1 1, API::same API::Marker API::Marker). }")
+    [ ("src/Lib/Source.jz", "module Lib::Source (class Choose) { class Choose(a) { choose :: a -> Int. }. impl Choose(Int) { choose = \\(n) -> 0. }. }"),
+      ("src/Lib/Left.jz", "module Lib::Left (class Choose, type LeftMarker(..)) { import Lib::Source. data LeftMarker = LeftMarker. impl Choose(LeftMarker) { choose = \\(n) -> 41. }. }"),
+      ("src/Lib/Right.jz", "module Lib::Right (class Choose, type RightMarker(..)) { import Lib::Source. data RightMarker = RightMarker. impl Choose(RightMarker) { choose = \\(n) -> 42. }. }"),
+      ("src/Lib/API.jz", "module Lib::API (class Choose, type LeftMarker(..), type RightMarker(..)) { import Lib::Left. import Lib::Right. }"),
+      ("src/App/Main.jz", "module App::Main { import Lib::API. import Lib::Left. import Lib::Source as Original. (Choose::choose LeftMarker, Choose::choose RightMarker, Original::Choose::choose 0). }")
     ]
-    "(True, True, True)"
+    "(41, 42, 0)"
 
 testHiddenType :: IO ()
 testHiddenType =

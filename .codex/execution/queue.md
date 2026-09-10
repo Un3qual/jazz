@@ -12,8 +12,9 @@ public behavior.
 
 | id  | title | priority | size | kind | autonomous_ready | depends_on | plan | plan_section | target_paths | deliverable | verification | last_verified |
 | --- | ----- | -------- | ---- | ---- | ---------------- | ---------- | ---- | ------------ | ------------ | ----------- | ------------ | ------------- |
+| `JN-MODULE-REEXPORT-REVIEW-001` | Fix verified re-export review findings | `P1` | `M` | `impl` | `yes` | `-` | [review fixes](../plans/2026-09-10-reexport-review-fixes.md) | `Implementation` | `src/Jazz/Compiler/ModuleRuntime.hs`, `src/Jazz/Compiler/ModuleAnalysis.hs`, `src/Jazz/Compiler/ModuleExports.hs`, `src/Jazz/Compiler/ModuleResolver.hs`, `src/Jazz/Compiler/Parser/ModuleDeclaration.hs`, `test/Jazz/Compiler/Modules/Loader/ReexportTests.hs` | Fix the four verified re-export review findings while preserving RFC 0018 behavior. | `cabal test loader-spec module-exports-spec module-resolution-spec module-pipeline-contract-spec --jobs=4 --test-show-details=failures`; `JAZZ_CABAL_JOBS=4 bash scripts/ci/haskell-quality.sh`; `bash scripts/check-execution-queue.sh` | `2026-09-10` |
 
-Current executor status (`2026-09-10`): Ready Now is empty. RFC 0018 explicit module re-exports are implemented in the Haskell compiler at `31f37a13`, with original declaration identities, constructor visibility and explicit class evidence forwarding verified. Bootstrap work remains deferred. There is no source-backed next curation target and no named candidate currently.
+Current executor status (`2026-09-10`): Executing the maintainer-approved review fixes for RFC 0018. Bootstrap remains deferred. There is no source-backed next curation target and no named candidate currently.
 
 ## Next Curation Target
 
