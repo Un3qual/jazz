@@ -54,10 +54,10 @@ rebase already resolved types, binder IDs or implementation evidence.
 
 ### Task 1: Export selection and canonical identity
 
-Owners: `src/Jazz/Compiler/ModuleExports.hs`, `ModuleResolver.hs`,
-`ModuleResolver/Imports.hs`, `ModuleResolver/Names.hs`;
-`test/Jazz/Compiler/Modules/Loader/ReexportTests.hs`, `LoaderSpec.hs`,
-`ModuleExportsSpec.hs`, `ModuleResolutionSpec.hs`, and `jazz.cabal`.
+Owners: `src/Jazz/Compiler/ModuleExports.hs`, `src/Jazz/Compiler/ModuleResolver.hs`,
+`src/Jazz/Compiler/ModuleResolver/Imports.hs`, `src/Jazz/Compiler/ModuleResolver/Names.hs`;
+`test/Jazz/Compiler/Modules/Loader/ReexportTests.hs`, `test/Jazz/Compiler/Modules/LoaderSpec.hs`,
+`test/Jazz/Compiler/Modules/ModuleExportsSpec.hs`, `test/Jazz/Compiler/Modules/ModuleResolutionSpec.hs`, and `jazz.cabal`.
 
 - [x] Add real graph cases for values/closures, ADTs and classes through two
       facades. Start with this failing value program and literal expected `42`:
@@ -89,9 +89,9 @@ that the feature fails at export validation with `E4015` before changing code.
 
 ### Task 2: Compiler and runtime forwarding
 
-Owners: `src/Jazz/Compiler/ModuleAnalysis.hs`, `ModuleCompiler.hs`,
-`ModuleRuntime.hs`; `test/Jazz/Compiler/Modules/ModulePipelineContractSpec.hs`
-and `Loader/ReexportTests.hs`.
+Owners: `src/Jazz/Compiler/ModuleAnalysis.hs`, `src/Jazz/Compiler/ModuleCompiler.hs`,
+`src/Jazz/Compiler/ModuleRuntime.hs`; `test/Jazz/Compiler/Modules/ModulePipelineContractSpec.hs`
+and `test/Jazz/Compiler/Modules/Loader/ReexportTests.hs`.
 
 - [x] Canonicalize each module's owned interface once using its original owner.
       Store `(ModuleExportInventory, ImportedInterface)` for dependencies;
@@ -112,8 +112,8 @@ and `Loader/ReexportTests.hs`.
 
 ### Task 3: Documentation, verification and closeout
 
-Owners: `docs/language/modules.md`, `capabilities.md`,
-`docs/reference/module-resolution.md`, `expression-grammar.md`, diagnostics
+Owners: `docs/language/modules.md`, `docs/language/capabilities.md`,
+`docs/reference/module-resolution.md`, `docs/reference/expression-grammar.md`, `docs/reference/diagnostics.md`
 as needed, `docs/project/status.md`, `examples/modules/`,
 `test/Jazz/Repository/AuditSpec.hs`, `scripts/check-examples.py`, and queue state.
 

@@ -539,7 +539,7 @@ validatePublicExportInventory sourcePath modulePath maybeExplicitExports localIn
                         <> "' in"
                   }
 
-    availableNames = declarationExportNames availableInventory
+    availableNames = declarationExportNames localInventory
     renderAvailableDeclarations selector =
       case moduleExportSelectorNamespace selector of
         Nothing -> renderDeclarationNames availableNames

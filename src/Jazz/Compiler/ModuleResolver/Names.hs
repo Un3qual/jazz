@@ -172,12 +172,13 @@ resolveExprNames context rootExpression = Right (resolveExpr Map.empty rootExpre
               memberText = identifierText member
            in case Map.lookup qualifierText aliasPaths of
                 Just dependencyPath ->
-                  UserName
-                    ( ResolvedUserName
-                        (resolvedImportOrigin dependencyPath (importedNamespace dependencyPath memberText namespace) memberText)
-                        (importedNamespace dependencyPath memberText namespace)
-                        member
-                    )
+                  let resolvedNamespace = importedNamespace dependencyPath memberText namespace
+                   in UserName
+                        ( ResolvedUserName
+                            (resolvedImportOrigin dependencyPath resolvedNamespace memberText)
+                            resolvedNamespace
+                            member
+                        )
                 Nothing ->
                   UserName
                     ( ResolvedUserName
@@ -208,12 +209,13 @@ resolveExprNames context rootExpression = Right (resolveExpr Map.empty rootExpre
       | localName namespace nameText =
           UserName (ResolvedUserName CurrentModule namespace identifier)
       | Just dependencyPath <- importedOrigin namespace nameText =
-          UserName
-            ( ResolvedUserName
-                (resolvedImportOrigin dependencyPath (importedNamespace dependencyPath nameText namespace) nameText)
-                (importedNamespace dependencyPath nameText namespace)
-                identifier
-            )
+          let resolvedNamespace = importedNamespace dependencyPath nameText namespace
+           in UserName
+                ( ResolvedUserName
+                    (resolvedImportOrigin dependencyPath resolvedNamespace nameText)
+                    resolvedNamespace
+                    identifier
+                )
       | ambientName namespace nameText =
           UserName (ResolvedUserName AmbientPrelude namespace identifier)
       | namespace == ValueNamespace,

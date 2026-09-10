@@ -6,6 +6,7 @@ import Data.IORef (modifyIORef', newIORef, readIORef)
 import qualified Data.Map.Strict as Map
 import Data.Text (Text)
 import Jazz.Compiler.Diagnostics (SourceSpan (..))
+import Jazz.Compiler.Diagnostics.Render (renderDiagnostic)
 import Jazz.Compiler.Driver
   ( runCompileErrors,
     runModuleGraphWithPrelude,
@@ -16,7 +17,7 @@ import Jazz.Compiler.Driver
 import Jazz.Compiler.Modules.Loader.Shared (lookupSourceIn, resolverConfig)
 import Jazz.Compiler.RuntimeHost (RuntimeHost (..), disabledRuntimeHost)
 import Jazz.Compiler.WarningConfig (defaultWarningSettings)
-import Jazz.TestHarness (NamedTest, assertEqual, assertSingleDiagnosticCode, assertSingleDiagnosticPrimaryStart)
+import Jazz.TestHarness (NamedTest, assertContains, assertEqual, assertSingleDiagnosticCode, assertSingleDiagnosticPrimaryStart)
 
 reexportTests :: [NamedTest]
 reexportTests =
@@ -29,7 +30,8 @@ reexportTests =
     ("re-exported values carry hidden nominal types without exporting them", testHiddenType),
     ("constructor-only facades retain ownership when reunited with an abstract type", testConstructorOnly),
     ("facade diamonds reuse dependency effects and suppress dependency expressions", testEffects),
-    ("invalid typed exports point at the selected name", testExportLocation)
+    ("invalid typed exports point at the selected name", testExportLocation),
+    ("bare export diagnostics list only owned declarations", testBareExportDiagnostic)
   ]
     ++ [ (label, assertRejected selector imports "E4015")
        | (label, selector, imports) <-
@@ -49,7 +51,7 @@ reexportTests =
          ("a later facade cannot recover a hidden constructor", testHiddenConstructorChain),
          ("ambient declarations cannot satisfy typed exports", testAmbientExport),
          ("distinct facade-owned implementations remain ambiguous", testConflictingImpls),
-         ("a shared class cannot hide a value-constructor import collision", testExpressionNamespaceCollision)
+         ("shared declarations cannot hide a value-constructor import collision", testExpressionNamespaceCollision)
        ]
 
 assertGraph :: [(FilePath, Text)] -> Text -> IO ()
@@ -284,7 +286,47 @@ testConflictingImpls = do
   assertSingleDiagnosticCode "distinct implementations remain ambiguous" "E2015" (runCompileErrors result)
 
 testExpressionNamespaceCollision :: IO ()
-testExpressionNamespaceCollision = do
+testExpressionNamespaceCollision =
+  mapM_
+    check
+    [ (source, left, right, imports)
+    | (source, left, right) <-
+        [ ( "module Lib::Source (class Token) { class Token(a) { }. }",
+            "module Lib::Left (class Token, value Token) { import Lib::Source. Token = 1. }",
+            "module Lib::Right (class Token, constructor Token) { import Lib::Source. data Other = Token. }"
+          ),
+          ( "module Lib::Source (value Token) { Token = 1. }",
+            "module Lib::Left (value Token) { import Lib::Source. }",
+            "module Lib::Right (value Token, constructor Token) { import Lib::Source. data Other = Token. }"
+          ),
+          ( "module Lib::Source (constructor Token) { data Other = Token. }",
+            "module Lib::Left (constructor Token) { import Lib::Source. }",
+            "module Lib::Right (constructor Token, value Token) { import Lib::Source. Token = 1. }"
+          )
+        ],
+      imports <- ["import Lib::Left. import Lib::Right.", "import Lib::Right. import Lib::Left."]
+    ]
+  where
+    check (source, left, right, imports) = do
+      result <-
+        runModuleGraphWithPrelude
+          defaultWarningSettings
+          Nothing
+          resolverConfig
+          ["App", "Main"]
+          ( lookupSourceIn
+              ( Map.fromList
+                  [ ("src/Lib/Source.jz", source),
+                    ("src/Lib/Left.jz", left),
+                    ("src/Lib/Right.jz", right),
+                    ("src/App/Main.jz", "module App::Main { " <> imports <> " Token. }")
+                  ]
+              )
+          )
+      assertSingleDiagnosticCode "shared declarations do not mask conflicting expressions" "E4008" (runCompileErrors result)
+
+testBareExportDiagnostic :: IO ()
+testBareExportDiagnostic = do
   result <-
     runModuleGraphWithPrelude
       defaultWarningSettings
@@ -293,11 +335,10 @@ testExpressionNamespaceCollision = do
       ["App", "Main"]
       ( lookupSourceIn
           ( Map.fromList
-              [ ("src/Lib/Source.jz", "module Lib::Source (class Token) { class Token(a) { }. }"),
-                ("src/Lib/Left.jz", "module Lib::Left (class Token, value Token) { import Lib::Source. Token = 1. }"),
-                ("src/Lib/Right.jz", "module Lib::Right (class Token, constructor Token) { import Lib::Source. data Other = Token. }"),
-                ("src/App/Main.jz", "module App::Main { import Lib::Left. import Lib::Right. Token. }")
+              [ ("src/Lib/Source.jz", "module Lib::Source { imported = 1. }"),
+                ("src/App/Main.jz", "module App::Main (imported) { import Lib::Source. owned = 0. }")
               ]
           )
       )
-  assertSingleDiagnosticCode "shared class does not mask conflicting expressions" "E4008" (runCompileErrors result)
+  assertSingleDiagnosticCode "bare imported export" "E4015" (runCompileErrors result)
+  assertContains "available bare exports" "available declarations: owned" (foldMap renderDiagnostic (runCompileErrors result))

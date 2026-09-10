@@ -248,16 +248,12 @@ prepareModuleEvaluation entryPath analyzedProgram ambientEnv runtimeModules anal
           then EvaluateEntryModule
           else EvaluateDependencyModule,
       preparedModuleImportedEnvironment =
-        foldr
-          (importRuntimeModule analyzedProgram (accumulatedRuntimeModulesByPath runtimeModules))
-          ambientEnv
-          (coreModuleImports analyzedModule),
+        foldr importRuntimeExport ambientEnv importedExports,
       preparedModuleExports =
         Set.fromList $
           interfaceExports (moduleExportInventory analyzedModule) (coreModuleInterface analyzedModule)
             <> [ entry
-               | importDecl <- coreModuleImports analyzedModule,
-                 (origin, entry, _) <- selectedRuntimeExports analyzedProgram (accumulatedRuntimeModulesByPath runtimeModules) importDecl,
+               | (origin, entry, _) <- importedExports,
                  let declaration = runtimeExportDeclaration entry,
                  inventoryHasExport declaration (moduleExportInventory analyzedModule),
                  exportOrigin modulePath declaration (moduleExportInventory analyzedModule) == origin,
@@ -266,6 +262,10 @@ prepareModuleEvaluation entryPath analyzedProgram ambientEnv runtimeModules anal
     }
   where
     modulePath = coreModulePath analyzedModule
+    importedExports =
+      concatMap
+        (selectedRuntimeExports analyzedProgram (accumulatedRuntimeModulesByPath runtimeModules))
+        (coreModuleImports analyzedModule)
 
 completeModuleEvaluation ::
   PreparedModuleEvaluation ->
@@ -319,16 +319,13 @@ evaluatePreludeWithEvaluationHost host analyzedPrelude =
           )
           scopeResult
 
-importRuntimeModule :: CoreProgram 'Analyzed -> Map ModulePath RuntimeModule -> ModuleImport 'Analyzed -> RuntimeEnv -> RuntimeEnv
-importRuntimeModule analyzedProgram runtimeModules importDecl env =
-  foldr insertExport env (selectedRuntimeExports analyzedProgram runtimeModules importDecl)
+importRuntimeExport :: (ModulePath, RuntimeExport, RuntimeCell) -> RuntimeEnv -> RuntimeEnv
+importRuntimeExport (origin, entry, cell) =
+  case entry of
+    RuntimeBindingExport {} -> Map.insert name cell
+    RuntimeCapabilityMethodExport {} -> Map.insertWith mergeClassMethodCells name cell
   where
-    insertExport (origin, entry, cell) =
-      case entry of
-        RuntimeBindingExport {} -> Map.insert name cell
-        RuntimeCapabilityMethodExport {} -> Map.insertWith mergeClassMethodCells name cell
-      where
-        name = runtimeExportResolvedName (ImportedModule origin) entry
+    name = runtimeExportResolvedName (ImportedModule origin) entry
 
 -- Each route can add implementations of the same original class. Keep their
 -- captured cells and deduplicate only repeated method identities.

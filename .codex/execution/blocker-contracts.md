@@ -77,8 +77,9 @@ Each blocked item should answer these questions:
 - Decision needed: none for that child. RFC 0017 additionally implements
   alias-qualified classes in Haskell. Preserve qualified and unqualified class
   capability imports, class-attached impl payloads,
-  and module boundaries that forward imported class evidence only through
-  explicit class re-exports under RFC 0018.
+  and module boundaries that publish imported class payloads only through
+  explicit class re-exports under RFC 0018, while retaining hidden evidence
+  needed by exported values.
 - Recommended default: keep the landed typed inventory behavior. Keep
   user-visible dictionaries, dictionary optimization, default methods,
   superclasses, new bundled method families and new impl policy blocked behind

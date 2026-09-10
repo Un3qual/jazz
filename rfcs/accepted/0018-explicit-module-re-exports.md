@@ -157,10 +157,10 @@ dependency-sensitive export validation moves after dependency discovery.
 
 Extend the current shared module boundary rather than adding a second resolver
 or independently rediscovering origins at runtime. The concrete owners are
-`src/Jazz/Compiler/ModuleExports.hs`, `ModuleGraph.hs`, `ModuleResolver.hs`,
-`ModuleResolver/Imports.hs`, `ModuleResolver/Names.hs`, `ModuleInterface.hs`,
-`ModuleAnalysis.hs`, `ModuleCompiler.hs`, and `ModuleRuntime.hs`; change
-`TypeInference.hs` only as needed for interface assembly and identity transport.
+`src/Jazz/Compiler/ModuleExports.hs`, `src/Jazz/Compiler/ModuleGraph.hs`, `src/Jazz/Compiler/ModuleResolver.hs`,
+`src/Jazz/Compiler/ModuleResolver/Imports.hs`, `src/Jazz/Compiler/ModuleResolver/Names.hs`, `src/Jazz/Compiler/ModuleInterface.hs`,
+`src/Jazz/Compiler/ModuleAnalysis.hs`, `src/Jazz/Compiler/ModuleCompiler.hs`, and `src/Jazz/Compiler/ModuleRuntime.hs`; change
+`src/Jazz/Compiler/TypeInference.hs` only as needed for interface assembly and identity transport.
 Public export metadata must distinguish public selection from private semantic
 dependencies. Preserve original binder IDs and implementation owners.
 

@@ -391,6 +391,7 @@ validateImportBindings sourcePath importerPath imports localClassNames reference
       where
         declarations = declarationsFor importDecl [ValueNamespace, ConstructorNamespace, CapabilityNamespace] symbolName
 
+    declarationsFor :: ResolverImport -> [NameNamespace] -> Text -> Map NameNamespace ModulePath
     declarationsFor importDecl namespaces symbolName =
       case dependencyInventory importDecl of
         Nothing -> Map.empty
@@ -402,13 +403,14 @@ validateImportBindings sourcePath importerPath imports localClassNames reference
               inventoryHasExport entry inventory
             ]
 
+    sameDeclarations :: BindingOrigin -> Map NameNamespace ModulePath -> Bool
     sameDeclarations previous declarations =
       let previousDeclarations = bindingOriginDeclarations previous
           common = Map.intersection previousDeclarations declarations
           expressionNamespaces = Set.fromList [ValueNamespace, ConstructorNamespace]
           previousExpressions = Map.keysSet previousDeclarations `Set.intersection` expressionNamespaces
           expressions = Map.keysSet declarations `Set.intersection` expressionNamespaces
-          compatibleExpressions = Set.null previousExpressions || Set.null expressions || not (Set.disjoint previousExpressions expressions)
+          compatibleExpressions = Set.null previousExpressions || Set.null expressions || previousExpressions == expressions
        in not (Map.null common) && common == Map.intersection declarations previousDeclarations && compatibleExpressions
 
     mkMissingImportSymbolError :: Text -> ResolverImport -> Set Text -> Diagnostic
