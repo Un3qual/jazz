@@ -74,12 +74,13 @@ Each blocked item should answer these questions:
   inventory landed under module ownership as
   `JN-MODULE-TYPED-EXPORT-INVENTORY-001`; there is no separate abstraction
   child to promote.
-- Decision needed: none for that child. Preserve current non-aliased class
-  capability imports, alias-hidden capabilities, class-attached impl payloads,
+- Decision needed: none for that child. RFC 0017 additionally implements
+  alias-qualified classes in Haskell. Preserve qualified and unqualified class
+  capability imports, class-attached impl payloads,
   and non-transitive module boundaries.
 - Recommended default: keep the landed typed inventory behavior. Keep
   user-visible dictionaries, dictionary optimization, default methods,
-  superclasses, new bundled method families, alias-qualified classes,
+  superclasses, new bundled method families,
   re-exports, and new impl policy blocked behind separate contracts.
 - Candidate child: none currently.
 - Target paths: not set; no independent abstraction paths are open after the
@@ -90,8 +91,9 @@ Each blocked item should answer these questions:
   `Eq(Bool).equals`, `Eq(Float).equals`, `Eq(Float16).equals`,
   `Eq(Float32).equals`, or `Eq(Float64).equals` work; unqualified overloads,
   dictionary passing/optimization, default methods, superclasses, non-alias
-  overlap/orphan behavior, alias-qualified classes, re-exports, or any method
-  visibility expansion beyond the landed typed inventory contract.
+  overlap/orphan behavior, re-exports, or any method visibility expansion
+  beyond the landed typed inventory and RFC 0017 contracts. Hosted parity
+  for RFC 0017 remains deferred by the maintainer.
 
 ### JN-USER-DEFINED-OPERATORS-PLAN-001
 
@@ -209,10 +211,13 @@ Each blocked item should answer these questions:
 ### JN-MODULE-REBASE-PLAN-001
 
 - Smallest unblocker: none currently. The namespace-aware module export child
-  landed as `JN-MODULE-NAMESPACE-AWARE-EXPORT-001`.
+  landed as `JN-MODULE-NAMESPACE-AWARE-EXPORT-001`, followed by Haskell
+  alias-qualified classes under `JN-MODULE-ALIAS-QUALIFIED-CLASSES-001` (RFC 0017).
 - Decision needed: none. Optional namespace prefixes, bare-selector
   compatibility, omitted-list export-all, `()` export-nothing, local/public
-  inventory separation, and no re-exports are implemented.
+  inventory separation, alias-qualified methods/constraints/impl heads, and
+  no re-exports are implemented. Hosted qualification parity is explicitly
+  deferred, including existing parser comparisons affected by the new grammar.
 - Recommended default: preserve the completed namespace-aware export contract
   and `E4007`-`E4015` diagnostics until a separate source-backed module behavior
   contract is accepted.
@@ -233,7 +238,7 @@ Each blocked item should answer these questions:
   inventory; focused and full verification passed on `2026-07-10`.
 - Not in scope: re-exports, wildcard or constructor-group shorthand, body-level
   export declarations, visibility modifiers, cross-module operators,
-  alias-qualified classes, separate impl imports, orphan/overlap policy,
+  separate impl imports, orphan/overlap policy,
   default methods, superclasses, effects, new prelude/catalog API, public
   builtin fallback in no-prelude mode, or package/module-root semantics.
 

@@ -1,6 +1,6 @@
 ---
 id: JN-MODULE-ALIAS-QUALIFIED-CLASSES-001
-status: ready
+status: complete
 priority: P1
 size: L
 kind: impl
@@ -10,19 +10,20 @@ plan_section: "Implementation"
 target_paths:
   - src/Jazz/Compiler/ModuleResolver.hs
   - src/Jazz/Compiler/ModuleAnalysis.hs
-  - jazz/compiler/ParserExpression.jz
+  - src/Jazz/Compiler/Parser/Expression.hs
 verification:
-  - cabal test all --jobs=4 --test-show-details=failures
+  - cabal test loader-spec parser-foundation-spec source-ranges-spec module-resolution-spec module-exports-spec module-pipeline-contract-spec --jobs=4 --test-show-details=failures
+  - JAZZ_CABAL_JOBS=4 bash scripts/ci/haskell-quality.sh
   - bash scripts/check-execution-queue.sh
   - bash scripts/check-docs.sh
-deliverable: "Alias-qualified class methods, constraints and impl heads preserve identity and visibility across both frontends."
+deliverable: "Alias-qualified class methods, constraints and impl heads preserve identity and visibility in the Haskell compiler."
 last_verified: 2026-09-09
 ---
 
 # Alias-qualified Classes Implementation Plan
 
-Use the subagent-driven-development workflow for independent frontend work;
-keep integration and final verification in this existing isolated worktree.
+Execute the remaining implementation, review and verification inline in this
+existing isolated worktree, as requested by the maintainer during implementation.
 
 **Goal:** Implement the maintainer-approved RFC 0017 as a complete module batch.
 
@@ -31,7 +32,7 @@ references to original module identities before inference. Import the same
 public class facts and evidence for qualified access as for unqualified access.
 Preserve existing runtime dispatch and explicit module publication boundaries.
 
-**Tech stack:** Haskell, hosted Jazz, pinned Nix development and quality shells.
+**Tech stack:** Haskell, pinned Nix development and quality shells.
 
 **Spec:** `rfcs/accepted/0017-alias-qualified-classes.md`, approved in this task.
 
@@ -40,7 +41,7 @@ Preserve existing runtime dispatch and explicit module publication boundaries.
 - Exactly two components for a qualified class and three for a qualified method.
 - Preserve class identity, private visibility, impl policy and existing syntax.
 - Keep module aliases, classes and methods structurally distinguishable.
-- Match Haskell and hosted parser/canonical-core behavior.
+- Hosted frontend and bootstrap feature work are explicitly deferred.
 - No re-exports, imported operators, new class features or backend work.
 - Commit milestones and close queue/public documentation together at completion.
 
@@ -53,15 +54,15 @@ Owners: `src/Jazz/Compiler/Name.hs`, `src/Jazz/Compiler/Parser/AST.hs`,
 `src/Jazz/Compiler/Parser/CapabilityDeclaration.hs`,
 `src/Jazz/Compiler/Parser/Lower.hs`, parser and canonical comparison tests.
 
-- [ ] Add failing parser cases for `Facts::Eq::equals 1 1`,
+- [x] Add failing parser cases for `Facts::Eq::equals 1 1`,
       `same :: @{Facts::Eq(a)}: a -> a -> Bool.`, and a qualified impl head.
       Verify malformed and four-component names and qualified class declarations
       fail. Use the expression/declaration/parser-foundation suites.
-- [ ] Represent a three-part method explicitly in the surface and source-name
+- [x] Represent a three-part method explicitly in the surface and source-name
       types; lower to the existing variable expression with that source name.
       Retain separate two-component names. Extend impl header parsing to retain
       qualification and preserve source ranges and purity of the final member.
-- [ ] Update exhaustive consumers and canonical adapters. Verify parser suites
+- [x] Update exhaustive consumers and canonical adapters. Verify parser suites
       and commit the coherent syntax change once integration compiles.
 
 ### Task 2: Qualified module identity, visibility and evidence
@@ -72,44 +73,38 @@ Owners: `src/Jazz/Compiler/ModuleResolver.hs`,
 `src/Jazz/Compiler/ModuleExports.hs`, `src/Jazz/Compiler/ModuleAnalysis.hs`,
 `test/Jazz/Compiler/Modules/Loader/CapabilitiesTests.hs`.
 
-- [ ] First establish the existing loader baseline, then add a failing graph:
+- [x] First establish the existing loader baseline, then add a failing graph:
       `import Lib::Facts as Facts. Facts::Eq::equals 1 1.` with an exported
       `Eq` class and concrete integer implementation; assert output `True`.
-- [ ] Collect qualified class references separately from type/value references;
+- [x] Collect qualified class references separately from type/value references;
       validate against explicit aliases and public capability inventories.
       Resolve the structured method to its module-owned class/method identity.
       Qualified constraint and impl names use the same class namespace lookup.
-- [ ] Include public classes in aliased interfaces. Deduplicate repeated access
+- [x] Include public classes in aliased interfaces. Deduplicate repeated access
       to the same evidence identity while retaining distinct conflicting impls.
       Verify direct/stored/partial/explicit methods, constrained functions,
       qualified impls for local ADTs, and hidden evidence transport.
-- [ ] Verify different same-text classes, two aliases and mixed imports,
+- [x] Verify different same-text classes, two aliases and mixed imports,
       private/missing classes and methods, namespace mismatch, unqualified
       isolation, duplicate impl errors, and no re-exports. Commit verified work.
 
-### Task 3: Hosted frontend parity
+### Task 3: Hosted frontend parity — deferred by maintainer
 
-Owners: `jazz/compiler/ParserTypes.jz`, `jazz/compiler/ParserExpression.jz`,
-`jazz/compiler/ParserDeclaration.jz`, `jazz/compiler/CoreTypes.jz`,
-`jazz/compiler/CoreLower.jz`, hosted/canonical adapter and comparison suites.
-
-- [ ] Add shared source corpus cases for all three forms and malformed names;
-      run canonical-parser/core comparison to establish missing behavior.
-- [ ] Mirror the agreed structured method and qualified impl representation,
-      adjacent-component grammar and canonical lowering. Retain old forms.
-- [ ] Run canonical parser/core comparisons plus hosted declaration/expression
-      suites; commit parity once the complete source pipeline passes.
+The maintainer removed all bootstrap-related work from the active batch.
+Discard the draft hosted parser/lowering changes and new parity cases. Retain
+only exhaustive Haskell test-adapter cases needed for existing suites to build.
+Run existing suites as regression checks without extending the hosted profile.
 
 ### Task 4: Public contract, integration and closeout
 
-- [ ] Add an executable aliased-class module example and document qualified
+- [x] Add an executable aliased-class module example and document qualified
       methods, constraints and impl heads in module/capability/grammar references.
       Correct the existing overly broad claim that imported methods cannot run.
-- [ ] Run all supported suites, examples, formatter/linter, quality and repository
+- [x] Run all supported suites, examples, formatter/linter, quality and repository
       checks through pinned shells; resolve failures against their root cause.
-- [ ] Review the complete diff for RFC coverage and maintainability, resolve
+- [x] Review the complete diff for RFC coverage and maintainability, resolve
       verified findings, and rerun affected checks.
-- [ ] Mark this plan complete, record actual checks and commits, remove the ready
+- [x] Mark this plan complete, record actual checks and commits, remove the ready
       row, reconcile blocker contracts and shipped status, and commit closeout.
 
 ## Execution record
@@ -117,3 +112,53 @@ Owners: `jazz/compiler/ParserTypes.jz`, `jazz/compiler/ParserExpression.jz`,
 - Maintainer approved RFC 0017. Existing isolated detached worktree retained.
 - Local default Cabal lacks a Hackage index; use the pinned Nix shell, invoked
   through `/nix/var/nix/profiles/default/bin/nix` because Nix is absent from PATH.
+- After the maintainer requested inline execution, both agents were stopped.
+  Remaining implementation, review, fixes and verification ran inline.
+- The maintainer deferred bootstrap work. Draft changes under `jazz/compiler/`
+  and new hosted fixtures were discarded. Only exhaustive Haskell canonical
+  adapter cases remain so existing suites can build.
+- Parser and loader regressions went from failure to passing. Inline review
+  also reproduced and fixed missing-method source locations for both direct
+  calls and stored method values. Import validation locates alias/class tokens
+  using the existing lexical pass; resolution preserves defining identities.
+- Feature, executable example and public contract committed as `b36baa72`.
+
+## Verification
+
+- All 47 non-bootstrap suites passed. The broad run passed 45; the source
+  inventory expectation was then updated for the new examples, and
+  `repository-audit-spec` plus the unscheduled `warning-config-spec` passed in
+  targeted follow-ups. Earlier compiler errors in exhaustive test adapters were
+  fixed and verified before this run.
+- `cabal build all --jobs=4` passed. The quality gate additionally built every
+  test and benchmark, including opt-in parser scale suites, in a fresh directory.
+- `JAZZ_CABAL_JOBS=4 bash scripts/ci/haskell-quality.sh` in the pinned quality
+  shell passed: HLint reported no hints, production and full Weeder scans passed,
+  and generated invariant tests passed.
+- Ormolu checks passed for changed Haskell files. `scripts/check-examples.sh`
+  passed all examples and public documentation execution, including
+  `qualified-class` with output `(True, False, True)`.
+- `scripts/check-docs.sh`, `scripts/check-execution-queue.sh`, and
+  `git diff --check` passed. No hosted source implementation changes remain.
+
+The non-bootstrap suite selection is reproducible in the pinned development
+shell with:
+
+```bash
+cabal test $(awk '
+  /^[a-z]/ { suite = "" }
+  /^test-suite / { suite = $2 }
+  /main-is:/ && suite != "" && $0 !~ /\/Bootstrap\// { print suite }
+' jazz.cabal) --jobs=4 --test-show-details=failures
+```
+
+## Deferred hosted parity
+
+The full `cabal test all --jobs=4 --test-show-details=failures` regression run
+found ten failures in `jazz-parser-types-declarations-modules-spec`. Its
+comparisons cover qualified constraints, parenthesized qualified signature
+payloads, newly accepted three-component methods, and overlong qualification
+diagnostics. The Haskell grammar now accepts or diagnoses those forms differently
+from the unchanged hosted parser. These failures remain explicitly deferred;
+the full bootstrap-inclusive suite is not green. No hosted tests were removed
+or weakened to hide this difference.
