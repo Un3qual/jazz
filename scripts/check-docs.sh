@@ -76,7 +76,11 @@ done
 require_file "docs/project/status.md"
 require_file "docs/project/governance.md"
 require_file ".codex/execution/blocker-contracts.md"
-require_pattern "docs/project/status.md" "verification date" '^Updated: 2026-09-07$'
+require_pattern "docs/project/status.md" "verification date" '^Updated: [0-9]{4}-[0-9]{2}-[0-9]{2}$'
+if ! python3 -c 'from datetime import date; import sys; date.fromisoformat(sys.argv[1])' \
+  "$(sed -n 's/^Updated: //p' docs/project/status.md)" 2>/dev/null; then
+  fail "docs/project/status.md must contain a valid verification date"
+fi
 require_pattern ".codex/execution/blocker-contracts.md" "blocker contract template" '^## Promotion Contract Template'
 
 removed_paths=(

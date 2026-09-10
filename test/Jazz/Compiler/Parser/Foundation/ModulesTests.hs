@@ -16,6 +16,8 @@ import Jazz.Compiler.ModuleExports
   )
 import Jazz.Compiler.Name
   ( NameNamespace (ValueNamespace),
+    mkQualifiedIdentifier,
+    qualifiedMethodName,
     qualifiedName,
   )
 import Jazz.Compiler.Parser.AST
@@ -33,6 +35,7 @@ import Jazz.TestCore
     loweredApply,
     loweredBlock,
     loweredExpression,
+    loweredImpl,
     loweredLet,
     loweredLiteral,
     loweredVariable,
@@ -42,6 +45,7 @@ import Jazz.TestHarness
   ( NamedTest,
     assertEqual,
     assertRight,
+    failTest,
   )
 
 moduleTests :: [NamedTest]
@@ -50,6 +54,8 @@ moduleTests =
     ("parses reserved value as an export selector", testParsesValueExportSelector),
     ("parses trait as an ordinary import alias", testParsesTraitAsImportAlias),
     ("lowers class-qualified method reference as variable", testLowersClassQualifiedMethodReference),
+    ("parses and lowers alias-qualified class method reference", testLowersAliasQualifiedClassMethodReference),
+    ("parses and lowers alias-qualified impl head", testLowersAliasQualifiedImplHead),
     ("parses class and impl capability declarations inside module bodies", testParsesCapabilityDeclarationsInModuleBody)
   ]
 
@@ -141,6 +147,79 @@ testLowersClassQualifiedMethodReference =
                 loweredExpression (SourceSpan 2 1) (loweredVariable "result")
               ]
           )
+          (lowerSurfaceExpr surfaceProgram)
+    )
+
+testLowersAliasQualifiedClassMethodReference :: IO ()
+testLowersAliasQualifiedClassMethodReference =
+  assertRight
+    "parse alias-qualified class method reference"
+    (parseSurfaceProgramPoints "Facts::Eq::equals 1 1.")
+    ( \surfaceProgram -> do
+        case surfaceProgram of
+          SurfaceExpr
+            _
+            ( SEBlock
+                [ SSExpr
+                    _
+                    ( SurfaceExpr
+                        _
+                        ( SEApply
+                            ( SurfaceExpr
+                                _
+                                ( SEApply
+                                    (SurfaceExpr _ (SEQualifiedMethod aliasName className methodName _))
+                                    _
+                                  )
+                              )
+                            _
+                          )
+                      )
+                  ]
+              ) ->
+              assertEqual
+                "alias-qualified method components"
+                ("Facts", "Eq", "equals")
+                (aliasName, className, methodName)
+          _ -> failTest "expected an alias-qualified class method application"
+        assertLoweredCoreEqual
+          "lowered alias-qualified class method reference"
+          ( loweredBlock
+              [ loweredExpression
+                  (SourceSpan 1 1)
+                  ( loweredApply
+                      ( loweredApply
+                          (loweredVariable (qualifiedMethodName "Facts" "Eq" "equals"))
+                          (loweredLiteral (LInt 1))
+                      )
+                      (loweredLiteral (LInt 1))
+                  )
+              ]
+          )
+          (lowerSurfaceExpr surfaceProgram)
+    )
+
+testLowersAliasQualifiedImplHead :: IO ()
+testLowersAliasQualifiedImplHead =
+  assertRight
+    "parse alias-qualified impl head"
+    (parseSurfaceProgramPoints "impl Facts::Eq(Int) { }.")
+    ( \surfaceProgram -> do
+        assertEqual
+          "alias-qualified impl surface name"
+          ( e 1 1 $
+              SEBlock
+                [ SSImpl
+                    (SourceSpan 1 1)
+                    (mkQualifiedIdentifier "Facts" "Eq")
+                    [TypeInt]
+                    []
+                ]
+          )
+          surfaceProgram
+        assertLoweredCoreEqual
+          "lowered alias-qualified impl head"
+          (loweredBlock [loweredImpl (SourceSpan 1 1) (qualifiedName "Facts" "Eq") [TypeInt] []])
           (lowerSurfaceExpr surfaceProgram)
     )
 

@@ -11,6 +11,10 @@ import Jazz.Compiler.AST
 import Jazz.Compiler.Diagnostics
   ( SourceSpan (..),
   )
+import Jazz.Compiler.Name
+  ( mkQualifiedIdentifier,
+    qualifiedName,
+  )
 import Jazz.Compiler.Parser.AST
   ( SurfaceClassMethodSignature (..),
     SurfaceExpr (..),
@@ -55,6 +59,7 @@ import Jazz.TestHarness
 signatureTests :: [NamedTest]
 signatureTests =
   [ ("parses signature statement with source span", testParseSignatureSpan),
+    ("parses qualified result types after arrows", testParseQualifiedResultTypes),
     ("parses Char and Text signatures", testParsesCharAndTextSignatures),
     ("parses generic named signatures", testParsesGenericNamedSignatures),
     ("normalizes List application syntax", testNormalizesListApplicationSyntax),
@@ -67,6 +72,7 @@ signatureTests =
     ("parses parenthesized function override into structured nodes", testParseParenthesizedFunctionOverrideSignature),
     ("parses list of parenthesized function types", testParseFunctionListSignature),
     ("parses constrained signature into structured nodes", testParseConstrainedSignaturePayload),
+    ("parses and lowers alias-qualified class constraint", testAliasQualifiedClassConstraint),
     ("parses constrained signature with empty constraint block", testParseEmptyConstraintBlockSignaturePayload),
     ("parses constrained tuple signature into structured nodes", testParseConstrainedTupleSignaturePayload),
     ("parses explicit type application expression", testParseExplicitTypeApplicationExpression),
@@ -83,6 +89,26 @@ signatureTests =
     ("parses operator keyword as an ordinary signature name", testParsesOperatorKeywordAsSignatureName),
     ("parses class method signature metadata", testParsesClassMethodSignatureMetadata)
   ]
+
+testParseQualifiedResultTypes :: IO ()
+testParseQualifiedResultTypes =
+  assertRight
+    "qualified result type"
+    (parseSurfaceProgramPoints "f :: Int -> Facts::OnlyType.")
+    ( assertEqual
+        "qualified result signature"
+        ( e
+            1
+            1
+            ( SEBlock
+                [ SSSignature
+                    "f"
+                    (SourceSpan 1 1)
+                    (SignatureType (TypeFunction TypeInt (TypeName (mkQualifiedIdentifier "Facts" "OnlyType"))))
+                ]
+            )
+        )
+    )
 
 testParseSignatureSpan :: IO ()
 testParseSignatureSpan =
@@ -416,6 +442,51 @@ testParseConstrainedSignaturePayload =
         f :: @{Eq(a), Ord(b)}: a -> b -> c.
         f = combine.
         """
+    )
+
+testAliasQualifiedClassConstraint :: IO ()
+testAliasQualifiedClassConstraint =
+  assertRight
+    "parse alias-qualified class constraint"
+    ( parseSurfaceProgramPoints
+        """
+        same :: @{Facts::Eq(a)}: a -> a -> Bool.
+        same = identity.
+        """
+    )
+    ( \surfaceProgram -> do
+        assertEqual
+          "alias-qualified constraint surface name"
+          ( e 1 1 $
+              SEBlock
+                [ SSSignature
+                    "same"
+                    (SourceSpan 1 1)
+                    ( ConstrainedSignature
+                        [ SignatureConstraint
+                            (mkQualifiedIdentifier "Facts" "Eq")
+                            [TypeVariable "a"]
+                        ]
+                        (TypeFunction (TypeVariable "a") (TypeFunction (TypeVariable "a") TypeBool))
+                    ),
+                  SSLet "same" (SourceSpan 2 1) (e 2 8 $ SEVar "identity")
+                ]
+          )
+          surfaceProgram
+        assertLoweredCoreEqual
+          "lowered alias-qualified class constraint"
+          ( loweredBlock
+              [ loweredSignature
+                  "same"
+                  (SourceSpan 1 1)
+                  ( ConstrainedSignature
+                      [SignatureConstraint (qualifiedName "Facts" "Eq") [TypeVariable "a"]]
+                      (TypeFunction (TypeVariable "a") (TypeFunction (TypeVariable "a") TypeBool))
+                  ),
+                loweredLet "same" (SourceSpan 2 1) (loweredVariable "identity")
+              ]
+          )
+          (lowerSurfaceExpr surfaceProgram)
     )
 
 testParseEmptyConstraintBlockSignaturePayload :: IO ()

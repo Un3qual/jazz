@@ -23,6 +23,7 @@ import Jazz.Compiler.Driver
     runOutput,
     runRuntimeErrors,
   )
+import Jazz.Compiler.Modules.Loader.AliasClassTests (aliasClassTests)
 import Jazz.Compiler.Modules.Loader.BasicTests (basicTests)
 import Jazz.Compiler.Modules.Loader.CapabilitiesTests (capabilitiesTests)
 import Jazz.Compiler.Modules.Loader.DiagnosticsTests (diagnosticTests)
@@ -79,6 +80,7 @@ tests =
     ++ basicTests
     ++ visibilityTests
     ++ capabilitiesTests
+    ++ aliasClassTests
     ++ operatorTests
     ++ diagnosticTests
 

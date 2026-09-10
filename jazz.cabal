@@ -385,6 +385,7 @@ test-suite loader-spec
   type: exitcode-stdio-1.0
   main-is: Jazz/Compiler/Modules/LoaderSpec.hs
   other-modules:
+      Jazz.Compiler.Modules.Loader.AliasClassTests
       Jazz.Compiler.Modules.Loader.BasicTests
       Jazz.Compiler.Modules.Loader.CapabilitiesTests
       Jazz.Compiler.Modules.Loader.DiagnosticsTests

@@ -30,7 +30,16 @@ cabal run jazz -- --entry-module Example::Main --module-root examples/modules/sr
 cabal run jazz -- --run --entry-module Example::Main --module-root examples/modules/src
 ```
 
-The checked outputs are, respectively, `"Hello, Jazz"`, `720`, `41`, and
+Run the alias-qualified class example, including a constrained function and an
+implementation for a local type:
+
+```bash
+cabal run jazz -- --run --entry-module Example::Compare --module-root examples/modules/src
+```
+
+Its result is `(True, False, True)`.
+
+The preceding checked outputs are, respectively, `"Hello, Jazz"`, `720`, `41`, and
 `"Hello from a Jazz module"`, each followed by a newline. Run the complete
 example check with:
 

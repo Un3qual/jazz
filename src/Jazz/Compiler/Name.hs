@@ -35,6 +35,7 @@ module Jazz.Compiler.Name
     operatorBindingName,
     operatorBindingNameFromIdentifier,
     qualifiedMemberName,
+    qualifiedMethodName,
     qualifiedName,
     renderName,
     resolvedAmbientName,
@@ -126,6 +127,7 @@ data GeneratedNameKind
 data SourceName
   = UnqualifiedSourceName Identifier
   | QualifiedSourceName Identifier Identifier
+  | QualifiedMethodSourceName Identifier Identifier Identifier
   deriving stock (Eq, Generic, Ord, Show)
   deriving anyclass (NFData)
 
@@ -156,10 +158,17 @@ instance UserNameLike SourceName where
       UnqualifiedSourceName identifier -> identifierText identifier
       QualifiedSourceName qualifier member ->
         identifierText qualifier <> "::" <> identifierText member
+      QualifiedMethodSourceName moduleAlias capability method ->
+        identifierText moduleAlias
+          <> "::"
+          <> identifierText capability
+          <> "::"
+          <> identifierText method
   userNamePurity source =
     case source of
       UnqualifiedSourceName identifier -> identifierPurity identifier
       QualifiedSourceName _ member -> identifierPurity member
+      QualifiedMethodSourceName _ _ method -> identifierPurity method
 
 instance UserNameLike ResolvedUserName where
   renderUserName (ResolvedUserName origin _ member) =
@@ -181,6 +190,10 @@ sourceName = UserName . UnqualifiedSourceName
 
 qualifiedName :: Identifier -> Identifier -> UnresolvedName
 qualifiedName qualifier member = UserName (QualifiedSourceName qualifier member)
+
+qualifiedMethodName :: Identifier -> Identifier -> Identifier -> UnresolvedName
+qualifiedMethodName moduleAlias capability method =
+  UserName (QualifiedMethodSourceName moduleAlias capability method)
 
 qualifiedMemberName :: ResolvedName -> ResolvedName -> ResolvedName
 qualifiedMemberName qualifier member =

@@ -40,6 +40,7 @@ import Jazz.Compiler.Parser.Failure
 import Jazz.Compiler.Parser.Lexer
   ( Token (..),
     TokenKind (..),
+    isImmediatelyAfter,
   )
 import Jazz.Compiler.Parser.TokenStream
   ( TokenStream,
@@ -48,10 +49,11 @@ import Jazz.Compiler.Parser.TokenStream
   )
 
 collectUntilDot :: TokenStream -> Either ParserFailure ([Token], TokenStream)
-collectUntilDot = go []
+collectUntilDot = go 0 []
   where
-    go _ EmptyTokens = Left (parserFailure (ExpectedSyntax "'.'" ParserEndOfInput))
-    go acc allTokens@(token :< rest) =
+    go :: Int -> [Token] -> TokenStream -> Either ParserFailure ([Token], TokenStream)
+    go _ _ EmptyTokens = Left (parserFailure (ExpectedSyntax "'.'" ParserEndOfInput))
+    go depth acc allTokens@(token :< rest) =
       case tokenKind token of
         TDot
           | null acc ->
@@ -60,15 +62,36 @@ collectUntilDot = go []
                     (tokenSpan token)
                     (ExpectedSyntax "signature text" (ParserBeforeToken TDot "." Nothing))
                 )
+          | depth > 0 ->
+              Left
+                ( parserFailureAt
+                    (tokenSpan token)
+                    (ExpectedSyntax "closing delimiter" (ParserBeforeToken TDot "." (Just "signature")))
+                )
           | otherwise -> Right (reverse acc, rest)
         _
-          | not (null acc) && beginsStatement allTokens ->
+          | not (null acc) && beginsStatement allTokens && not (continuesQualifiedType acc allTokens) ->
               Left
                 ( parserFailureAt
                     (tokenSpan token)
                     (ExpectedSyntax "'.'" (ParserBeforeToken (tokenKind token) (tokenLexeme token) Nothing))
                 )
-          | otherwise -> go (token : acc) rest
+          | otherwise -> go (nextDepth depth (tokenKind token)) (token : acc) rest
+
+    nextDepth depth kind = case kind of
+      TLParen -> depth + 1
+      TLBracket -> depth + 1
+      TLBrace -> depth + 1
+      TRParen -> max 0 (depth - 1)
+      TRBracket -> max 0 (depth - 1)
+      TRBrace -> max 0 (depth - 1)
+      _ -> depth
+
+    continuesQualifiedType (previous : _) (alias@Token {tokenKind = TIdentifier {}} :< separator@Token {tokenKind = TColonColon} :< member@Token {tokenKind = TIdentifier {}} :< _) =
+      isImmediatelyAfter alias separator
+        && isImmediatelyAfter separator member
+        && tokenKind previous `elem` [TArrow, TLParen, TLBracket, TLBrace, TComma, TColon, TColonColon]
+    continuesQualifiedType _ _ = False
 
 beginsStatement :: TokenStream -> Bool
 beginsStatement tokens =

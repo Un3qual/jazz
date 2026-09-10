@@ -311,6 +311,8 @@ expectedAuthoredSourcePaths =
   [ "editors/vscode-jazz/fixtures/representative.jz",
     "examples/functions/factorial.jz",
     "examples/hello.jz",
+    "examples/modules/src/Example/Compare.jz",
+    "examples/modules/src/Example/Equality.jz",
     "examples/modules/src/Example/Greeting.jz",
     "examples/modules/src/Example/Main.jz",
     "examples/patterns/result.jz",

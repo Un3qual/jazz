@@ -28,6 +28,7 @@ import Jazz.Compiler.AST
     Literal (..),
     Statement (..),
     coreNodeId,
+    coreNodeSpan,
     expressionNode,
   )
 import Jazz.Compiler.Analyzer
@@ -684,7 +685,7 @@ inferExprTypeDetailedRaw env state expr =
     EBlock _ statements -> inferNestedScopeTypeWithMode (inferExprTypeWithMode False) InferConcreteFunctions env state statements
     EVar node name ->
       let (expressionType, finalState) = inferVariableType (coreNodeId node) name state
-       in (expressionType, finalState)
+       in (expressionType, annotateNewErrorsWithPrimarySpan (coreNodeSpan node) state finalState)
     ELambda _ name body ->
       let (parameterType, stateAfterParameter) = freshTypeVar state
           (bodyResult, finalState) = inferExprTypeDetailed (Map.insert name (PlainTypeBinding parameterType) env) stateAfterParameter body
@@ -696,19 +697,23 @@ inferExprTypeDetailedRaw env state expr =
     EApply _ function argument
       | Just (symbol, aliasScheme, left, right, sectionFallback) <- builtinOperatorApplicationSpine env expr ->
           if sectionFallback then inferSectionApplicationWithFallback function argument symbol left right else inferBuiltinOperatorApplication symbol aliasScheme left right
-      | Just (methodName, methodKey, arguments) <- qualifiedMethodApplicationSpine expr state,
+      | Just (methodName, methodSpan, methodKey, arguments) <- qualifiedMethodApplicationSpine expr state,
         Map.notMember methodName env ->
-          let (expressionType, finalState, argumentResults) = inferQualifiedMethodApplicationWithResults inferExprTypeDetailedWithMode InferConcreteFunctions env state (coreNodeId (expressionNode expr)) methodKey arguments
+          let (expressionType, finalState, argumentResults) = inferQualifiedMethodApplicationWithResults inferLocatedMethodArgument InferConcreteFunctions env state (coreNodeId (expressionNode expr)) methodKey arguments
               stateWithSpineFacts = case (expressionType, sequenceA argumentResults) of
                 (Just resultType, Just argumentTypes) -> recordQualifiedMethodSpineFacts expr (foldr SemanticFunction (resolveType finalState resultType) (map (resolveType finalState) argumentTypes)) finalState
                 _ -> finalState
-           in (expressionType, stateWithSpineFacts)
+           in (expressionType, annotateNewErrorsWithPrimarySpan methodSpan state stateWithSpineFacts)
       | otherwise -> inferGenericApplication function argument
     ETypeApplication node function argumentSpan argument ->
       inferExplicitTypeApplication inferExprTypeDetailedWithMode InferConcreteFunctions env state (coreNodeId node) function argumentSpan argument
     ESectionLeft _ left symbol -> inferLeftSection symbol left
     ESectionRight _ symbol right -> inferRightSection symbol right
   where
+    inferLocatedMethodArgument mode argumentEnv priorState argumentExpr =
+      let (argumentType, nextState) = inferExprTypeDetailedWithMode mode argumentEnv priorState argumentExpr
+       in (argumentType, annotateNewErrorsWithPrimarySpan (coreNodeSpan (expressionNode argumentExpr)) priorState nextState)
+
     inferVariableType nodeId name initialState =
       case Map.lookup name env of
         Just localType -> instantiateEnvBinding localType initialState
@@ -1181,16 +1186,16 @@ discardFailedFunctionApplicationConstraints stateBeforeFunction stateAfterApplic
     )
     stateAfterApplication
 
-qualifiedMethodApplicationSpine :: Expr 'Resolved -> InferState -> Maybe (ResolvedName, Text, [Expr 'Resolved])
+qualifiedMethodApplicationSpine :: Expr 'Resolved -> InferState -> Maybe (ResolvedName, SourceSpan, Text, [Expr 'Resolved])
 qualifiedMethodApplicationSpine expr state =
   case applicationSpine expr of
-    Just (methodName, argumentExprs)
+    Just (methodName, methodSpan, argumentExprs)
       | let methodKey = identifierText methodName,
         qualifiedMethodClassIsVisible methodKey state ->
-          Just (methodName, methodKey, argumentExprs)
+          Just (methodName, methodSpan, methodKey, argumentExprs)
     _ -> Nothing
 
-applicationSpine :: Expr 'Resolved -> Maybe (ResolvedName, [Expr 'Resolved])
+applicationSpine :: Expr 'Resolved -> Maybe (ResolvedName, SourceSpan, [Expr 'Resolved])
 applicationSpine expr =
   go [] expr
   where
@@ -1200,8 +1205,8 @@ applicationSpine expr =
           go argumentExprs functionExpr
         EApply _ functionExpr argumentExpr ->
           go (argumentExpr : argumentExprs) functionExpr
-        EVar _ name ->
-          Just (name, argumentExprs)
+        EVar node name ->
+          Just (name, coreNodeSpan node, argumentExprs)
         _ ->
           Nothing
 

@@ -14,7 +14,6 @@ module Jazz.Compiler.ModuleExports
     qualifyModuleExportSelectorSpans,
     ModuleExport (..),
     ModuleExportInventory,
-    ModuleImportMode (..),
     exportInventory,
     exportInventoryEntries,
     exportedConstructorOwners,
@@ -27,7 +26,6 @@ module Jazz.Compiler.ModuleExports
     selectExportNames,
     selectModuleExportSelectors,
     selectValidatedModuleExportSelectors,
-    visibleImportInventory,
     inventoryHasExport,
     firstExportNamespace,
   )
@@ -133,11 +131,6 @@ instance Semigroup ModuleExportInventory where
 
 instance Monoid ModuleExportInventory where
   mempty = ModuleExportInventory Set.empty Map.empty
-
-data ModuleImportMode
-  = UnqualifiedImport
-  | QualifiedAliasImport
-  deriving (Eq, Show)
 
 exportInventory :: [ModuleExport] -> ModuleExportInventory
 exportInventory entries = ModuleExportInventory (Set.fromList entries) Map.empty
@@ -261,26 +254,6 @@ moduleExportSelectorMatches selector export =
     && case moduleExportSelectorNamespace selector of
       Nothing -> True
       Just namespace -> namespace == moduleExportNamespace export
-
-visibleImportInventory ::
-  ModuleImportMode ->
-  Maybe [Text] ->
-  ModuleExportInventory ->
-  ModuleExportInventory
-visibleImportInventory mode maybeNames inventory =
-  case mode of
-    UnqualifiedImport -> selected
-    QualifiedAliasImport ->
-      restrictInventory
-        ( Set.filter
-            ( (`elem` [ValueNamespace, ConstructorNamespace, TypeNamespace])
-                . moduleExportNamespace
-            )
-            (exportInventoryEntries selected)
-        )
-        selected
-  where
-    selected = selectExportNames maybeNames inventory
 
 restrictInventory :: Set ModuleExport -> ModuleExportInventory -> ModuleExportInventory
 restrictInventory selectedEntries inventory =

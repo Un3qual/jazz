@@ -23,6 +23,7 @@ import Jazz.Compiler.Name
   ( Identifier,
     identifierText,
     mkIdentifier,
+    mkQualifiedIdentifier,
     splitQualifiedIdentifierText,
   )
 import Jazz.Compiler.Parser.AST
@@ -53,10 +54,11 @@ import Jazz.Compiler.Parser.Failure
 import Jazz.Compiler.Parser.Lexer
   ( Token (..),
     TokenKind (..),
+    isImmediatelyAfter,
   )
 import Jazz.Compiler.Parser.Signature
   ( parseConstrainedSignatureTypeDetailed,
-    parseSignaturePayload,
+    parseSignaturePayloadDetailed,
     splitTopLevelCommaTokensDetailed,
   )
 import Jazz.Compiler.Parser.TokenStream
@@ -157,18 +159,63 @@ parseCapabilityDeclaration parseImplExpression declarationKind declarationToken 
 parseCapabilityHeaderName :: Text -> Token -> TokenStream -> Either ParserFailure (Identifier, Maybe [SurfaceSignatureType], TokenStream)
 parseCapabilityHeaderName declarationKind declarationToken tokensAfterKeyword =
   case tokensAfterKeyword of
-    Token {tokenKind = TIdentifier candidateName, tokenSpan = nameSpan} :< rest
-      | isConstructorIdentifierText candidateName ->
-          parseCapabilityHeaderTail (mkIdentifier candidateName) rest
-      | otherwise ->
-          Left
-            ( parserFailureAt
-                nameSpan
-                ( ExpectedSyntax
-                    "uppercase capability name"
-                    (ParserFoundToken (TIdentifier candidateName) candidateName)
+    candidateToken@Token {tokenKind = TIdentifier candidateName, tokenSpan = nameSpan} :< rest ->
+      case rest of
+        qualifierColon@Token {tokenKind = TColonColon} :< classToken@Token {tokenKind = TIdentifier className} :< afterClass
+          | isImmediatelyAfter candidateToken qualifierColon,
+            isImmediatelyAfter qualifierColon classToken ->
+              if declarationKind == "impl"
+                then
+                  if isConstructorIdentifierText className
+                    then parseCapabilityHeaderTail (mkQualifiedIdentifier candidateName className) afterClass
+                    else
+                      Left
+                        ( parserFailureAt
+                            (tokenSpan classToken)
+                            ( ExpectedSyntax
+                                "uppercase class name after '::'"
+                                (ParserFoundToken (TIdentifier className) className)
+                            )
+                        )
+                else rejectQualifiedClassDeclaration qualifierColon
+        qualifierColon@Token {tokenKind = TColonColon} :< EmptyTokens
+          | isImmediatelyAfter candidateToken qualifierColon ->
+              if declarationKind == "impl"
+                then
+                  Left
+                    ( parserFailureAt
+                        (tokenSpan qualifierColon)
+                        (ExpectedSyntax "class name" (ParserEndOfInputAfter "'::'"))
+                    )
+                else rejectQualifiedClassDeclaration qualifierColon
+        qualifierColon@Token {tokenKind = TColonColon} :< classToken :< _
+          | isImmediatelyAfter candidateToken qualifierColon ->
+              if declarationKind == "impl"
+                then
+                  Left
+                    ( parserFailureAt
+                        (tokenSpan classToken)
+                        ( ExpectedSyntax
+                            ( case tokenKind classToken of
+                                TIdentifier {} -> "adjacent class name after '::'"
+                                _ -> "class name after '::'"
+                            )
+                            (ParserFoundToken (tokenKind classToken) (tokenLexeme classToken))
+                        )
+                    )
+                else rejectQualifiedClassDeclaration qualifierColon
+        _
+          | isConstructorIdentifierText candidateName ->
+              parseCapabilityHeaderTail (mkIdentifier candidateName) rest
+          | otherwise ->
+              Left
+                ( parserFailureAt
+                    nameSpan
+                    ( ExpectedSyntax
+                        "uppercase capability name"
+                        (ParserFoundToken (TIdentifier candidateName) candidateName)
+                    )
                 )
-            )
     Token {tokenKind = TLBrace} :< _ ->
       Left
         ( parserFailureAt
@@ -204,6 +251,16 @@ parseCapabilityHeaderName declarationKind declarationToken tokensAfterKeyword =
             (ExpectedSyntax "capability name" (ParserEndOfInputIn (declarationKind <> " declaration")))
         )
   where
+    rejectQualifiedClassDeclaration qualifierColon =
+      Left
+        ( parserFailureAt
+            (tokenSpan qualifierColon)
+            ( ExpectedSyntax
+                "unqualified class name"
+                (ParserFoundToken TColonColon (tokenLexeme qualifierColon))
+            )
+        )
+
     parseCapabilityHeaderTail capabilityName tokens =
       case tokens of
         Token {tokenKind = TLParen} :< rest -> do
@@ -340,11 +397,12 @@ parseCapabilityDeclarationBody parseImplExpression declarationKind declarationTo
           | otherwise -> do
               (signatureTokens, afterSignature) <-
                 collectUntilDot rest
+              payload <- parseSignaturePayloadDetailed signatureTokens
               let methodSignature =
                     SurfaceClassMethodSignature
                       (mkIdentifier methodName)
                       (tokenSpan methodToken)
-                      (parseSignaturePayload signatureTokens)
+                      payload
               consumeClassBody
                 (Set.insert methodName seenMethodNames)
                 (methodSignature : reversedMethods)

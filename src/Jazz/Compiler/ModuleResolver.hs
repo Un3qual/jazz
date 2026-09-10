@@ -34,7 +34,8 @@ import Control.Monad.Trans.Except
     throwE,
   )
 import Data.Bifunctor
-  ( first,
+  ( bimap,
+    first,
   )
 import Data.Foldable
   ( toList,
@@ -51,6 +52,7 @@ import Data.Map.Strict
   ( Map,
   )
 import qualified Data.Map.Strict as Map
+import Data.Maybe (fromMaybe)
 import Data.Sequence
   ( Seq,
   )
@@ -80,6 +82,7 @@ import Jazz.Compiler.Diagnostics
     mkErrorDiagnostic,
     prependDiagnosticSummary,
     qualifyDiagnosticSpans,
+    qualifySourceSpan,
     setDiagnosticErrorCode,
     setDiagnosticPrimarySpan,
     setDiagnosticSubject,
@@ -131,7 +134,7 @@ import Jazz.Compiler.Name
     splitQualifiedIdentifierText,
   )
 import Jazz.Compiler.Parser
-  ( parseSurfaceProgram,
+  ( parseSurfaceProgramTokens,
   )
 import Jazz.Compiler.Parser.AST
   ( SurfaceCaseArm (..),
@@ -148,9 +151,11 @@ import Jazz.Compiler.Parser.AST
     SurfaceSignatureType,
     SurfaceStatement (..),
   )
+import Jazz.Compiler.Parser.Lexer (Token (..), TokenKind (..), tokenize)
 import Jazz.Compiler.Parser.Lower
   ( lowerSurfaceModule,
   )
+import Jazz.Compiler.Parser.Signature (parseConstraintBlockHeadsDetailed)
 import Jazz.Compiler.TypeRepresentation
   ( pattern ConstrainedSignature,
     pattern SignatureConstraint,
@@ -186,7 +191,8 @@ data ModuleDiscoveryFacts = ModuleDiscoveryFacts
 data ReferenceInventory = ReferenceInventory
   { referenceFactUnqualified :: !(Set Text),
     referenceFactQualifiedValues :: !(Set (Text, Text)),
-    referenceFactQualifiedTypes :: !(Set (Text, Text))
+    referenceFactQualifiedTypes :: !(Set (Text, Text)),
+    referenceFactQualifiedClasses :: !(Map (Text, Text) (SourceSpan, SourceSpan))
   }
 
 data ResolvedState = ResolvedState
@@ -269,6 +275,7 @@ resolveStateWithLookupAndVisibleSymbols config ambientExports loadSource entryMo
               (referenceFactUnqualified references)
               (referenceFactQualifiedValues references)
               (referenceFactQualifiedTypes references)
+              (referenceFactQualifiedClasses references)
               ambientVisibleSymbols
               ambientVisibleClassNames
               (resolvedExportInventoriesState stateAfterDeps)
@@ -386,7 +393,10 @@ appendRelativePath relativePath root
 parseModuleDetails :: FilePath -> ModulePath -> Text -> Either Diagnostic ModuleDiscoveryFacts
 parseModuleDetails sourcePath expectedModulePath sourceText =
   {-# SCC "jazz-stage:module-resolution" #-}
-  case parseSurfaceProgram sourceText of
+  case do
+    tokens <- tokenize sourceText
+    surface <- parseSurfaceProgramTokens tokens
+    pure (tokens, surface) of
     Left parseError ->
       Left
         ( setDiagnosticErrorCode
@@ -396,7 +406,7 @@ parseModuleDetails sourcePath expectedModulePath sourceText =
                 (qualifyDiagnosticSpans sourcePath parseError)
             )
         )
-    Right surfaceExpr -> do
+    Right (tokens, surfaceExpr) -> do
       coreModule <-
         lowerSurfaceModule
           (moduleIdentity expectedModulePath (mkSourceFile sourcePath))
@@ -413,7 +423,7 @@ parseModuleDetails sourcePath expectedModulePath sourceText =
         ModuleDiscoveryFacts
           { discoveryLocalInventory = localInventory,
             discoveryPublicInventory = publicInventory,
-            discoveryReferences = references,
+            discoveryReferences = locateQualifiedClassReferences sourcePath tokens references,
             discoveryCoreModule = coreModule
           }
 
@@ -679,10 +689,10 @@ resolvePreludeArtifact publicInventory artifact =
           ModuleGraph.preludeModule = Nothing
         }
 
--- | The resolver needs three reference namespaces with identical expression
+-- | The resolver needs four reference namespaces with identical expression
 -- recursion. Collect them together so each surface node is visited once.
 emptySurfaceReferenceFacts :: ReferenceInventory
-emptySurfaceReferenceFacts = ReferenceInventory Set.empty Set.empty Set.empty
+emptySurfaceReferenceFacts = ReferenceInventory Set.empty Set.empty Set.empty Map.empty
 
 collectExprReferenceFacts :: Set Text -> SurfaceExpr -> ReferenceInventory -> ReferenceInventory
 collectExprReferenceFacts boundNames surfaceExpr facts =
@@ -701,6 +711,11 @@ collectExprReferenceFacts boundNames surfaceExpr facts =
               (identifierText qualifier, identifierText member)
               (referenceFactQualifiedValues facts)
         }
+    SEQualifiedMethod alias className _ _ ->
+      collectQualifiedClassReference
+        (surfaceExprSpan surfaceExpr)
+        (identifierText alias, identifierText className)
+        facts
     SELambda params body ->
       let parameterList = NonEmpty.toList params
           parameterFacts = foldl' (flip collectLambdaParameterReferenceFacts) facts parameterList
@@ -764,7 +779,7 @@ collectStatementReferenceFacts :: Set Text -> SurfaceStatement -> ReferenceInven
 collectStatementReferenceFacts boundNames statement facts =
   case statement of
     SSLet _ _ valueExpr -> collectExprReferenceFacts boundNames valueExpr facts
-    SSSignature _ _ payload -> collectSignaturePayloadReferenceFacts payload facts
+    SSSignature _ spanValue payload -> collectSignaturePayloadReferenceFacts spanValue payload facts
     SSData _ _ _ constructors ->
       foldl'
         (flip collectSignatureTypeReferenceFacts)
@@ -775,13 +790,13 @@ collectStatementReferenceFacts boundNames statement facts =
         ]
     SSClass _ _ _ methods ->
       foldl'
-        (\current (SurfaceClassMethodSignature _ _ payload) -> collectSignaturePayloadReferenceFacts payload current)
+        (\current (SurfaceClassMethodSignature _ spanValue payload) -> collectSignaturePayloadReferenceFacts spanValue payload current)
         facts
         methods
-    SSImpl _ _ arguments methods ->
+    SSImpl spanValue className arguments methods ->
       foldl'
         (\current (SurfaceImplMethod _ _ body) -> collectExprReferenceFacts boundNames body current)
-        (foldl' (flip collectSignatureTypeReferenceFacts) facts arguments)
+        (foldl' (flip collectSignatureTypeReferenceFacts) (collectClassNameReference spanValue className facts) arguments)
         methods
     SSModule {} -> facts
     SSImport {} -> facts
@@ -862,23 +877,57 @@ collectLambdaParameterReferenceFacts parameter facts =
     SurfaceLambdaIdentifier _ _ -> facts
     SurfaceLambdaPattern patternValue -> collectPatternReferenceFacts patternValue facts
 
-collectSignaturePayloadReferenceFacts :: SurfaceSignaturePayload -> ReferenceInventory -> ReferenceInventory
-collectSignaturePayloadReferenceFacts payload facts =
+collectSignaturePayloadReferenceFacts :: SourceSpan -> SurfaceSignaturePayload -> ReferenceInventory -> ReferenceInventory
+collectSignaturePayloadReferenceFacts spanValue payload facts =
   case payload of
     SignatureType signatureType ->
       collectSignatureTypeReferenceFacts signatureType facts
     ConstrainedSignature constraints signatureType ->
       collectSignatureTypeReferenceFacts
         signatureType
-        ( foldl'
+        (foldl' collectConstraint facts constraints)
+      where
+        collectConstraint current (SignatureConstraint name arguments) =
+          foldl'
             (flip collectSignatureTypeReferenceFacts)
-            facts
-            [ argument
-            | SignatureConstraint _ arguments <- constraints,
-              argument <- arguments
-            ]
-        )
+            (collectClassNameReference spanValue name current)
+            arguments
     UnsupportedSignature _ -> facts
+
+collectClassNameReference :: SourceSpan -> Identifier -> ReferenceInventory -> ReferenceInventory
+collectClassNameReference spanValue name facts =
+  case splitQualifiedIdentifierText (identifierText name) of
+    Nothing -> facts
+    Just reference -> collectQualifiedClassReference spanValue reference facts
+
+collectQualifiedClassReference :: SourceSpan -> (Text, Text) -> ReferenceInventory -> ReferenceInventory
+collectQualifiedClassReference spanValue reference facts =
+  facts {referenceFactQualifiedClasses = Map.insertWith (const id) reference (spanValue, spanValue) (referenceFactQualifiedClasses facts)}
+
+-- Signature types retain names rather than token spans. Reuse the constraint
+-- parser's head scan so a same-spelled type argument cannot supply a class span.
+locateQualifiedClassReferences :: FilePath -> [Token] -> ReferenceInventory -> ReferenceInventory
+locateQualifiedClassReferences sourcePath tokens facts =
+  facts {referenceFactQualifiedClasses = Map.mapWithKey locate (referenceFactQualifiedClasses facts)}
+  where
+    locations = foldr insertLocation Map.empty (qualifiedTokens tokens)
+    insertLocation (key, spans) = Map.insertWith (<>) key [spans]
+    position spanValue = (spanLine spanValue, spanColumn spanValue)
+    locate key (anchor, _) =
+      let candidates = Map.findWithDefault [] key locations
+          spans =
+            fromMaybe
+              (anchor, anchor)
+              (find (\(aliasSpan, _) -> position aliasSpan >= position anchor) candidates)
+       in bimap (qualifySourceSpan sourcePath) (qualifySourceSpan sourcePath) spans
+    qualifiedTokens (Token {tokenKind = TColonColon} : Token {tokenKind = TAt} : Token {tokenKind = TLBrace} : rest)
+      | Right (heads, afterConstraints) <- parseConstraintBlockHeadsDetailed rest =
+          map reference heads <> qualifiedTokens afterConstraints
+    qualifiedTokens (alias@Token {tokenKind = TIdentifier {}} : colon@Token {tokenKind = TColonColon} : member@Token {tokenKind = TIdentifier {}} : rest) =
+      reference (alias, member) : qualifiedTokens (colon : member : rest)
+    qualifiedTokens (_ : rest) = qualifiedTokens rest
+    qualifiedTokens [] = []
+    reference (alias, member) = ((tokenLexeme alias, tokenLexeme member), (tokenSpan alias, tokenSpan member))
 
 collectSignatureTypeReferenceFacts :: SurfaceSignatureType -> ReferenceInventory -> ReferenceInventory
 collectSignatureTypeReferenceFacts signatureType facts =

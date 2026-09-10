@@ -52,3 +52,56 @@ Module names map to paths beneath ordered module roots. Resolution rejects an
 ambiguous match or dependency cycle rather than choosing one implicitly. See
 [module resolution](../reference/module-resolution.md) for exact path, import,
 export, and Prelude rules.
+
+## Using an imported class through an alias
+
+An aliased class keeps its defining module's identity. Use `Alias::Class` in a
+constraint or impl head, and `Alias::Class::method` to call a method.
+
+<!-- jazz-example: executable path=examples/modules/src/Example/Equality.jz -->
+
+```jazz
+module Example::Equality (class Equal) {
+  class Equal(a) {
+    equal :: a -> a -> Bool.
+  }.
+
+  impl Equal(Int) {
+    equal = \(left, right) -> left == right.
+  }.
+}
+```
+
+<!-- jazz-example: executable path=examples/modules/src/Example/Compare.jz -->
+
+```jazz
+module Example::Compare {
+  import Example::Equality as Equality.
+
+  same :: @{Equality::Equal(a)}: a -> a -> Bool.
+  same = \(left, right) -> Equality::Equal::equal left right.
+
+  data Marker = Marker.
+  impl Equality::Equal(Marker) {
+    equal = \(left, right) -> True.
+  }.
+
+  (same 1 1, Equality::Equal::equal 1 2, Equality::Equal::equal Marker Marker).
+}
+```
+
+Run it with:
+
+```bash
+cabal run jazz -- --run --entry-module Example::Compare \
+  --module-root examples/modules/src
+```
+
+<!-- jazz-example-output: case=qualified-class -->
+
+```text
+(True, False, True)
+```
+
+The alias does not make `Equal` available unqualified. Private classes stay
+private, and imported classes cannot be re-exported.

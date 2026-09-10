@@ -5,14 +5,18 @@
 -- | Signature grammar helpers for the surface parser.
 module Jazz.Compiler.Parser.Signature
   ( parseConstrainedSignatureTypeDetailed,
+    parseConstraintBlockHeadsDetailed,
     parseSignatureTypeParser,
     parseSignatureTypePrefixDetailed,
     parseSignaturePayload,
+    parseSignaturePayloadDetailed,
     splitTopLevelCommaTokensDetailed,
   )
 where
 
 import Control.Applicative ((<|>))
+import Control.Monad (void)
+import Data.Bifunctor (first)
 import Data.Char (isLower)
 import Data.Text (Text)
 import qualified Data.Text as Text
@@ -30,7 +34,10 @@ import Jazz.Compiler.Parser.AST
     SurfaceSignatureType,
   )
 import Jazz.Compiler.Parser.Failure
-  ( ParserFailure,
+  ( ParserEncountered (..),
+    ParserFailure,
+    ParserFailureReason (..),
+    parserFailureAt,
   )
 import Jazz.Compiler.Parser.Lexer
   ( Token (..),
@@ -78,6 +85,56 @@ parseSignaturePayload signatureTokens =
   case parseSupportedSignaturePayload signatureTokens of
     Just signaturePayload -> signaturePayload
     Nothing -> UnsupportedSignature (map surfaceSignatureTokenFromToken signatureTokens)
+
+-- Unsupported legacy signature forms remain representable. New qualified
+-- constraint heads, however, have a precise two-component grammar.
+parseSignaturePayloadDetailed :: [Token] -> Either ParserFailure SurfaceSignaturePayload
+parseSignaturePayloadDetailed tokens = do
+  case tokens of
+    Token {tokenKind = TAt} : Token {tokenKind = TLBrace} : rest -> void (parseConstraintBlockHeadsDetailed rest)
+    _ -> Right ()
+  pure (parseSignaturePayload tokens)
+
+-- | Validate and retain qualified heads in a constraint block, leaving the
+-- tokens after its closing brace. Type arguments are not class references;
+-- an unfinished legacy payload must not consume the next statement.
+parseConstraintBlockHeadsDetailed :: [Token] -> Either ParserFailure ([(Token, Token)], [Token])
+parseConstraintBlockHeadsDetailed = validateHead 0
+  where
+    validateHead depth (Token {tokenKind = TLParen} : rest) = validateHead (depth + 1) rest
+    validateHead depth (alias : colon@Token {tokenKind = TColonColon} : member : rest) = do
+      case tokenKind alias of
+        TIdentifier {} -> Right ()
+        _ -> invalid alias "alias before '::'"
+      if isImmediatelyAfter alias colon && isImmediatelyAfter colon member
+        then Right ()
+        else invalid colon "adjacent alias-qualified class name"
+      case tokenKind member of
+        TIdentifier {} -> Right ()
+        _ -> invalid member "class name after '::'"
+      case rest of
+        extra@Token {tokenKind = TColonColon} : _ -> invalid extra "two-component class name"
+        _ -> first ((alias, member) :) <$> scan depth rest
+    validateHead depth rest = scan depth rest
+
+    scan :: Int -> [Token] -> Either ParserFailure ([(Token, Token)], [Token])
+    scan _ [] = Right ([], [])
+    scan depth (token : rest) = case tokenKind token of
+      TDot -> Right ([], token : rest)
+      TLParen -> scan (depth + 1) rest
+      TLBracket -> scan (depth + 1) rest
+      TRParen -> scan (max 0 (depth - 1)) rest
+      TRBracket -> scan (max 0 (depth - 1)) rest
+      TComma | depth == 0 -> validateHead 0 rest
+      TRBrace | depth == 0 -> Right ([], rest)
+      _ -> scan depth rest
+
+    invalid token expected =
+      Left
+        ( parserFailureAt
+            (tokenSpan token)
+            (ExpectedSyntax expected (ParserFoundToken (tokenKind token) (tokenLexeme token)))
+        )
 
 parseSupportedSignaturePayload :: [Token] -> Maybe SurfaceSignaturePayload
 parseSupportedSignaturePayload tokens =
@@ -211,8 +268,14 @@ signatureTypeHeadParser = do
   firstToken <- identifierTokenParser
   maybeQualifiedMember <-
     MP.optional $ do
-      _ <- TokenParser.parseTokenKind TColonColon
+      separator <- TokenParser.parseToken TColonColon
       memberToken <- identifierTokenParser
+      if isImmediatelyAfter firstToken separator && isImmediatelyAfter separator memberToken
+        then pure ()
+        else
+          TokenParser.failTokenParserAt
+            (tokenSpan separator)
+            (ExpectedSyntax "adjacent qualified type name" (ParserFoundToken TColonColon (tokenLexeme separator)))
       pure memberToken
   case maybeQualifiedMember of
     Just memberToken ->

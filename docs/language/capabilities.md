@@ -31,10 +31,15 @@ The bundled capabilities are `Eq`, `Ord`, `Num`, `Integral`, `Fractional`,
 `Showable`, and `Default`. Their methods and built-in implementations are
 documented in [Prelude](../standard-library/prelude.md).
 
-**Partial:** an explicit `Class::method` reference can dispatch when exactly one
-visible concrete implementation applies. Cross-module method visibility,
-user-visible dictionaries, default methods, superclasses, and a general overlap
-policy are not implemented.
+An explicit `Class::method` reference can dispatch when exactly one visible
+concrete implementation applies. Public classes imported without an alias use
+that form. With `import Library as Alias.`, use `Alias::Class::method` for a
+method and `Alias::Class` in constraints or impl heads. Qualified methods can
+also be stored, partially applied, and explicitly instantiated. See the
+[module example](modules.md#using-an-imported-class-through-an-alias).
+
+**Partial:** user-visible dictionaries, default methods, superclasses, separate
+impl imports, and a general overlap policy are not implemented.
 
 See the [expression grammar](../reference/expression-grammar.md) for declaration
 and constraint notation.

@@ -4,7 +4,7 @@ description: See the implemented, partial, and planned Jazz language and compile
 sidebar_position: 1
 ---
 
-Updated: 2026-09-07
+Updated: 2026-09-09
 
 Jazz is experimental and pre-1.0. This matrix separates implemented behavior
 from partial areas and planned work.
@@ -15,7 +15,7 @@ from partial areas and planned work.
 | ADTs, typed patterns, ordered cases, and guards                       | Implemented | [ADTs and patterns](../language/algebraic-data-types-and-patterns.md) |
 | Static exhaustiveness and unreachable-arm analysis                    | Implemented | [Control flow](../language/control-flow.md)                           |
 | Type inference, signatures, generic named types, and numeric widths   | Implemented | [Types and signatures](../language/types-and-signatures.md)           |
-| Modules, import visibility, explicit exports, and cycle diagnostics   | Implemented | [Module resolution](../reference/module-resolution.md)                |
+| Modules, qualified classes, explicit exports, and cycle diagnostics   | Implemented | [Module resolution](../reference/module-resolution.md)                |
 | Interpreter, stable rendering, runtime hosts, and observations        | Implemented | [Runtime values](../reference/runtime-values.md)                      |
 | Bundled Prelude and explicit-import collection, text, and I/O modules | Implemented | [Standard library](../standard-library/overview.md)                   |
 | Structured errors and opt-in warning policy                           | Implemented | [Diagnostics](../reference/diagnostics.md)                            |
@@ -32,3 +32,7 @@ current name-based rules. The Jazz-authored frontend has differential coverage
 but is not yet the canonical semantic compiler. Ordinary execution uses the
 Haskell compiler and analyzed-core interpreter; native compilation remains
 planned.
+
+The Haskell compiler supports alias-qualified class methods, constraints, and
+impl heads. Hosted frontend support is deferred, including existing parser
+parity comparisons affected by the new qualification grammar and diagnostics.
