@@ -3,6 +3,7 @@
 Make sure you commit along the way as needed.
 
 ## General Rules
+
 - Prefer concise solutions for current problems. Still keep in mind future plans, but channel "YAGNI". Don't overcomplicate a solution "just in case" things may change or requirements may expand in the future.
 - Don't add unnecessary regression tests for every single review comment. Analyze whether it is worth adding a regression test before blindly adding one when the issue may just be something like a one time typo or mistake.
 - Overall, be deliberate about each test you add and consider if it is actually needed, if it will prevent future issues, etc.

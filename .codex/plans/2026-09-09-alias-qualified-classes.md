@@ -253,3 +253,25 @@ Final verification passed all 47 non-bootstrap suites, the serialized
 documentation gate, HLint, Ormolu, plan formatting, execution-queue validation
 and `git diff --check`. The maintainer's concurrent AGENTS.md/YAGNI commit was
 preserved without changes.
+
+## PR 155 third review refresh — 2026-09-10
+
+Retrieved all 17 threads, ten reviews and six PR comments, including changed
+review summaries and Codacy's two check annotations.
+
+- Cubic `3981910653`: no diagnostic change needed. A rebuilt CLI compiled both
+  adjacent forms with correctly typed bodies. Spaced result types produced
+  E4004; the spaced bare type produced E2009 with the explicit message
+  `invalid or unsupported signature`. The latter is the intentional legacy
+  fallback, not a missing class/impl failure. Five temporary checks verified
+  these paths without adding redundant permanent tests.
+- Cubic `3981910670`: no extraction change needed. The status page contains one
+  `Updated:` line. The current check rejects ambiguous multiple metadata lines;
+  filtering away malformed extra entries would weaken that behavior to support
+  a hypothetical document shape. The sed command only reads; it does not alter
+  the status page.
+- Codacy check `102978844216`: both Markdown notices come from the missing
+  blank line after `General Rules` in AGENTS.md. Added that single blank line;
+  guidance is unchanged.
+
+Earlier fixed findings and the existing bootstrap deferrals remain unchanged.
