@@ -1,8 +1,8 @@
 # RFC 0018: Explicit module re-exports
 
-Status: Proposed
+Status: Accepted
 Date: 2026-09-10
-Supersedes: On acceptance, RFC 0017's prohibition on explicit class re-exports and associated transitive publication.
+Supersedes: RFC 0017's prohibition on explicit class re-exports and associated transitive publication.
 
 RFC 0017's omitted-list behavior, alias qualification, and other class rules
 remain in force.
@@ -13,9 +13,9 @@ Allow namespace-qualified module-header selectors to publish declarations from
 explicit unqualified imports, preserving their original identities. Reuse the
 existing `value`, `type`, `constructor`, and `class` selector syntax.
 
-This is a proposed, unimplemented contract delta. Current public documentation
-and implementation still prohibit re-exports. Implementation requires
-maintainer acceptance under RFC 0001.
+Accepted by the maintainer on 2026-09-10. This authorizes an unimplemented
+contract delta under RFC 0001; existing public documentation and behavior remain
+in force until the coordinated implementation lands.
 
 For example, given a dependency that publicly exports `makeBox`, the type
 `Box` with constructor `Box`, and the class `Equal`:

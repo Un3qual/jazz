@@ -210,20 +210,18 @@ Each blocked item should answer these questions:
 
 ### JN-MODULE-REBASE-PLAN-001
 
-- Smallest unblocker: maintainer review and acceptance of
-  [RFC 0018](../../rfcs/proposed/0018-explicit-module-re-exports.md), selected
+- Smallest unblocker: implement the maintainer-approved
+  [RFC 0018](../../rfcs/accepted/0018-explicit-module-re-exports.md), selected
   as the next batch on `2026-09-10`.
-- Decision needed: authorize explicit typed header selectors for unqualified
+  Plan: [explicit re-exports](../plans/2026-09-10-explicit-module-re-exports.md).
+- Decision needed: none; RFC 0018 authorizes explicit typed header selectors for unqualified
   imports, preservation of original declaration identities, public constructor
   filtering, and class-attached evidence forwarding through explicit class
-  re-exports. The proposal is unimplemented and has no language authority yet.
+  re-exports. The accepted contract is not yet implemented.
 - Recommended default: reuse existing typed selectors; preserve owned-only bare
   selectors and omitted lists. Forward original bindings and selected public
   evidence, deduplicate identical origins, and reject genuine collisions.
-- Candidate child: `JN-MODULE-EXPLICIT-REEXPORTS-001`.
-- Promotion check: obtain maintainer acceptance, move RFC 0018 to `accepted/`
-  and index it, update these links, then create a matching implementation plan
-  under `.codex/plans/` before adding a `Ready Now` row.
+- Candidate child: none currently; `JN-MODULE-EXPLICIT-REEXPORTS-001` is ready.
 - Target paths: `src/Jazz/Compiler/ModuleExports.hs`,
   `src/Jazz/Compiler/ModuleGraph.hs`, `src/Jazz/Compiler/ModuleResolver.hs`,
   `src/Jazz/Compiler/ModuleResolver/Imports.hs`,
@@ -237,8 +235,7 @@ Each blocked item should answer these questions:
   `git diff --check`.
 - Landed evidence: typed inventories and header selectors, local/public export
   separation, and RFC 0017 alias-qualified classes are implemented. Current
-  public behavior still rejects re-exports; the proposed RFC authorizes no
-  changes before acceptance.
+  public behavior still rejects re-exports until the accepted child lands.
 - Not in scope: alias-qualified header selectors, export renaming, whole-module
   exports, cross-module operators, separate impl imports, overlap/orphan policy,
   default methods, superclasses, effects, standard-library growth, packages,
