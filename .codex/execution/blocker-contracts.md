@@ -77,11 +77,12 @@ Each blocked item should answer these questions:
 - Decision needed: none for that child. RFC 0017 additionally implements
   alias-qualified classes in Haskell. Preserve qualified and unqualified class
   capability imports, class-attached impl payloads,
-  and non-transitive module boundaries.
+  and module boundaries that forward imported class evidence only through
+  explicit class re-exports under RFC 0018.
 - Recommended default: keep the landed typed inventory behavior. Keep
   user-visible dictionaries, dictionary optimization, default methods,
-  superclasses, new bundled method families,
-  re-exports, and new impl policy blocked behind separate contracts.
+  superclasses, new bundled method families and new impl policy blocked behind
+  separate contracts. RFC 0018 re-exports landed under module ownership.
 - Candidate child: none currently.
 - Target paths: not set; no independent abstraction paths are open after the
   typed inventory child landed.
@@ -91,8 +92,8 @@ Each blocked item should answer these questions:
   `Eq(Bool).equals`, `Eq(Float).equals`, `Eq(Float16).equals`,
   `Eq(Float32).equals`, or `Eq(Float64).equals` work; unqualified overloads,
   dictionary passing/optimization, default methods, superclasses, non-alias
-  overlap/orphan behavior, re-exports, or any method visibility expansion
-  beyond the landed typed inventory and RFC 0017 contracts. Hosted parity
+  overlap/orphan behavior or method visibility expansion beyond the landed
+  typed inventory, RFC 0017 qualification and RFC 0018 re-export contracts. Hosted parity
   for RFC 0017 remains deferred by the maintainer.
 
 ### JN-USER-DEFINED-OPERATORS-PLAN-001
@@ -210,32 +211,21 @@ Each blocked item should answer these questions:
 
 ### JN-MODULE-REBASE-PLAN-001
 
-- Smallest unblocker: implement the maintainer-approved
-  [RFC 0018](../../rfcs/accepted/0018-explicit-module-re-exports.md), selected
-  as the next batch on `2026-09-10`.
-  Plan: [explicit re-exports](../plans/2026-09-10-explicit-module-re-exports.md).
-- Decision needed: none; RFC 0018 authorizes explicit typed header selectors for unqualified
-  imports, preservation of original declaration identities, public constructor
-  filtering, and class-attached evidence forwarding through explicit class
-  re-exports. The accepted contract is not yet implemented.
-- Recommended default: reuse existing typed selectors; preserve owned-only bare
-  selectors and omitted lists. Forward original bindings and selected public
-  evidence, deduplicate identical origins, and reject genuine collisions.
-- Candidate child: none currently; `JN-MODULE-EXPLICIT-REEXPORTS-001` is ready.
-- Target paths: `src/Jazz/Compiler/ModuleExports.hs`,
-  `src/Jazz/Compiler/ModuleGraph.hs`, `src/Jazz/Compiler/ModuleResolver.hs`,
-  `src/Jazz/Compiler/ModuleResolver/Imports.hs`,
-  `src/Jazz/Compiler/ModuleResolver/Names.hs`,
-  `src/Jazz/Compiler/ModuleInterface.hs`, `src/Jazz/Compiler/ModuleAnalysis.hs`,
-  `src/Jazz/Compiler/ModuleCompiler.hs`, `src/Jazz/Compiler/ModuleRuntime.hs`,
-  `test/Jazz/Compiler/Modules/` and the public module/capability references.
-- Verification: `cabal test module-exports-spec module-resolution-spec module-pipeline-contract-spec loader-spec --test-show-details=failures`;
-  `JAZZ_CABAL_JOBS=4 bash scripts/ci/haskell-quality.sh`;
-  `bash scripts/check-execution-queue.sh`; `bash scripts/check-docs.sh`;
-  `git diff --check`.
-- Landed evidence: typed inventories and header selectors, local/public export
-  separation, and RFC 0017 alias-qualified classes are implemented. Current
-  public behavior still rejects re-exports until the accepted child lands.
+- Smallest unblocker: none currently. RFC 0018 explicit module re-exports are
+  implemented at `31f37a13` after the typed export and alias-qualified class work.
+- Decision needed: a new concrete module delta beyond explicit typed re-exports.
+  The current public contract covers original declaration identity, constructor
+  visibility, class-attached evidence, duplicate routes and existing collisions.
+- Recommended default: preserve owned-only omitted lists and bare selectors,
+  explicit unqualified-import selection and original implementation identities.
+- Candidate child: none currently.
+- Target paths: not set until another module contract is accepted.
+- Verification: `bash scripts/check-execution-queue.sh`;
+  `bash scripts/check-docs.sh`; `git diff --check`.
+- Landed evidence: [RFC 0018](../../rfcs/accepted/0018-explicit-module-re-exports.md)
+  and the completed [implementation plan](../plans/2026-09-10-explicit-module-re-exports.md).
+  All 47 non-bootstrap suites, focused module checks, the Haskell quality gate,
+  documentation checks and executable examples passed.
 - Not in scope: alias-qualified header selectors, export renaming, whole-module
   exports, cross-module operators, separate impl imports, overlap/orphan policy,
   default methods, superclasses, effects, standard-library growth, packages,

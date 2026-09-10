@@ -1,6 +1,6 @@
 ---
 id: JN-MODULE-EXPLICIT-REEXPORTS-001
-status: ready
+status: complete
 priority: P1
 size: L
 kind: impl
@@ -59,7 +59,7 @@ Owners: `src/Jazz/Compiler/ModuleExports.hs`, `ModuleResolver.hs`,
 `test/Jazz/Compiler/Modules/Loader/ReexportTests.hs`, `LoaderSpec.hs`,
 `ModuleExportsSpec.hs`, `ModuleResolutionSpec.hs`, and `jazz.cabal`.
 
-- [ ] Add real graph cases for values/closures, ADTs and classes through two
+- [x] Add real graph cases for values/closures, ADTs and classes through two
       facades. Start with this failing value program and literal expected `42`:
 
 ```jazz
@@ -71,18 +71,18 @@ module App::Main { import Library::API. answer. }
 Each module is a separate fixture source. Run the loader suite and establish
 that the feature fails at export validation with `E4015` before changing code.
 
-- [ ] Extend `ModuleExportInventory` with original owners while keeping
+- [x] Extend `ModuleExportInventory` with original owners while keeping
       `ModuleExport` as the public namespace/name key. Add
       `exportOrigin :: ModulePath -> ModuleExport -> ModuleExportInventory -> ModulePath`.
       Preserve constructor ownership when an owner type is not publicly selected.
-- [ ] Move dependency-sensitive selector validation into dependency-first graph
+- [x] Move dependency-sensitive selector validation into dependency-first graph
       traversal. Merge explicit unqualified public inventories under local
       declarations, retain owned-only bare selection, and validate constructor
       groups against the chosen nominal type and visible constructors.
-- [ ] Use original owners in unqualified/aliased name resolution and import
+- [x] Use original owners in unqualified/aliased name resolution and import
       collision checks. Identical declarations reached through different paths
       deduplicate; distinct conflicting declarations keep existing diagnostics.
-- [ ] Cover private/filtered/alias-only/ambient-only selection, constructor owners,
+- [x] Cover private/filtered/alias-only/ambient-only selection, constructor owners,
       local shadowing, abstract types, bare/default exports and genuine collisions.
       Run resolver/export suites and commit the coherent boundary change once
       compiler/runtime integration below makes the graph tests pass.
@@ -93,22 +93,22 @@ Owners: `src/Jazz/Compiler/ModuleAnalysis.hs`, `ModuleCompiler.hs`,
 `ModuleRuntime.hs`; `test/Jazz/Compiler/Modules/ModulePipelineContractSpec.hs`
 and `Loader/ReexportTests.hs`.
 
-- [ ] Canonicalize each module's owned interface once using its original owner.
+- [x] Canonicalize each module's owned interface once using its original owner.
       Store `(ModuleExportInventory, ImportedInterface)` for dependencies;
       `dependencyImportInterface` selects canonical entries by public origin
       instead of rebasing a facade's entire payload as newly owned declarations.
-- [ ] Carry original binder IDs, hidden datatype metadata and evidence candidates.
+- [x] Carry original binder IDs, hidden datatype metadata and evidence candidates.
       Filter public class payloads by selected canonical class identities;
       include locally declared impls of explicitly re-exported imported classes.
       Deduplicate identical evidence without concealing distinct impl conflicts.
-- [ ] Resolve imported runtime exports with the same inventory origins. At
+- [x] Resolve imported runtime exports with the same inventory origins. At
       module publication, forward selected exports from direct dependency maps
       alongside owned exports. Reuse existing cells and closure environments.
-- [ ] Exercise constrained/stored/partial/explicit methods, facade-owned impls,
+- [x] Exercise constrained/stored/partial/explicit methods, facade-owned impls,
       direct-plus-facade and diamond imports, nominal ADT pattern use, hidden
       helpers/types, dependency effect counts and suppressed dependency expressions.
       Expected outputs and diagnostics are literal fixture expectations.
-- [ ] Run all four focused suites; resolve failures against the RFC and commit.
+- [x] Run all four focused suites; resolve failures against the RFC and commit.
 
 ### Task 3: Documentation, verification and closeout
 
@@ -117,15 +117,15 @@ Owners: `docs/language/modules.md`, `capabilities.md`,
 as needed, `docs/project/status.md`, `examples/modules/`,
 `test/Jazz/Repository/AuditSpec.hs`, `scripts/check-examples.py`, and queue state.
 
-- [ ] Add an executable facade example with output `42`; register it with the
+- [x] Add an executable facade example with output `42`; register it with the
       existing example checker and repository source inventory. Document typed
       forwarding, class payloads, identity/collisions, and owned-only defaults.
-- [ ] Run focused suites, all supported non-bootstrap suites, the Haskell quality
+- [x] Run focused suites, all supported non-bootstrap suites, the Haskell quality
       gate, executable examples, docs/queue checks and `git diff --check` in pinned
       environments. Existing deferred hosted parity is not feature work.
-- [ ] Review the complete change for RFC coverage and implementation simplicity;
+- [x] Review the complete change for RFC coverage and implementation simplicity;
       fix verified issues and rerun affected checks.
-- [ ] Record actual verification and commits, mark this plan complete, remove the
+- [x] Record actual verification and commits, mark this plan complete, remove the
       ready row, reconcile blocked umbrellas and shipped status, then commit.
 
 ## Execution record
@@ -133,3 +133,36 @@ as needed, `docs/project/status.md`, `examples/modules/`,
 - Maintainer approved RFC 0018. Existing detached linked worktree retained.
 - Baseline: module export, resolution, pipeline and loader suites all passed in
   the pinned Nix development shell before implementation.
+
+- Accepted RFC and implementation plan committed as `bab9b3fd`.
+- The three initial facade programs failed with `E4015` before implementation.
+  Closure, nominal ADT and class diamonds now execute through original identities.
+- Compiler boundaries retain canonical metadata and original binder/evidence IDs;
+  runtime publication forwards existing cells. The obsolete interface-to-public
+  inventory helper and its implementation-only test were removed.
+- Review verified normal `E2015` rejection for distinct same-target impls and
+  `E4008` rejection when a shared class masks a value/constructor collision.
+  Repeated original implementations remain idempotent. A host-output test proves
+  one deferred binding is forced once through two facade aliases.
+- Implementation, public contract, behavior coverage and executable examples
+  committed as `31f37a13`.
+
+## Verification
+
+- All 47 non-bootstrap suites selected from `jazz.cabal` passed with
+  `cabal test --jobs=4 --test-show-details=failures` and their explicit names.
+- After the final collision fix, `module-exports-spec`, `module-resolution-spec`,
+  `module-pipeline-contract-spec`, and `loader-spec` all passed again.
+- `JAZZ_CABAL_JOBS=4 bash scripts/ci/haskell-quality.sh` passed in the pinned
+  quality shell: HLint, production and full Weeder checks, all-target builds
+  including opt-in scale suites, and generated invariant tests. Its final
+  generated-invariant run rebuilt the final import-resolution change.
+- Focused HLint on the final changed import/test files reported no hints;
+  `cabal check` reported no errors or warnings.
+- `bash scripts/check-examples.sh` passed all six cases, including the new
+  `module-reexports` case with output `42`.
+- `bash scripts/check-docs.sh`, RFC structure, queue validation, pinned Markdown
+  formatting and `git diff --check` passed. Closeout rechecks documentation and
+  queue state after removing the completed row.
+- Hosted/bootstrap suites were compiled by the all-target quality gate. Their
+  execution and existing qualification parity work remain deferred.
