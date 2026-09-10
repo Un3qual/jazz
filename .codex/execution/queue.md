@@ -12,7 +12,6 @@ public behavior.
 
 | id  | title | priority | size | kind | autonomous_ready | depends_on | plan | plan_section | target_paths | deliverable | verification | last_verified |
 | --- | ----- | -------- | ---- | ---- | ---------------- | ---------- | ---- | ------------ | ------------ | ----------- | ------------ | ------------- |
-
 | `JN-MODULE-ALIAS-QUALIFIED-CLASSES-001` | Alias-qualified classes | `P1` | `L` | `impl` | `yes` | `-` | [alias-qualified classes](../plans/2026-09-09-alias-qualified-classes.md) | `Implementation` | `src/Jazz/Compiler/ModuleResolver.hs`, `src/Jazz/Compiler/ModuleAnalysis.hs`, `jazz/compiler/ParserExpression.jz` | Alias-qualified class methods, constraints and impl heads preserve identity and visibility across both frontends. | `cabal test all --jobs=4 --test-show-details=failures`; `bash scripts/check-execution-queue.sh`; `bash scripts/check-docs.sh` | `2026-09-09` |
 
 Current executor status (`2026-09-09`): implementing the approved RFC 0017 batch.
