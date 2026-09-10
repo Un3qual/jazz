@@ -179,3 +179,23 @@ inline, with bootstrap still deferred.
   suites passed after reproducing the failures. HLint and Ormolu checks passed.
 - Final verification: all 47 non-bootstrap suites passed, along with plan
   formatting, execution-queue validation and `git diff --check`.
+
+## Code-quality review follow-up — 2026-09-10
+
+The maintainer requested the remaining source-location fix. The loader
+regression reproduced a class diagnostic pointing to an earlier, same-spelled
+type argument in the same signature (column 21 instead of 39).
+
+The constraint parser's existing validation scan now also returns qualified
+head tokens and the unconsumed suffix. The resolver reuses those heads when
+building its source-location index, excluding type arguments. This fixes the
+ambiguity without changing the shared surface-signature representation or
+adding a second constraint grammar. Regressions cover both ordinary and nested
+parenthesized constraint heads. Work remained inline; bootstrap stayed deferred.
+
+All 47 non-bootstrap suites passed. A subsequent edge-case regression exposed
+an unfinished legacy constraint block consuming later statements in the span
+scan; the shared scan now stops at the statement terminator. After that final
+correction, loader, parser-foundation, source-range and structured-diagnostic
+suites passed again. Final HLint and Ormolu checks passed, as did plan formatting,
+execution-queue validation and `git diff --check`.

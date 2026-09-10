@@ -5,6 +5,7 @@
 -- | Signature grammar helpers for the surface parser.
 module Jazz.Compiler.Parser.Signature
   ( parseConstrainedSignatureTypeDetailed,
+    parseConstraintBlockHeadsDetailed,
     parseSignatureTypeParser,
     parseSignatureTypePrefixDetailed,
     parseSignaturePayload,
@@ -14,6 +15,8 @@ module Jazz.Compiler.Parser.Signature
 where
 
 import Control.Applicative ((<|>))
+import Control.Monad (void)
+import Data.Bifunctor (first)
 import Data.Char (isLower)
 import Data.Text (Text)
 import qualified Data.Text as Text
@@ -88,9 +91,15 @@ parseSignaturePayload signatureTokens =
 parseSignaturePayloadDetailed :: [Token] -> Either ParserFailure SurfaceSignaturePayload
 parseSignaturePayloadDetailed tokens = do
   case tokens of
-    Token {tokenKind = TAt} : Token {tokenKind = TLBrace} : rest -> validateHead 0 rest
+    Token {tokenKind = TAt} : Token {tokenKind = TLBrace} : rest -> void (parseConstraintBlockHeadsDetailed rest)
     _ -> Right ()
   pure (parseSignaturePayload tokens)
+
+-- | Validate and retain qualified heads in a constraint block, leaving the
+-- tokens after its closing brace. Type arguments are not class references;
+-- an unfinished legacy payload must not consume the next statement.
+parseConstraintBlockHeadsDetailed :: [Token] -> Either ParserFailure ([(Token, Token)], [Token])
+parseConstraintBlockHeadsDetailed = validateHead 0
   where
     validateHead depth (Token {tokenKind = TLParen} : rest) = validateHead (depth + 1) rest
     validateHead depth (alias : colon@Token {tokenKind = TColonColon} : member : rest) = do
@@ -102,18 +111,19 @@ parseSignaturePayloadDetailed tokens = do
         _ -> invalid member "class name after '::'"
       case rest of
         extra@Token {tokenKind = TColonColon} : _ -> invalid extra "two-component class name"
-        _ -> scan depth rest
+        _ -> first ((alias, member) :) <$> scan depth rest
     validateHead depth rest = scan depth rest
 
-    scan :: Int -> [Token] -> Either ParserFailure ()
-    scan _ [] = Right ()
+    scan :: Int -> [Token] -> Either ParserFailure ([(Token, Token)], [Token])
+    scan _ [] = Right ([], [])
     scan depth (token : rest) = case tokenKind token of
+      TDot -> Right ([], token : rest)
       TLParen -> scan (depth + 1) rest
       TLBracket -> scan (depth + 1) rest
       TRParen -> scan (max 0 (depth - 1)) rest
       TRBracket -> scan (max 0 (depth - 1)) rest
       TComma | depth == 0 -> validateHead 0 rest
-      TRBrace | depth == 0 -> Right ()
+      TRBrace | depth == 0 -> Right ([], rest)
       _ -> scan depth rest
 
     invalid token expected =

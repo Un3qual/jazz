@@ -155,6 +155,7 @@ import Jazz.Compiler.Parser.Lexer (Token (..), TokenKind (..), tokenize)
 import Jazz.Compiler.Parser.Lower
   ( lowerSurfaceModule,
   )
+import Jazz.Compiler.Parser.Signature (parseConstraintBlockHeadsDetailed)
 import Jazz.Compiler.TypeRepresentation
   ( pattern ConstrainedSignature,
     pattern SignatureConstraint,
@@ -903,9 +904,8 @@ collectQualifiedClassReference :: SourceSpan -> (Text, Text) -> ReferenceInvento
 collectQualifiedClassReference spanValue reference facts =
   facts {referenceFactQualifiedClasses = Map.insertWith (const id) reference (spanValue, spanValue) (referenceFactQualifiedClasses facts)}
 
--- Signature types retain names rather than token spans. Reuse the module's
--- token stream to locate the first referenced alias/class after its containing
--- declaration, avoiding another lexical pass or text searches through comments.
+-- Signature types retain names rather than token spans. Reuse the constraint
+-- parser's head scan so a same-spelled type argument cannot supply a class span.
 locateQualifiedClassReferences :: FilePath -> [Token] -> ReferenceInventory -> ReferenceInventory
 locateQualifiedClassReferences sourcePath tokens facts =
   facts {referenceFactQualifiedClasses = Map.mapWithKey locate (referenceFactQualifiedClasses facts)}
@@ -920,10 +920,14 @@ locateQualifiedClassReferences sourcePath tokens facts =
               (anchor, anchor)
               (find (\(aliasSpan, _) -> position aliasSpan >= position anchor) candidates)
        in bimap (qualifySourceSpan sourcePath) (qualifySourceSpan sourcePath) spans
-    qualifiedTokens (alias@Token {tokenKind = TIdentifier aliasName} : colon@Token {tokenKind = TColonColon} : member@Token {tokenKind = TIdentifier memberName} : rest) =
-      ((aliasName, memberName), (tokenSpan alias, tokenSpan member)) : qualifiedTokens (colon : member : rest)
+    qualifiedTokens (Token {tokenKind = TColonColon} : Token {tokenKind = TAt} : Token {tokenKind = TLBrace} : rest)
+      | Right (heads, afterConstraints) <- parseConstraintBlockHeadsDetailed rest =
+          map reference heads <> qualifiedTokens afterConstraints
+    qualifiedTokens (alias@Token {tokenKind = TIdentifier {}} : colon@Token {tokenKind = TColonColon} : member@Token {tokenKind = TIdentifier {}} : rest) =
+      reference (alias, member) : qualifiedTokens (colon : member : rest)
     qualifiedTokens (_ : rest) = qualifiedTokens rest
     qualifiedTokens [] = []
+    reference (alias, member) = ((tokenLexeme alias, tokenLexeme member), (tokenSpan alias, tokenSpan member))
 
 collectSignatureTypeReferenceFacts :: SurfaceSignatureType -> ReferenceInventory -> ReferenceInventory
 collectSignatureTypeReferenceFacts signatureType facts =

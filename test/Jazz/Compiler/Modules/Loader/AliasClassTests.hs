@@ -167,6 +167,9 @@ testDiagnosticComponents =
       ("stored = Facts::Eq::absent @Int.", 21),
       ("Facts::Eq::absent @Int 1 1.", 12),
       ("same :: @{Facts::Hidden(Int)}: Int. same = 1.", 18),
+      ("same :: @{Eq(Facts::OnlyType), Facts::OnlyType(Int)}: Int. same = 1.", 39),
+      ("same :: @{Eq(Facts::OnlyType), ((Facts::OnlyType(Int)))}: Int. same = 1.", 41),
+      ("broken :: @{Eq(Int. missing = Facts::Hidden::hidden 1.", 38),
       ("impl Facts::Hidden(Int) { }.", 13)
     ]
   where
