@@ -4,6 +4,8 @@ Status: Accepted
 Date: 2026-09-07
 Supersedes: RFCs 0005, 0006, 0009, 0010, 0011, 0013, 0014, and 0015; the backend requirements of RFCs 0003 and 0004.
 
+Amended by: [RFC 0018](0018-direct-analyzed-runtime-facts.md) replaces runtime-plan retention with direct consumption of analyzed semantic facts.
+
 ## Decision
 
 Remove the optional Haskell Typed Core producer, schema, validator, and Lowered
