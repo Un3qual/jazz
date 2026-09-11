@@ -50,7 +50,6 @@ import Jazz.Compiler.Parser.Context
   )
 import Jazz.Compiler.Parser.DeclarationTokens
   ( collectUntilDotParser,
-    consumeEquals,
     isConstructorIdentifierText,
     isReservedLiteralName,
     isTypeParameterIdentifierText,
@@ -68,7 +67,6 @@ import Jazz.Compiler.Parser.Failure
     ParserInternalInvariant (..),
     ParserNameRole (..),
     ParserOperatorUse (..),
-    parserFailure,
     parserFailureAt,
   )
 import Jazz.Compiler.Parser.Lexer
@@ -109,11 +107,10 @@ import Jazz.Compiler.Parser.TokenParser
     failTokenParserAt,
     parseAnyToken,
     parseToken,
-    runTokenStreamParserPrefixDetailed,
+    peekToken,
   )
 import Jazz.Compiler.Parser.TokenStream
   ( TokenStream,
-    tokenStreamLength,
     pattern EmptyTokens,
     pattern (:<),
   )
@@ -151,24 +148,6 @@ data OperatorDeclarationFixityKeyword
   = OperatorTierKeyword
   | OperatorPrecedenceKeyword
 
-parseDataStatementParser :: Parser SurfaceStatement
-parseDataStatementParser =
-  parseOwnedPrefix parseDataStatementFromTokens
-
-parseOwnedPrefix :: (TokenStream -> Either ParserFailure (a, TokenStream)) -> Parser a
-parseOwnedPrefix parseDeclaration = do
-  tokens <- MP.getInput
-  case parseDeclaration tokens of
-    Left failure -> failParserFailure failure
-    Right (value, remaining) ->
-      value <$ consumeParsedPrefix remaining
-
-consumeParsedPrefix :: TokenStream -> Parser ()
-consumeParsedPrefix remaining = do
-  current <- MP.getInput
-  let consumedCount = tokenStreamLength current - tokenStreamLength remaining
-  () <$ MP.takeP Nothing consumedCount
-
 -- | Parse one statement and return the context visible to the following
 -- statement in the same scope. Expressions and nested blocks are supplied by
 -- their owning grammars, which keeps this module responsible only for
@@ -201,10 +180,8 @@ parseStatementParser parseExpression parseBlock context = do
         _ -> finish . pure <$> parseImportStatementParser
     operatorToken@Token {tokenKind = TIdentifier "operator"} :< rest
       | looksLikeOperatorDeclaration rest -> do
-          (operatorInfo, remaining) <-
-            liftOwnedResult
-              (parseOperatorDeclaration (parserStatementContext context) declaredOperators operatorToken rest)
-          consumeParsedPrefix remaining
+          _ <- parseAnyToken
+          operatorInfo <- parseOperatorDeclaration (parserStatementContext context) declaredOperators operatorToken
           pure
             ( [],
               context
@@ -220,50 +197,71 @@ liftOwnedResult result =
     Left failure -> failParserFailure failure
     Right value -> pure value
 
-parseOperatorDeclaration :: StatementContext -> OperatorTable -> Token -> TokenStream -> Either ParserFailure (OperatorInfo, TokenStream)
-parseOperatorDeclaration context declaredOperators operatorToken tokensAfterKeyword =
+parseOperatorDeclaration :: StatementContext -> OperatorTable -> Token -> Parser OperatorInfo
+parseOperatorDeclaration context declaredOperators operatorToken =
   case context of
-    NestedBlockContext ->
-      rejectNestedOperatorDeclaration operatorToken
-    TopLevelContext ->
-      parseVisibleOperatorDeclaration
-    ModuleBodyContext ->
-      parseVisibleOperatorDeclaration
-  where
-    parseVisibleOperatorDeclaration = do
-      (declaredSymbol, afterSymbol) <- parseOperatorDeclarationSymbol tokensAfterKeyword
-      validateDeclaredOperatorSymbol declaredOperators operatorToken declaredSymbol
-      (fixityKeyword, afterFixityKeyword) <- consumeOperatorFixityKeyword operatorToken afterSymbol
-      (operatorInfo, afterFixity) <-
-        parseOperatorDeclarationFixity operatorToken declaredSymbol fixityKeyword afterFixityKeyword
-      (operatorInfoWithAssociativity, afterAssociativity) <-
-        parseOptionalOperatorAssociativity operatorInfo afterFixity
-      remaining <-
-        consumeOperatorDeclarationDot
-          operatorToken
-          (operatorDeclarationFixityLabel fixityKeyword)
-          afterAssociativity
-      pure (operatorInfoWithAssociativity, remaining)
+    NestedBlockContext -> liftOwnedResult (rejectNestedOperatorDeclaration operatorToken)
+    _ -> do
+      symbol <- parseOperatorDeclarationSymbol
+      liftOwnedResult (validateDeclaredOperatorSymbol declaredOperators operatorToken symbol)
+      keyword <- parseOperatorFixityKeyword operatorToken
+      info <- parseOperatorFixity operatorToken symbol keyword
+      associated <- parseOptionalOperatorAssociativity info
+      next <- peekToken
+      let expected = "'.' after operator declaration " <> operatorDeclarationFixityLabel keyword
+      case next of
+        Just Token {tokenKind = TDot} -> associated <$ parseAnyToken
+        Just token -> failTokenParserAt (tokenSpan token) (ExpectedSyntax expected (foundToken token))
+        Nothing -> failTokenParserAt (tokenSpan operatorToken) (ExpectedSyntax expected ParserEndOfInput)
 
-parseOperatorDeclarationSymbol :: TokenStream -> Either ParserFailure (Text, TokenStream)
-parseOperatorDeclarationSymbol tokens =
-  case tokens of
-    Token {tokenKind = TOperator declaredSymbol} :< rest ->
-      Right (declaredSymbol, rest)
-    Token {tokenKind = TArrow, tokenLexeme = arrowLexeme} :< rest ->
-      Right (arrowLexeme, rest)
-    token :< _ ->
-      Left
-        ( parserFailureAt
-            (tokenSpan token)
-            ( ExpectedSyntax
-                "operator symbol after 'operator'"
-                (ParserFoundToken (tokenKind token) (tokenLexeme token))
-            )
-        )
-    EmptyTokens ->
-      Left
-        (parserFailure (ExpectedSyntax "operator symbol after 'operator'" ParserEndOfInput))
+parseOperatorDeclarationSymbol :: Parser Text
+parseOperatorDeclarationSymbol = do
+  next <- peekToken
+  case next of
+    Just Token {tokenKind = TOperator symbol} -> symbol <$ parseAnyToken
+    Just Token {tokenKind = TArrow, tokenLexeme = symbol} -> symbol <$ parseAnyToken
+    Just token -> failTokenParserAt (tokenSpan token) (ExpectedSyntax "operator symbol after 'operator'" (foundToken token))
+    Nothing -> failTokenParser (ExpectedSyntax "operator symbol after 'operator'" ParserEndOfInput)
+
+parseOperatorFixityKeyword :: Token -> Parser OperatorDeclarationFixityKeyword
+parseOperatorFixityKeyword operatorToken = do
+  next <- peekToken
+  case next of
+    Just Token {tokenKind = TIdentifier "tier"} -> OperatorTierKeyword <$ parseAnyToken
+    Just Token {tokenKind = TIdentifier "precedence"} -> OperatorPrecedenceKeyword <$ parseAnyToken
+    Just token -> failTokenParserAt (tokenSpan token) (ExpectedSyntax "'tier' or 'precedence' in operator declaration" (foundToken token))
+    Nothing -> failTokenParserAt (tokenSpan operatorToken) (ExpectedSyntax "'tier' or 'precedence'" (ParserEndOfInputIn "operator declaration"))
+
+parseOperatorFixity :: Token -> Text -> OperatorDeclarationFixityKeyword -> Parser OperatorInfo
+parseOperatorFixity operatorToken symbol keyword = do
+  let (expected, construct, rangeFailure) = case keyword of
+        OperatorTierKeyword -> ("operator tier 1-5", declaredOperatorInfoForTier symbol, OperatorTierOutOfRange)
+        OperatorPrecedenceKeyword -> ("operator precedence 1-99", declaredOperatorInfoForPrecedence symbol, OperatorPrecedenceOutOfRange)
+  next <- peekToken
+  case next of
+    Just Token {tokenKind = TInt value} -> case construct value of
+      Just info -> info <$ parseAnyToken
+      Nothing -> failTokenParserAt (tokenSpan operatorToken) (DeclarationFailure rangeFailure)
+    Just token -> failTokenParserAt (tokenSpan token) (ExpectedSyntax expected (foundToken token))
+    Nothing -> failTokenParserAt (tokenSpan operatorToken) (ExpectedSyntax expected (ParserEndOfInputIn "operator declaration"))
+
+parseOptionalOperatorAssociativity :: OperatorInfo -> Parser OperatorInfo
+parseOptionalOperatorAssociativity info = do
+  next <- peekToken
+  case next of
+    Just Token {tokenKind = TIdentifier "left"} -> info {operatorAssociativity = AssocLeft} <$ parseAnyToken
+    Just Token {tokenKind = TIdentifier "right"} -> info {operatorAssociativity = AssocRight} <$ parseAnyToken
+    Just Token {tokenKind = TIdentifier "nonassoc"} -> info {operatorAssociativity = AssocNonAssoc} <$ parseAnyToken
+    Just token@Token {tokenKind = TIdentifier {}} -> failTokenParserAt (tokenSpan token) (ExpectedSyntax "operator associativity 'left', 'right', or 'nonassoc'" (foundToken token))
+    _ -> pure info
+
+operatorDeclarationFixityLabel :: OperatorDeclarationFixityKeyword -> Text
+operatorDeclarationFixityLabel keyword = case keyword of
+  OperatorTierKeyword -> "tier"
+  OperatorPrecedenceKeyword -> "precedence"
+
+foundToken :: Token -> ParserEncountered
+foundToken token = ParserFoundToken (tokenKind token) (tokenLexeme token)
 
 validateDeclaredOperatorSymbol :: OperatorTable -> Token -> Text -> Either ParserFailure ()
 validateDeclaredOperatorSymbol declaredOperators operatorToken declaredSymbol
@@ -291,135 +289,6 @@ validateDeclaredOperatorSymbol declaredOperators operatorToken declaredSymbol
         ( parserFailureAt
             (tokenSpan operatorToken)
             (DeclarationFailure (InvalidOperatorSymbol declaredSymbol))
-        )
-
-consumeOperatorFixityKeyword :: Token -> TokenStream -> Either ParserFailure (OperatorDeclarationFixityKeyword, TokenStream)
-consumeOperatorFixityKeyword operatorToken tokens =
-  case tokens of
-    Token {tokenKind = TIdentifier "tier"} :< rest -> Right (OperatorTierKeyword, rest)
-    Token {tokenKind = TIdentifier "precedence"} :< rest -> Right (OperatorPrecedenceKeyword, rest)
-    token :< _ ->
-      Left
-        ( parserFailureAt
-            (tokenSpan token)
-            ( ExpectedSyntax
-                "'tier' or 'precedence' in operator declaration"
-                (ParserFoundToken (tokenKind token) (tokenLexeme token))
-            )
-        )
-    EmptyTokens ->
-      Left
-        ( parserFailureAt
-            (tokenSpan operatorToken)
-            (ExpectedSyntax "'tier' or 'precedence'" (ParserEndOfInputIn "operator declaration"))
-        )
-
-parseOperatorDeclarationFixity :: Token -> Text -> OperatorDeclarationFixityKeyword -> TokenStream -> Either ParserFailure (OperatorInfo, TokenStream)
-parseOperatorDeclarationFixity operatorToken declaredSymbol fixityKeyword tokens =
-  case fixityKeyword of
-    OperatorTierKeyword -> parseOperatorDeclarationTier operatorToken declaredSymbol tokens
-    OperatorPrecedenceKeyword -> parseOperatorDeclarationPrecedence operatorToken declaredSymbol tokens
-
-parseOperatorDeclarationTier :: Token -> Text -> TokenStream -> Either ParserFailure (OperatorInfo, TokenStream)
-parseOperatorDeclarationTier operatorToken declaredSymbol tokens =
-  case tokens of
-    Token {tokenKind = TInt tier} :< rest ->
-      case declaredOperatorInfoForTier declaredSymbol tier of
-        Just operatorInfo -> Right (operatorInfo, rest)
-        Nothing ->
-          Left
-            ( parserFailureAt
-                (tokenSpan operatorToken)
-                (DeclarationFailure OperatorTierOutOfRange)
-            )
-    token :< _ ->
-      Left
-        ( parserFailureAt
-            (tokenSpan token)
-            ( ExpectedSyntax
-                "operator tier 1-5"
-                (ParserFoundToken (tokenKind token) (tokenLexeme token))
-            )
-        )
-    EmptyTokens ->
-      Left
-        ( parserFailureAt
-            (tokenSpan operatorToken)
-            (ExpectedSyntax "operator tier 1-5" (ParserEndOfInputIn "operator declaration"))
-        )
-
-parseOperatorDeclarationPrecedence :: Token -> Text -> TokenStream -> Either ParserFailure (OperatorInfo, TokenStream)
-parseOperatorDeclarationPrecedence operatorToken declaredSymbol tokens =
-  case tokens of
-    Token {tokenKind = TInt precedence} :< rest ->
-      case declaredOperatorInfoForPrecedence declaredSymbol precedence of
-        Just operatorInfo -> Right (operatorInfo, rest)
-        Nothing ->
-          Left
-            ( parserFailureAt
-                (tokenSpan operatorToken)
-                (DeclarationFailure OperatorPrecedenceOutOfRange)
-            )
-    token :< _ ->
-      Left
-        ( parserFailureAt
-            (tokenSpan token)
-            ( ExpectedSyntax
-                "operator precedence 1-99"
-                (ParserFoundToken (tokenKind token) (tokenLexeme token))
-            )
-        )
-    EmptyTokens ->
-      Left
-        ( parserFailureAt
-            (tokenSpan operatorToken)
-            (ExpectedSyntax "operator precedence 1-99" (ParserEndOfInputIn "operator declaration"))
-        )
-
-parseOptionalOperatorAssociativity :: OperatorInfo -> TokenStream -> Either ParserFailure (OperatorInfo, TokenStream)
-parseOptionalOperatorAssociativity operatorInfo tokens =
-  case tokens of
-    Token {tokenKind = TIdentifier "left"} :< rest ->
-      Right (operatorInfo {operatorAssociativity = AssocLeft}, rest)
-    Token {tokenKind = TIdentifier "right"} :< rest ->
-      Right (operatorInfo {operatorAssociativity = AssocRight}, rest)
-    Token {tokenKind = TIdentifier "nonassoc"} :< rest ->
-      Right (operatorInfo {operatorAssociativity = AssocNonAssoc}, rest)
-    token@Token {tokenKind = TIdentifier {}} :< _ ->
-      Left
-        ( parserFailureAt
-            (tokenSpan token)
-            ( ExpectedSyntax
-                "operator associativity 'left', 'right', or 'nonassoc'"
-                (ParserFoundToken (tokenKind token) (tokenLexeme token))
-            )
-        )
-    _ -> Right (operatorInfo, tokens)
-
-operatorDeclarationFixityLabel :: OperatorDeclarationFixityKeyword -> Text
-operatorDeclarationFixityLabel fixityKeyword =
-  case fixityKeyword of
-    OperatorTierKeyword -> "tier"
-    OperatorPrecedenceKeyword -> "precedence"
-
-consumeOperatorDeclarationDot :: Token -> Text -> TokenStream -> Either ParserFailure TokenStream
-consumeOperatorDeclarationDot operatorToken fixityLabel tokens =
-  case tokens of
-    Token {tokenKind = TDot} :< rest -> Right rest
-    token :< _ ->
-      Left
-        ( parserFailureAt
-            (tokenSpan token)
-            ( ExpectedSyntax
-                ("'.' after operator declaration " <> fixityLabel)
-                (ParserFoundToken (tokenKind token) (tokenLexeme token))
-            )
-        )
-    EmptyTokens ->
-      Left
-        ( parserFailureAt
-            (tokenSpan operatorToken)
-            (ExpectedSyntax ("'.' after operator declaration " <> fixityLabel) ParserEndOfInput)
         )
 
 parseStatement :: Parser SurfaceExpr -> ParserContext -> Parser [SurfaceStatement]
@@ -518,183 +387,83 @@ parseExprStatement expression = do
     EmptyTokens -> failTokenParser (ExpectedSyntax "expression" ParserEndOfInput)
     firstToken :< _ -> SSExpr (tokenSpan firstToken) <$> expression <* parseToken TDot
 
-parseDataStatementFromTokens :: TokenStream -> Either ParserFailure (SurfaceStatement, TokenStream)
-parseDataStatementFromTokens tokens =
-  case tokens of
-    dataToken@Token {tokenKind = TData} :< tokensAfterDataKeyword -> do
-      (typeName, afterTypeName) <- parseDataTypeName tokensAfterDataKeyword
-      (typeParameters, afterTypeParameters) <- parseDataTypeParameters afterTypeName
-      afterEquals <-
-        consumeEquals
-          (tokenSpan dataToken)
-          afterTypeParameters
-          (ExpectedSyntax "'='" (ParserEndOfInputAfter "data type name"))
-      (constructors, remaining) <- parseDataConstructors typeName typeParameters afterEquals
-      pure (SSData (tokenSpan dataToken) typeName typeParameters constructors, remaining)
-    EmptyTokens ->
-      Left (parserFailure (ExpectedSyntax "'data'" ParserEndOfInput))
-    token :< _ ->
-      Left
-        ( parserFailureAt
-            (tokenSpan token)
-            (ExpectedSyntax "'data'" (ParserFoundToken (tokenKind token) (tokenLexeme token)))
-        )
+parseDataStatementParser :: Parser SurfaceStatement
+parseDataStatementParser = do
+  dataToken <- parseToken TData
+  typeName <- parseDataTypeName
+  parameters <- parseDataTypeParameters
+  next <- peekToken
+  case next of
+    Nothing -> failTokenParserAt (tokenSpan dataToken) (ExpectedSyntax "'='" (ParserEndOfInputAfter "data type name"))
+    _ -> do
+      _ <- parseToken TEquals
+      SSData (tokenSpan dataToken) typeName parameters <$> parseDataConstructors typeName parameters
 
-parseDataTypeName :: TokenStream -> Either ParserFailure (Identifier, TokenStream)
-parseDataTypeName tokens =
-  case tokens of
-    Token {tokenKind = TIdentifier typeName, tokenSpan = typeSpan} :< rest
-      | isConstructorIdentifierText typeName ->
-          Right (mkIdentifier typeName, rest)
-      | otherwise ->
-          Left
-            ( parserFailureAt
-                typeSpan
-                (ExpectedSyntax "type constructor name" (ParserFoundToken (TIdentifier typeName) typeName))
-            )
-    EmptyTokens ->
-      Left (parserFailure (ExpectedSyntax "type constructor name" (ParserEndOfInputAfter "'data'")))
-    token :< _ ->
-      Left
-        ( parserFailureAt
-            (tokenSpan token)
-            (ExpectedSyntax "type constructor name" (ParserFoundToken (tokenKind token) (tokenLexeme token)))
-        )
+parseDataTypeName :: Parser Identifier
+parseDataTypeName = do
+  next <- peekToken
+  case next of
+    Just token@Token {tokenKind = TIdentifier name}
+      | isConstructorIdentifierText name -> mkIdentifier name <$ parseAnyToken
+      | otherwise -> failTokenParserAt (tokenSpan token) (ExpectedSyntax "type constructor name" (foundToken token))
+    Nothing -> failTokenParser (ExpectedSyntax "type constructor name" (ParserEndOfInputAfter "'data'"))
+    Just token -> failTokenParserAt (tokenSpan token) (ExpectedSyntax "type constructor name" (foundToken token))
 
-parseDataTypeParameters :: TokenStream -> Either ParserFailure ([Identifier], TokenStream)
-parseDataTypeParameters tokens = go Set.empty [] tokens
+parseDataTypeParameters :: Parser [Identifier]
+parseDataTypeParameters = go Set.empty []
   where
-    go seenParameters revParameters allTokens =
-      case allTokens of
-        Token {tokenKind = TEquals} :< _ ->
-          Right (reverse revParameters, allTokens)
-        Token {tokenKind = TIdentifier parameterName, tokenSpan = parameterSpan} :< rest
-          | isTypeParameterIdentifierText parameterName ->
-              if Set.member parameterName seenParameters
-                then
-                  Left
-                    ( parserFailureAt
-                        parameterSpan
-                        (DeclarationFailure (DuplicateName DataTypeParameter parameterName DataDeclaration))
-                    )
-                else
-                  go
-                    (Set.insert parameterName seenParameters)
-                    (mkIdentifier parameterName : revParameters)
-                    rest
-          | otherwise ->
-              Left
-                ( parserFailureAt
-                    parameterSpan
-                    ( ExpectedSyntax
-                        "lowercase type parameter or '='"
-                        (ParserFoundToken (TIdentifier parameterName) parameterName)
-                    )
-                )
-        _ ->
-          Right (reverse revParameters, allTokens)
+    go seen reversed = do
+      next <- peekToken
+      case next of
+        Just token@Token {tokenKind = TIdentifier name}
+          | isTypeParameterIdentifierText name ->
+              if Set.member name seen
+                then failTokenParserAt (tokenSpan token) (DeclarationFailure (DuplicateName DataTypeParameter name DataDeclaration))
+                else parseAnyToken *> go (Set.insert name seen) (mkIdentifier name : reversed)
+          | otherwise -> failTokenParserAt (tokenSpan token) (ExpectedSyntax "lowercase type parameter or '='" (foundToken token))
+        _ -> pure (reverse reversed)
 
-parseDataConstructors :: Identifier -> [Identifier] -> TokenStream -> Either ParserFailure ([SurfaceDataConstructor], TokenStream)
-parseDataConstructors typeName typeParameters tokensAfterEquals = do
-  (firstConstructor, afterFirstConstructor) <- parseDataConstructor typeName typeParameterNames tokensAfterEquals
-  go
-    (Set.singleton (surfaceDataConstructorName firstConstructor))
-    [firstConstructor]
-    afterFirstConstructor
+parseDataConstructors :: Identifier -> [Identifier] -> Parser [SurfaceDataConstructor]
+parseDataConstructors typeName parameters = do
+  first <- parseDataConstructor typeName parameterNames
+  go (Set.singleton (constructorName first)) [first]
   where
-    typeParameterNames = Set.fromList (map identifierText typeParameters)
+    parameterNames = Set.fromList (map identifierText parameters)
+    constructorName (SurfaceDataConstructor name _) = identifierText name
+    go seen reversed = do
+      next <- peekToken
+      case next of
+        Just Token {tokenKind = TDot} -> reverse reversed <$ parseAnyToken
+        Just Token {tokenKind = TOperator "|"} -> do
+          _ <- parseAnyToken
+          constructor <- parseDataConstructor typeName parameterNames
+          let name = constructorName constructor
+          if Set.member name seen
+            then failTokenParser (DeclarationFailure (DuplicateName DataConstructorName name DataDeclaration))
+            else go (Set.insert name seen) (constructor : reversed)
+        Nothing -> failTokenParser (ExpectedSyntax "'.'" (ParserEndOfInputIn "data declaration"))
+        Just token -> failTokenParserAt (tokenSpan token) (ExpectedSyntax "'|' or '.'" (foundToken token))
 
-    go seenConstructors revConstructors allTokens =
-      case allTokens of
-        Token {tokenKind = TDot} :< rest ->
-          Right (reverse revConstructors, rest)
-        Token {tokenKind = TOperator "|"} :< rest -> do
-          (nextConstructor, afterNextConstructor) <- parseDataConstructor typeName typeParameterNames rest
-          let constructorName = surfaceDataConstructorName nextConstructor
-          if Set.member constructorName seenConstructors
-            then
-              Left
-                ( parserFailure
-                    (DeclarationFailure (DuplicateName DataConstructorName constructorName DataDeclaration))
-                )
-            else
-              go
-                (Set.insert constructorName seenConstructors)
-                (nextConstructor : revConstructors)
-                afterNextConstructor
-        EmptyTokens ->
-          Left (parserFailure (ExpectedSyntax "'.'" (ParserEndOfInputIn "data declaration")))
-        token :< _ ->
-          Left
-            ( parserFailureAt
-                (tokenSpan token)
-                (ExpectedSyntax "'|' or '.'" (ParserFoundToken (tokenKind token) (tokenLexeme token)))
-            )
-
-    surfaceDataConstructorName :: SurfaceDataConstructor -> Text
-    surfaceDataConstructorName (SurfaceDataConstructor constructorName _) =
-      identifierText constructorName
-
-parseDataConstructor :: Identifier -> Set Text -> TokenStream -> Either ParserFailure (SurfaceDataConstructor, TokenStream)
-parseDataConstructor typeName typeParameterNames tokens =
-  case tokens of
-    Token {tokenKind = TIdentifier constructorName, tokenSpan = constructorSpan} :< rest
-      | isConstructorIdentifierText constructorName -> do
-          (constructorArguments, remaining) <- parseDataConstructorArguments typeName typeParameterNames [] rest
-          Right
-            ( SurfaceDataConstructor (mkIdentifier constructorName) constructorArguments,
-              remaining
-            )
-      | otherwise ->
-          Left
-            ( parserFailureAt
-                constructorSpan
-                ( ExpectedSyntax
-                    "constructor declaration"
-                    (ParserFoundToken (TIdentifier constructorName) constructorName)
-                )
-            )
-    EmptyTokens ->
-      Left (parserFailure (ExpectedSyntax "constructor declaration" (ParserEndOfInputIn "data declaration")))
-    token :< _ ->
-      Left
-        ( parserFailureAt
-            (tokenSpan token)
-            ( ExpectedSyntax
-                "constructor declaration"
-                (ParserFoundToken (tokenKind token) (tokenLexeme token))
-            )
-        )
-
-parseDataConstructorArguments ::
-  Identifier ->
-  Set Text ->
-  [SurfaceSignatureType] ->
-  TokenStream ->
-  Either ParserFailure ([SurfaceSignatureType], TokenStream)
-parseDataConstructorArguments typeName typeParameterNames revArguments allTokens =
-  case allTokens of
-    Token {tokenKind = TOperator "|"} :< _ ->
-      Right (reverse revArguments, allTokens)
-    Token {tokenKind = TDot} :< _ ->
-      Right (reverse revArguments, allTokens)
-    EmptyTokens ->
-      Right (reverse revArguments, allTokens)
-    firstToken :< _ -> do
-      let fieldSpan = tokenSpan firstToken
-      (fieldType, remaining) <-
-        runTokenStreamParserPrefixDetailed "signature type" parseSignatureTypeParser allTokens
-      case Set.toList (surfaceSignatureTypeVariables fieldType `Set.difference` typeParameterNames) of
-        undeclaredName : _ ->
-          Left
-            ( parserFailureAt
-                fieldSpan
-                ( DeclarationFailure
-                    (UndeclaredConstructorTypeParameter undeclaredName (identifierText typeName))
-                )
-            )
-        [] ->
-          parseDataConstructorArguments typeName typeParameterNames (fieldType : revArguments) remaining
+parseDataConstructor :: Identifier -> Set Text -> Parser SurfaceDataConstructor
+parseDataConstructor typeName parameters = do
+  next <- peekToken
+  case next of
+    Just Token {tokenKind = TIdentifier name}
+      | isConstructorIdentifierText name -> parseAnyToken *> (SurfaceDataConstructor (mkIdentifier name) <$> arguments [])
+    Nothing -> failTokenParser (ExpectedSyntax "constructor declaration" (ParserEndOfInputIn "data declaration"))
+    Just token -> failTokenParserAt (tokenSpan token) (ExpectedSyntax "constructor declaration" (foundToken token))
+  where
+    arguments reversed = do
+      next <- peekToken
+      case next of
+        Just Token {tokenKind = TOperator "|"} -> pure (reverse reversed)
+        Just Token {tokenKind = TDot} -> pure (reverse reversed)
+        Nothing -> pure (reverse reversed)
+        Just token -> do
+          field <- parseSignatureTypeParser
+          case Set.toList (surfaceSignatureTypeVariables field `Set.difference` parameters) of
+            name : _ -> failTokenParserAt (tokenSpan token) (DeclarationFailure (UndeclaredConstructorTypeParameter name (identifierText typeName)))
+            [] -> arguments (field : reversed)
 
 surfaceSignatureTypeVariables :: SurfaceSignatureType -> Set Text
 surfaceSignatureTypeVariables signatureType =

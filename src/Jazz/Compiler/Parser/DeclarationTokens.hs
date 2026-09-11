@@ -9,8 +9,6 @@ module Jazz.Compiler.Parser.DeclarationTokens
     looksLikeReservedAbstractionDeclaration,
     looksLikeAbstractionDeclaration,
     rejectNestedOperatorDeclaration,
-    consumeDot,
-    consumeEquals,
     isReservedLiteralName,
     isConstructorIdentifierText,
     isTypeParameterIdentifierText,
@@ -25,9 +23,6 @@ import Data.Text
   ( Text,
   )
 import qualified Data.Text as Text
-import Jazz.Compiler.Diagnostics
-  ( SourceSpan,
-  )
 import Jazz.Compiler.Parser.Failure
   ( ParserDeclarationFailure (..),
     ParserDeclarationKind (..),
@@ -154,30 +149,6 @@ rejectNestedOperatorDeclaration operatorToken =
         (tokenSpan operatorToken)
         (DeclarationFailure (DeclarationOutsideAllowedScope OperatorDeclaration))
     )
-
-consumeDot :: TokenStream -> Either ParserFailure TokenStream
-consumeDot tokens =
-  case tokens of
-    Token {tokenKind = TDot} :< rest -> Right rest
-    EmptyTokens -> Left (parserFailure (ExpectedSyntax "'.'" ParserEndOfInput))
-    token :< _ ->
-      Left
-        ( parserFailureAt
-            (tokenSpan token)
-            (ExpectedSyntax "'.'" (ParserFoundToken (tokenKind token) (tokenLexeme token)))
-        )
-
-consumeEquals :: SourceSpan -> TokenStream -> ParserFailureReason -> Either ParserFailure TokenStream
-consumeEquals endOfInputSpan tokens endOfInputReason =
-  case tokens of
-    Token {tokenKind = TEquals} :< rest -> Right rest
-    EmptyTokens -> Left (parserFailureAt endOfInputSpan endOfInputReason)
-    token :< _ ->
-      Left
-        ( parserFailureAt
-            (tokenSpan token)
-            (ExpectedSyntax "'='" (ParserFoundToken (tokenKind token) (tokenLexeme token)))
-        )
 
 isReservedLiteralName :: Text -> Bool
 isReservedLiteralName name = name == "True" || name == "False"

@@ -1,5 +1,5 @@
 ---
-id: JN-COMPILER-DISCOVERY-OWNERSHIP-001
+id: JN-COMPILER-RESOLVED-IDENTITY-001
 status: ready
 priority: P1
 size: L
@@ -7,14 +7,14 @@ kind: impl
 autonomous_ready: yes
 depends_on: []
 last_verified: 2026-09-11
-plan_section: "T02 — Make discovery own locations and validated visibility"
+plan_section: "T04 — Establish declaration identity during resolution"
 target_paths:
-  - src/Jazz/Compiler/ModuleResolver.hs
-  - src/Jazz/Compiler/ModuleResolver/Imports.hs
+  - src/Jazz/Compiler/ModuleResolver/Names.hs
+  - src/Jazz/Compiler/TypeInference/Analyzed.hs
 verification:
-  - cabal test source-ranges-spec module-resolution-spec loader-spec structured-error-diagnostics-spec --test-show-details=failures --jobs=4
+  - cabal test name-semantics-spec recursive-binding-spec binding-signature-spec module-pipeline-contract-spec module-loader-spec --test-show-details=failures --jobs=4
   - bash scripts/check-execution-queue.sh
-deliverable: Retain parsed reference spans and consume one validated import visibility scope.
+deliverable: Resolve source-owned declaration IDs and consume explicit instantiation targets without rebuilding binder environments.
 supersedes: []
 ---
 
@@ -30,7 +30,7 @@ supersedes: []
 
 **Spec:** [Validated audit findings](2026-09-10-compiler-architecture-validation.md), together with the target contracts and preservation rules below. The report preserves the disposition of all three input audits. The two Luna drafts were withdrawn after validation; their rejected or qualified recommendations are not implementation guidance.
 
-**Status:** Execution requested on 2026-09-11. T02 is the active bounded milestone in the execution queue. Execute the remaining tasks inline in dependency order; promote the next milestone when its prerequisites pass.
+**Status:** Execution requested on 2026-09-11. T04 is the active bounded milestone in the execution queue. Execute the remaining tasks inline in dependency order; promote the next milestone when its prerequisites pass.
 
 **Existing architecture decision:** [RFC 0016](../../rfcs/accepted/0016-optional-backend-removal.md) explicitly says to keep “attached analysis facts, and runtime plans.” Direct construction still retains attached facts, but T11a proposes changing the retained runtime-plan contract. Approval of this plan should therefore include that specific architectural decision and a narrow amendment through the repository's RFC process before removal. This is a dependency of T11a, not a reason to block unrelated tasks or ask for another confirmation while preparing this plan. If runtime plans are to remain, retain the small sequence and pursue direct identity/ownership improvements around it; do not claim its deletion completed.
 
@@ -193,12 +193,12 @@ The table is a dependency order, not a request for parallel agents. Work inline.
 
 **Files:** `src/Jazz/Compiler/Parser/Declaration.hs`, `src/Jazz/Compiler/Parser/DeclarationTokens.hs`, `src/Jazz/Compiler/Parser/TokenParser.hs`, `src/Jazz/Compiler/Parser/Failure.hs`, `src/Jazz/Compiler/Parser/Context.hs`, `src/Jazz/Compiler/Parser/Expression.hs`; tests `test/Jazz/Compiler/Parser/{DeclarationParserSpec,ExpressionParserSpec,ModuleImportParserSpec,OperatorInvalidSyntaxSpec,ParserFoundationSpec,TokenParserSpec}.hs`.
 
-- [ ] Migrate declaration parsing from manual `TokenStream -> Either ParserFailure` consumption/re-entry to the existing Megaparsec token parser, one declaration family at a time: imports/modules, signatures, then bindings/function heads. Reuse token utilities that only inspect/classify tokens.
-- [ ] Preserve commitment/backtracking behavior, known-alias context, accepted declaration ambiguity, and current diagnostic spans. Do not replace grammar decisions with a new global token preprocessor.
-- [ ] Remove consumption-count adapters when their final caller is migrated. Keep one conversion from parser failures to user diagnostics at the frontend boundary.
-- [ ] Run the parser suites above and canonical parser comparison/parity suites. Exercise invalid as well as accepted syntax; compare failures and locations, not just whether parsing succeeds.
-- [ ] Run existing parser scale cases before/after to catch accidental backtracking amplification.
-- [ ] Commit each declaration-family migration when independently green; finish with adapter removal.
+- [x] Migrate declaration parsing from manual `TokenStream -> Either ParserFailure` consumption/re-entry to the existing Megaparsec token parser, one declaration family at a time: imports/modules, signatures, then bindings/function heads. Reuse token utilities that only inspect/classify tokens.
+- [x] Preserve commitment/backtracking behavior, known-alias context, accepted declaration ambiguity, and current diagnostic spans. Do not replace grammar decisions with a new global token preprocessor.
+- [x] Remove consumption-count adapters when their final caller is migrated. Keep one conversion from parser failures to user diagnostics at the frontend boundary.
+- [x] Run the parser suites above and canonical parser comparison/parity suites. Exercise invalid as well as accepted syntax; compare failures and locations, not just whether parsing succeeds.
+- [x] Run existing parser scale cases before/after to catch accidental backtracking amplification.
+- [x] Commit each declaration-family migration when independently green; finish with adapter removal.
 
 **Deletion criterion:** A declaration no longer crosses between two independently maintained consumed-token/error protocols. Context-sensitive syntax remains unchanged.
 
@@ -517,3 +517,11 @@ Documentation verification at plan completion checks local evidence targets/line
 - Parser-owned `SurfaceName` retains type/capability member and qualifier spans. Three-component method syntax likewise retains its component spans. Discovery carries those exact locations with its lowered module and reference inventory; it no longer retains/rescans lexer tokens. The canonical Lowered schema and hosted grammar are unchanged.
 - Existing parser fixtures now include actual retained locations; the structured constructor fixture distinguishes repeated `Tree` occurrences. Existing alias-class diagnostic tests already cover same-spelled type arguments and class constraints, so no redundant test was added.
 - Verification: focused resolver, loader, source-range, structured-diagnostic and canonical compatibility suites passed. Full `cabal test all --keep-going --test-show-details=failures --jobs=4` plus the corrected ADT parser fixture rerun retains 61 passing suites and exactly the same ten deferred hosted-parser failures. Logs: `/private/tmp/jazz-architecture-t02-full.log`, `/private/tmp/jazz-architecture-t02-adt.log`. Ormolu, changed-file HLint and `git diff --check` pass.
+
+
+### T03 — native declaration parser control (complete, 2026-09-11)
+
+- Migrated modules/imports (`9921a2a5`), bindings/signatures (`ee6f7b30`), and classes/implementations (`977f0372`) through the existing Megaparsec parser. The final slice moves data and operator declarations and deletes the last consumed-token adapters.
+- Preserved the existing signature/alias classification, parser commitment, source spans, and structured error causes. Bounded signature payload inspection remains pure; declaration parsing no longer re-enters a token-stream runner.
+- All 61 previously passing default suites pass; the same ten RFC 0017 hosted-parser cases fail. Default parser scale and opt-in full declaration/expression suites pass. Stopped the two remaining opt-in hosted resource-statistics suites in accordance with the maintainer's request to focus on code. They are not claimed as passing.
+- Verification: changed-file HLint and Ormolu; focused declaration, operator, import, canonical parser and ADT suites; full default-suite results captured in `/private/tmp/jazz-architecture-t03-full.log` with the opt-in results above. No further benchmark or opt-in resource-statistics runs are required for this rewrite.
