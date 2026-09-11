@@ -77,6 +77,7 @@ import Jazz.Compiler.RecursiveBindings
     preparedRecursiveScopeStatements,
     resolvedExpressionReferences,
   )
+import Jazz.Compiler.SemanticDeclarations (normalizeSignatureType)
 import Jazz.Compiler.SemanticFacts
   ( StatementDeclarationFact (..),
   )
@@ -2225,14 +2226,14 @@ constructorArgumentTypes predeclaredDataTypes typeParameters fieldTypes initialS
   where
     signatureVariables =
       Map.fromList
-        [ (identifierText parameterName, SemanticVariable (InferenceVariable (negate position - 1)))
-        | (position, parameterName) <- zip [0 :: Int ..] typeParameters
+        [ (identifierText parameterName, SemanticVariable (identifierText parameterName))
+        | parameterName <- typeParameters
         ]
 
     collectField (argumentTypesRev, stateAcc) fieldType =
-      case Signature.signatureTypeToExpressionType (stateWithPredeclaredDataTypes stateAcc) signatureVariables fieldType of
-        Right _ ->
-          ( ConstructorArgumentStructured fieldType : argumentTypesRev,
+      case normalizeSignatureType (Map.union (inferDataTypes stateAcc) predeclaredDataTypes) signatureVariables fieldType of
+        Right field ->
+          ( ConstructorArgumentType field : argumentTypesRev,
             stateAcc
           )
         Left (Signature.UnknownNamedType payloadName) ->
@@ -2245,18 +2246,6 @@ constructorArgumentTypes predeclaredDataTypes typeParameters fieldTypes initialS
               stateAcc
               (mkInvalidConstructorPayloadTypeError (Signature.renderSignatureTypeFailure failure))
           )
-
-    stateWithPredeclaredDataTypes state =
-      modifyDeclarationState
-        ( \declarations ->
-            declarations
-              { declarationDataTypes =
-                  Map.union
-                    (inferDataTypes state)
-                    predeclaredDataTypes
-              }
-        )
-        state
 
 specializeExpectedType :: InferState -> ExpressionType -> ExpressionType -> ExpressionType
 specializeExpectedType state expectedType expressionType =

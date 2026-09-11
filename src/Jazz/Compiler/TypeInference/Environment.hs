@@ -35,8 +35,7 @@ import Jazz.Compiler.TypeInference.TypeOps
     freeTypeVariablesInTypeSchemePrimitiveConstraints,
   )
 import Jazz.Compiler.TypeInference.Types
-  ( ConstructorArgumentType (..),
-    InferenceVariable,
+  ( InferenceVariable,
     SemanticType (..),
     TypeBinding (..),
     TypeEnv,
@@ -136,8 +135,7 @@ freeTypeVariablesInBindingRaw binding =
       freeTypeVariablesInSchemeRaw typeScheme
     BuiltinAliasTypeBinding {} -> Set.empty
     BuiltinOperatorAliasTypeBinding {} -> Set.empty
-    ConstructorTypeBinding _ _ argumentTypes ->
-      Set.unions (map freeTypeVariablesInConstructorArgumentRaw argumentTypes)
+    ConstructorTypeBinding {} -> Set.empty
 
 freeTypeVariablesInSchemeRaw :: TypeScheme -> Set InferenceVariable
 freeTypeVariablesInSchemeRaw typeScheme =
@@ -149,11 +147,3 @@ freeTypeVariablesInSchemeRaw typeScheme =
         ]
     )
     (quantifiedVariablesMembershipSet (schemeQuantifiedVariables typeScheme))
-
-freeTypeVariablesInConstructorArgumentRaw :: ConstructorArgumentType -> Set InferenceVariable
-freeTypeVariablesInConstructorArgumentRaw argumentType =
-  case argumentType of
-    ConstructorArgumentMonomorphic expressionType -> freeTypeVariables expressionType
-    ConstructorArgumentParameter {} -> Set.empty
-    ConstructorArgumentStructured {} -> Set.empty
-    ConstructorArgumentFresh -> Set.empty

@@ -731,17 +731,7 @@ instantiateConstructorArguments typeParameterBindings argumentTypes initialState
   where
     step (argumentTypesRev, stateAcc) argumentType =
       case argumentType of
-        ConstructorArgumentMonomorphic expressionType ->
-          (resolveType stateAcc expressionType : argumentTypesRev, stateAcc)
-        ConstructorArgumentParameter parameterName ->
-          case Map.lookup parameterName typeParameterBindings of
-            Just parameterType -> (parameterType : argumentTypesRev, stateAcc)
-            Nothing ->
-              let (freshArgumentType, nextState) = freshTypeVar stateAcc
-               in ( freshArgumentType : argumentTypesRev,
-                    addTypeError nextState (mkMissingConstructorTypeParameterBindingError parameterName)
-                  )
-        ConstructorArgumentStructured fieldType ->
+        ConstructorArgumentType fieldType ->
           case instantiateConstructorFieldType typeParameterBindings fieldType of
             Just expressionType ->
               (resolveType stateAcc expressionType : argumentTypesRev, stateAcc)

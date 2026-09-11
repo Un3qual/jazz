@@ -68,7 +68,7 @@ import Jazz.Compiler.Runtime.Types (RuntimeValue (VConstructor))
 import Jazz.Compiler.TypeInference.Result (InferenceResult (..))
 import Jazz.Compiler.TypeInference.Types
   ( ClassMethodType (ClassMethodType),
-    ConstructorArgumentType (ConstructorArgumentMonomorphic),
+    ConstructorArgumentType (ConstructorArgumentType),
     DataTypeBinding (DataTypeBinding),
     ImplMethodType (ImplMethodType),
     SemanticType (..),
@@ -202,7 +202,7 @@ testDeepModuleInterfaceForcing =
           { interfaceDataTypes =
               Map.singleton
                 "Container"
-                (DataTypeBinding [] [[ConstructorArgumentMonomorphic (SemanticList deferredExpressionType)]])
+                (DataTypeBinding [] [[ConstructorArgumentType (SemanticList (throw (userError "nested expression type was forced")))]])
           }
       ),
       ( "class method",

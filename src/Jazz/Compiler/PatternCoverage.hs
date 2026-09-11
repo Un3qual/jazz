@@ -600,11 +600,8 @@ dataConstructorDomain (PreparedConstructorInventory inventories) typeName actual
 instantiateArgument :: Map Text ExpressionType -> ConstructorArgumentType -> ExpressionType
 instantiateArgument typeArguments argument =
   case argument of
-    ConstructorArgumentMonomorphic expressionType -> expressionType
-    ConstructorArgumentParameter parameter ->
-      Map.findWithDefault unknownFieldType parameter typeArguments
-    ConstructorArgumentStructured signatureType ->
-      maybe unknownFieldType id (instantiateConstructorFieldType typeArguments signatureType)
+    ConstructorArgumentType fieldType ->
+      maybe unknownFieldType id (instantiateConstructorFieldType typeArguments fieldType)
     ConstructorArgumentFresh -> unknownFieldType
 
 unknownFieldType :: ExpressionType

@@ -1151,9 +1151,9 @@ testAnalyzedGenericConstructorFieldsRemainModuleStable = do
         Just
           ( DataTypeBinding
               [_]
-              [[ConstructorArgumentStructured (TypeList (TypeVariable parameterName))]]
+              [[ConstructorArgumentType (SemanticList (SemanticVariable parameterName))]]
             ) ->
-            assertEqual "stable constructor parameter name" "a" (identifierText parameterName)
+            assertEqual "stable constructor parameter name" "a" parameterName
         binding ->
           fail ("unexpected analyzed Box constructor metadata: " <> show binding)
   case evaluateAnalyzedProgram analyzed of

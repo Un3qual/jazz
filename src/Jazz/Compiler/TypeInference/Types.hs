@@ -3,9 +3,6 @@
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DeriveTraversable #-}
 {-# LANGUAGE DerivingStrategies #-}
-{-# LANGUAGE ExplicitNamespaces #-}
-{-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE PatternSynonyms #-}
 
 -- | Internal type model shared by inference subsystems.
 module Jazz.Compiler.TypeInference.Types
@@ -52,84 +49,22 @@ import Jazz.Compiler.AST
   )
 import Jazz.Compiler.BuiltinCatalog
   ( BuiltinSymbol,
-    numericTypeFromName,
   )
 import Jazz.Compiler.CapabilityFacts (ConcreteImplFact)
 import Jazz.Compiler.CoreIdentity (ResolvedNodeFacts, ResolvedReference, resolvedBinderReference, resolvedValueReference)
 import Jazz.Compiler.Name
   ( ResolvedName,
-    identifierText,
   )
+import Jazz.Compiler.SemanticDeclarations (ConstructorArgumentType (..), DataTypeBinding (..), instantiateConstructorFieldType)
 import Jazz.Compiler.StableSet
   ( StableSet,
     stableSetFromPreferred,
     stableSetMembershipSet,
     stableSetOrderedList,
   )
-import Jazz.Compiler.TypeRepresentation
-  ( InferenceVariable (..),
-    SemanticType (..),
-    pattern TypeApplication,
-    pattern TypeBool,
-    pattern TypeChar,
-    pattern TypeFloat,
-    pattern TypeFunction,
-    pattern TypeInt,
-    pattern TypeList,
-    pattern TypeName,
-    pattern TypeNumeric,
-    pattern TypeText,
-    pattern TypeTuple,
-    pattern TypeVariable,
-  )
+import Jazz.Compiler.TypeRepresentation (InferenceVariable (..), SemanticType (..))
 
 type ExpressionType = SemanticType ResolvedName InferenceVariable
-
-data ConstructorArgumentType
-  = ConstructorArgumentMonomorphic ExpressionType
-  | ConstructorArgumentParameter Text
-  | ConstructorArgumentStructured (SignatureType 'Resolved)
-  | ConstructorArgumentFresh
-  deriving stock (Eq, Generic, Show)
-  deriving anyclass (NFData)
-
-instantiateConstructorFieldType ::
-  Map Text ExpressionType ->
-  SignatureType 'Resolved ->
-  Maybe ExpressionType
-instantiateConstructorFieldType typeParameterBindings fieldType =
-  case fieldType of
-    TypeInt -> Just SemanticInt
-    TypeFloat -> Just SemanticFloat
-    TypeNumeric numericType -> Just (SemanticNumeric numericType)
-    TypeBool -> Just SemanticBool
-    TypeChar -> Just SemanticChar
-    TypeText -> Just SemanticText
-    TypeVariable name -> Map.lookup (identifierText name) typeParameterBindings
-    TypeName name ->
-      Just
-        ( case identifierText name of
-            "Int" -> SemanticInt
-            "Float" -> SemanticFloat
-            "Bool" -> SemanticBool
-            "Char" -> SemanticChar
-            "Text" -> SemanticText
-            namedTypeText ->
-              maybe
-                (SemanticData name [])
-                SemanticNumeric
-                (numericTypeFromName namedTypeText)
-        )
-    TypeApplication name arguments ->
-      SemanticData name <$> traverse (instantiateConstructorFieldType typeParameterBindings) arguments
-    TypeList elementType ->
-      SemanticList <$> instantiateConstructorFieldType typeParameterBindings elementType
-    TypeTuple elementTypes ->
-      SemanticTuple <$> traverse (instantiateConstructorFieldType typeParameterBindings) elementTypes
-    TypeFunction argumentType resultType ->
-      SemanticFunction
-        <$> instantiateConstructorFieldType typeParameterBindings argumentType
-        <*> instantiateConstructorFieldType typeParameterBindings resultType
 
 data IntegerLiteralRange = IntegerLiteralRange Integer Integer
   deriving stock (Eq, Generic, Ord, Show)
@@ -219,10 +154,6 @@ typeEnvBindingKey facts = TypeEnvKey (resolvedBinderReference facts)
 
 typeEnvReferenceKey :: ResolvedNodeFacts -> ResolvedName -> TypeEnvKey
 typeEnvReferenceKey facts = TypeEnvKey (resolvedValueReference facts)
-
-data DataTypeBinding = DataTypeBinding [ResolvedName] [[ConstructorArgumentType]]
-  deriving stock (Eq, Generic, Show)
-  deriving anyclass (NFData)
 
 data ClassMethodType = ClassMethodType Text (SignaturePayload 'Resolved)
   deriving stock (Eq, Generic, Show)

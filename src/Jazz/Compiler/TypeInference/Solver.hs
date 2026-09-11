@@ -403,14 +403,7 @@ dataTypeSupportsRuntimeEqualityWith seenDataTypes state typeName typeArguments =
 
     constructorArgumentSupportsRuntimeEquality nextSeenDataTypes typeParameterBindings argumentType =
       case argumentType of
-        ConstructorArgumentMonomorphic expressionType ->
-          supportsRuntimeEqualityTypeWith nextSeenDataTypes state expressionType
-        ConstructorArgumentParameter parameterName ->
-          maybe
-            False
-            (supportsRuntimeEqualityTypeWith nextSeenDataTypes state)
-            (Map.lookup parameterName typeParameterBindings)
-        ConstructorArgumentStructured fieldType ->
+        ConstructorArgumentType fieldType ->
           maybe
             False
             (supportsRuntimeEqualityTypeWith nextSeenDataTypes state)

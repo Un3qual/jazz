@@ -701,7 +701,7 @@ hiddenConstructorInputs =
           ( DataTypeBinding
               [resolvedLocalName TypeNamespace (mkIdentifier "a")]
               [ [],
-                [ConstructorArgumentParameter "a"]
+                [ConstructorArgumentType (SemanticVariable "a")]
               ]
           ),
       inferenceImportedConstructorWitnessNames = Map.empty,
@@ -819,14 +819,14 @@ maybeInventory =
         ( DataTypeBinding
             [maybeTypeParameter]
             [ [],
-              [ConstructorArgumentParameter "a"]
+              [ConstructorArgumentType (SemanticVariable "a")]
             ]
         )
     )
     ( fixtureTypes $
         Map.fromList
           [ (resolvedLocalName ConstructorNamespace (mkIdentifier "Nothing"), ConstructorTypeBinding (resolvedTypeName "Maybe") [maybeTypeParameter] []),
-            (resolvedLocalName ConstructorNamespace (mkIdentifier "Just"), ConstructorTypeBinding (resolvedTypeName "Maybe") [maybeTypeParameter] [ConstructorArgumentParameter "a"])
+            (resolvedLocalName ConstructorNamespace (mkIdentifier "Just"), ConstructorTypeBinding (resolvedTypeName "Maybe") [maybeTypeParameter] [ConstructorArgumentType (SemanticVariable "a")])
           ]
     )
 
@@ -838,7 +838,7 @@ hiddenMaybeInventory =
         ( DataTypeBinding
             [maybeTypeParameter]
             [ [],
-              [ConstructorArgumentParameter "a"]
+              [ConstructorArgumentType (SemanticVariable "a")]
             ]
         )
     )

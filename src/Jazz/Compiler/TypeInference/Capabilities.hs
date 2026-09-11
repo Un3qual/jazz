@@ -205,6 +205,7 @@ import Jazz.Compiler.TypeInference.Types
     TypeSchemeConstraint,
     TypeSchemePrimitiveConstraint,
     emptyScopeCapabilityFacts,
+    instantiateConstructorFieldType,
     quantifiedVariablesMembershipSet,
     typeEnvBindingKey,
     typeEnvReferenceKey,
@@ -220,7 +221,6 @@ import Jazz.Compiler.TypeRepresentation
     pattern TypeName,
     pattern TypeNumeric,
     pattern TypeTuple,
-    pattern TypeVariable,
     pattern UnsupportedSignature,
   )
 
@@ -1612,44 +1612,11 @@ constructorExpressionSpine expr =
 constructorArgumentExpressionHasExactEvidence :: InferState -> TypeEnv -> Map Text (SignatureType 'Resolved) -> ConstructorArgumentType -> Expr 'Resolved -> Bool
 constructorArgumentExpressionHasExactEvidence state env typeParameterBindings constructorArgument argumentExpr =
   case constructorArgument of
-    ConstructorArgumentParameter parameterName ->
-      case Map.lookup parameterName typeParameterBindings of
-        Just concreteArgumentType ->
-          constraintSignatureExpressionHasExactEvidence state env concreteArgumentType argumentExpr
-        Nothing ->
-          True
-    ConstructorArgumentMonomorphic {} ->
-      True
-    ConstructorArgumentStructured fieldType ->
-      constraintSignatureExpressionHasExactEvidence
-        state
-        env
-        (substituteConstructorFieldSignatureType typeParameterBindings fieldType)
-        argumentExpr
-    ConstructorArgumentFresh ->
-      True
-
-substituteConstructorFieldSignatureType ::
-  Map Text (SignatureType 'Resolved) ->
-  SignatureType 'Resolved ->
-  SignatureType 'Resolved
-substituteConstructorFieldSignatureType typeParameterBindings fieldType =
-  case fieldType of
-    TypeVariable name ->
-      Map.findWithDefault fieldType (identifierText name) typeParameterBindings
-    TypeApplication name arguments ->
-      TypeApplication
-        name
-        (map (substituteConstructorFieldSignatureType typeParameterBindings) arguments)
-    TypeList elementType ->
-      TypeList (substituteConstructorFieldSignatureType typeParameterBindings elementType)
-    TypeTuple elementTypes ->
-      TypeTuple (map (substituteConstructorFieldSignatureType typeParameterBindings) elementTypes)
-    TypeFunction argumentType resultType ->
-      TypeFunction
-        (substituteConstructorFieldSignatureType typeParameterBindings argumentType)
-        (substituteConstructorFieldSignatureType typeParameterBindings resultType)
-    _ -> fieldType
+    ConstructorArgumentType fieldType ->
+      case traverse (Signature.constraintSignatureTypeToExpressionTypeWithState state Map.empty) typeParameterBindings >>= \parameters -> instantiateConstructorFieldType parameters fieldType >>= Signature.expressionTypeToConcreteSignature of
+        Just concreteField -> constraintSignatureExpressionHasExactEvidence state env concreteField argumentExpr
+        Nothing -> True
+    ConstructorArgumentFresh -> True
 
 constraintSignatureTypeExactlyMatchesExpressionType :: InferState -> SignatureType 'Resolved -> ExpressionType -> Bool
 constraintSignatureTypeExactlyMatchesExpressionType state signatureType expressionType =

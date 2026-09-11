@@ -90,7 +90,6 @@ import Jazz.Compiler.TypeInference.Types
   ( ClassMethodType (..),
     ConstructorArgumentType (..),
     DataTypeBinding (..),
-    ExpressionType,
     ImplMethodType (..),
     SchemeConstraint (..),
     ScopeCapabilityFacts (..),
@@ -417,17 +416,11 @@ rebaseDataTypeBinding origin dataTypeNames _ (DataTypeBinding parameters constru
 rebaseConstructorArgument :: ResolvedNameOrigin -> Set.Set Text -> ConstructorArgumentType -> ConstructorArgumentType
 rebaseConstructorArgument origin dataTypeNames argument =
   case argument of
-    ConstructorArgumentMonomorphic SemanticVariable {} ->
-      ConstructorArgumentFresh
-    ConstructorArgumentMonomorphic expressionType ->
-      ConstructorArgumentMonomorphic (rebaseExpressionType origin dataTypeNames expressionType)
-    ConstructorArgumentParameter {} -> argument
-    ConstructorArgumentStructured fieldType ->
-      ConstructorArgumentStructured
-        (rebaseSignatureTypeNames origin dataTypeNames fieldType)
+    ConstructorArgumentType fieldType ->
+      ConstructorArgumentType (rebaseExpressionType origin dataTypeNames fieldType)
     ConstructorArgumentFresh -> argument
 
-rebaseExpressionType :: ResolvedNameOrigin -> Set.Set Text -> ExpressionType -> ExpressionType
+rebaseExpressionType :: ResolvedNameOrigin -> Set.Set Text -> SemanticType ResolvedName variable -> SemanticType ResolvedName variable
 rebaseExpressionType origin dataTypeNames expressionType =
   case expressionType of
     SemanticList elementType -> SemanticList (rebaseExpressionType origin dataTypeNames elementType)

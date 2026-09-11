@@ -18,7 +18,6 @@ module Jazz.Compiler.TypeInference.Signature
   )
 where
 
-import Control.Applicative ((<|>))
 import Data.Functor (void)
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
@@ -32,14 +31,14 @@ import Jazz.Compiler.AST
     SignaturePayload,
     SignatureType,
   )
-import Jazz.Compiler.BuiltinCatalog (numericTypeFromName)
 import Jazz.Compiler.CapabilityFacts
   ( concreteConstraintArgument,
     concreteImplFact,
     constraintSignatureTypeVariableNamesInOrder,
     identifierLooksLikeTypeVariable,
   )
-import Jazz.Compiler.Name (ResolvedName, identifierText)
+import Jazz.Compiler.Name (identifierText)
+import Jazz.Compiler.SemanticDeclarations (SignatureTypeFailure (..), normalizeSignatureType)
 import Jazz.Compiler.TypeInference.Solver
   ( freshTypeVar,
   )
@@ -51,8 +50,7 @@ import Jazz.Compiler.TypeInference.State
     initialInferState,
   )
 import Jazz.Compiler.TypeInference.Types
-  ( DataTypeBinding (..),
-    ExpressionType,
+  ( ExpressionType,
     SchemeConstraint (..),
     SemanticType (..),
     TypeSchemeConstraint,
@@ -77,20 +75,13 @@ import Jazz.Compiler.TypeRepresentation
     pattern UnsupportedSignature,
   )
 
-data SignatureTypeFailure
-  = UnknownNamedType ResolvedName
-  | NamedTypeArityMismatch ResolvedName Int Int
-  | TypeVariableApplicationHead ResolvedName
-  | UnboundSignatureTypeVariable ResolvedName
-  deriving (Eq, Show)
-
 signatureTypeToExpressionType ::
   InferState ->
   Map Text ExpressionType ->
   SignatureType 'Resolved ->
   Either SignatureTypeFailure ExpressionType
 signatureTypeToExpressionType state =
-  convertSignatureType (inferDataTypes state)
+  normalizeSignatureType (inferDataTypes state)
 
 -- | Validate a declaration signature while treating its free variables as
 -- universally quantified placeholders. Callers that require a concrete type
@@ -105,61 +96,6 @@ validateSignatureType state signatureType =
         | (position, variableName) <-
             zip [0 :: Int ..] (constraintSignatureTypeVariableNamesInOrder signatureType)
         ]
-
-convertSignatureType ::
-  Map Text DataTypeBinding ->
-  Map Text ExpressionType ->
-  SignatureType 'Resolved ->
-  Either SignatureTypeFailure ExpressionType
-convertSignatureType dataTypes variables signatureType =
-  case signatureType of
-    TypeInt -> Right SemanticInt
-    TypeFloat -> Right SemanticFloat
-    TypeNumeric numericType -> Right (SemanticNumeric numericType)
-    TypeBool -> Right SemanticBool
-    TypeChar -> Right SemanticChar
-    TypeText -> Right SemanticText
-    TypeVariable name ->
-      maybe
-        (Left (UnboundSignatureTypeVariable name))
-        Right
-        (Map.lookup (identifierText name) variables)
-    TypeName name ->
-      case builtinOrVariableType name of
-        Just expressionType -> Right expressionType
-        Nothing -> namedType name []
-    TypeApplication name arguments
-      | identifierLooksLikeTypeVariable name ->
-          Left (TypeVariableApplicationHead name)
-      | otherwise -> namedType name arguments
-    TypeList innerType ->
-      SemanticList <$> convert innerType
-    TypeTuple elementTypes ->
-      SemanticTuple <$> traverse convert elementTypes
-    TypeFunction argumentType resultType ->
-      SemanticFunction <$> convert argumentType <*> convert resultType
-  where
-    convert = convertSignatureType dataTypes variables
-
-    builtinOrVariableType name =
-      case identifierText name of
-        "Int" -> Just SemanticInt
-        "Float" -> Just SemanticFloat
-        "Bool" -> Just SemanticBool
-        "Char" -> Just SemanticChar
-        "Text" -> Just SemanticText
-        typeName ->
-          (SemanticNumeric <$> numericTypeFromName typeName)
-            <|> Map.lookup typeName variables
-
-    namedType name arguments =
-      case Map.lookup (identifierText name) dataTypes of
-        Nothing -> Left (UnknownNamedType name)
-        Just (DataTypeBinding parameters _)
-          | length parameters /= length arguments ->
-              Left (NamedTypeArityMismatch name (length parameters) (length arguments))
-          | otherwise ->
-              SemanticData name <$> traverse convert arguments
 
 renderSignatureTypeFailure :: SignatureTypeFailure -> Text
 renderSignatureTypeFailure failure =
