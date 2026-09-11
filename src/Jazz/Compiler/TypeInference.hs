@@ -7,7 +7,7 @@
 module Jazz.Compiler.TypeInference
   ( InferenceInputs (..),
     InferenceResult (..),
-    analyzeSourceUnitExpression,
+    analyzeResolvedExpression,
     inferExpressionWithInputs,
     analyzeExpressionWithInputs,
     inferExpressionDefault,
@@ -62,7 +62,6 @@ import Jazz.Compiler.FractionalLiteral
     fractionalLiteralExceedsMagnitude,
     fractionalLiteralIntegralValue,
   )
-import Jazz.Compiler.ModuleIdentity (ModulePath, standaloneModulePath)
 import Jazz.Compiler.ModuleInterface
   ( ModuleInterface (..),
     ModuleValueBinding (..),
@@ -108,7 +107,7 @@ import Jazz.Compiler.TypeInference.Analyzed
 import Jazz.Compiler.TypeInference.Capabilities
 import Jazz.Compiler.TypeInference.Diagnostics
 import Jazz.Compiler.TypeInference.Environment (insertResolvedTypeBinding)
-import Jazz.Compiler.TypeInference.Evidence (implementationEvidenceCandidatesInSourceUnit)
+import Jazz.Compiler.TypeInference.Evidence (implementationEvidenceCandidatesInModule)
 import Jazz.Compiler.TypeInference.Operator
   ( applyOperatorAliasSchemeConstraints,
     builtinSectionOperatorSymbol,
@@ -193,16 +192,12 @@ data InferenceInputs = InferenceInputs
 
 data InferenceRequest = InferenceRequest
   { requestedInferenceInputs :: InferenceInputs,
-    requestedHiddenStatementIndices :: Set Int,
-    requestedPreludeStatementIndices :: Set Int,
+    requestedHideRootBindings :: Bool,
     requestedModuleStatementFacts :: [(CoreNode 'Resolved 'StatementSort, StatementDeclarationFact)],
     requestedImplementationEvidenceCandidates :: Map Text [ImplementationEvidenceCandidate]
   }
 
-analyzeSourceUnitExpression ::
-  ModulePath ->
-  Set Int ->
-  Set Int ->
+analyzeResolvedExpression ::
   WarningSettings ->
   Expr 'Resolved ->
   IO
@@ -211,19 +206,15 @@ analyzeSourceUnitExpression ::
         (NonEmpty.NonEmpty SemanticFactInvariantFailure)
         (Maybe (Expr 'Analyzed))
     )
-analyzeSourceUnitExpression preludePath hiddenStatementIndices preludeStatementIndices settings expression = do
+analyzeResolvedExpression settings expression = do
   (inference, finalState) <-
     inferExpressionWithRequestAndState
       InferenceRequest
         { requestedInferenceInputs = emptyInferenceInputs settings,
-          requestedHiddenStatementIndices = hiddenStatementIndices,
-          requestedPreludeStatementIndices = preludeStatementIndices,
+          requestedHideRootBindings = False,
           requestedModuleStatementFacts = [],
           requestedImplementationEvidenceCandidates =
-            implementationEvidenceCandidatesInSourceUnit
-              standaloneModulePath
-              preludePath
-              preludeStatementIndices
+            implementationEvidenceCandidatesInModule
               expression
         }
       expression
@@ -243,8 +234,7 @@ inferExpressionWithInputs inputs =
   inferExpressionWithRequest
     InferenceRequest
       { requestedInferenceInputs = inputs,
-        requestedHiddenStatementIndices = Set.empty,
-        requestedPreludeStatementIndices = Set.empty,
+        requestedHideRootBindings = False,
         requestedModuleStatementFacts = [],
         requestedImplementationEvidenceCandidates = Map.empty
       }
@@ -272,7 +262,7 @@ inferExpressionWithRequestAndState request expr =
               finishInference
                 InferenceOnly
                 inputs
-                (requestedHiddenStatementIndices request)
+                (requestedHideRootBindings request)
                 inferenceSubject
                 inferredResult
                 forwardBindings
@@ -283,7 +273,7 @@ analyzeExpressionWithInputs ::
   [(CoreNode 'Resolved 'StatementSort, StatementDeclarationFact)] ->
   Map Text [ImplementationEvidenceCandidate] ->
   InferenceInputs ->
-  Set Int ->
+  Bool ->
   Expr 'Resolved ->
   IO
     ( InferenceResult,
@@ -291,13 +281,12 @@ analyzeExpressionWithInputs ::
         (NonEmpty.NonEmpty SemanticFactInvariantFailure)
         (Maybe (Expr 'Analyzed, Map CoreNodeId StatementFacts))
     )
-analyzeExpressionWithInputs moduleStatementFacts evidenceCandidates inputs hiddenStatementIndices expression = do
+analyzeExpressionWithInputs moduleStatementFacts evidenceCandidates inputs hideRootBindings expression = do
   (inference, finalState) <-
     inferExpressionWithRequestAndState
       InferenceRequest
         { requestedInferenceInputs = inputs,
-          requestedHiddenStatementIndices = hiddenStatementIndices,
-          requestedPreludeStatementIndices = hiddenStatementIndices,
+          requestedHideRootBindings = hideRootBindings,
           requestedModuleStatementFacts = moduleStatementFacts,
           requestedImplementationEvidenceCandidates = evidenceCandidates
         }
@@ -382,21 +371,21 @@ finalizeInferenceState inputs expr finalState =
       finalizedModuleInterface = moduleInterfaceFromState inputs expr finalState
     }
 
-finishInference :: InferenceMode -> InferenceInputs -> Set Int -> InferenceSubject -> Maybe ExpressionType -> Map Int (ResolvedName, SourceSpan) -> FinalizedInference -> IO InferenceResult
-finishInference mode inputs hiddenStatementIndices subject inferredResult forwardBindings finalizedInference = do
+finishInference :: InferenceMode -> InferenceInputs -> Bool -> InferenceSubject -> Maybe ExpressionType -> Map Int (ResolvedName, SourceSpan) -> FinalizedInference -> IO InferenceResult
+finishInference mode inputs hideRootBindings subject inferredResult forwardBindings finalizedInference = do
   let expression = inferenceSubjectExpr subject
   AnalysisResult _ analyzerDiagnostics <-
     case subject of
       InferencePreparedScope _ preparedScope ->
         analyzeProgramWithInputsAndPreparedScope
           (analysisInputsForInference inputs (forwardAnalysisValues mode forwardBindings))
-          hiddenStatementIndices
+          hideRootBindings
           expression
           preparedScope
       InferenceExpression expr ->
         analyzeProgramWithInputs
           (analysisInputsForInference inputs (forwardAnalysisValues mode forwardBindings))
-          hiddenStatementIndices
+          hideRootBindings
           expr
   let baseDiagnostics = analyzerDiagnostics <> finalizedTypeErrors finalizedInference
       coverageDiagnostics
@@ -573,8 +562,7 @@ inferExpressionDefault =
   inferExpressionWithRequest
     InferenceRequest
       { requestedInferenceInputs = emptyInferenceInputs defaultWarningSettings,
-        requestedHiddenStatementIndices = Set.empty,
-        requestedPreludeStatementIndices = Set.empty,
+        requestedHideRootBindings = False,
         requestedModuleStatementFacts = [],
         requestedImplementationEvidenceCandidates = Map.empty
       }

@@ -17,7 +17,6 @@ where
 
 import Control.DeepSeq (NFData (rnf))
 import Control.Exception (evaluate)
-import qualified Data.Set as Set
 import Data.Text (Text)
 import qualified Data.Text as Text
 import GHC.Generics (Generic)
@@ -54,6 +53,7 @@ import Jazz.Compiler.Analyzer
     analyzeProgram,
   )
 import Jazz.Compiler.BundledPrelude (bundledPreludeSource)
+import Jazz.Compiler.CoreIdentity (emptyResolvedNodeFacts)
 import Jazz.Compiler.Diagnostics (Diagnostic, SourceSpan (..), isErrorDiagnostic)
 import Jazz.Compiler.Diagnostics.Render (renderDiagnostic)
 import Jazz.Compiler.Driver (ResolvedPrelude (PreludeBundled), buildAnalyzedProgram)
@@ -61,7 +61,8 @@ import qualified Jazz.Compiler.ModuleCompiler as ModuleCompiler
 import Jazz.Compiler.ModuleGraph
   ( CoreProgram,
   )
-import Jazz.Compiler.ModuleInterface (CompileInputs, compileInputs)
+import Jazz.Compiler.ModuleIdentity (SourceUnitOwner (StandaloneSourceUnit), standaloneModulePath)
+import Jazz.Compiler.ModuleInterface (CompileInputs, emptyCompileInputs)
 import Jazz.Compiler.ModuleRuntime
   ( RuntimeProgram (runtimeProgramOutput),
     evaluateAnalyzedProgram,
@@ -79,6 +80,7 @@ import Jazz.Compiler.Profiling
     CompilerStage (..),
     withCompilerStage,
   )
+import Jazz.Compiler.RecursiveBindings (resolveLexicalScopes)
 import Jazz.Compiler.Runtime (renderRuntimeValue)
 import Jazz.Compiler.WarningConfig (defaultWarningSettings)
 import Jazz.ProgramCorpus.Runner
@@ -129,7 +131,7 @@ prepareBenchmark benchmarkGroup programCase =
       prepareFully (PreparedBenchmark source runParseLower)
     AnalysisBenchmark -> do
       (resolvedProgram, _) <- prepareValidProgram programCase
-      let input = AnalysisInput (compileInputs defaultWarningSettings Set.empty) resolvedProgram
+      let input = AnalysisInput (emptyCompileInputs defaultWarningSettings) resolvedProgram
       prepareFully (PreparedBenchmark input runAnalysis)
     ModulePreparationBenchmark ->
       prepareFully (PreparedBenchmark programCase (runPreparedProgram . withCompilerStage RuntimePreparationStage . prepareProgramCase))
@@ -157,7 +159,7 @@ prepareCompilerScaleBenchmark benchmarkGroup programCase =
       prepareFully (PreparedBenchmark source runParseLower)
     AnalysisBenchmark -> do
       (resolvedProgram, _) <- prepareValidCompilerScaleProgram programCase
-      let input = AnalysisInput (compileInputs defaultWarningSettings Set.empty) resolvedProgram
+      let input = AnalysisInput (emptyCompileInputs defaultWarningSettings) resolvedProgram
       prepareFully (PreparedBenchmark input runAnalysis)
     DiagnosticAnalysisBenchmark ->
       case diagnosticAnalysisInput (compilerScaleCaseScenario programCase) (compilerScaleCaseSize programCase) of
@@ -255,7 +257,7 @@ runParseLower source = do
 
 analyzerDiagnosticChainExpression :: Int -> Expr 'Resolved
 analyzerDiagnosticChainExpression expressionCount =
-  case expressionCount of
+  resolveLexicalScopes mempty mempty $ case expressionCount of
     count
       | count <= 0 -> EBlock (diagnosticNode 0) []
       | otherwise ->
@@ -271,7 +273,7 @@ analyzerDiagnosticChainExpression expressionCount =
         (resolvedLocalName ValueNamespace (mkIdentifier ("missing" <> Text.pack (show index))))
 
     diagnosticNode :: Int -> CoreNode 'Resolved sort
-    diagnosticNode nodeId = CoreNode (CoreNodeId nodeId) (SourceSpan 1 1) ()
+    diagnosticNode nodeId = CoreNode (CoreNodeId nodeId) (SourceSpan 1 1) (emptyResolvedNodeFacts (StandaloneSourceUnit standaloneModulePath))
 
 diagnosticAnalysisInput :: CompilerScaleScenario -> Int -> Either Text (Expr 'Resolved, Int)
 diagnosticAnalysisInput scenario size =

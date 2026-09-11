@@ -96,13 +96,13 @@ testPreparedScopesCannotCrossPairStatementsAndFacts = do
   AnalysisResult recursiveExpr recursiveDiagnostics <-
     Analyzer.analyzeProgramWithInputsAndPreparedScope
       analysisInputs
-      Set.empty
+      False
       recursiveProgram
       (programScope recursiveProgram)
   AnalysisResult forwardExpr forwardDiagnostics <-
     Analyzer.analyzeProgramWithInputsAndPreparedScope
       analysisInputs
-      Set.empty
+      False
       forwardProgram
       (programScope forwardProgram)
   assertEqual
@@ -131,7 +131,7 @@ testAnalyzerRootLaziness = do
     try
       ( Analyzer.analyzeProgramWithInputs
           analysisInputs
-          Set.empty
+          False
           (error "ordinary analyzer root was forced")
       ) ::
       IO (Either ErrorCall AnalysisResult)
@@ -143,7 +143,7 @@ testAnalyzerRootLaziness = do
     try
       ( Analyzer.analyzeProgramWithInputsAndPreparedScope
           analysisInputs
-          Set.empty
+          False
           (error "ordinary analyzer root was forced")
           (prepareResolvedScope (expressionNode (resolvedProgram "0.")) (error "prepared statements were retained lazily"))
       ) ::

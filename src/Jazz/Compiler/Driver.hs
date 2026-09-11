@@ -68,7 +68,7 @@ import Jazz.Compiler.ModuleCompiler
   ( analyzeProgram,
   )
 import Jazz.Compiler.ModuleGraph (CoreProgram)
-import Jazz.Compiler.ModuleInterface (compileInputs)
+import Jazz.Compiler.ModuleInterface (emptyCompileInputs)
 import Jazz.Compiler.ModuleResolver
   ( ModuleResolutionConfig,
     resolvePreludeArtifact,
@@ -474,7 +474,7 @@ buildAnalyzedSourceProgram settings resolvedPrelude expression =
         resolveStandaloneProgram prelude (preparedPreludeVisibleExports preparedPrelude) expression of
         Left diagnostic -> pure (Left diagnostic)
         Right program -> do
-          (diagnostics, analyzed) <- analyzeProgram (compileInputs settings (preparedPreludeHiddenStatementIndices preparedPrelude)) program
+          (diagnostics, analyzed) <- analyzeProgram (emptyCompileInputs settings) program
           pure (Right (program, diagnostics, analyzed))
 
 buildAnalyzedProgram ::
@@ -507,7 +507,7 @@ buildAnalyzedProgram settings resolvedPrelude resolutionConfig entryModulePath s
               withCompilerStageResult RuntimePreparationStage forceAnalyzedBuildResult $ do
                 (diagnostics, maybeAnalyzedProgram) <-
                   analyzeProgram
-                    (compileInputs settings (preparedPreludeHiddenStatementIndices preparedPrelude))
+                    (emptyCompileInputs settings)
                     resolvedProgram
                 pure (Right (resolvedProgram, diagnostics, maybeAnalyzedProgram))
   where

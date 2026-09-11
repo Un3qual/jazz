@@ -9,7 +9,6 @@ module Jazz.Compiler.ModuleInterface
     ModuleExport (..),
     ModuleInterface (..),
     ModuleValueBinding (..),
-    compileInputs,
     emptyCompileInputs,
     emptyModuleInterface,
     moduleExportForBinding,
@@ -97,7 +96,6 @@ emptyModuleInterface =
 
 data CompileInputs = CompileInputs
   { compileInputWarningSettings :: WarningSettings,
-    compileInputPreludeHiddenStatementIndices :: Set Int,
     compileInputExternalUses :: Set CoreBinderId
   }
 
@@ -105,14 +103,5 @@ emptyCompileInputs :: WarningSettings -> CompileInputs
 emptyCompileInputs settings =
   CompileInputs
     { compileInputWarningSettings = settings,
-      compileInputExternalUses = Set.empty,
-      compileInputPreludeHiddenStatementIndices = Set.empty
-    }
-
-compileInputs :: WarningSettings -> Set Int -> CompileInputs
-compileInputs settings hiddenStatementIndices =
-  CompileInputs
-    { compileInputWarningSettings = settings,
-      compileInputExternalUses = Set.empty,
-      compileInputPreludeHiddenStatementIndices = hiddenStatementIndices
+      compileInputExternalUses = Set.empty
     }

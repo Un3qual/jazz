@@ -18,7 +18,6 @@ module Jazz.Compiler.ModuleResolver
     resolvePreludeArtifact,
     resolveStandaloneExprNames,
     resolveStandaloneProgram,
-    resolveSourceUnitExprNames,
     resolveProgramWithAmbientExports,
   )
 where
@@ -130,7 +129,6 @@ import Jazz.Compiler.ModuleResolver.Names
   ( ResolutionContext (..),
     resolveExprNames,
     resolveNode,
-    resolveSourceUnitExprNames,
     resolveStandaloneExprNames,
     resolvedPublicReferences,
     standaloneLocalInventory,
@@ -707,7 +705,6 @@ resolveCoreModuleNames owner externalReferences ambientExports localInventory pu
     context =
       ResolutionContext
         { resolutionSourceOwner = owner,
-          resolutionStatementOwners = Map.empty,
           resolutionExternalReferences = externalReferences,
           resolutionAmbientExports = ambientExports,
           resolutionLocalInventory = localInventory,

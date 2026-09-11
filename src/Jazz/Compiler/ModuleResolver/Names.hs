@@ -10,7 +10,6 @@ module Jazz.Compiler.ModuleResolver.Names
     resolveExprNames,
     resolveStandaloneExprNames,
     standaloneLocalInventory,
-    resolveSourceUnitExprNames,
     resolvedPublicReferences,
   )
 where
@@ -22,12 +21,12 @@ import Data.List (mapAccumL)
 import Data.List.NonEmpty
   ( NonEmpty,
   )
+import qualified Data.List.NonEmpty as NonEmpty
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
 import Data.Maybe
   ( fromMaybe,
   )
-import Data.Set (Set)
 import qualified Data.Set as Set
 import qualified Data.Text as Text
 import Jazz.Compiler.AST
@@ -40,7 +39,6 @@ import Jazz.Compiler.AST
     ImplMethod (..),
     Pattern (..),
     Statement (..),
-    expressionNode,
   )
 import Jazz.Compiler.BuiltinCatalog
   ( kernelBuiltinNames,
@@ -63,7 +61,7 @@ import Jazz.Compiler.ModuleExports
     exportNamesInNamespace,
     firstExportNamespace,
   )
-import Jazz.Compiler.ModuleIdentity (ModulePath, SourceUnitOwner (..), preludeModulePath, standaloneModulePath)
+import Jazz.Compiler.ModuleIdentity (SourceUnitOwner (..), mkModulePath, standaloneModulePath)
 import Jazz.Compiler.ModuleResolver.Imports
   ( BindingOrigin (..),
     ValidatedImportScope,
@@ -88,7 +86,7 @@ import Jazz.Compiler.Name
   )
 import Jazz.Compiler.Parser.Operator (isBuiltinOperatorSymbol)
 import Jazz.Compiler.RecursiveBindings (publishResolvedCaptures, resolveLexicalScopes)
-import Jazz.Compiler.SourceUnitOwnership (sourceUnitOwnerOrigin, sourceUnitStatementOwners)
+import Jazz.Compiler.SourceUnitOwnership (sourceUnitOwnerOrigin)
 import Jazz.Compiler.TypeRepresentation
   ( pattern ConstrainedSignature,
     pattern SignatureConstraint,
@@ -98,7 +96,6 @@ import Jazz.Compiler.TypeRepresentation
 
 data ResolutionContext = ResolutionContext
   { resolutionSourceOwner :: SourceUnitOwner,
-    resolutionStatementOwners :: Map Int SourceUnitOwner,
     resolutionExternalReferences :: Map ResolvedName ResolvedReference,
     resolutionAmbientExports :: ModuleExportInventory,
     resolutionLocalInventory :: ModuleExportInventory,
@@ -267,7 +264,7 @@ resolveExprNames context rootExpression = Right (publishResolvedCaptures (resolv
         ESectionLeft node left symbol -> ESectionLeft (resolveOperatorNode owner boundValues symbol node) (resolveExpr owner boundValues left) symbol
         ESectionRight node symbol right -> ESectionRight (resolveOperatorNode owner boundValues symbol node) symbol (resolveExpr owner boundValues right)
         EBlock node statements ->
-          let resolvedStatements = resolveBlockStatements owner (if coreNodeId node == coreNodeId (expressionNode rootExpression) then resolutionStatementOwners context else Map.empty) boundValues statements
+          let resolvedStatements = resolveBlockStatements owner boundValues statements
            in EBlock (resolveNode owner node) resolvedStatements
 
     externalNames =
@@ -312,25 +309,25 @@ resolveExprNames context rootExpression = Right (publishResolvedCaptures (resolv
                       (mkIdentifier method)
               _ -> UnresolvedReference name
 
-    resolveBlockStatements owner statementOwners initialBoundValues statements =
-      snd (mapAccumL resolveBlockStatement initialBoundValues indexedStatements)
+    resolveBlockStatements owner initialBoundValues statements =
+      snd (mapAccumL resolveBlockStatement (owner, initialBoundValues) statements)
       where
-        indexedStatements = zip [0 ..] statements
-        ownerAt index = Map.findWithDefault owner index statementOwners
         -- Future local values establish their namespace here. The lexical pass
         -- later decides whether their declaration is visible as a recursive peer.
-        firstBindings = foldr firstBinding Map.empty indexedStatements
-        firstBinding (_, SLet _ name _) bindings
+        firstBindings = foldr firstBinding Map.empty statements
+        firstBinding (SLet _ name _) bindings
           | Just key <- sourceNameText name,
             Set.notMember key nonlocalNames =
               insertVisibleName ValueNamespace name bindings
         firstBinding _ bindings = bindings
         nonlocalNames = Set.unions [ambientValues, ambientConstructors, Map.keysSet visibleValueOrigins, Map.keysSet visibleConstructorOrigins, kernelBuiltinNames]
 
-        resolveBlockStatement visibleBoundValues (statementIndex, statement) =
-          (publish statement visibleBoundValues, resolveStatement statementOwner definitionBindings statement)
+        resolveBlockStatement (activeOwner, visibleBoundValues) statement =
+          ((statementOwner, publish statement visibleBoundValues), resolveStatement statementOwner definitionBindings statement)
           where
-            statementOwner = ownerAt statementIndex
+            statementOwner = case statement of
+              SModule _ segments | Just path <- NonEmpty.nonEmpty (map mkIdentifier segments) -> NamedSourceUnit (mkModulePath path)
+              _ -> activeOwner
             selfBindings = case statement of
               SLet _ name _
                 | Just key <- sourceNameText name,
@@ -483,24 +480,16 @@ resolveStandaloneExprNames ::
   ModuleExportInventory ->
   Expr 'Lowered ->
   Either (NonEmpty Diagnostic) (Expr 'Resolved)
-resolveStandaloneExprNames = resolveSourceUnitExprNames preludeModulePath Set.empty
-
-resolveSourceUnitExprNames :: ModulePath -> Set Int -> ModuleExportInventory -> Expr 'Lowered -> Either (NonEmpty Diagnostic) (Expr 'Resolved)
-resolveSourceUnitExprNames preludePath preludeIndices ambientExports expression =
+resolveStandaloneExprNames ambientExports expression =
   resolveExprNames
     ResolutionContext
       { resolutionSourceOwner = StandaloneSourceUnit standaloneModulePath,
-        resolutionStatementOwners = Map.fromList (zip [0 ..] (sourceUnitStatementOwners standaloneModulePath preludePath preludeIndices statements)),
         resolutionExternalReferences = Map.empty,
         resolutionAmbientExports = ambientExports,
         resolutionLocalInventory = standaloneLocalInventory expression,
         resolutionImportScope = emptyImportScope
       }
     expression
-  where
-    statements = case expression of
-      EBlock _ values -> values
-      _ -> []
 
 standaloneLocalInventory :: Expr 'Lowered -> ModuleExportInventory
 standaloneLocalInventory expression =

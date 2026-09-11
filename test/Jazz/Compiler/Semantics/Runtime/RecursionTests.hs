@@ -17,7 +17,6 @@ import Data.Functor.Identity
     runIdentity,
   )
 import Data.List.NonEmpty (NonEmpty (..))
-import qualified Data.Set as Set
 import Data.Text (Text)
 import qualified Data.Text as Text
 import Jazz.Compiler.AST
@@ -73,7 +72,7 @@ import Jazz.Compiler.SourceProgram
   ( parseAndLowerStandaloneSource,
   )
 import Jazz.Compiler.SourceUnitOwnership (SourceUnitOwner (..))
-import Jazz.Compiler.TypeInference (analyzeSourceUnitExpression)
+import Jazz.Compiler.TypeInference (analyzeResolvedExpression)
 import Jazz.Compiler.TypeRepresentation
   ( NumericType (..),
     SemanticType (..),
@@ -567,10 +566,7 @@ scopePlanForSource source =
             )
         Right resolvedExpression -> do
           (_, attachment) <-
-            analyzeSourceUnitExpression
-              preludeModulePath
-              Set.empty
-              Set.empty
+            analyzeResolvedExpression
               defaultWarningSettings
               resolvedExpression
           analyzedExpression <-

@@ -48,6 +48,7 @@ tests =
     ("run source can apply prelude-defined section functions", testRunWithPreludeSectionFunction),
     ("explicit type application hints stay source-unit scoped", testExplicitTypeApplicationHintsStaySourceUnitScoped),
     ("bundled default prelude preserves user diagnostic spans", testBundledPreludePreservesUserDiagnosticSpans),
+    ("prelude checking failures preserve independent source diagnostics", testPreludeFailurePreservesSourceDiagnostics),
     ("invalid prelude source produces prelude parse diagnostic", testPreludeParseDiagnostic),
     ("prelude bridge with unknown kernel symbol fails conformance checks", testPreludeUnknownBridgeSymbolDiagnostic),
     ("prelude bridge with missing kernel suffix fails conformance checks", testPreludeBridgeMissingSuffixDiagnostic),
@@ -132,6 +133,14 @@ testBundledPreludePreservesUserDiagnosticSpans = do
       assertContains "bundled default prelude keeps user spans anchored to user source" "1:1:" rendered
     renderedErrors ->
       assertEqual "single rendered diagnostic" 1 (length renderedErrors)
+
+testPreludeFailurePreservesSourceDiagnostics :: IO ()
+testPreludeFailurePreservesSourceDiagnostics = do
+  result <- compileSourceWithPrelude defaultWarningSettings (Just "missingPrelude.") "missingSource."
+  assertEqual
+    "independent source-unit diagnostics"
+    ["error: E1001: unbound variable 'missingPrelude'", "error: E1001: unbound variable 'missingSource'"]
+    (map renderDiagnostic (compileErrors result))
 
 testPreludeParseDiagnostic :: IO ()
 testPreludeParseDiagnostic = do

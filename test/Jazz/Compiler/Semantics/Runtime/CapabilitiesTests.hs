@@ -12,7 +12,6 @@ import Control.Exception
   )
 import Data.Foldable (toList)
 import qualified Data.List.NonEmpty as NonEmpty
-import qualified Data.Set as Set
 import qualified Data.Text as Text
 import Jazz.Compiler.AST
   ( CaseArm (..),
@@ -39,7 +38,7 @@ import Jazz.Compiler.Driver
     runSourceWithPrelude,
   )
 import Jazz.Compiler.ModuleExports (exportInventory)
-import Jazz.Compiler.ModuleIdentity (SourceUnitOwner (..), mkModulePath, preludeModulePath, standaloneModulePath)
+import Jazz.Compiler.ModuleIdentity (SourceUnitOwner (..), mkModulePath, standaloneModulePath)
 import Jazz.Compiler.ModuleResolver (resolveStandaloneExprNames)
 import Jazz.Compiler.Name (mkIdentifier, qualifiedName)
 import Jazz.Compiler.Runtime
@@ -64,7 +63,7 @@ import Jazz.Compiler.Semantics.Runtime.ResolvedFixture
 import Jazz.Compiler.Semantics.Runtime.Shared
 import Jazz.Compiler.SourceProgram (parseAndLowerStandaloneSource)
 import Jazz.Compiler.TypeInference
-  ( analyzeSourceUnitExpression,
+  ( analyzeResolvedExpression,
   )
 import Jazz.Compiler.TypeInference.Result (InferenceResult (..))
 import Jazz.Compiler.TypeRepresentation
@@ -482,7 +481,6 @@ testNullaryMethodSelectionRecordsCanonicalAnalyzedEvidence :: IO ()
 testNullaryMethodSelectionRecordsCanonicalAnalyzedEvidence = do
   (inference, analyzedExpression) <-
     analyzeRuntimePlan
-      Set.empty
       """
       class RuntimeDefault(a) {
       defaultValue :: a.
@@ -1933,7 +1931,6 @@ testAuthoredModuleTransitionOwnsPlansAndEvidence :: IO ()
 testAuthoredModuleTransitionOwnsPlansAndEvidence = do
   (inference, analyzedExpression) <-
     analyzeRuntimePlan
-      Set.empty
       """
       module App::Main {
       class RuntimePick(a) {
@@ -2017,8 +2014,8 @@ expressionEvidencePlanInventory expression =
         SExpr _ value -> expressionEvidencePlanInventory value
         _ -> []
 
-analyzeRuntimePlan :: Set.Set Int -> Text.Text -> IO (InferenceResult, Expr 'Analyzed)
-analyzeRuntimePlan preludeStatementIndices source = do
+analyzeRuntimePlan :: Text.Text -> IO (InferenceResult, Expr 'Analyzed)
+analyzeRuntimePlan source = do
   expression <-
     case parseAndLowerStandaloneSource source of
       Left diagnostic ->
@@ -2032,10 +2029,7 @@ analyzeRuntimePlan preludeStatementIndices source = do
               )
           Right resolved -> pure resolved
   (inference, attachment) <-
-    analyzeSourceUnitExpression
-      preludeModulePath
-      Set.empty
-      preludeStatementIndices
+    analyzeResolvedExpression
       defaultWarningSettings
       expression
   analyzedExpression <-

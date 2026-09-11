@@ -300,13 +300,13 @@ testSingleModuleAnalysis = do
   entry <- maybe (fail "missing resolved entry") pure (lookupCoreModule entryPath resolved)
   expected <- maybe (fail "missing analyzed entry") pure (lookupCoreModule entryPath analyzed)
   imports <- traverse (dependencyInterface resolved analyzed) (coreModuleImports entry)
-  (inference, actual) <- analyzeModule inputs NamedSourceUnit Set.empty (mconcat imports) entry
+  (inference, actual) <- analyzeModule inputs NamedSourceUnit False (mconcat imports) entry
   assertEqual "single-module diagnostics" [] (inferredDiagnostics inference)
   assertEqual "single-module facts, binders and evidence match program analysis" (Just expected) actual
   failing <- resolveFixtureProgram (Map.singleton "src/App/Main.jz" "module App::Main { 1 True. }")
   let failingEntry = NonEmpty.head (coreProgramModules failing)
   (programDiagnostics, _) <- analyzeProgram inputs failing
-  (failedInference, failedModule) <- analyzeModule inputs NamedSourceUnit Set.empty mempty failingEntry
+  (failedInference, failedModule) <- analyzeModule inputs NamedSourceUnit False mempty failingEntry
   assertEqual "failed module has no analyzed artifact" Nothing failedModule
   assertEqual "single-module diagnostic order matches program analysis" programDiagnostics (inferredDiagnostics failedInference)
   where
@@ -319,7 +319,7 @@ testSingleModuleAnalysis = do
           importDecl
           ( resolvedModuleExports (coreModuleFacts dependency),
             analyzedModuleInterface (coreModuleFacts checked),
-            moduleEvidenceCandidates NamedSourceUnit dependency
+            moduleEvidenceCandidates dependency
           )
 
 testBinaryOperandAliasSelection :: IO ()

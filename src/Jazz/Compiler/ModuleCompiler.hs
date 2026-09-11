@@ -20,6 +20,7 @@ import qualified Data.Sequence as Seq
 import qualified Data.Set as Set
 import Jazz.Compiler.AST (CoreNode (coreNodeFacts, coreNodeSpan), CorePhase (..), DataConstructor (..), Statement (..))
 import Jazz.Compiler.Analyzer.UnusedBindings (referencedScopeBindingIds)
+import Jazz.Compiler.BundledPrelude (bundledPreludeIdentity)
 import Jazz.Compiler.CoreIdentity (ResolvedNodeFacts (..), ResolvedReference (..))
 import Jazz.Compiler.DiagnosticCatalog (WarningCategory (SameScopeRebinding))
 import Jazz.Compiler.Diagnostics (Diagnostic, diagnosticWarningCategory, isErrorDiagnostic, mkSameScopeRebindingWarning, promoteDiagnostic, sortWarnings)
@@ -65,7 +66,7 @@ analyzeProgram inputs resolvedProgram =
   do
     (preludeDiagnostics, maybePrelude, ambientInterface) <- analyzePrelude (inputs {compileInputExternalUses = sourcePreludeUses}) (coreProgramPrelude resolvedProgram)
     (maybeModules, _, moduleDiagnostics) <-
-      if any isErrorDiagnostic preludeDiagnostics
+      if any isErrorDiagnostic preludeDiagnostics && not (any isStandaloneSourceModule (coreProgramModules resolvedProgram))
         then pure (Seq.empty, Map.empty, Seq.empty)
         else
           foldM
@@ -98,13 +99,13 @@ analyzeProgram inputs resolvedProgram =
           modulePath = coreModulePath resolvedModule
           owner = const (resolvedNodeOwner (coreNodeFacts (ModuleGraph.coreModuleBodyNode resolvedModule)))
       (inference, maybeAnalyzedModule) <-
-        analyzeModule inputs owner Set.empty importedInterface resolvedModule
+        analyzeModule inputs owner False importedInterface resolvedModule
       let sourceDiagnostics = addPreludeRebindingWarnings resolvedModule (inferredDiagnostics inference)
           withDiagnostics analyzed = analyzed {ModuleGraph.coreModuleFacts = (coreModuleFacts analyzed) {ModuleGraph.analyzedModuleDiagnostics = sourceDiagnostics}}
           dependency =
             ( ModuleGraph.resolvedModuleExports (coreModuleFacts resolvedModule),
               inferredModuleInterface inference,
-              moduleEvidenceCandidates owner resolvedModule
+              moduleEvidenceCandidates resolvedModule
             )
       pure
         ( modules Seq.|> fmap withDiagnostics maybeAnalyzedModule,
@@ -117,7 +118,7 @@ analyzeProgram inputs resolvedProgram =
     addPreludeRebindingWarnings :: ModuleGraph.CoreModule 'Resolved -> [Diagnostic] -> [Diagnostic]
     addPreludeRebindingWarnings resolvedModule diagnostics
       | not (isStandaloneSourceModule resolvedModule)
-          || not (Set.null (compileInputPreludeHiddenStatementIndices inputs))
+          || ModuleGraph.preludeIdentity (coreProgramPrelude resolvedProgram) == bundledPreludeIdentity
           || not (isWarningEnabled settings SameScopeRebinding) =
           diagnostics
       | otherwise = map promoteWarning (sortWarnings (warnings <> extraWarnings)) <> errors
@@ -155,7 +156,7 @@ analyzePrelude inputs prelude =
         )
     Just resolvedPreludeModule -> do
       (inference, maybeAnalyzedModule) <-
-        analyzeModule inputs PreludeSourceUnit (compileInputPreludeHiddenStatementIndices inputs) mempty resolvedPreludeModule
+        analyzeModule inputs PreludeSourceUnit (ModuleGraph.preludeIdentity prelude == bundledPreludeIdentity) mempty resolvedPreludeModule
       let diagnostics = inferredDiagnostics inference
           maybeAnalyzedPrelude =
             (\analyzedModule -> ModuleGraph.PreludeArtifact (ModuleGraph.preludeIdentity prelude) (Just analyzedModule))
@@ -163,7 +164,7 @@ analyzePrelude inputs prelude =
           ambientInterface =
             importWholeInterface
               AmbientPrelude
-              (moduleEvidenceCandidates PreludeSourceUnit resolvedPreludeModule)
+              (moduleEvidenceCandidates resolvedPreludeModule)
               (inferredModuleInterface inference)
       pure
         ( diagnostics,

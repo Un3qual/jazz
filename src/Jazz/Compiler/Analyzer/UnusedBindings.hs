@@ -47,17 +47,16 @@ import Jazz.Compiler.WarningConfig
 
 collectUnusedBindingWarnings ::
   WarningSettings ->
-  Set Int ->
+  Bool ->
   Set CoreBinderId ->
   [(Int, Statement 'Resolved)] ->
   Map Int [Diagnostic]
-collectUnusedBindingWarnings settings hiddenStatementIndices externalUses indexedStatements
-  | not (isWarningEnabled settings UnusedBinding) = Map.empty
+collectUnusedBindingWarnings settings hideRootBindings externalUses indexedStatements
+  | hideRootBindings || not (isWarningEnabled settings UnusedBinding) = Map.empty
   | otherwise =
       Map.fromList
         [ (statementIndex, [mkUnusedBindingWarning bindingNameText bindingSpan])
         | (statementIndex, SLet node bindingName _) <- indexedStatements,
-          statementIndex `Set.notMember` hiddenStatementIndices,
           maybe True (`Set.notMember` externalUses) (resolvedNodeBinder (coreNodeFacts node)),
           let bindingNameText = identifierText bindingName,
           let bindingSpan = coreNodeSpan node,
@@ -77,22 +76,20 @@ collectUnusedBindingWarnings settings hiddenStatementIndices externalUses indexe
     usedBindingStatementIndices =
       Set.fromList
         [ index
-        | (statementIndex, statement) <- indexedStatements,
-          Set.notMember statementIndex hiddenStatementIndices,
+        | (_, statement) <- indexedStatements,
           binder <- Map.keys (statementReferences statement),
           Just index <- [Map.lookup binder declarationsById]
         ]
     rebindingStatementIndices = snd (foldl' markRebinding (Set.empty, Set.empty) indexedStatements)
 
-    markRebinding current@(names, indices) (index, statement)
-      | Set.member index hiddenStatementIndices = current
-      | otherwise = case statement of
-          SLet _ name _ ->
-            let key = resolvedValueScopeName name
-             in (Set.insert key names, if Set.member key names then Set.insert index indices else indices)
-          SData _ _ _ constructors ->
-            (foldl' (\acc (DataConstructor _ name _) -> Set.insert (resolvedValueScopeName name) acc) names constructors, indices)
-          _ -> current
+    markRebinding :: (Set ResolvedName, Set Int) -> (Int, Statement 'Resolved) -> (Set ResolvedName, Set Int)
+    markRebinding current@(names, indices) (index, statement) = case statement of
+      SLet _ name _ ->
+        let key = resolvedValueScopeName name
+         in (Set.insert key names, if Set.member key names then Set.insert index indices else indices)
+      SData _ _ _ constructors ->
+        (foldl' (\acc (DataConstructor _ name _) -> Set.insert (resolvedValueScopeName name) acc) names constructors, indices)
+      _ -> current
 
 mkUnusedBindingWarning :: Text -> SourceSpan -> Diagnostic
 mkUnusedBindingWarning variableName primarySpan =

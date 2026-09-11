@@ -13,7 +13,6 @@ module Jazz.Compiler.Analyzer
     Expr (..),
     Statement (..),
     AnalysisResult (..),
-    analyzeProgramWithHiddenStatements,
     analyzeProgramWithInputs,
     analyzeProgramWithInputsAndPreparedScope,
     analyzeProgram,
@@ -144,18 +143,7 @@ data VisibleBinding = VisibleBinding
 -- - optional same-scope rebinding warnings
 -- - recursive-group visibility for self/mutual recursion
 analyzeProgram :: WarningSettings -> Expr 'Resolved -> IO AnalysisResult
-analyzeProgram =
-  analyzeProgramWithHiddenStatements Set.empty
-
--- | Analyzer entrypoint used by prelude/module flows. Hidden statement indices
--- suppress synthetic-source locations while preserving the same semantic walk
--- used for ordinary user code.
-analyzeProgramWithHiddenStatements ::
-  Set Int ->
-  WarningSettings ->
-  Expr 'Resolved ->
-  IO AnalysisResult
-analyzeProgramWithHiddenStatements hiddenStatementIndices settings expr =
+analyzeProgram settings expr =
   analyzeProgramWithInputs
     AnalysisInputs
       { analysisWarningSettings = settings,
@@ -165,18 +153,18 @@ analyzeProgramWithHiddenStatements hiddenStatementIndices settings expr =
         analysisImportedClasses = Set.empty,
         analysisModulePath = Nothing
       }
-    hiddenStatementIndices
+    False
     expr
 
-analyzeProgramWithInputs :: AnalysisInputs -> Set Int -> Expr 'Resolved -> IO AnalysisResult
-analyzeProgramWithInputs inputs hiddenStatementIndices expr =
+analyzeProgramWithInputs :: AnalysisInputs -> Bool -> Expr 'Resolved -> IO AnalysisResult
+analyzeProgramWithInputs inputs hideRootBindings expr =
   {-# SCC "jazz-stage:static-analysis" #-}
   analyzeProgramWithInputsAndDiagnostics inputs expr collectedDiagnostics
   where
     collectedDiagnostics =
       case expr of
         EBlock node statements ->
-          collectScopeDiagnostics (analysisExternalUses inputs) hiddenStatementIndices settings importedBindings forwardBindings importedClasses topLevelContext (prepareResolvedScope node statements)
+          collectScopeDiagnostics (analysisExternalUses inputs) hideRootBindings settings importedBindings forwardBindings importedClasses topLevelContext (prepareResolvedScope node statements)
         _ ->
           collectExprDiagnostics settings importedBindings importedClasses topLevelContext expr
     settings = analysisWarningSettings inputs
@@ -186,18 +174,18 @@ analyzeProgramWithInputs inputs hiddenStatementIndices expr =
 
 analyzeProgramWithInputsAndPreparedScope ::
   AnalysisInputs ->
-  Set Int ->
+  Bool ->
   Expr 'Resolved ->
   PreparedRecursiveScope 'Resolved ->
   IO AnalysisResult
-analyzeProgramWithInputsAndPreparedScope inputs hiddenStatementIndices expr preparedScope =
+analyzeProgramWithInputsAndPreparedScope inputs hideRootBindings expr preparedScope =
   {-# SCC "jazz-stage:static-analysis" #-}
   let analysisScope = preparedAnalysisScope preparedScope
       collectedDiagnostics =
         collectScopeDiagnosticsWithPreparedScope
           analysisScope
           (analysisExternalUses inputs)
-          hiddenStatementIndices
+          hideRootBindings
           (analysisWarningSettings inputs)
           (analysisVisibleBindings inputs)
           (analysisVisibleForwardBindings inputs)
@@ -382,7 +370,7 @@ collectExprDiagnostics settings visibleBindings visibleClassNames context expr =
       collectExprDiagnostics settings visibleBindings visibleClassNames context leftExpr
     ESectionRight _ _ rightExpr ->
       collectExprDiagnostics settings visibleBindings visibleClassNames context rightExpr
-    EBlock node statements -> collectScopeDiagnostics Set.empty Set.empty settings visibleBindings Map.empty visibleClassNames context (prepareResolvedScope node statements)
+    EBlock node statements -> collectScopeDiagnostics Set.empty False settings visibleBindings Map.empty visibleClassNames context (prepareResolvedScope node statements)
 
 collectExprListDiagnostics ::
   WarningSettings ->
@@ -400,7 +388,7 @@ collectExprListDiagnostics settings visibleBindings visibleClassNames context el
 -- rebinding policy, and recursive-peer visibility at the same time.
 collectScopeDiagnostics ::
   Set CoreBinderId ->
-  Set Int ->
+  Bool ->
   WarningSettings ->
   Map ResolvedName VisibleBinding ->
   Map Int (ResolvedName, VisibleBinding) ->
@@ -408,11 +396,11 @@ collectScopeDiagnostics ::
   AnalysisContext ->
   PreparedRecursiveScope 'Resolved ->
   CollectedDiagnostics
-collectScopeDiagnostics externalUses hiddenStatementIndices settings outerScope forwardBindings outerClassNames context preparedScope =
+collectScopeDiagnostics externalUses hideRootBindings settings outerScope forwardBindings outerClassNames context preparedScope =
   collectScopeDiagnosticsWithPreparedScope
     (preparedAnalysisScope preparedScope)
     externalUses
-    hiddenStatementIndices
+    hideRootBindings
     settings
     outerScope
     forwardBindings
@@ -422,14 +410,14 @@ collectScopeDiagnostics externalUses hiddenStatementIndices settings outerScope 
 collectScopeDiagnosticsWithPreparedScope ::
   PreparedAnalysisScope ->
   Set CoreBinderId ->
-  Set Int ->
+  Bool ->
   WarningSettings ->
   Map ResolvedName VisibleBinding ->
   Map Int (ResolvedName, VisibleBinding) ->
   Set Text ->
   AnalysisContext ->
   CollectedDiagnostics
-collectScopeDiagnosticsWithPreparedScope (PreparedAnalysisScope statements rawRecursiveGroupsByStatement) externalUses hiddenStatementIndices settings outerScope forwardBindings outerClassNames context =
+collectScopeDiagnosticsWithPreparedScope (PreparedAnalysisScope statements rawRecursiveGroupsByStatement) externalUses hideRootBindings settings outerScope forwardBindings outerClassNames context =
   flushPendingSignature finalPendingSignature finalDiagnostics
   where
     indexedStatements = zip [0 ..] statements
@@ -444,7 +432,7 @@ collectScopeDiagnosticsWithPreparedScope (PreparedAnalysisScope statements rawRe
     unusedBindingWarningsByStatement =
       collectUnusedBindingWarnings
         settings
-        hiddenStatementIndices
+        hideRootBindings
         externalUses
         indexedStatements
 
@@ -563,13 +551,11 @@ collectScopeDiagnosticsWithPreparedScope (PreparedAnalysisScope statements rawRe
               constructorWarnings =
                 collectDataConstructorRebindingWarnings
                   settings
-                  hiddenStatementIndices
-                  statementIndex
+                  hideRootBindings
                   constructors
                   scopeBindings
            in ( registerDataConstructors
-                  hiddenStatementIndices
-                  statementIndex
+                  hideRootBindings
                   constructors
                   scopeBindings,
                 classDeclarations,
@@ -631,7 +617,7 @@ collectScopeDiagnosticsWithPreparedScope (PreparedAnalysisScope statements rawRe
               nextScope =
                 Map.insert
                   bindingScopeName
-                  (mkVisibleBinding hiddenStatementIndices statementIndex bindingSpan)
+                  (mkVisibleBinding hideRootBindings bindingSpan)
                   scopeBindings
               visible =
                 -- Recursive peer names in the same SCC are visible while
@@ -735,7 +721,7 @@ collectScopeDiagnosticsWithPreparedScope (PreparedAnalysisScope statements rawRe
               (Map.findWithDefault Set.empty statementIndex recursiveGroupsByStatement)
           peerEntries =
             Map.fromList
-              [ (resolvedValueScopeName peerName, mkVisibleBinding hiddenStatementIndices peerStatementIndex peerSpan)
+              [ (resolvedValueScopeName peerName, mkVisibleBinding hideRootBindings peerSpan)
               | peerStatementIndex <- Set.toList peers,
                 Just (peerName, peerSpan) <- [Map.lookup peerStatementIndex bindingDeclarationsByStatement],
                 -- Do not override currently visible names (for example due to
@@ -1015,43 +1001,39 @@ collectBindingDeclarations =
           Map.insert statementIndex (name, coreNodeSpan node) declarations
         _ -> declarations
 
--- | Tag bindings that came from hidden prelude statements so user-facing
--- diagnostics can avoid pointing at synthetic source positions.
-mkVisibleBinding :: Set Int -> Int -> SourceSpan -> VisibleBinding
-mkVisibleBinding hiddenStatementIndices statementIndex spanValue =
+-- | The prelude artifact chooses whether its root bindings expose locations.
+mkVisibleBinding :: Bool -> SourceSpan -> VisibleBinding
+mkVisibleBinding hideRootBindings spanValue =
   VisibleBinding
     { visibleBindingSpan = spanValue,
-      visibleBindingIsHiddenPrelude = statementIndex `Set.member` hiddenStatementIndices
+      visibleBindingIsHiddenPrelude = hideRootBindings
     }
 
 -- | Data constructors join the value namespace for analyzer visibility and
 -- same-scope rebinding checks.
 registerDataConstructors ::
-  Set Int ->
-  Int ->
+  Bool ->
   [DataConstructor 'Resolved] ->
   Map ResolvedName VisibleBinding ->
   Map ResolvedName VisibleBinding
-registerDataConstructors hiddenStatementIndices statementIndex constructors bindings =
+registerDataConstructors hideRootBindings constructors bindings =
   foldl' register bindings constructors
   where
     register bindingsAcc (DataConstructor constructorNode constructorName _) =
       Map.insert
         (resolvedValueScopeName constructorName)
-        (mkVisibleBinding hiddenStatementIndices statementIndex (coreNodeSpan constructorNode))
+        (mkVisibleBinding hideRootBindings (coreNodeSpan constructorNode))
         bindingsAcc
 
 collectDataConstructorRebindingWarnings ::
   WarningSettings ->
-  Set Int ->
-  Int ->
+  Bool ->
   [DataConstructor 'Resolved] ->
   Map ResolvedName VisibleBinding ->
   [Diagnostic]
 collectDataConstructorRebindingWarnings
   settings
-  hiddenStatementIndices
-  statementIndex
+  hideRootBindings
   constructors
   bindings
     | not (isWarningEnabled settings SameScopeRebinding) = []
@@ -1062,7 +1044,7 @@ collectDataConstructorRebindingWarnings
 
       collect (bindingsAcc, warningsAcc) (DataConstructor constructorNode constructorName _) =
         let constructorSpan = coreNodeSpan constructorNode
-            constructorBinding = mkVisibleBinding hiddenStatementIndices statementIndex constructorSpan
+            constructorBinding = mkVisibleBinding hideRootBindings constructorSpan
             constructorNameText = identifierText constructorName
             constructorValueName = resolvedValueScopeName constructorName
             warning =

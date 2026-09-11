@@ -2,13 +2,11 @@
 
 module Jazz.Compiler.TypeInference.Evidence
   ( implementationEvidenceCandidatesInModule,
-    implementationEvidenceCandidatesInSourceUnit,
   )
 where
 
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
-import Data.Set (Set)
 import Data.Text (Text)
 import Jazz.Compiler.AST
   ( CaseArm (..),
@@ -19,42 +17,20 @@ import Jazz.Compiler.AST
     Statement (..),
   )
 import Jazz.Compiler.CapabilityFacts (qualifiedMethodKey)
-import Jazz.Compiler.ModuleIdentity (ModulePath)
+import Jazz.Compiler.CoreIdentity (ResolvedNodeFacts (resolvedNodeOwner))
 import Jazz.Compiler.Name (identifierText, mkIdentifier)
 import Jazz.Compiler.SemanticFacts (ImplId (..), MethodId (..))
-import Jazz.Compiler.SourceUnitOwnership
-  ( SourceUnitOwner (..),
-    sourceUnitStatementOwners,
-  )
 import Jazz.Compiler.TypeInference.State (ImplementationEvidenceCandidate (..))
 
-implementationEvidenceCandidatesInModule :: SourceUnitOwner -> Expr 'Resolved -> Map Text [ImplementationEvidenceCandidate]
-implementationEvidenceCandidatesInModule owner =
-  candidatesFromEntries . expressionEntries owner
-
-implementationEvidenceCandidatesInSourceUnit :: ModulePath -> ModulePath -> Set Int -> Expr 'Resolved -> Map Text [ImplementationEvidenceCandidate]
-implementationEvidenceCandidatesInSourceUnit sourcePath preludePath preludeStatementIndices expression =
-  candidatesFromEntries
-    ( case expression of
-        EBlock _ statements ->
-          concat
-            [ statementEntries
-                owner
-                statement
-            | (owner, statement) <-
-                zip
-                  (sourceUnitStatementOwners sourcePath preludePath preludeStatementIndices statements)
-                  statements
-            ]
-        _ -> expressionEntries (StandaloneSourceUnit sourcePath) expression
-    )
+implementationEvidenceCandidatesInModule :: Expr 'Resolved -> Map Text [ImplementationEvidenceCandidate]
+implementationEvidenceCandidatesInModule = candidatesFromEntries . expressionEntries
 
 candidatesFromEntries :: [(Text, ImplementationEvidenceCandidate)] -> Map Text [ImplementationEvidenceCandidate]
 candidatesFromEntries =
   Map.fromListWith (flip (<>)) . map (\(key, candidate) -> (key, [candidate]))
 
-expressionEntries :: SourceUnitOwner -> Expr 'Resolved -> [(Text, ImplementationEvidenceCandidate)]
-expressionEntries owner expression =
+expressionEntries :: Expr 'Resolved -> [(Text, ImplementationEvidenceCandidate)]
+expressionEntries expression =
   case expression of
     ELambda _ _ body -> recur body
     EList _ elements -> foldMap recur elements
@@ -66,20 +42,20 @@ expressionEntries owner expression =
     EBinary _ _ left right -> recur left <> recur right
     ESectionLeft _ left _ -> recur left
     ESectionRight _ _ right -> recur right
-    EBlock _ statements -> foldMap (statementEntries owner) statements
+    EBlock _ statements -> foldMap (statementEntries) statements
     _ -> []
   where
-    recur = expressionEntries owner
+    recur = expressionEntries
     armEntries (CaseArm _ _ guard body) = foldMap recur guard <> recur body
 
-statementEntries :: SourceUnitOwner -> Statement 'Resolved -> [(Text, ImplementationEvidenceCandidate)]
-statementEntries owner statement =
+statementEntries :: Statement 'Resolved -> [(Text, ImplementationEvidenceCandidate)]
+statementEntries statement =
   case statement of
-    SLet _ _ value -> expressionEntries owner value
+    SLet _ _ value -> expressionEntries value
     SImpl implementationNode capabilityName [target] methods ->
       foldMap methodEntry methods <> foldMap methodBodyEntries methods
       where
-        implementationId = ImplId (owner, coreNodeId implementationNode)
+        implementationId = ImplId (resolvedNodeOwner (coreNodeFacts implementationNode), coreNodeId implementationNode)
         methodEntry (ImplMethod _ methodName _) =
           [ ( qualifiedMethodKey capabilityName methodName,
               ImplementationEvidenceCandidate
@@ -90,9 +66,9 @@ statementEntries owner statement =
                 }
             )
           ]
-        methodBodyEntries (ImplMethod _ _ body) = expressionEntries owner body
+        methodBodyEntries (ImplMethod _ _ body) = expressionEntries body
     SImpl _ _ _ methods -> foldMap methodBodyEntries methods
       where
-        methodBodyEntries (ImplMethod _ _ body) = expressionEntries owner body
-    SExpr _ value -> expressionEntries owner value
+        methodBodyEntries (ImplMethod _ _ body) = expressionEntries body
+    SExpr _ value -> expressionEntries value
     _ -> []

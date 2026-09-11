@@ -105,15 +105,15 @@ import qualified Jazz.Compiler.TypeRepresentation as TypeRepresentation
 -- | Analyze one resolved module against its complete imported interface. The
 -- caller chooses the source owner and hidden statements (the prelude uses both),
 -- while dependency availability and diagnostic accumulation belong to the driver.
-analyzeModule :: CompileInputs -> (ModulePath -> SourceUnitOwner) -> Set.Set Int -> ImportedInterface -> CoreModule 'Resolved -> IO (InferenceResult, Maybe (CoreModule 'Analyzed))
-analyzeModule inputs owner hiddenStatements importedInterface resolvedModule = do
+analyzeModule :: CompileInputs -> (ModulePath -> SourceUnitOwner) -> Bool -> ImportedInterface -> CoreModule 'Resolved -> IO (InferenceResult, Maybe (CoreModule 'Analyzed))
+analyzeModule inputs owner hideRootBindings importedInterface resolvedModule = do
   let modulePath = coreModulePath resolvedModule
   (inference, attachment) <-
     analyzeExpressionWithInputs
       (moduleStatementFactSeeds resolvedModule)
-      (Map.unionWith (<>) (moduleEvidenceCandidates owner resolvedModule) (importedEvidenceCandidates importedInterface))
+      (Map.unionWith (<>) (moduleEvidenceCandidates resolvedModule) (importedEvidenceCandidates importedInterface))
       ((moduleInferenceInputs inputs modulePath importedInterface) {inferenceCurrentModulePath = case owner modulePath of StandaloneSourceUnit _ -> Nothing; _ -> Just (modulePathTexts modulePath)})
-      hiddenStatements
+      hideRootBindings
       (coreModuleExpr resolvedModule)
   maybeAnalyzedExpression <- checkedAttachment modulePath attachment
   maybeAnalyzedModule <-
@@ -207,11 +207,8 @@ analyzedImport factsByNode importDecl =
                 ModuleGraph.importExposure = ModuleGraph.importExposure importDecl
               }
 
-moduleEvidenceCandidates :: (ModulePath -> SourceUnitOwner) -> CoreModule 'Resolved -> Map Text [ImplementationEvidenceCandidate]
-moduleEvidenceCandidates owner coreModule =
-  implementationEvidenceCandidatesInModule
-    (owner (coreModulePath coreModule))
-    (coreModuleExpr coreModule)
+moduleEvidenceCandidates :: CoreModule 'Resolved -> Map Text [ImplementationEvidenceCandidate]
+moduleEvidenceCandidates = implementationEvidenceCandidatesInModule . coreModuleExpr
 
 dependencyImportInterface :: ModuleImport 'Resolved -> (ModuleExportInventory, ModuleInterface, Map Text [ImplementationEvidenceCandidate]) -> ImportedInterface
 dependencyImportInterface importDecl (publicInventory, moduleInterface, evidenceCandidates) =

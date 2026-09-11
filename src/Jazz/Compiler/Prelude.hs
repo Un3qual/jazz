@@ -10,8 +10,6 @@ module Jazz.Compiler.Prelude
   )
 where
 
-import Data.Set (Set)
-import qualified Data.Set as Set
 import Data.Text (Text)
 import Jazz.Compiler.AST
   ( CorePhase (..),
@@ -61,7 +59,6 @@ data ResolvedPrelude
 
 data PreparedPrelude = PreparedPrelude
   { preparedPreludeArtifact :: PreludeArtifact 'Lowered,
-    preparedPreludeHiddenStatementIndices :: Set Int,
     preparedPreludeVisibleExports :: ModuleExportInventory
   }
   deriving (Eq, Show)
@@ -73,22 +70,16 @@ preparePrelude resolvedPrelude =
       Right
         PreparedPrelude
           { preparedPreludeArtifact = preludeArtifact absentPreludeIdentity Nothing,
-            preparedPreludeHiddenStatementIndices = Set.empty,
             preparedPreludeVisibleExports = exportInventory []
           }
-    PreludeBundled source -> prepare bundledPreludeIdentity True source
-    PreludeExplicit source -> prepare explicitPreludeIdentity False source
+    PreludeBundled source -> prepare bundledPreludeIdentity source
+    PreludeExplicit source -> prepare explicitPreludeIdentity source
   where
-    prepare identity hidden source = do
+    prepare identity source = do
       loweredPrelude <- validateAndLowerPrelude identity source
-      let statements = coreModuleStatements loweredPrelude
       pure
         PreparedPrelude
           { preparedPreludeArtifact = preludeArtifact identity (Just loweredPrelude),
-            preparedPreludeHiddenStatementIndices =
-              if hidden
-                then Set.fromList [0 .. length statements - 1]
-                else Set.empty,
             preparedPreludeVisibleExports = collectPreludeExports loweredPrelude
           }
 
