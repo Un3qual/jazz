@@ -736,7 +736,7 @@ testHostDependencyBindingRetainsRuntimeFacts = do
       case scopeResultValue scopeResult of
         Just itemValue ->
           assertEqual
-            "dependency keeps UInt8 runtime plan"
+            "dependency keeps UInt8 result representation"
             True
             (runtimeValueExactlyMatchesConstraint (SemanticNumeric NumericUInt8) itemValue)
         Nothing -> assertEqual "dependency produces a hinted itemValue" True False

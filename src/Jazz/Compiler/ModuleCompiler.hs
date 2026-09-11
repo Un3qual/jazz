@@ -5,8 +5,6 @@
 -- | Compile resolved modules once against explicit dependency interfaces.
 module Jazz.Compiler.ModuleCompiler
   ( analyzeProgram,
-    analyzedProgramDiagnostics,
-    analyzedProgramErrors,
   )
 where
 
@@ -37,30 +35,16 @@ import Jazz.Compiler.ModuleGraph
     coreProgramEntry,
     coreProgramModules,
     coreProgramPrelude,
+    isStandaloneSourceModule,
     mkCoreProgram,
+    orderedProgramDiagnostics,
   )
 import qualified Jazz.Compiler.ModuleGraph as ModuleGraph
 import Jazz.Compiler.ModuleIdentity (SourceUnitOwner (..))
 import Jazz.Compiler.ModuleInterface (CompileInputs (..))
 import Jazz.Compiler.Name (ResolvedNameOrigin (AmbientPrelude), identifierText)
-import Jazz.Compiler.SourceProgram (isStandaloneSourceModule)
 import Jazz.Compiler.TypeInference.Result (InferenceResult (..))
 import Jazz.Compiler.WarningConfig (isWarningEnabled, isWarningError)
-
-analyzedProgramDiagnostics :: CoreProgram 'Analyzed -> [Diagnostic]
-analyzedProgramDiagnostics program =
-  orderedProgramDiagnostics program (preludeDiagnostics : map moduleDiagnostics (toList (coreProgramModules program)))
-  where
-    preludeDiagnostics = maybe mempty moduleDiagnostics (ModuleGraph.preludeModule (coreProgramPrelude program))
-    moduleDiagnostics = ModuleGraph.analyzedModuleDiagnosticGroups . coreModuleFacts
-
-orderedProgramDiagnostics :: CoreProgram phase -> [CompilationDiagnostics] -> [Diagnostic]
-orderedProgramDiagnostics program
-  | any isStandaloneSourceModule (coreProgramModules program) = compilationDiagnostics . mconcat
-  | otherwise = concatMap compilationDiagnostics
-
-analyzedProgramErrors :: CoreProgram 'Analyzed -> [Diagnostic]
-analyzedProgramErrors = filter isErrorDiagnostic . analyzedProgramDiagnostics
 
 analyzeProgram :: CompileInputs -> CoreProgram 'Resolved -> IO ([Diagnostic], Maybe (CoreProgram 'Analyzed))
 analyzeProgram inputs resolvedProgram =

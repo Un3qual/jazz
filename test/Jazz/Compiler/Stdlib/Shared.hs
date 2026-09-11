@@ -36,7 +36,7 @@ import Jazz.Compiler.Driver
     runOutput,
     runRuntimeErrors,
   )
-import Jazz.Compiler.ModuleCompiler
+import Jazz.Compiler.ModuleGraph
   ( analyzedProgramErrors,
   )
 import Jazz.Compiler.ModuleResolver

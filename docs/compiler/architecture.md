@@ -6,7 +6,8 @@ sidebar_position: 1
 
 The Jazz toolchain is a compiler front end and interpreter. Its canonical core
 is indexed by compiler phase: lowering constructs syntax, resolution attaches
-unambiguous names, and analysis attaches the semantic facts used by execution.
+stable binding identities, and analysis constructs checked trees containing the
+semantic decisions used by execution.
 
 ## Source and modules
 
@@ -15,8 +16,8 @@ absent Prelude. Module mode locates an entry module, follows imports, rejects
 cycles, and orders dependencies before their consumers. Each source unit is
 loaded once for the resolved graph.
 
-The output of this stage is either one source unit or a deterministic module
-graph with explicit dependency relationships.
+Both standalone and module inputs become one dependency-ordered program graph.
+The Prelude retains its own source identity and analyzed artifact.
 
 ## Parse
 
@@ -35,8 +36,11 @@ definitions. In module mode, each module is resolved against dependency
 interfaces and its private local inventory. Explicit export lists determine the
 typed interface published to consumers.
 
-The result is canonical core with unambiguous names plus the module interfaces
-needed for dependency checking and runtime publication.
+Resolution publishes lexical groups, captures, and validated import visibility
+once. Operator values become callable references; declared binary operators and
+sections become applications and capturing lambdas. Primitive operations retain
+their distinct evaluation and promotion rules. Public interfaces carry the
+exported names, closed schemes, and capability identities needed by consumers.
 
 ## Analyze
 
@@ -45,9 +49,10 @@ types, capability requirements, and the current purity rules. Type inference
 adds types where no signature is written and validates explicit signatures
 where they are present.
 
-Analysis attaches types and runtime plans to the resolved program and accumulates
-structured diagnostics;
-it does not print messages or execute user expressions.
+Checking returns each subtree with its type, binding schemes, patterns, explicit
+instantiation arguments, and selected method evidence. Finalization applies solved
+substitutions and checks completeness. It does not reconstruct lexical scope or
+repeat inference. The analyzed artifact retains structured diagnostics.
 
 ## Diagnose
 
@@ -60,11 +65,17 @@ Any error-severity compile diagnostic prevents evaluation.
 
 ## Interpret
 
-Run mode evaluates analyzed core after successful analysis. Module
-dependencies publish their selected runtime exports without executing their
-top-level expression statements; the entry module then evaluates its own
-expressions. Host operations for files, streams, arguments, and exit pass
-through the runtime host boundary.
+Run mode consumes checked types, ordered instantiations, result representations,
+and selected method identities directly. Calls whose implementation remains open
+use dynamic dispatch.
+
+One program traversal evaluates the Prelude and modules in dependency order.
+Dependencies publish exports without forcing top-level bindings or executing
+expression statements. One scope traversal owns sequential execution and
+definition-site environments for both pure and host evaluation. Pure cells use
+lazy values; host cells use an evaluation-instance cache so repeated forcing does
+not repeat effects or share state across closure calls. Host operations for files,
+streams, arguments, and exit pass through the runtime host boundary.
 
 The interpreter produces a value or a stable runtime diagnostic. Optional
 statistics and profiles observe evaluation without changing the result.

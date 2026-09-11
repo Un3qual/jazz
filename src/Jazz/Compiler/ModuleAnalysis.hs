@@ -29,11 +29,9 @@ import qualified Data.Text as Text
 import Jazz.Compiler.AST
   ( CoreNode (..),
     CorePhase (..),
-    CoreSort (StatementSort),
     Expr (EBlock),
     coreNodeId,
     expressionNode,
-    statementNode,
   )
 import Jazz.Compiler.Analyzer (AnalysisBinding (..), AnalysisInputs (..), AnalysisResult (..), analyzeProgramWithInputs, analyzeProgramWithInputsAndPreparedScope)
 import Jazz.Compiler.CapabilityFacts
@@ -80,8 +78,7 @@ import Jazz.Compiler.Name
 import Jazz.Compiler.PatternCoverage (PatternCoverageFailure (..), PatternCoverageSite (..), analyzePatternCoverage)
 import Jazz.Compiler.SemanticDeclarations (DeclarationVariable)
 import Jazz.Compiler.SemanticFacts
-  ( CoreNodeId,
-    SemanticFactInvariantFailure (..),
+  ( SemanticFactInvariantFailure (..),
     StatementDeclarationFact (..),
     StatementFacts (..),
   )
@@ -116,17 +113,16 @@ analyzeModule inputs owner hideRootBindings importedInterface resolvedModule = d
   let modulePath = coreModulePath resolvedModule
   (inference, attachment) <-
     analyzeExpressionWithInputs
-      (moduleStatementFactSeeds resolvedModule)
       ((moduleInferenceInputs inputs resolvedModule importedInterface) {inferenceCurrentModulePath = case owner modulePath of StandaloneSourceUnit _ -> Nothing; _ -> Just modulePath})
       hideRootBindings
       (coreModuleExpr resolvedModule)
   maybeAnalyzedExpression <- checkedAttachment modulePath attachment
   maybeAnalyzedModule <-
     traverse
-      ( \(analyzedExpression, moduleStatementFacts) ->
+      ( \analyzedExpression ->
           checkedAnalyzedModule
             modulePath
-            (analyzedModuleFromExpression resolvedModule inference moduleStatementFacts analyzedExpression)
+            (analyzedModuleFromExpression resolvedModule inference analyzedExpression)
       )
       maybeAnalyzedExpression
   case maybeAnalyzedModule of
@@ -148,14 +144,6 @@ checkedAnalyzedModule modulePath result =
     Left failure -> fail ("semantic fact invariant failure in " <> Text.unpack (renderModulePath modulePath) <> ": " <> show failure)
     Right value -> pure value
 
-moduleStatementFactSeeds :: CoreModule 'Resolved -> [(CoreNode 'Resolved 'StatementSort, StatementDeclarationFact)]
-moduleStatementFactSeeds = map importSeed . coreModuleImports
-  where
-    importSeed importDecl =
-      ( ModuleGraph.moduleImportNode importDecl,
-        ImportDeclaration (ModuleGraph.importedModule importDecl)
-      )
-
 moduleInferenceInputs :: CompileInputs -> CoreModule 'Resolved -> ImportedInterface -> InferenceInputs
 moduleInferenceInputs inputs resolvedModule importedInterface =
   InferenceInputs
@@ -170,16 +158,15 @@ moduleInferenceInputs inputs resolvedModule importedInterface =
       inferenceCurrentModulePath = Just (coreModulePath resolvedModule)
     }
 
-analyzedModuleFromExpression :: CoreModule 'Resolved -> InferenceResult -> Map CoreNodeId StatementFacts -> Expr 'Analyzed -> Either SemanticFactInvariantFailure (CoreModule 'Analyzed)
-analyzedModuleFromExpression resolvedModule inference moduleStatementFacts analyzedExpression =
+analyzedModuleFromExpression :: CoreModule 'Resolved -> InferenceResult -> Expr 'Analyzed -> Either SemanticFactInvariantFailure (CoreModule 'Analyzed)
+analyzedModuleFromExpression resolvedModule inference analyzedExpression =
   case analyzedExpression of
-    EBlock bodyNode statements -> do
-      analyzedImports <- traverse (analyzedImport statementFactsByNode) (coreModuleImports resolvedModule)
+    EBlock bodyNode statements ->
       pure
         ( ModuleGraph.CoreModule
             { ModuleGraph.coreModuleIdentity = coreModuleIdentity resolvedModule,
               ModuleGraph.coreModuleBodyNode = bodyNode,
-              ModuleGraph.coreModuleImports = analyzedImports,
+              ModuleGraph.coreModuleImports = map analyzedImport (coreModuleImports resolvedModule),
               ModuleGraph.coreModuleStatements = statements,
               ModuleGraph.coreModuleFacts =
                 ModuleGraph.AnalyzedModuleFacts
@@ -192,31 +179,21 @@ analyzedModuleFromExpression resolvedModule inference moduleStatementFacts analy
             }
         )
       where
-        statementFactsByNode =
-          Map.union
-            moduleStatementFacts
-            ( Map.fromList
-                [ (nodeId, facts)
-                | statement <- statements,
-                  let CoreNode nodeId _ facts = statementNode statement
-                ]
-            )
         moduleInterface = inferredModuleInterface inference
     _ -> Left (AnalyzedModuleRootNotBlock (coreNodeId (expressionNode analyzedExpression)))
 
-analyzedImport :: Map CoreNodeId StatementFacts -> ModuleImport 'Resolved -> Either SemanticFactInvariantFailure (ModuleImport 'Analyzed)
-analyzedImport factsByNode importDecl =
-  case ModuleGraph.moduleImportNode importDecl of
-    CoreNode nodeId spanValue _ ->
-      case Map.lookup nodeId factsByNode of
-        Nothing -> Left (MissingStatementFacts nodeId)
-        Just facts ->
-          Right
-            ModuleGraph.ModuleImport
-              { ModuleGraph.moduleImportNode = CoreNode nodeId spanValue facts,
-                ModuleGraph.importedModule = ModuleGraph.importedModule importDecl,
-                ModuleGraph.importExposure = ModuleGraph.importExposure importDecl
-              }
+-- Imports already own their resolved target; no inference output is needed to
+-- publish their analyzed declaration facts.
+analyzedImport :: ModuleImport 'Resolved -> ModuleImport 'Analyzed
+analyzedImport importDecl =
+  ModuleGraph.ModuleImport
+    { ModuleGraph.moduleImportNode =
+        case ModuleGraph.moduleImportNode importDecl of
+          CoreNode nodeId spanValue resolution ->
+            CoreNode nodeId spanValue (StatementFacts resolution [] Map.empty (ImportDeclaration (ModuleGraph.importedModule importDecl))),
+      ModuleGraph.importedModule = ModuleGraph.importedModule importDecl,
+      ModuleGraph.importExposure = ModuleGraph.importExposure importDecl
+    }
 
 dependencyImportInterface :: ValidatedImportScope -> ModulePath -> ModuleInterface -> ImportedInterface
 dependencyImportInterface scope path interface =
@@ -353,22 +330,7 @@ analyzeResolvedExpression ::
         (NonEmpty.NonEmpty SemanticFactInvariantFailure)
         (Maybe (Expr 'Analyzed))
     )
-analyzeResolvedExpression settings expression = do
-  (inference, finalState, checked) <-
-    inferExpressionWithRequestAndState
-      InferenceRequest
-        { requestedInferenceInputs = emptyInferenceInputs settings,
-          requestedHideRootBindings = False
-        }
-      expression
-  if any isErrorDiagnostic (inferredDiagnostics inference)
-    then pure (inference, Right Nothing)
-    else
-      pure
-        ( inference,
-          Just
-            <$> finalizeCheckedExpression finalState checked
-        )
+analyzeResolvedExpression settings = analyzeExpressionWithInputs (emptyInferenceInputs settings) False
 
 inferExpressionWithInputs :: InferenceInputs -> Expr 'Resolved -> IO InferenceResult
 inferExpressionWithInputs inputs =
@@ -404,7 +366,6 @@ inferExpressionWithRequestAndState request expr =
             pure (inference, finalState, inferredResult)
 
 analyzeExpressionWithInputs ::
-  [(CoreNode 'Resolved 'StatementSort, StatementDeclarationFact)] ->
   InferenceInputs ->
   Bool ->
   Expr 'Resolved ->
@@ -412,9 +373,9 @@ analyzeExpressionWithInputs ::
     ( InferenceResult,
       Either
         (NonEmpty.NonEmpty SemanticFactInvariantFailure)
-        (Maybe (Expr 'Analyzed, Map CoreNodeId StatementFacts))
+        (Maybe (Expr 'Analyzed))
     )
-analyzeExpressionWithInputs moduleStatementFacts inputs hideRootBindings expression = do
+analyzeExpressionWithInputs inputs hideRootBindings expression = do
   (inference, finalState, checked) <-
     inferExpressionWithRequestAndState
       InferenceRequest
@@ -427,11 +388,7 @@ analyzeExpressionWithInputs moduleStatementFacts inputs hideRootBindings express
     else
       pure
         ( inference,
-          Just
-            <$> ( (,)
-                    <$> finalizeCheckedExpression finalState checked
-                    <*> pure (Map.fromList [(coreNodeId node, StatementFacts (coreNodeFacts node) [] Map.empty declaration) | (node, declaration) <- moduleStatementFacts])
-                )
+          Just <$> finalizeCheckedExpression finalState checked
         )
 
 data FinalizedInference = FinalizedInference

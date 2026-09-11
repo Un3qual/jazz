@@ -33,7 +33,6 @@ import Jazz.Compiler.CoreIdentity (CapabilityId, ResolvedReference (..), capabil
 import Jazz.Compiler.Diagnostics
   ( Diagnostic,
   )
-import Jazz.Compiler.ModuleCompiler (analyzedProgramErrors)
 import Jazz.Compiler.ModuleExports
   ( ModuleExport (..),
     inventoryHasExport,
@@ -44,6 +43,7 @@ import Jazz.Compiler.ModuleGraph
     CoreProgram,
     ModuleImport,
     PreludeArtifact (..),
+    analyzedProgramErrors,
     coreModuleExpr,
     coreModuleFacts,
     coreModuleImports,
@@ -51,6 +51,7 @@ import Jazz.Compiler.ModuleGraph
     coreProgramEntry,
     coreProgramModules,
     coreProgramPrelude,
+    isStandaloneSourceModule,
     lookupCoreModule,
   )
 import qualified Jazz.Compiler.ModuleGraph as ModuleGraph
@@ -93,7 +94,6 @@ import Jazz.Compiler.RuntimeHost
   ( RuntimeHost,
     disabledRuntimeHost,
   )
-import Jazz.Compiler.SourceProgram (isStandaloneSourceModule)
 
 -- | Runtime-facing exports keep capability methods structurally distinct from
 -- ordinary values instead of encoding their owner in a value-name string.

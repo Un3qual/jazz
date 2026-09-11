@@ -21,6 +21,7 @@ module Jazz.Compiler.ModuleIdentity
     moduleQualifierIdentifier,
     preludeModulePath,
     standaloneModulePath,
+    standaloneSourceFile,
     parseModulePathText,
     modulePathSegments,
     modulePathTextSegments,
@@ -180,3 +181,7 @@ modulePathRelativeFile extension =
     . map (Text.unpack . identifierText)
     . NonEmpty.toList
     . modulePathSegments
+
+-- | Synthetic identity for an in-memory source artifact.
+standaloneSourceFile :: SourceFile
+standaloneSourceFile = mkSourceFile "<standalone>"

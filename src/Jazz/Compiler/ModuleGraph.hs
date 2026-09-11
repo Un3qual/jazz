@@ -14,6 +14,10 @@
 module Jazz.Compiler.ModuleGraph
   ( AnalyzedModuleFacts (..),
     analyzedModuleDiagnostics,
+    analyzedProgramDiagnostics,
+    analyzedProgramErrors,
+    orderedProgramDiagnostics,
+    isStandaloneSourceModule,
     CoreModule (..),
     CoreProgram,
     DeclaredImportExposure (..),
@@ -57,7 +61,7 @@ import Jazz.Compiler.AST
     FactsAt,
     Statement,
   )
-import Jazz.Compiler.Diagnostics (CompilationDiagnostics, Diagnostic, SourceSpan, compilationDiagnostics)
+import Jazz.Compiler.Diagnostics (CompilationDiagnostics, Diagnostic, SourceSpan, compilationDiagnostics, isErrorDiagnostic)
 import Jazz.Compiler.ModuleExports
   ( ModuleExportInventory,
     ModuleExportSelector,
@@ -67,6 +71,8 @@ import Jazz.Compiler.ModuleIdentity
     ModulePath,
     ModuleQualifier,
     moduleIdentityPath,
+    moduleIdentitySource,
+    standaloneSourceFile,
   )
 import Jazz.Compiler.ModuleImportScope (ValidatedImportScope)
 import Jazz.Compiler.ModuleInterface (ModuleInterface)
@@ -300,3 +306,23 @@ instance (CoreConstraints Show phase) => Show (CoreProgram phase) where
 instance (CoreConstraints NFData phase) => NFData (CoreProgram phase) where
   rnf (CoreProgram prelude entry modules moduleIndex) =
     rnf prelude `seq` rnf entry `seq` rnf modules `seq` rnf moduleIndex
+
+-- The source identity marks an in-memory entry artifact; a named module loaded
+-- from a file retains that file's identity instead.
+isStandaloneSourceModule :: CoreModule phase -> Bool
+isStandaloneSourceModule = (== standaloneSourceFile) . moduleIdentitySource . coreModuleIdentity
+
+analyzedProgramDiagnostics :: CoreProgram 'Analyzed -> [Diagnostic]
+analyzedProgramDiagnostics program =
+  orderedProgramDiagnostics program (preludeDiagnostics : map moduleDiagnostics (toList (coreProgramModules program)))
+  where
+    preludeDiagnostics = maybe mempty moduleDiagnostics (preludeModule (coreProgramPrelude program))
+    moduleDiagnostics = analyzedModuleDiagnosticGroups . coreModuleFacts
+
+orderedProgramDiagnostics :: CoreProgram phase -> [CompilationDiagnostics] -> [Diagnostic]
+orderedProgramDiagnostics program
+  | any isStandaloneSourceModule (coreProgramModules program) = compilationDiagnostics . mconcat
+  | otherwise = concatMap compilationDiagnostics
+
+analyzedProgramErrors :: CoreProgram 'Analyzed -> [Diagnostic]
+analyzedProgramErrors = filter isErrorDiagnostic . analyzedProgramDiagnostics

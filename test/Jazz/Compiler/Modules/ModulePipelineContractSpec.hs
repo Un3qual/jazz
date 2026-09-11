@@ -65,7 +65,6 @@ import Jazz.Compiler.ModuleAnalysis
   )
 import Jazz.Compiler.ModuleCompiler
   ( analyzeProgram,
-    analyzedProgramErrors,
   )
 import Jazz.Compiler.ModuleExports
   ( ModuleExport (..),
@@ -81,6 +80,7 @@ import Jazz.Compiler.ModuleGraph
     PreludeArtifact (..),
     ResolvedModuleFacts (..),
     analyzedModuleDiagnostics,
+    analyzedProgramErrors,
     coreModuleBodyNode,
     coreModuleExpr,
     coreModuleFacts,

@@ -7,7 +7,6 @@ module Jazz.Compiler.SourceProgram
   ( parseAndLowerStandaloneSource,
     parseSurfaceWithErrorCode,
     standaloneSourceModule,
-    isStandaloneSourceModule,
     scopeStatements,
   )
 where
@@ -32,7 +31,7 @@ import Jazz.Compiler.Diagnostics
     setDiagnosticErrorCode,
   )
 import Jazz.Compiler.ModuleGraph (CoreModule (..), DeclaredModuleFacts (..))
-import Jazz.Compiler.ModuleIdentity (mkModulePath, mkSourceFile, moduleIdentity, moduleIdentitySource, standaloneModulePath)
+import Jazz.Compiler.ModuleIdentity (mkModulePath, moduleIdentity, standaloneModulePath, standaloneSourceFile)
 import Jazz.Compiler.Name (mkIdentifier)
 import Jazz.Compiler.Parser
   ( parseSurfaceProgram,
@@ -57,7 +56,7 @@ standaloneSourceModule expression =
   case reindexLoweredExpr block of
     EBlock node statements ->
       CoreModule
-        { coreModuleIdentity = moduleIdentity nominalPath (mkSourceFile standaloneSourcePath),
+        { coreModuleIdentity = moduleIdentity nominalPath standaloneSourceFile,
           coreModuleBodyNode = node,
           coreModuleImports = [],
           coreModuleStatements = statements,
@@ -78,14 +77,6 @@ standaloneSourceModule expression =
           | SModule _ segments <- scopeStatements block,
             Just path <- [NonEmpty.nonEmpty segments]
           ]
-
--- The synthetic source identity marks an in-memory entry artifact; a named
--- module loaded from a file has its actual source identity instead.
-isStandaloneSourceModule :: CoreModule phase -> Bool
-isStandaloneSourceModule = (== mkSourceFile standaloneSourcePath) . moduleIdentitySource . coreModuleIdentity
-
-standaloneSourcePath :: FilePath
-standaloneSourcePath = "<standalone>"
 
 scopeStatements :: Expr phase -> [Statement phase]
 scopeStatements expr =
