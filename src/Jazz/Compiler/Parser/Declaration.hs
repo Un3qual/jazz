@@ -31,14 +31,14 @@ import Jazz.Compiler.Name
   )
 import Jazz.Compiler.Parser.AST
   ( SurfaceDataConstructor (..),
+    SurfaceExpr,
     SurfaceSignaturePayload,
     SurfaceSignatureToken,
     SurfaceSignatureType,
     SurfaceStatement (..),
   )
 import Jazz.Compiler.Parser.CapabilityDeclaration
-  ( ImplExpressionParser,
-    looksLikeSupportedCapabilityDeclaration,
+  ( looksLikeSupportedCapabilityDeclaration,
     parseCapabilityDeclarationTokensDetailed,
     rejectReservedAbstractionSyntax,
   )
@@ -49,8 +49,7 @@ import Jazz.Compiler.Parser.Context
     StatementContext (..),
   )
 import Jazz.Compiler.Parser.DeclarationTokens
-  ( collectUntilDot,
-    consumeDot,
+  ( collectUntilDotParser,
     consumeEquals,
     isConstructorIdentifierText,
     isReservedLiteralName,
@@ -106,6 +105,10 @@ import Jazz.Compiler.Parser.Signature
 import Jazz.Compiler.Parser.TokenParser
   ( Parser,
     failParserFailure,
+    failTokenParser,
+    failTokenParserAt,
+    parseAnyToken,
+    parseToken,
     runTokenStreamParserPrefixDetailed,
   )
 import Jazz.Compiler.Parser.TokenStream
@@ -179,8 +182,6 @@ parseStatementParser parseExpression parseBlock context = do
   tokens <- MP.getInput
   let knownAliases = parserKnownAliases context
       declaredOperators = parserDeclaredOperators context
-      parseExpressionTokens =
-        runTokenStreamParserPrefixDetailed "statement expression" (parseExpression context)
       moduleBodyContext =
         ParserContext
           { parserKnownAliases = Set.empty,
@@ -211,16 +212,7 @@ parseStatementParser parseExpression parseBlock context = do
                     insertDeclaredOperator operatorInfo declaredOperators
                 }
             )
-    _ -> do
-      (statements, remaining) <-
-        liftOwnedResult
-          ( parseStatementFromTokens
-              parseExpressionTokens
-              context
-              tokens
-          )
-      consumeParsedPrefix remaining
-      pure (finish statements)
+    _ -> finish <$> parseStatement (parseExpression context) context
 
 liftOwnedResult :: Either ParserFailure a -> Parser a
 liftOwnedResult result =
@@ -430,225 +422,102 @@ consumeOperatorDeclarationDot operatorToken fixityLabel tokens =
             (ExpectedSyntax ("'.' after operator declaration " <> fixityLabel) ParserEndOfInput)
         )
 
-parseStatementFromTokens ::
-  ImplExpressionParser ->
-  ParserContext ->
-  TokenStream ->
-  Either ParserFailure ([SurfaceStatement], TokenStream)
-parseStatementFromTokens parseExpression context tokens =
+parseStatement :: Parser SurfaceExpr -> ParserContext -> Parser [SurfaceStatement]
+parseStatement expression context = do
+  tokens <- MP.getInput
   case tokens of
     Token {tokenKind = TLParen}
       :< operatorToken@Token {tokenKind = TOperator {}}
       :< Token {tokenKind = TRParen}
-      :< afterName@(Token {tokenKind = TColonColon} :< _) ->
-        singleStatement <$> parseOperatorSignature statementContext declaredOperators operatorToken afterName
+      :< Token {tokenKind = TColonColon}
+      :< _ ->
+        MP.takeP Nothing 3 *> (pure <$> parseOperatorSignature statementContext declaredOperators operatorToken)
     Token {tokenKind = TLParen}
       :< operatorToken@Token {tokenKind = TOperator {}}
       :< Token {tokenKind = TRParen}
       :< Token {tokenKind = TEquals}
-      :< afterEquals ->
-        singleStatement
-          <$> parseOperatorBinding
-            parseExpression
-            statementContext
-            declaredOperators
-            operatorToken
-            afterEquals
-    abstractionToken@(Token {tokenKind = TIdentifier name}) :< rest
+      :< _ ->
+        MP.takeP Nothing 4 *> (pure <$> parseOperatorBinding expression statementContext declaredOperators operatorToken)
+    abstractionToken@Token {tokenKind = TIdentifier name} :< rest
       | isDeclarationContext statementContext,
         looksLikeSupportedCapabilityDeclaration name rest ->
-          singleStatement
-            <$> parseCapabilityDeclarationTokensDetailed
-              parseExpression
-              tokens
+          -- Temporary adapter for the capability declaration family only.
+          pure <$> parseOwnedPrefix (parseCapabilityDeclarationTokensDetailed (runTokenStreamParserPrefixDetailed "impl expression" expression))
       | isDeclarationContext statementContext,
         looksLikeReservedAbstractionDeclaration name rest ->
-          rejectReservedAbstractionSyntax abstractionToken
+          liftOwnedResult (rejectReservedAbstractionSyntax abstractionToken)
     dataToken@Token {tokenKind = TData} :< _ ->
       case statementContext of
-        TopLevelContext -> singleStatement <$> parseDataStatementFromTokens tokens
-        ModuleBodyContext -> singleStatement <$> parseDataStatementFromTokens tokens
-        NestedBlockContext -> rejectNestedDataDeclaration dataToken
-    nameToken :< afterName@(Token {tokenKind = TColonColon} :< _)
-      | TIdentifier name <- tokenKind nameToken,
-        isReservedLiteralName name ->
-          Left
-            ( parserFailureAt
-                (tokenSpan nameToken)
-                (DeclarationFailure (ReservedLiteralName BindingName name))
-            )
-      | TIdentifier name <- tokenKind nameToken ->
-          singleStatement
-            <$> parseSignatureOrQualifiedAlias
-              parseExpression
-              knownAliases
-              name
-              nameToken
-              afterName
-              tokens
-    nameToken :< afterName@(Token {tokenKind = TEquals} :< _)
-      | TIdentifier name <- tokenKind nameToken,
-        isReservedLiteralName name ->
-          Left
-            ( parserFailureAt
-                (tokenSpan nameToken)
-                (DeclarationFailure (ReservedLiteralName BindingName name))
-            )
-      | TIdentifier name <- tokenKind nameToken ->
-          singleStatement <$> parseLet parseExpression (mkIdentifier name) nameToken afterName
-    _ -> singleStatement <$> parseExprStatement parseExpression tokens
+        NestedBlockContext -> liftOwnedResult (rejectNestedDataDeclaration dataToken)
+        _ -> pure <$> parseDataStatementParser
+    nameToken@Token {tokenKind = TIdentifier name} :< afterName@(Token {tokenKind = TColonColon} :< _)
+      | isReservedLiteralName name -> rejectName nameToken name
+      | otherwise -> pure <$> parseSignatureOrQualifiedAlias expression knownAliases name nameToken afterName
+    nameToken@Token {tokenKind = TIdentifier name} :< Token {tokenKind = TEquals} :< _
+      | isReservedLiteralName name -> rejectName nameToken name
+      | otherwise -> MP.takeP Nothing 2 *> (pure <$> parseLet expression (mkIdentifier name) nameToken)
+    _ -> pure <$> parseExprStatement expression
   where
     knownAliases = parserKnownAliases context
     declaredOperators = parserDeclaredOperators context
     statementContext = parserStatementContext context
-    singleStatement (statement, remaining) = ([statement], remaining)
+    rejectName token name =
+      failTokenParserAt (tokenSpan token) (DeclarationFailure (ReservedLiteralName BindingName name))
 
-parseSignatureOrQualifiedAlias ::
-  ImplExpressionParser ->
-  Set Text ->
-  Text ->
-  Token ->
-  TokenStream ->
-  TokenStream ->
-  Either ParserFailure (SurfaceStatement, TokenStream)
-parseSignatureOrQualifiedAlias parseExpression knownAliases name nameToken tokensAfterName allTokens =
-  let parsedSignature = parseSignature (mkIdentifier name) nameToken tokensAfterName
-   in if shouldParseQualifiedAliasStatement knownAliases name nameToken tokensAfterName parsedSignature
-        then parseExprStatement parseExpression allTokens
-        else parsedSignature
+parseSignatureOrQualifiedAlias :: Parser SurfaceExpr -> Set Text -> Text -> Token -> TokenStream -> Parser SurfaceStatement
+parseSignatureOrQualifiedAlias expression knownAliases name nameToken tokensAfterName = do
+  original <- MP.getParserState
+  result <- MP.observing $ do
+    _ <- parseAnyToken
+    statement <- parseSignature (mkIdentifier name) nameToken
+    remaining <- MP.getInput
+    pure (statement, remaining)
+  if shouldParseQualifiedAliasStatement knownAliases name nameToken tokensAfterName result
+    then MP.setParserState original *> parseExprStatement expression
+    else either MP.parseError (pure . fst) result
 
-parseOperatorBinding ::
-  ImplExpressionParser ->
-  StatementContext ->
-  OperatorTable ->
-  Token ->
-  TokenStream ->
-  Either ParserFailure (SurfaceStatement, TokenStream)
-parseOperatorBinding parseExpression context declaredOperators operatorToken tokensAfterEquals =
+parseOperatorBinding :: Parser SurfaceExpr -> StatementContext -> OperatorTable -> Token -> Parser SurfaceStatement
+parseOperatorBinding expression context declaredOperators operatorToken =
   case context of
-    NestedBlockContext -> rejectNestedOperatorBinding operatorToken
-    TopLevelContext -> parseVisibleOperatorBinding
-    ModuleBodyContext -> parseVisibleOperatorBinding
-  where
-    parseVisibleOperatorBinding =
-      case tokenKind operatorToken of
-        TOperator bindingSymbol
-          | isBuiltinOperatorSymbol bindingSymbol ->
-              Left
-                ( parserFailureAt
-                    (tokenSpan operatorToken)
-                    (DeclarationFailure (BuiltinOperatorCannotBeBound bindingSymbol))
-                )
-          | not (operatorDeclared bindingSymbol) ->
-              Left
-                ( parserFailureAt
-                    (tokenSpan operatorToken)
-                    (UndeclaredOperator bindingSymbol OperatorUseInBinding)
-                )
-          | otherwise -> do
-              (valueExpr, afterExpr) <- parseExpression tokensAfterEquals
-              remaining <- consumeDot afterExpr
-              pure
-                ( SSLet
-                    (mkOperatorBindingIdentifier bindingSymbol)
-                    (tokenSpan operatorToken)
-                    valueExpr,
-                  remaining
-                )
-        _ ->
-          Left
-            ( parserFailureAt
-                (tokenSpan operatorToken)
-                (InternalParserFailure (ExpectedOperatorToken OperatorUseInBinding))
-            )
+    NestedBlockContext -> liftOwnedResult (rejectNestedOperatorBinding operatorToken)
+    _ -> case tokenKind operatorToken of
+      TOperator symbol
+        | isBuiltinOperatorSymbol symbol ->
+            failTokenParserAt (tokenSpan operatorToken) (DeclarationFailure (BuiltinOperatorCannotBeBound symbol))
+        | not (isDeclaredOperator symbol declaredOperators) ->
+            failTokenParserAt (tokenSpan operatorToken) (UndeclaredOperator symbol OperatorUseInBinding)
+        | otherwise -> parseLet expression (mkOperatorBindingIdentifier symbol) operatorToken
+      _ -> failTokenParserAt (tokenSpan operatorToken) (InternalParserFailure (ExpectedOperatorToken OperatorUseInBinding))
 
-    operatorDeclared bindingSymbol = isDeclaredOperator bindingSymbol declaredOperators
-
-parseOperatorSignature ::
-  StatementContext ->
-  OperatorTable ->
-  Token ->
-  TokenStream ->
-  Either ParserFailure (SurfaceStatement, TokenStream)
-parseOperatorSignature context declaredOperators operatorToken tokensAfterName =
+parseOperatorSignature :: StatementContext -> OperatorTable -> Token -> Parser SurfaceStatement
+parseOperatorSignature context declaredOperators operatorToken =
   case context of
-    NestedBlockContext -> rejectNestedOperatorSignature operatorToken
-    TopLevelContext -> parseVisibleOperatorSignature
-    ModuleBodyContext -> parseVisibleOperatorSignature
-  where
-    parseVisibleOperatorSignature =
-      case tokenKind operatorToken of
-        TOperator signatureSymbol
-          | isBuiltinOperatorSymbol signatureSymbol ->
-              Left
-                ( parserFailureAt
-                    (tokenSpan operatorToken)
-                    (DeclarationFailure (BuiltinOperatorCannotBeSigned signatureSymbol))
-                )
-          | not (operatorDeclared signatureSymbol) ->
-              Left
-                ( parserFailureAt
-                    (tokenSpan operatorToken)
-                    (UndeclaredOperator signatureSymbol OperatorUseInSignature)
-                )
-          | otherwise ->
-              parseSignature
-                (mkOperatorBindingIdentifier signatureSymbol)
-                operatorToken
-                tokensAfterName
-        _ ->
-          Left
-            ( parserFailureAt
-                (tokenSpan operatorToken)
-                (InternalParserFailure (ExpectedOperatorToken OperatorUseInSignature))
-            )
+    NestedBlockContext -> liftOwnedResult (rejectNestedOperatorSignature operatorToken)
+    _ -> case tokenKind operatorToken of
+      TOperator symbol
+        | isBuiltinOperatorSymbol symbol ->
+            failTokenParserAt (tokenSpan operatorToken) (DeclarationFailure (BuiltinOperatorCannotBeSigned symbol))
+        | not (isDeclaredOperator symbol declaredOperators) ->
+            failTokenParserAt (tokenSpan operatorToken) (UndeclaredOperator symbol OperatorUseInSignature)
+        | otherwise -> parseSignature (mkOperatorBindingIdentifier symbol) operatorToken
+      _ -> failTokenParserAt (tokenSpan operatorToken) (InternalParserFailure (ExpectedOperatorToken OperatorUseInSignature))
 
-    operatorDeclared signatureSymbol = isDeclaredOperator signatureSymbol declaredOperators
+parseSignature :: Identifier -> Token -> Parser SurfaceStatement
+parseSignature name nameToken = do
+  _ <- parseToken TColonColon
+  signatureTokens <- collectUntilDotParser
+  SSSignature name (tokenSpan nameToken) <$> liftOwnedResult (parseSignaturePayloadDetailed signatureTokens)
 
-parseSignature :: Identifier -> Token -> TokenStream -> Either ParserFailure (SurfaceStatement, TokenStream)
-parseSignature name nameToken tokensAfterName =
-  case tokensAfterName of
-    Token {tokenKind = TColonColon} :< rest -> do
-      (signatureTokens, remainingAfterDot) <- collectUntilDot rest
-      payload <- parseSignaturePayloadDetailed signatureTokens
-      pure
-        ( SSSignature name (tokenSpan nameToken) payload,
-          remainingAfterDot
-        )
-    _ ->
-      Left
-        ( parserFailureAt
-            (tokenSpan nameToken)
-            (InternalParserFailure ExpectedSignatureSeparator)
-        )
+parseLet :: Parser SurfaceExpr -> Identifier -> Token -> Parser SurfaceStatement
+parseLet expression name nameToken =
+  SSLet name (tokenSpan nameToken) <$> expression <* parseToken TDot
 
-parseLet ::
-  ImplExpressionParser ->
-  Identifier ->
-  Token ->
-  TokenStream ->
-  Either ParserFailure (SurfaceStatement, TokenStream)
-parseLet parseExpression name nameToken tokensAfterName =
-  case tokensAfterName of
-    Token {tokenKind = TEquals} :< rest -> do
-      (valueExpr, afterExpr) <- parseExpression rest
-      remaining <- consumeDot afterExpr
-      pure (SSLet name (tokenSpan nameToken) valueExpr, remaining)
-    _ ->
-      Left
-        ( parserFailureAt
-            (tokenSpan nameToken)
-            (InternalParserFailure ExpectedBindingEquals)
-        )
-
-parseExprStatement :: ImplExpressionParser -> TokenStream -> Either ParserFailure (SurfaceStatement, TokenStream)
-parseExprStatement parseExpression tokens =
+parseExprStatement :: Parser SurfaceExpr -> Parser SurfaceStatement
+parseExprStatement expression = do
+  tokens <- MP.getInput
   case tokens of
-    EmptyTokens -> Left (parserFailure (ExpectedSyntax "expression" ParserEndOfInput))
-    firstToken :< _ -> do
-      (expr, afterExpr) <- parseExpression tokens
-      remaining <- consumeDot afterExpr
-      pure (SSExpr (tokenSpan firstToken) expr, remaining)
+    EmptyTokens -> failTokenParser (ExpectedSyntax "expression" ParserEndOfInput)
+    firstToken :< _ -> SSExpr (tokenSpan firstToken) <$> expression <* parseToken TDot
 
 parseDataStatementFromTokens :: TokenStream -> Either ParserFailure (SurfaceStatement, TokenStream)
 parseDataStatementFromTokens tokens =
@@ -861,7 +730,7 @@ shouldParseQualifiedAliasStatement ::
   Text ->
   Token ->
   TokenStream ->
-  Either ParserFailure (SurfaceStatement, TokenStream) ->
+  Either failure (SurfaceStatement, TokenStream) ->
   Bool
 shouldParseQualifiedAliasStatement knownAliases name nameToken tokensAfterName parsedSignature =
   case tokensAfterName of
@@ -872,7 +741,7 @@ shouldParseQualifiedAliasStatement knownAliases name nameToken tokensAfterName p
            )
     _ -> False
 
-isCompactSignatureCandidate :: Text -> Either ParserFailure (SurfaceStatement, TokenStream) -> Bool
+isCompactSignatureCandidate :: Text -> Either failure (SurfaceStatement, TokenStream) -> Bool
 isCompactSignatureCandidate name parsedSignature =
   case parsedSignature of
     Right (SSSignature _ _ signaturePayload, remaining) ->

@@ -5,6 +5,7 @@
 -- | Shared token boundaries and name predicates for declaration grammars.
 module Jazz.Compiler.Parser.DeclarationTokens
   ( collectUntilDot,
+    collectUntilDotParser,
     looksLikeOperatorDeclaration,
     looksLikeReservedAbstractionDeclaration,
     looksLikeAbstractionDeclaration,
@@ -42,41 +43,35 @@ import Jazz.Compiler.Parser.Lexer
     TokenKind (..),
     isImmediatelyAfter,
   )
+import Jazz.Compiler.Parser.TokenParser (Parser, failParserFailure, parseAnyToken, runTokenStreamParserPrefixDetailed)
 import Jazz.Compiler.Parser.TokenStream
   ( TokenStream,
     pattern EmptyTokens,
     pattern (:<),
   )
+import qualified Text.Megaparsec as MP
 
+-- Temporary prefix adapter for capability declarations during their migration.
 collectUntilDot :: TokenStream -> Either ParserFailure ([Token], TokenStream)
-collectUntilDot = go 0 []
+collectUntilDot = runTokenStreamParserPrefixDetailed "capability signature boundary" collectUntilDotParser
+
+collectUntilDotParser :: Parser [Token]
+collectUntilDotParser = go 0 []
   where
-    go :: Int -> [Token] -> TokenStream -> Either ParserFailure ([Token], TokenStream)
-    go _ _ EmptyTokens = Left (parserFailure (ExpectedSyntax "'.'" ParserEndOfInput))
-    go depth acc allTokens@(token :< rest) =
-      case tokenKind token of
-        TDot
-          | null acc ->
-              Left
-                ( parserFailureAt
-                    (tokenSpan token)
-                    (ExpectedSyntax "signature text" (ParserBeforeToken TDot "." Nothing))
-                )
-          | depth > 0 ->
-              Left
-                ( parserFailureAt
-                    (tokenSpan token)
-                    (ExpectedSyntax "closing delimiter" (ParserBeforeToken TDot "." (Just "signature")))
-                )
-          | otherwise -> Right (reverse acc, rest)
-        _
-          | not (null acc) && beginsStatement allTokens && not (continuesQualifiedType acc allTokens) ->
-              Left
-                ( parserFailureAt
-                    (tokenSpan token)
-                    (ExpectedSyntax "'.'" (ParserBeforeToken (tokenKind token) (tokenLexeme token) Nothing))
-                )
-          | otherwise -> go (nextDepth depth (tokenKind token)) (token : acc) rest
+    go :: Int -> [Token] -> Parser [Token]
+    go depth acc = do
+      tokens <- MP.getInput
+      case tokens of
+        EmptyTokens -> failParserFailure (parserFailure (ExpectedSyntax "'.'" ParserEndOfInput))
+        token :< _ -> case tokenKind token of
+          TDot
+            | null acc -> failParserFailure (parserFailureAt (tokenSpan token) (ExpectedSyntax "signature text" (ParserBeforeToken TDot "." Nothing)))
+            | depth > 0 -> failParserFailure (parserFailureAt (tokenSpan token) (ExpectedSyntax "closing delimiter" (ParserBeforeToken TDot "." (Just "signature"))))
+            | otherwise -> reverse acc <$ parseAnyToken
+          _
+            | not (null acc) && beginsStatement tokens && not (continuesQualifiedType acc tokens) ->
+                failParserFailure (parserFailureAt (tokenSpan token) (ExpectedSyntax "'.'" (ParserBeforeToken (tokenKind token) (tokenLexeme token) Nothing)))
+            | otherwise -> parseAnyToken *> go (nextDepth depth (tokenKind token)) (token : acc)
 
     nextDepth depth kind = case kind of
       TLParen -> depth + 1
