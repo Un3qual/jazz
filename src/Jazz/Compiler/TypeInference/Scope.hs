@@ -55,7 +55,7 @@ import Jazz.Compiler.CapabilityFacts
   ( constraintSignatureTypeVariableNamesInOrder,
     signaturePayloadConstraintType,
   )
-import Jazz.Compiler.CoreIdentity (ResolvedScopeFacts (..))
+import Jazz.Compiler.CoreIdentity (CoreBinderId, ResolvedScopeFacts (..))
 import Jazz.Compiler.Diagnostics
   ( Diagnostic,
     DiagnosticContext (CheckingBinding),
@@ -71,11 +71,11 @@ import Jazz.Compiler.Parser.Operator
   )
 import Jazz.Compiler.RecursiveBindings
   ( PreparedRecursiveScope,
-    freeVarsExprWithBound,
     preparedRecursiveScopeBindingNames,
     preparedRecursiveScopeFacts,
     preparedRecursiveScopeGroups,
     preparedRecursiveScopeStatements,
+    resolvedExpressionReferences,
   )
 import Jazz.Compiler.SemanticFacts
   ( StatementDeclarationFact (..),
@@ -640,9 +640,10 @@ inferScopeTypeInternal
             groupMembers <- groups,
             memberIndex <- groupMembers
           ]
-      previewGroupFreeNamesByStatement =
+      bindingIndexById = Map.fromList [(binder, index) | (index, binder) <- Map.toList (resolvedScopeBinderIds lexicalFacts)]
+      previewGroupReferencesByStatement =
         Map.fromList
-          [ (statementIndex, freeVarsExprWithBound Set.empty valueExpr)
+          [ (statementIndex, Map.keysSet (resolvedExpressionReferences valueExpr))
           | statementIndex <- Set.toList previewGroupMemberIndices,
             Just (SLet _ _ valueExpr) <- [Map.lookup statementIndex statementsByIndex]
           ]
@@ -1425,45 +1426,29 @@ inferScopeTypeInternal
 
       interleavedBindingFeedsLaterGroup :: Int -> [Int] -> Bool
       interleavedBindingFeedsLaterGroup statementIndex groupMembers =
-        case Map.lookup statementIndex statementsByIndex of
-          Just (SLet _ bindingName _) ->
-            any
-              (laterGroupMemberReferences bindingName)
-              (filter (> statementIndex) groupMembers)
-          _ -> False
+        case Map.lookup statementIndex (resolvedScopeBinderIds lexicalFacts) of
+          Just binder -> any (laterGroupMemberReferences binder) (filter (> statementIndex) groupMembers)
+          Nothing -> False
 
-      laterGroupMemberReferences :: ResolvedName -> Int -> Bool
-      laterGroupMemberReferences bindingName memberIndex =
-        maybe
-          False
-          (Set.member bindingName)
-          (Map.lookup memberIndex previewGroupFreeNamesByStatement)
+      laterGroupMemberReferences :: CoreBinderId -> Int -> Bool
+      laterGroupMemberReferences binder memberIndex =
+        maybe False (Set.member binder) (Map.lookup memberIndex previewGroupReferencesByStatement)
 
       laterGroupMemberDependsOnInterveningBinding :: Int -> [Int] -> Bool
       laterGroupMemberDependsOnInterveningBinding statementIndex groupMembers =
         any memberDependsOnInterveningBinding (filter (> statementIndex) groupMembers)
         where
           groupMemberSet = Set.fromList groupMembers
-
           memberDependsOnInterveningBinding memberIndex =
             maybe
               False
-              (any (interveningBindingIsReferenced memberIndex) . Set.toList)
-              (Map.lookup memberIndex previewGroupFreeNamesByStatement)
-
-          interveningBindingIsReferenced memberIndex bindingName =
-            case Map.lookup bindingName bindingIndicesByName of
+              (any (interveningBindingIsReferenced memberIndex))
+              (Map.lookup memberIndex previewGroupReferencesByStatement)
+          interveningBindingIsReferenced memberIndex binder =
+            case Map.lookup binder bindingIndexById of
+              Just bindingIndex ->
+                statementIndex < bindingIndex && bindingIndex < memberIndex && Set.notMember bindingIndex groupMemberSet
               Nothing -> False
-              Just bindingIndices ->
-                hasInterveningBindingAfter statementIndex bindingIndices
-            where
-              hasInterveningBindingAfter lowerBound bindingIndices =
-                case Set.lookupGT lowerBound bindingIndices of
-                  Just bindingIndex
-                    | bindingIndex < memberIndex ->
-                        Set.notMember bindingIndex groupMemberSet
-                          || hasInterveningBindingAfter bindingIndex bindingIndices
-                  _ -> False
 
       previewRecursiveGroupState :: TypeEnv -> InferState -> Int -> [Int] -> Maybe InferState
       previewRecursiveGroupState currentEnv state statementIndex groupMembers =
