@@ -114,7 +114,7 @@ resolveLexicalScopes externalNames = expression Map.empty
       ELit {} -> expr
       EVar node name -> EVar (reference bound name node) name
       EOperatorValue node symbol -> EOperatorValue (reference bound (operatorBindingName symbol) node) symbol
-      ELambda node name body -> ELambda node name (expression (insertBinder node name bound) body)
+      ELambda node name body -> ELambda (shadowed bound name node) name (expression (insertBinder node name bound) body)
       EList node elements -> EList node (map (expression bound) elements)
       ETuple node elements -> ETuple node (map (expression bound) elements)
       EApply node function argument -> EApply node (expression bound function) (expression bound argument)
@@ -138,6 +138,8 @@ resolveLexicalScopes externalNames = expression Map.empty
               | otherwise -> UnresolvedReference name
             Just existing -> existing
             Nothing -> UnresolvedReference name
+    shadowed :: Map ResolvedName CoreBinderId -> ResolvedName -> CoreNode 'Resolved sort -> CoreNode 'Resolved sort
+    shadowed bound name node = node {coreNodeFacts = (coreNodeFacts node) {resolvedNodeShadowedReference = LexicalReference <$> Map.lookup name bound}}
     insertBinder node name bound = case resolvedNodeBinder (coreNodeFacts node) of
       Just binder -> Map.insert name binder bound
       Nothing -> bound
@@ -158,9 +160,11 @@ resolveLexicalScopes externalNames = expression Map.empty
       _ -> pattern
       where
         recur = resolvePattern bound shared
-        sharedBinder node name = case Map.lookup name shared of
-          Just binder -> node {coreNodeFacts = (coreNodeFacts node) {resolvedNodeBinder = Just binder}}
-          Nothing -> node
+        sharedBinder node name =
+          let updated = shadowed bound name node
+           in case Map.lookup name shared of
+                Just binder -> updated {coreNodeFacts = (coreNodeFacts updated) {resolvedNodeBinder = Just binder}}
+                Nothing -> updated
     patternBindings pattern = case pattern of
       PVariable node name -> insertBinder node name Map.empty
       PAs node name nested -> insertBinder node name (patternBindings nested)
@@ -178,11 +182,13 @@ resolveLexicalScopes externalNames = expression Map.empty
         groups = recursiveScopeGroups recursion
         definitions = Map.fromList [(index, (bindingNode, name)) | (index, SLet bindingNode name _) <- indexed]
         (_, resolvedStatements) = mapAccumL statement bound indexed
+        binderIndices = Map.fromList [(binder, index) | (index, (bindingNode, _)) <- Map.toList definitions, Just binder <- [resolvedNodeBinder (coreNodeFacts bindingNode)]]
         facts =
           ResolvedScopeFacts
             { resolvedScopeOuterBindingNames = outerNames,
               resolvedScopeBindingNames = recursiveScopeBindingNames recursion,
               resolvedScopeBinderIds = Map.fromList [(index, binder) | (index, (bindingNode, _)) <- Map.toList definitions, Just binder <- [resolvedNodeBinder (coreNodeFacts bindingNode)]],
+              resolvedScopeBindingReplacements = Map.fromList [(previousIndex, index) | (index, SLet bindingNode _ _) <- zip [0 ..] resolvedStatements, Just (LexicalReference previous) <- [resolvedNodeShadowedReference (coreNodeFacts bindingNode)], Just previousIndex <- [Map.lookup previous binderIndices]],
               resolvedScopeRecursiveGroups = groups,
               resolvedScopeSelfRecursiveFunctions = inferSelfRecursiveBindings outerNames exprContainsFunctionBranch indexed,
               resolvedScopeSelfReferences = Set.fromList [index | (index, SLet bindingNode _ rhs) <- zip [0 ..] resolvedStatements, Just binder <- [resolvedNodeBinder (coreNodeFacts bindingNode)], Map.member binder (resolvedExpressionReferences rhs)]
@@ -191,13 +197,19 @@ resolveLexicalScopes externalNames = expression Map.empty
           SLet bindingNode name rhs ->
             let selfVisible = if Map.member name visible then visible else insertBinder bindingNode name visible
                 definitionVisible = foldl' insertPeer selfVisible (Map.findWithDefault [] index groups)
-             in (insertBinder bindingNode name visible, SLet bindingNode name (expression definitionVisible rhs))
+             in (insertBinder bindingNode name visible, SLet (shadowed visible name bindingNode) name (expression definitionVisible rhs))
           SExpr statementNode rhs -> (visible, SExpr statementNode (expression visible rhs))
-          SData _ _ _ constructors ->
-            (foldl' (\acc (DataConstructor constructorNode name _) -> insertBinder constructorNode name acc) visible constructors, value)
+          SSignature signatureNode name signature ->
+            let target = case Map.lookup (index + 1) definitions of
+                  Just (bindingNode, bindingName) | bindingName == name -> LexicalReference <$> resolvedNodeBinder (coreNodeFacts bindingNode)
+                  _ -> Nothing
+             in (visible, SSignature (signatureNode {coreNodeFacts = (coreNodeFacts signatureNode) {resolvedNodeReference = target}}) name signature)
+          SData statementNode name parameters constructors ->
+            let (nextVisible, resolvedConstructors) = mapAccumL (\acc (DataConstructor constructorNode constructor fields) -> (insertBinder constructorNode constructor acc, DataConstructor (shadowed acc constructor constructorNode) constructor fields)) visible constructors
+             in (nextVisible, SData statementNode name parameters resolvedConstructors)
           SImpl statementNode capability targets methods ->
             let methodVisible = foldl' (\acc (ImplMethod methodNode name _) -> insertBinder methodNode name acc) visible methods
-             in (visible, SImpl statementNode capability targets [ImplMethod methodNode name (expression methodVisible body) | ImplMethod methodNode name body <- methods])
+             in (visible, SImpl statementNode capability targets [ImplMethod (shadowed visible name methodNode) name (expression methodVisible body) | ImplMethod methodNode name body <- methods])
           _ -> (visible, value)
         insertPeer visible index = case Map.lookup index definitions of
           Just (bindingNode, name) -> insertBinder bindingNode name visible
@@ -338,6 +350,7 @@ selectPreparedScope indices (PreparedRecursiveScope statements facts) =
       facts
         { resolvedScopeBindingNames = project (resolvedScopeBindingNames facts),
           resolvedScopeBinderIds = project (resolvedScopeBinderIds facts),
+          resolvedScopeBindingReplacements = Map.mapMaybe (`Map.lookup` renumber) (project (resolvedScopeBindingReplacements facts)),
           resolvedScopeRecursiveGroups = Map.map (\members -> [new | old <- members, Just new <- [Map.lookup old renumber]]) (project (resolvedScopeRecursiveGroups facts)),
           resolvedScopeSelfRecursiveFunctions = projectSet (resolvedScopeSelfRecursiveFunctions facts),
           resolvedScopeSelfReferences = projectSet (resolvedScopeSelfReferences facts)

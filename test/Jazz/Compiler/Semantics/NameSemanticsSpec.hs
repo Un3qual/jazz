@@ -111,6 +111,8 @@ testDeclarationTargets =
                 secondBinder = CoreBinderId (owner, coreNodeId secondNode)
                 parameterBinder = CoreBinderId (owner, coreNodeId parameterNode)
             assertEqual "declaration carries its source owner" (Just firstBinder) (resolvedNodeBinder (coreNodeFacts firstNode))
+            assertEqual "rebind publishes the replaced declaration" (Just (LexicalReference firstBinder)) (resolvedNodeShadowedReference (coreNodeFacts secondNode))
+            assertEqual "lambda publishes the shadowed declaration" (Just (LexicalReference secondBinder)) (resolvedNodeShadowedReference (coreNodeFacts parameterNode))
             assertEqual "rebind initializer selects earlier declaration" (Just (LexicalReference firstBinder)) (resolvedNodeReference (coreNodeFacts earlierUse))
             assertEqual "later use selects rebind" (Just (LexicalReference secondBinder)) (resolvedNodeReference (coreNodeFacts finalUse))
             assertEqual "lambda parameter has its own declaration identity" (Just parameterBinder) (resolvedNodeBinder (coreNodeFacts parameterNode))

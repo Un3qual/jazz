@@ -622,17 +622,6 @@ inferScopeTypeInternal
             case Map.lookup statementIndex recursiveGroupsStartingAt of
               Just groupInterval -> Map.insert statementIndex groupInterval activeGroupsBeforeStart
               Nothing -> activeGroupsBeforeStart
-      bindingIndicesByName =
-        Map.foldlWithKey'
-          ( \indicesByName statementIndex bindingName ->
-              Map.insertWith
-                Set.union
-                bindingName
-                (Set.singleton statementIndex)
-                indicesByName
-          )
-          Map.empty
-          bindingNamesByStatement
       previewGroupMemberIndices =
         Set.fromList
           [ memberIndex
@@ -1335,8 +1324,8 @@ inferScopeTypeInternal
                                       Map.fromList
                                         [ (memberIndex, binding)
                                         | memberIndex <- processedMembers,
+                                          bindingIsVisibleBefore statementIndex memberIndex,
                                           Just bindingName <- [Map.lookup memberIndex bindingNamesByStatement],
-                                          latestBindingIndexBefore statementIndex bindingName == Just memberIndex,
                                           Just binding <- [Map.lookup bindingName nextEnv]
                                         ]
                                     previewDependencies =
@@ -1368,7 +1357,7 @@ inferScopeTypeInternal
               applyBinding (bindingEnv, freeVariables) (memberIndex, binding) =
                 case Map.lookup memberIndex bindingNamesByStatement of
                   Just bindingName
-                    | latestBindingIndexBefore currentStatementIndex bindingName == Just memberIndex ->
+                    | bindingIsVisibleBefore currentStatementIndex memberIndex ->
                         ( Map.insert bindingName binding bindingEnv,
                           insertTypeEnvFreeVariables bindingName binding freeVariables
                         )
@@ -1540,7 +1529,7 @@ inferScopeTypeInternal
       exposePreviewRecursiveGroupMember statementIndex envOutsideGroup environmentVariables state (currentEnv, currentFreeVariables) memberIndex =
         case Map.lookup memberIndex bindingNamesByStatement of
           Just bindingName
-            | latestBindingIndexBefore statementIndex bindingName == Just memberIndex ->
+            | bindingIsVisibleBefore statementIndex memberIndex ->
                 let nextEnv =
                       generalizeRecursiveGroupMemberWithVariables
                         Map.empty
@@ -1557,10 +1546,10 @@ inferScopeTypeInternal
                       Nothing -> (nextEnv, currentFreeVariables)
           _ -> (currentEnv, currentFreeVariables)
 
-      latestBindingIndexBefore :: Int -> ResolvedName -> Maybe Int
-      latestBindingIndexBefore statementIndex bindingName =
-        Map.lookup bindingName bindingIndicesByName
-          >>= Set.lookupLT statementIndex
+      bindingIsVisibleBefore :: Int -> Int -> Bool
+      bindingIsVisibleBefore statementIndex memberIndex =
+        memberIndex < statementIndex
+          && maybe True (>= statementIndex) (Map.lookup memberIndex (resolvedScopeBindingReplacements lexicalFacts))
 
       generalizeRecursiveGroupMember :: Map Int PendingSignatureType -> TypeEnv -> InferState -> TypeEnv -> Int -> TypeEnv
       generalizeRecursiveGroupMember pendingSignatures envOutsideGroup state currentEnv memberIndex =

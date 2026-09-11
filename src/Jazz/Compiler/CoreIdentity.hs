@@ -62,6 +62,7 @@ data ResolvedReference
 data ResolvedNodeFacts = ResolvedNodeFacts
   { resolvedNodeOwner :: SourceUnitOwner,
     resolvedNodeBinder :: Maybe CoreBinderId,
+    resolvedNodeShadowedReference :: Maybe ResolvedReference,
     resolvedNodeReference :: Maybe ResolvedReference,
     resolvedNodeScope :: Maybe ResolvedScopeFacts,
     resolvedNodeCaptures :: [(ResolvedReference, ResolvedName)]
@@ -70,7 +71,7 @@ data ResolvedNodeFacts = ResolvedNodeFacts
   deriving anyclass (NFData)
 
 emptyResolvedNodeFacts :: SourceUnitOwner -> ResolvedNodeFacts
-emptyResolvedNodeFacts owner = ResolvedNodeFacts owner Nothing Nothing Nothing []
+emptyResolvedNodeFacts owner = ResolvedNodeFacts owner Nothing Nothing Nothing Nothing []
 
 resolvedBinderReference :: ResolvedNodeFacts -> ResolvedReference
 resolvedBinderReference facts = case resolvedNodeBinder facts of
@@ -88,6 +89,7 @@ data ResolvedScopeFacts = ResolvedScopeFacts
   { resolvedScopeOuterBindingNames :: Set ResolvedName,
     resolvedScopeBindingNames :: Map Int ResolvedName,
     resolvedScopeBinderIds :: Map Int CoreBinderId,
+    resolvedScopeBindingReplacements :: Map Int Int,
     resolvedScopeRecursiveGroups :: Map Int [Int],
     resolvedScopeSelfRecursiveFunctions :: Set Int,
     resolvedScopeSelfReferences :: Set Int
