@@ -51,7 +51,7 @@ import Jazz.Compiler.TypeInference.State
     recordPatternFactSeed,
     rejectPatternAttempt,
   )
-import Jazz.Compiler.TypeInference.Traversal (InferExprWithModeFn, InferenceMode)
+import Jazz.Compiler.TypeInference.Traversal (InferExprFn)
 import Jazz.Compiler.TypeInference.Types
   ( ConstructorArgumentType (..),
     ExpressionType,
@@ -65,14 +65,13 @@ import Jazz.Compiler.TypeInference.Types
   )
 
 inferPatternCaseType ::
-  InferExprWithModeFn ->
-  InferenceMode ->
+  InferExprFn ->
   TypeEnv ->
   ExpressionType ->
   InferState ->
   [CaseArm 'Resolved] ->
   (Maybe ExpressionType, InferState)
-inferPatternCaseType inferExpression mode env scrutineeType initialState caseArms =
+inferPatternCaseType inferExpression env scrutineeType initialState caseArms =
   foldl' step (Nothing, initialState) caseArms
   where
     step (maybeExpectedBodyType, stateAcc) (CaseArm armNode pattern guardExpr bodyExpr) =
@@ -91,7 +90,7 @@ inferPatternCaseType inferExpression mode env scrutineeType initialState caseArm
                   stateAfterGuard =
                     inferCaseGuardType armEnv stateAfterPattern guardExpr
                   (bodyResult, stateAfterBody) =
-                    inferExpression mode armEnv stateAfterGuard bodyExpr
+                    inferExpression armEnv stateAfterGuard bodyExpr
                   maybeBodyType = bodyResult
                   stateAfterBodyFacts =
                     maybe
@@ -122,7 +121,7 @@ inferPatternCaseType inferExpression mode env scrutineeType initialState caseArm
         Nothing -> stateAcc
         Just conditionExpr ->
           let (guardResult, stateAfterGuard) =
-                inferExpression mode armEnv stateAcc conditionExpr
+                inferExpression armEnv stateAcc conditionExpr
               maybeGuardType = guardResult
               checkedState =
                 case maybeGuardType of

@@ -26,6 +26,11 @@ import Jazz.Compiler.Diagnostics
   ( SourceSpan (SourceSpan),
     isErrorDiagnostic,
   )
+import Jazz.Compiler.ModuleAnalysis
+  ( InferenceInputs (..),
+    inferExpressionWithInputs,
+    inferredDiagnostics,
+  )
 import Jazz.Compiler.ModuleExports
   ( ModuleExport (ModuleExport),
     ModuleExportInventory,
@@ -53,11 +58,6 @@ import Jazz.Compiler.StableSet
     stableSetMembershipSet,
     stableSetOrderedList,
     stableSetSingleton,
-  )
-import Jazz.Compiler.TypeInference
-  ( InferenceInputs (..),
-    inferExpressionWithInputs,
-    inferredDiagnostics,
   )
 import Jazz.Compiler.TypeInference.Types
   ( ClassMethodType (ClassMethodType),

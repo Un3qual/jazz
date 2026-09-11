@@ -164,8 +164,7 @@ import Jazz.Compiler.TypeInference.State
     recordStatementFactSeed,
   )
 import Jazz.Compiler.TypeInference.Traversal
-  ( InferExprWithModeFn,
-    InferenceMode,
+  ( InferExprFn,
   )
 import Jazz.Compiler.TypeInference.TypeOps
   ( dedupeTypeSchemeConstraints,
@@ -445,15 +444,14 @@ qualifiedMethodClassIsVisible methodKey state =
   Map.member (fst methodKey) (inferClassFacts state)
 
 inferQualifiedMethodApplicationWithResults ::
-  InferExprWithModeFn ->
-  InferenceMode ->
+  InferExprFn ->
   TypeEnv ->
   InferState ->
   CoreNodeId ->
   CapabilityMethodKey ->
   [Expr 'Resolved] ->
   (Maybe ExpressionType, InferState, [Maybe ExpressionType])
-inferQualifiedMethodApplicationWithResults inferExpression mode env state nodeId methodKey argumentExprs =
+inferQualifiedMethodApplicationWithResults inferExpression env state nodeId methodKey argumentExprs =
   let (reversedResults, stateAfterArguments) = foldl' step ([], state) argumentExprs
       results = reverse reversedResults
    in case sequenceA results of
@@ -470,7 +468,7 @@ inferQualifiedMethodApplicationWithResults inferExpression mode env state nodeId
   where
     step (resultsAcc, stateAcc) argumentExpr =
       let (result, stateAfterArgument) =
-            inferExpression mode env stateAcc argumentExpr
+            inferExpression env stateAcc argumentExpr
        in (result : resultsAcc, stateAfterArgument)
 
 addUnpreservedInferredMethodConstraintErrors ::

@@ -57,8 +57,7 @@ import Jazz.Compiler.TypeInference.State
     recordExpressionFactType,
   )
 import Jazz.Compiler.TypeInference.Traversal
-  ( InferExprWithModeFn,
-    InferenceMode (..),
+  ( InferExprFn,
   )
 import Jazz.Compiler.TypeInference.TypeOps
   ( instantiateTypeSchemeConstraint,
@@ -140,8 +139,7 @@ instantiateTypeScheme typeScheme state =
        in (Map.insert typeVar freshType bindings, nextState)
 
 inferExplicitTypeApplication ::
-  InferExprWithModeFn ->
-  InferenceMode ->
+  InferExprFn ->
   TypeEnv ->
   InferState ->
   CoreNodeId ->
@@ -149,7 +147,7 @@ inferExplicitTypeApplication ::
   SourceSpan ->
   SignatureType 'Resolved ->
   (Maybe ExpressionType, InferState)
-inferExplicitTypeApplication inferExpression mode env state applicationNodeId functionExpr typeArgumentSpan typeArgument =
+inferExplicitTypeApplication inferExpression env state applicationNodeId functionExpr typeArgumentSpan typeArgument =
   case (explicitTypeApplicationScheme env functionExpr, Signature.constraintSignatureTypeToExpressionTypeWithState state Map.empty typeArgument) of
     (_, Just explicitArgumentType)
       | Just methodKey <- explicitQualifiedMethodTypeApplicationKey env state functionExpr,
@@ -186,7 +184,7 @@ inferExplicitTypeApplication inferExpression mode env state applicationNodeId fu
       (Nothing, addTypeError state (mkInvalidExplicitTypeApplicationArgumentError state typeArgumentSpan typeArgument))
     (Nothing, _) ->
       let (functionResult, stateAfterFunction) =
-            inferExpression mode env state functionExpr
+            inferExpression env state functionExpr
        in case functionResult of
             Just _ ->
               (Nothing, addTypeError stateAfterFunction mkExplicitTypeApplicationTargetError)

@@ -20,10 +20,10 @@ import Jazz.Compiler.AST (CorePhase (Resolved), Expr)
 import Jazz.Compiler.Diagnostics (CompilationDiagnostics, Diagnostic, compilationDiagnostics)
 import Jazz.Compiler.ModuleInterface (ModuleInterface)
 
--- | The canonicalized expression and the ordered diagnostics and metadata
--- produced while inferring it.
+-- | The resolved input and ordered diagnostics/metadata produced by the
+-- analysis coordinator. Successful analyzed syntax is a separate artifact.
 data InferenceResult = InferenceResult
-  { inferredExpr :: Expr 'Resolved,
+  { inferenceResolvedExpr :: Expr 'Resolved,
     inferredDiagnosticGroups :: CompilationDiagnostics,
     inferredModuleInterface :: ModuleInterface
   }

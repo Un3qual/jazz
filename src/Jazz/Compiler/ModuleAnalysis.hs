@@ -1,19 +1,28 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE OverloadedStrings #-}
 
--- | Single-module semantics and the imported facts required at that boundary.
+-- | Coordinate checking, coverage, binding diagnostics and warning policy for
+-- one module. Dependencies supply public semantic interfaces.
 module Jazz.Compiler.ModuleAnalysis
   ( ImportedInterface,
+    InferenceInputs (..),
+    InferenceResult (..),
+    inferredDiagnostics,
+    analyzeResolvedExpression,
+    inferExpressionWithInputs,
+    inferExpressionDefault,
     analyzeModule,
     dependencyImportInterface,
     importWholeInterface,
   )
 where
 
-import Data.List (union)
+import Data.List (partition, sortOn, union)
 import qualified Data.List.NonEmpty as NonEmpty
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
+import Data.Maybe (isJust)
+import Data.Set (Set)
 import qualified Data.Set as Set
 import Data.Text (Text)
 import qualified Data.Text as Text
@@ -22,14 +31,18 @@ import Jazz.Compiler.AST
     CorePhase (..),
     CoreSort (StatementSort),
     Expr (EBlock),
+    coreNodeId,
     expressionNode,
     statementNode,
   )
+import Jazz.Compiler.Analyzer (AnalysisBinding (..), AnalysisInputs (..), AnalysisResult (..), analyzeProgramWithInputs, analyzeProgramWithInputsAndPreparedScope)
 import Jazz.Compiler.CapabilityFacts
   ( ConcreteImplFact (..),
     concreteImplFactCapability,
   )
-import Jazz.Compiler.CoreIdentity (CapabilityMethodKey, ResolvedReference (LexicalReference), capabilityExportName)
+import Jazz.Compiler.CoreIdentity (CapabilityMethodKey, ResolvedReference (LexicalReference), capabilityExportName, capabilityResolvedName)
+import Jazz.Compiler.Diagnostics (CompilationDiagnostics (..), Diagnostic, diagnosticWarningCategory, isErrorDiagnostic)
+import Jazz.Compiler.Diagnostics.Strictness (forceDiagnostic)
 import Jazz.Compiler.ModuleExports
   ( ModuleExportInventory,
     exportNamesInNamespace,
@@ -61,8 +74,10 @@ import Jazz.Compiler.Name
     UnresolvedName,
     mkIdentifier,
     qualifiedName,
+    resolvedAmbientName,
     sourceName,
   )
+import Jazz.Compiler.PatternCoverage (PatternCoverageFailure (..), PatternCoverageSite (..), analyzePatternCoverage)
 import Jazz.Compiler.SemanticDeclarations (DeclarationVariable)
 import Jazz.Compiler.SemanticFacts
   ( CoreNodeId,
@@ -72,15 +87,25 @@ import Jazz.Compiler.SemanticFacts
   )
 import Jazz.Compiler.TypeInference
   ( InferenceInputs (..),
-    analyzeExpressionWithInputs,
+    InferenceSubject (..),
+    inferExpressionWork,
+    inferenceSubjectExpr,
+    moduleInterfaceFromState,
   )
-import Jazz.Compiler.TypeInference.Result (InferenceResult (..))
+import Jazz.Compiler.TypeInference.Analyzed (attachAnalyzedExpression, attachAnalyzedStatementFacts)
+import Jazz.Compiler.TypeInference.Diagnostics (mkNonExhaustivePatternMatchError, mkUnreachablePatternArmError)
+import Jazz.Compiler.TypeInference.Result (InferenceResult (..), inferredDiagnostics)
+import Jazz.Compiler.TypeInference.Solver (resolveType)
+import Jazz.Compiler.TypeInference.State (InferState, inferErrorsRev, inferPatternCoverageSites)
 import Jazz.Compiler.TypeInference.Types
   ( DataTypeBinding,
+    ExpressionType,
     ScopeCapabilityFacts (..),
     SemanticBinding,
     TypeEnvKey (..),
+    emptyScopeCapabilityFacts,
   )
+import Jazz.Compiler.WarningConfig (WarningSettings, defaultWarningSettings)
 
 -- | Analyze one resolved module against its complete imported interface. The
 -- caller supplies source ownership and the bundled-prelude warning policy,
@@ -312,3 +337,235 @@ factUsesClass classNames fact = Set.member (capabilityExportName (concreteImplFa
 methodUsesClass :: Set.Set Text -> CapabilityMethodKey -> value -> Bool
 methodUsesClass classNames methodKey _ =
   Set.member (capabilityExportName (fst methodKey)) classNames
+
+data InferenceRequest = InferenceRequest
+  { requestedInferenceInputs :: InferenceInputs,
+    requestedHideRootBindings :: Bool,
+    requestedModuleStatementFacts :: [(CoreNode 'Resolved 'StatementSort, StatementDeclarationFact)]
+  }
+
+analyzeResolvedExpression ::
+  WarningSettings ->
+  Expr 'Resolved ->
+  IO
+    ( InferenceResult,
+      Either
+        (NonEmpty.NonEmpty SemanticFactInvariantFailure)
+        (Maybe (Expr 'Analyzed))
+    )
+analyzeResolvedExpression settings expression = do
+  (inference, finalState) <-
+    inferExpressionWithRequestAndState
+      InferenceRequest
+        { requestedInferenceInputs = emptyInferenceInputs settings,
+          requestedHideRootBindings = False,
+          requestedModuleStatementFacts = []
+        }
+      expression
+  if any isErrorDiagnostic (inferredDiagnostics inference)
+    then pure (inference, Right Nothing)
+    else
+      pure
+        ( inference,
+          Just
+            <$> attachAnalyzedExpression
+              finalState
+              (inferenceResolvedExpr inference)
+        )
+
+inferExpressionWithInputs :: InferenceInputs -> Expr 'Resolved -> IO InferenceResult
+inferExpressionWithInputs inputs =
+  inferExpressionWithRequest
+    InferenceRequest
+      { requestedInferenceInputs = inputs,
+        requestedHideRootBindings = False,
+        requestedModuleStatementFacts = []
+      }
+
+inferExpressionWithRequest :: InferenceRequest -> Expr 'Resolved -> IO InferenceResult
+inferExpressionWithRequest request expr = fst <$> inferExpressionWithRequestAndState request expr
+
+inferExpressionWithRequestAndState :: InferenceRequest -> Expr 'Resolved -> IO (InferenceResult, InferState)
+inferExpressionWithRequestAndState request expr =
+  {-# SCC "jazz-stage:type-inference" #-}
+  let inputs = requestedInferenceInputs request
+      (inferredResult, finalState, inferenceSubject) =
+        inferExpressionWork
+          inputs
+          (requestedModuleStatementFacts request)
+          expr
+      expression = inferenceSubjectExpr inferenceSubject
+      finalizedInference = finalizeInferenceState inputs expression finalState
+   in expression `seq`
+        forceFinalizedInferenceContainers finalizedInference `seq`
+          do
+            inference <-
+              finishInference
+                inputs
+                (requestedHideRootBindings request)
+                inferenceSubject
+                inferredResult
+                finalizedInference
+            pure (inference, finalState)
+
+analyzeExpressionWithInputs ::
+  [(CoreNode 'Resolved 'StatementSort, StatementDeclarationFact)] ->
+  InferenceInputs ->
+  Bool ->
+  Expr 'Resolved ->
+  IO
+    ( InferenceResult,
+      Either
+        (NonEmpty.NonEmpty SemanticFactInvariantFailure)
+        (Maybe (Expr 'Analyzed, Map CoreNodeId StatementFacts))
+    )
+analyzeExpressionWithInputs moduleStatementFacts inputs hideRootBindings expression = do
+  (inference, finalState) <-
+    inferExpressionWithRequestAndState
+      InferenceRequest
+        { requestedInferenceInputs = inputs,
+          requestedHideRootBindings = hideRootBindings,
+          requestedModuleStatementFacts = moduleStatementFacts
+        }
+      expression
+  if any isErrorDiagnostic (inferredDiagnostics inference)
+    then pure (inference, Right Nothing)
+    else
+      pure
+        ( inference,
+          Just
+            <$> ( (,)
+                    <$> attachAnalyzedExpression finalState (inferenceResolvedExpr inference)
+                    <*> attachAnalyzedStatementFacts finalState (map fst moduleStatementFacts)
+                )
+        )
+
+data FinalizedInference = FinalizedInference
+  { finalizedTypeErrors :: [Diagnostic],
+    finalizedPatternCoverageDiagnostics :: [Diagnostic],
+    finalizedModuleInterface :: ModuleInterface
+  }
+
+finalizeInferenceState :: InferenceInputs -> Expr 'Resolved -> InferState -> FinalizedInference
+finalizeInferenceState inputs expr finalState =
+  FinalizedInference
+    { finalizedTypeErrors = reverse (inferErrorsRev finalState),
+      finalizedPatternCoverageDiagnostics =
+        concatMap
+          (patternCoverageDiagnostics finalState)
+          (sortOn patternCoverageSiteOrdinal (inferPatternCoverageSites finalState)),
+      finalizedModuleInterface = moduleInterfaceFromState inputs expr finalState
+    }
+
+finishInference :: InferenceInputs -> Bool -> InferenceSubject -> Maybe ExpressionType -> FinalizedInference -> IO InferenceResult
+finishInference inputs hideRootBindings subject inferredResult finalizedInference = do
+  let expression = inferenceSubjectExpr subject
+  AnalysisResult _ analyzerDiagnostics <-
+    case subject of
+      InferencePreparedScope _ preparedScope ->
+        analyzeProgramWithInputsAndPreparedScope
+          (analysisInputsForInference inputs)
+          hideRootBindings
+          expression
+          preparedScope
+      InferenceExpression expr ->
+        analyzeProgramWithInputs
+          (analysisInputsForInference inputs)
+          hideRootBindings
+          expr
+  let (warnings, analysisErrors) = partition (isJust . diagnosticWarningCategory) analyzerDiagnostics
+      diagnostics = CompilationDiagnostics warnings analysisErrors (finalizedTypeErrors finalizedInference) (finalizedPatternCoverageDiagnostics finalizedInference)
+  expression `seq`
+    inferredResult `seq`
+      pure
+        InferenceResult
+          { inferenceResolvedExpr = expression,
+            inferredDiagnosticGroups = diagnostics,
+            inferredModuleInterface = finalizedModuleInterface finalizedInference
+          }
+
+-- Ordinary inference owns the finalized diagnostics before the analyzer walk,
+-- so rendering thunks cannot keep the complete solver state alive. The
+-- remaining result containers are materialized only to WHNF.
+forceFinalizedInferenceContainers :: FinalizedInference -> ()
+forceFinalizedInferenceContainers finalizedInference =
+  forceListWith forceDiagnostic (finalizedTypeErrors finalizedInference) `seq`
+    forceListWith forceDiagnostic (finalizedPatternCoverageDiagnostics finalizedInference) `seq`
+      forceModuleInterfaceContainers (finalizedModuleInterface finalizedInference)
+
+patternCoverageDiagnostics :: InferState -> PatternCoverageSite -> [Diagnostic]
+patternCoverageDiagnostics finalState site =
+  map
+    coverageFailureDiagnostic
+    ( analyzePatternCoverage
+        (patternCoverageSiteConstructorInventory site)
+        (resolveType finalState (patternCoverageSiteScrutineeType site))
+        (patternCoverageSiteArms site)
+    )
+
+coverageFailureDiagnostic :: PatternCoverageFailure -> Diagnostic
+coverageFailureDiagnostic failure =
+  case failure of
+    NonExhaustivePattern missingPattern ->
+      mkNonExhaustivePatternMatchError missingPattern
+    UnreachablePatternArm armIndex ->
+      mkUnreachablePatternArmError armIndex
+
+forceModuleInterfaceContainers :: ModuleInterface -> ()
+forceModuleInterfaceContainers moduleInterface =
+  Map.foldrWithKey (\export (ModuleValueBinding binder binding) forced -> export `seq` binder `seq` binding `seq` forced) () (interfaceValueBindings moduleInterface) `seq`
+    forceMapEntriesWhnf (interfaceDataTypes moduleInterface) `seq`
+      forceMapEntriesWhnf (interfaceClassFacts moduleInterface) `seq`
+        forceSetEntriesWhnf (interfaceGeneratedEqualityClassFacts moduleInterface) `seq`
+          forceSetEntriesWhnf (interfaceConcreteImplFacts moduleInterface) `seq`
+            forceMapEntriesWhnf (interfaceClassMethods moduleInterface) `seq`
+              forceMapEntriesWhnf (interfaceConcreteImplMethods moduleInterface)
+
+forceMapEntriesWhnf :: Map key value -> ()
+forceMapEntriesWhnf = Map.foldrWithKey (\key value forced -> key `seq` value `seq` forced) ()
+
+forceSetEntriesWhnf :: Set value -> ()
+forceSetEntriesWhnf = Set.foldr (\value forced -> value `seq` forced) ()
+
+forceListWith :: (value -> ()) -> [value] -> ()
+forceListWith forceValue values =
+  case values of
+    [] -> ()
+    value : remaining -> forceValue value `seq` forceListWith forceValue remaining
+
+emptyInferenceInputs :: WarningSettings -> InferenceInputs
+emptyInferenceInputs settings =
+  InferenceInputs
+    { inferencePublicExports = Nothing,
+      inferenceWarningSettings = settings,
+      inferenceExternalUses = Set.empty,
+      inferenceImportedTypes = Map.empty,
+      inferenceImportedDataTypes = Map.empty,
+      inferenceImportedConstructorWitnessNames = Map.empty,
+      inferenceImportedCapabilities = emptyScopeCapabilityFacts,
+      inferenceImportedClassNames = Set.empty,
+      inferenceCurrentModulePath = Nothing
+    }
+
+analysisInputsForInference :: InferenceInputs -> AnalysisInputs
+analysisInputsForInference inputs =
+  AnalysisInputs
+    { analysisWarningSettings = inferenceWarningSettings inputs,
+      analysisExternalUses = inferenceExternalUses inputs,
+      analysisImportedValues =
+        Map.mapKeys typeEnvName (Map.map (const (AnalysisBinding Nothing True)) (inferenceImportedTypes inputs)),
+      analysisForwardFunctions = Map.empty,
+      analysisImportedClasses =
+        Set.union
+          (Set.map (resolvedAmbientName CapabilityNamespace . mkIdentifier) (inferenceImportedClassNames inputs))
+          (Set.map capabilityResolvedName (Map.keysSet (scopeClassFacts (inferenceImportedCapabilities inputs))))
+    }
+
+inferExpressionDefault :: Expr 'Resolved -> IO InferenceResult
+inferExpressionDefault =
+  inferExpressionWithRequest
+    InferenceRequest
+      { requestedInferenceInputs = emptyInferenceInputs defaultWarningSettings,
+        requestedHideRootBindings = False,
+        requestedModuleStatementFacts = []
+      }

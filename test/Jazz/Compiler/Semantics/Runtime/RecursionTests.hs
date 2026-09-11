@@ -37,6 +37,7 @@ import Jazz.Compiler.Driver
     runRuntimeErrors,
     runSource,
   )
+import Jazz.Compiler.ModuleAnalysis (analyzeResolvedExpression)
 import Jazz.Compiler.ModuleExports (exportInventory)
 import Jazz.Compiler.ModuleIdentity (preludeModulePath)
 import Jazz.Compiler.ModuleResolver (resolveStandaloneExprNames)
@@ -72,7 +73,6 @@ import Jazz.Compiler.SourceProgram
   ( parseAndLowerStandaloneSource,
   )
 import Jazz.Compiler.SourceUnitOwnership (SourceUnitOwner (..))
-import Jazz.Compiler.TypeInference (analyzeResolvedExpression)
 import Jazz.Compiler.TypeRepresentation
   ( NumericType (..),
     SemanticType (..),

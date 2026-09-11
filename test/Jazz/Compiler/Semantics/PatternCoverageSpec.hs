@@ -33,6 +33,10 @@ import Jazz.Compiler.Driver
     compileSource,
     compileWarnings,
   )
+import Jazz.Compiler.ModuleAnalysis
+  ( InferenceInputs (..),
+    inferExpressionWithInputs,
+  )
 import Jazz.Compiler.ModuleExports (exportInventory)
 import Jazz.Compiler.ModuleIdentity (mkModulePath)
 import Jazz.Compiler.ModuleResolver (resolveStandaloneExprNames)
@@ -53,10 +57,6 @@ import Jazz.Compiler.PatternCoverage
     constructorInventoryFromBindingsWithWitnessNames,
     emptyConstructorInventory,
     renderCoveragePattern,
-  )
-import Jazz.Compiler.TypeInference
-  ( InferenceInputs (..),
-    inferExpressionWithInputs,
   )
 import Jazz.Compiler.TypeInference.Result (inferredDiagnostics)
 import Jazz.Compiler.TypeInference.Types

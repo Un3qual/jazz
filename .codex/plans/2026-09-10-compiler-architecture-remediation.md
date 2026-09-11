@@ -1,5 +1,5 @@
 ---
-id: JN-COMPILER-INFERENCE-OWNERSHIP-001
+id: JN-COMPILER-CHECKED-TREE-001
 status: ready
 priority: P1
 size: L
@@ -7,14 +7,14 @@ kind: impl
 autonomous_ready: yes
 depends_on: []
 last_verified: 2026-09-11
-plan_section: "T09 — Make inference speculation and diagnostic ownership explicit"
+plan_section: "T10 — Construct checked subtrees during checking"
 target_paths:
-  - src/Jazz/Compiler/TypeInference/State.hs
-  - src/Jazz/Compiler/ModuleAnalysis.hs
+  - src/Jazz/Compiler/TypeInference.hs
+  - src/Jazz/Compiler/TypeInference/Analyzed.hs
 verification:
-  - cabal test binding-signature-coherence-spec pattern-semantics-spec pattern-coverage-spec structured-error-diagnostics-spec rebinding-warning-spec module-pipeline-contract-spec --test-options=--skip-performance --jobs=4
+  - cabal test module-pipeline-contract-spec binding-signature-coherence-spec adt-pattern-type-spec pattern-coverage-spec primitive-semantics-spec generated-invariants-spec --test-options=--skip-performance --jobs=4
   - bash scripts/check-execution-queue.sh
-deliverable: Make speculative retention policies explicit and move diagnostic orchestration to module analysis.
+deliverable: Return checked subtrees from inference and replace semantic map attachment with substitution-only finalization.
 supersedes: []
 ---
 
@@ -30,7 +30,7 @@ supersedes: []
 
 **Spec:** [Validated audit findings](2026-09-10-compiler-architecture-validation.md), together with the target contracts and preservation rules below. The report preserves the disposition of all three input audits. The two Luna drafts were withdrawn after validation; their rejected or qualified recommendations are not implementation guidance.
 
-**Status:** Execution requested on 2026-09-11. T09 is the active bounded milestone in the execution queue. Execute the remaining tasks inline in dependency order; promote the next milestone when its prerequisites pass.
+**Status:** Execution requested on 2026-09-11. T10 is the active bounded milestone in the execution queue. Execute the remaining tasks inline in dependency order; promote the next milestone when its prerequisites pass.
 
 **Existing architecture decision:** [RFC 0016](../../rfcs/accepted/0016-optional-backend-removal.md) explicitly says to keep “attached analysis facts, and runtime plans.” Direct construction still retains attached facts, but T11a proposes changing the retained runtime-plan contract. Approval of this plan should therefore include that specific architectural decision and a narrow amendment through the repository's RFC process before removal. This is a dependency of T11a, not a reason to block unrelated tasks or ask for another confirmation while preparing this plan. If runtime plans are to remain, retain the small sequence and pursue direct identity/ownership improvements around it; do not claim its deletion completed.
 
@@ -280,13 +280,13 @@ The table is a dependency order, not a request for parallel agents. Work inline.
 
 **Files:** `src/Jazz/Compiler/TypeInference.hs`, `src/Jazz/Compiler/TypeInference/{State,Scope,Pattern,Capabilities,ImplChecking,Result}.hs`, `src/Jazz/Compiler/Analyzer.hs`, `src/Jazz/Compiler/ModuleAnalysis.hs`; tests `test/Jazz/Compiler/Semantics/BindingSignature/{InferenceOwnershipTests,RecursionTests,DiagnosticsTests,GeneralizationTests}.hs`, `test/Jazz/Compiler/Semantics/{PatternSemanticsSpec,PatternCoverageSpec}.hs`, `test/Jazz/Compiler/Diagnostics/StructuredErrorDiagnosticsSpec.hs`.
 
-- [ ] Implement named preview and rejected-pattern operations with the distinct retention rules above. Replace field-by-field restoration at those call sites; keep lexical declaration restoration separately named.
-- [ ] Limit helper inputs to owned domains where this removes an actual cross-domain read/write. Retain the existing explicit state style where clear; do not rewrite the whole checker into a new monad stack.
-- [ ] Ensure preview facts/diagnostics/constraints cannot leak into real node output, while temporary type-variable IDs cannot be reused. Preserve failed-pattern diagnostics and their order.
-- [ ] Move the top-level orchestration of inference, coverage/unused diagnostics, and warning policy into module analysis/coordinator ownership. Algorithms may still use inferred types; their timing must preserve existing diagnostics.
-- [ ] Rename products whose names imply analyzed syntax when they contain resolved syntax. Remove the ignored detailed-inference mode parameter only after adapting actual call sites; retain modes that control real preview behavior.
-- [ ] Run binding-signature, pattern/coverage, diagnostics, rebinding-warning, and module-pipeline suites. Add a speculative-failure leakage case only if current cases do not distinguish these restoration policies.
-- [ ] Commit transaction cleanup separately from orchestration naming changes if that makes review clearer.
+- [x] Implement named preview and rejected-pattern operations with the distinct retention rules above. Replace field-by-field restoration at those call sites; keep lexical declaration restoration separately named.
+- [x] Limit helper inputs to owned domains where this removes an actual cross-domain read/write. Retain the existing explicit state style where clear; do not rewrite the whole checker into a new monad stack.
+- [x] Ensure preview facts/diagnostics/constraints cannot leak into real node output, while temporary type-variable IDs cannot be reused. Preserve failed-pattern diagnostics and their order.
+- [x] Move the top-level orchestration of inference, coverage/unused diagnostics, and warning policy into module analysis/coordinator ownership. Algorithms may still use inferred types; their timing must preserve existing diagnostics.
+- [x] Rename products whose names imply analyzed syntax when they contain resolved syntax. Remove the ignored detailed-inference mode parameter only after adapting actual call sites; retain modes that control real preview behavior.
+- [x] Run binding-signature, pattern/coverage, diagnostics, rebinding-warning, and module-pipeline suites. Add a speculative-failure leakage case only if current cases do not distinguish these restoration policies.
+- [x] Commit transaction cleanup separately from orchestration naming changes if that makes review clearer.
 
 **Deletion criterion:** Callers no longer manually restore unrelated inference fields to implement the same preview policy. Product names and coordinator direction expose actual phases.
 
@@ -655,3 +655,9 @@ Documentation verification at plan completion checks local evidence targets/line
 - Added named preview and rejected-pattern operations in inference state. Preview returns temporary solved state separately, discards its output/constraints, and restores stable state while reserving all allocated variable IDs. Rejected patterns restore stable semantics and retain failed-attempt diagnostics in order. Lexical capability restoration remains separate.
 - Removed the recursive-preview partial output reset and local rollback implementations, and routed all rejected-pattern sites through their distinct policy. A failed-preview regression exposed reuse of temporary IDs before the fix; it now passes and verifies only the real body diagnostic is reported.
 - Binding/signature, pattern semantics, pattern coverage, and structured diagnostics pass (`/private/tmp/jazz-t09-transactions.log`). Performance cases explicitly skipped. Ormolu, HLint, and whitespace checks pass. Diagnostic coordinator ownership is next.
+
+### T09 complete — diagnostic coordinator and phase ownership
+
+- Module analysis now owns the sequencing of inference, pattern coverage, binding/unused diagnostics, warning policy, and successful analyzed attachment. Type inference no longer imports the analyzer or performs top-level diagnostic orchestration. Existing convenience callers now use the coordinator.
+- Renamed resolved-syntax result fields to `inferenceResolvedExpr` and `analysisResolvedExpr`; removed the unused analyzer module-path field. Removed the ignored detailed-expression mode and its pass-through parameters in pattern, explicit-instantiation, and qualified-method callbacks. Kept modes that actually control recursive preview and nested checking; removed unreachable outer coordinator options and unused forward-binding transport.
+- Required binding/signature, patterns, coverage, structured diagnostics, rebinding warnings, and module pipeline suites pass (`/private/tmp/jazz-t09-coordinator-final.log`). Core normalization, source ranges, Haskell contracts, and runtime correctness also pass (`/private/tmp/jazz-t09-api-correctness.log`); runtime and coverage explicitly skip performance cases. The profiling fixture compiled only (`/private/tmp/jazz-t09-profiling-api-build.log`). Ormolu, HLint, and whitespace checks pass. No benchmark/performance tests ran. T09 is complete; T10 is active.

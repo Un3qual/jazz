@@ -100,7 +100,7 @@ import Jazz.Compiler.WarningConfig
 -- | Analyzer output keeps the original expression plus the warnings/errors
 -- discovered while walking it.
 data AnalysisResult = AnalysisResult
-  { analyzedExpr :: Expr 'Resolved,
+  { analysisResolvedExpr :: Expr 'Resolved,
     analysisDiagnostics :: [Diagnostic]
   }
   deriving (Eq, Show)
@@ -116,8 +116,7 @@ data AnalysisInputs = AnalysisInputs
     analysisExternalUses :: Set CoreBinderId,
     analysisImportedValues :: Map ResolvedName AnalysisBinding,
     analysisForwardFunctions :: Map Int (ResolvedName, AnalysisBinding),
-    analysisImportedClasses :: Set ResolvedName,
-    analysisModulePath :: Maybe ModulePath
+    analysisImportedClasses :: Set ResolvedName
   }
   deriving (Eq, Show)
 
@@ -151,8 +150,7 @@ analyzeProgram settings expr =
         analysisExternalUses = Set.empty,
         analysisImportedValues = Map.empty,
         analysisForwardFunctions = Map.empty,
-        analysisImportedClasses = Set.empty,
-        analysisModulePath = Nothing
+        analysisImportedClasses = Set.empty
       }
     False
     expr
@@ -211,7 +209,7 @@ analyzeProgramWithInputsAndDiagnostics inputs expr collectedDiagnostics =
         map (applyWarningPolicy settings) (sortWarnings warnings <> errors)
       result =
         AnalysisResult
-          { analyzedExpr = expr,
+          { analysisResolvedExpr = expr,
             analysisDiagnostics = diagnostics
           }
    in pure result

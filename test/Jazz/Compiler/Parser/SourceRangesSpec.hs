@@ -10,6 +10,7 @@ import Data.Text (Text)
 import qualified Data.Text as Text
 import Jazz.Compiler.AST (CoreNode (..), Expr (..), Statement (..))
 import Jazz.Compiler.Diagnostics (SourceSpan (..), diagnosticPrimarySpan, diagnosticRelatedSpan, qualifySourceSpan, sourceSpanEnd, sourceSpanStart)
+import Jazz.Compiler.ModuleAnalysis (inferExpressionDefault)
 import Jazz.Compiler.ModuleExports (exportInventory)
 import Jazz.Compiler.ModuleGraph (coreModuleExpr, coreModuleImports)
 import Jazz.Compiler.ModuleIdentity (mkSourceFile, moduleIdentity, standaloneModulePath)
@@ -21,8 +22,7 @@ import Jazz.Compiler.Parser.Lexer (Token (..), tokenize)
 import Jazz.Compiler.Parser.Lower (lowerSurfaceExpr, lowerSurfaceModule, reindexLoweredExpr)
 import Jazz.Compiler.Parser.Pattern (parseCaseArmPatternTokens)
 import Jazz.Compiler.Prelude (ResolvedPrelude (..), preparePrelude)
-import Jazz.Compiler.TypeInference (inferExpressionDefault)
-import Jazz.Compiler.TypeInference.Result (InferenceResult (inferredExpr))
+import Jazz.Compiler.TypeInference.Result (InferenceResult (inferenceResolvedExpr))
 import Jazz.TestHarness (assertEqual, assertRight, failTest, runTestSuite)
 
 main :: IO ()
@@ -124,7 +124,7 @@ lowerAndAnalyze = assertRight "parse" (parseSurfaceProgram "[1,\n 2].") $ \surfa
   assertEqual "reindexed" expected (spans (reindexLoweredExpr lowered))
   assertRight "resolve" (resolveStandaloneExprNames (exportInventory []) lowered) $ \resolved -> do
     inferred <- inferExpressionDefault resolved
-    assertEqual "inferred" expected (spans (inferredExpr inferred))
+    assertEqual "inferred" expected (spans (inferenceResolvedExpr inferred))
   let identity = moduleIdentity standaloneModulePath (mkSourceFile "Main.jz")
   assertRight "lower qualified module" (lowerSurfaceModule identity surface) $ \coreModule -> do
     let qualified = map (qualifySourceSpan "Main.jz") expected
@@ -132,7 +132,7 @@ lowerAndAnalyze = assertRight "parse" (parseSurfaceProgram "[1,\n 2].") $ \surfa
     assertEqual "qualified lowering" qualified (spans moduleExpr)
     assertRight "resolve qualified module" (resolveStandaloneExprNames (exportInventory []) moduleExpr) $ \resolved -> do
       inferred <- inferExpressionDefault resolved
-      assertEqual "qualified inference" qualified (spans (inferredExpr inferred))
+      assertEqual "qualified inference" qualified (spans (inferenceResolvedExpr inferred))
 
 qualifyRanges :: IO ()
 qualifyRanges = do

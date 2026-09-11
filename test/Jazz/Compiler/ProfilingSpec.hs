@@ -225,7 +225,7 @@ testDeepModuleInterfaceForcing =
     assertInterfaceForced (label, marker, interface) = do
       let inference =
             InferenceResult
-              { inferredExpr = resolvedZero,
+              { inferenceResolvedExpr = resolvedZero,
                 inferredDiagnosticGroups = mempty,
                 inferredModuleInterface = interface
               }

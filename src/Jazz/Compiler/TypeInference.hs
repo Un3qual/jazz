@@ -1,25 +1,19 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE OverloadedStrings #-}
 
--- | Lightweight type inference layer for the current compiler subset. It
--- canonicalizes the lowered AST, reuses analyzer diagnostics, and adds the
--- small collection of type/runtime-compatibility checks implemented so far.
+-- | Check resolved expressions and normalized declarations. Diagnostic phase
+-- ordering and warning policy belong to the module analysis coordinator.
 module Jazz.Compiler.TypeInference
   ( InferenceInputs (..),
-    InferenceResult (..),
-    inferredDiagnostics,
-    analyzeResolvedExpression,
-    inferExpressionWithInputs,
-    analyzeExpressionWithInputs,
-    inferExpressionDefault,
+    InferenceSubject (..),
+    inferenceSubjectExpr,
+    inferExpressionWork,
+    moduleInterfaceFromState,
   )
 where
 
-import Data.List (partition, sortOn)
-import qualified Data.List.NonEmpty as NonEmpty
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
-import Data.Maybe (isJust)
 import Data.Set (Set)
 import qualified Data.Set as Set
 import Data.Text (Text)
@@ -36,13 +30,6 @@ import Jazz.Compiler.AST
     coreNodeSpan,
     expressionNode,
   )
-import Jazz.Compiler.Analyzer
-  ( AnalysisBinding (..),
-    AnalysisInputs (..),
-    AnalysisResult (..),
-    analyzeProgramWithInputs,
-    analyzeProgramWithInputsAndPreparedScope,
-  )
 import Jazz.Compiler.BuiltinCatalog
   ( BuiltinSymbol (BuiltinListPrependRaw),
     builtinSymbolName,
@@ -52,15 +39,8 @@ import Jazz.Compiler.BuiltinCatalog
     numericTypeIntegerBounds,
     numericTypeLiteralIntegerBounds,
   )
-import Jazz.Compiler.CoreIdentity (CapabilityMethodKey, CoreBinderId, ResolvedNodeFacts (..), ResolvedReference (..), capabilityMethodKeyFromReference, capabilityResolvedName, resolvedValueReference)
-import Jazz.Compiler.Diagnostics
-  ( CompilationDiagnostics (..),
-    Diagnostic,
-    SourceSpan,
-    diagnosticWarningCategory,
-    isErrorDiagnostic,
-  )
-import Jazz.Compiler.Diagnostics.Strictness (forceDiagnostic)
+import Jazz.Compiler.CoreIdentity (CapabilityMethodKey, CoreBinderId, ResolvedNodeFacts (..), ResolvedReference (..), capabilityMethodKeyFromReference, resolvedValueReference)
+import Jazz.Compiler.Diagnostics (Diagnostic, SourceSpan)
 import Jazz.Compiler.FractionalLiteral
   ( FractionalLiteralSource,
     fractionalLiteralExceedsMagnitude,
@@ -70,29 +50,23 @@ import Jazz.Compiler.ModuleExports (ModuleExportInventory)
 import Jazz.Compiler.ModuleIdentity (ModulePath)
 import Jazz.Compiler.ModuleInterface
   ( ModuleInterface (..),
-    ModuleValueBinding (..),
     emptyModuleInterface,
     moduleExportForBinding,
     publishModuleInterface,
   )
 import Jazz.Compiler.Name
   ( Name (..),
-    NameNamespace (CapabilityNamespace),
     ResolvedName,
     UnresolvedName,
     identifierText,
-    mkIdentifier,
     operatorBindingName,
     renderName,
-    resolvedAmbientName,
   )
 import Jazz.Compiler.Parser.Operator
   ( isBuiltinOperatorSymbol,
   )
 import Jazz.Compiler.PatternCoverage
-  ( PatternCoverageFailure (..),
-    PatternCoverageSite (..),
-    analyzePatternCoverage,
+  ( PatternCoverageSite (..),
     constructorInventoryFromBindingsWithWitnessNames,
   )
 import Jazz.Compiler.RecursiveBindings
@@ -103,14 +77,7 @@ import Jazz.Compiler.RecursiveBindings
 import Jazz.Compiler.SemanticDeclarations (DeclarationVariable)
 import Jazz.Compiler.SemanticFacts
   ( BinaryOperation (..),
-    CoreNodeId,
-    SemanticFactInvariantFailure,
     StatementDeclarationFact,
-    StatementFacts,
-  )
-import Jazz.Compiler.TypeInference.Analyzed
-  ( attachAnalyzedExpression,
-    attachAnalyzedStatementFacts,
   )
 import Jazz.Compiler.TypeInference.Capabilities
 import Jazz.Compiler.TypeInference.Diagnostics
@@ -128,11 +95,9 @@ import Jazz.Compiler.TypeInference.Operator
 import Jazz.Compiler.TypeInference.Pattern
   ( inferPatternCaseType,
   )
-import Jazz.Compiler.TypeInference.Result (InferenceResult (..), inferredDiagnostics)
 import Jazz.Compiler.TypeInference.Scope
   ( inferExplicitTypeApplication,
     inferNestedScopeTypeWithMode,
-    inferScopeTypeWithMode,
     inferScopeTypeWithModeAndForwardBindingsUsingPreparedScope,
     instantiateNonBuiltinTypeBinding,
   )
@@ -151,10 +116,8 @@ import Jazz.Compiler.TypeInference.State
     ModuleInferenceState (..),
     inferConstructorWitnessNames,
     inferDataTypes,
-    inferErrorsRev,
     inferExpressionFactTypes,
     inferModuleCapabilityFacts,
-    inferPatternCoverageSites,
     inferVisibleTypes,
     initialInferState,
     modifyInferenceOutput,
@@ -181,10 +144,7 @@ import Jazz.Compiler.TypeInference.Types
     typeEnvReferenceKey,
   )
 import Jazz.Compiler.TypeRepresentation (NumericType (..))
-import Jazz.Compiler.WarningConfig
-  ( WarningSettings,
-    defaultWarningSettings,
-  )
+import Jazz.Compiler.WarningConfig (WarningSettings)
 
 data InferenceInputs = InferenceInputs
   { inferencePublicExports :: Maybe ModuleExportInventory,
@@ -198,111 +158,6 @@ data InferenceInputs = InferenceInputs
     inferenceCurrentModulePath :: Maybe ModulePath
   }
 
-data InferenceRequest = InferenceRequest
-  { requestedInferenceInputs :: InferenceInputs,
-    requestedHideRootBindings :: Bool,
-    requestedModuleStatementFacts :: [(CoreNode 'Resolved 'StatementSort, StatementDeclarationFact)]
-  }
-
-analyzeResolvedExpression ::
-  WarningSettings ->
-  Expr 'Resolved ->
-  IO
-    ( InferenceResult,
-      Either
-        (NonEmpty.NonEmpty SemanticFactInvariantFailure)
-        (Maybe (Expr 'Analyzed))
-    )
-analyzeResolvedExpression settings expression = do
-  (inference, finalState) <-
-    inferExpressionWithRequestAndState
-      InferenceRequest
-        { requestedInferenceInputs = emptyInferenceInputs settings,
-          requestedHideRootBindings = False,
-          requestedModuleStatementFacts = []
-        }
-      expression
-  if any isErrorDiagnostic (inferredDiagnostics inference)
-    then pure (inference, Right Nothing)
-    else
-      pure
-        ( inference,
-          Just
-            <$> attachAnalyzedExpression
-              finalState
-              (inferredExpr inference)
-        )
-
-inferExpressionWithInputs :: InferenceInputs -> Expr 'Resolved -> IO InferenceResult
-inferExpressionWithInputs inputs =
-  inferExpressionWithRequest
-    InferenceRequest
-      { requestedInferenceInputs = inputs,
-        requestedHideRootBindings = False,
-        requestedModuleStatementFacts = []
-      }
-
-inferExpressionWithRequest :: InferenceRequest -> Expr 'Resolved -> IO InferenceResult
-inferExpressionWithRequest request expr = fst <$> inferExpressionWithRequestAndState request expr
-
-inferExpressionWithRequestAndState :: InferenceRequest -> Expr 'Resolved -> IO (InferenceResult, InferState)
-inferExpressionWithRequestAndState request expr =
-  {-# SCC "jazz-stage:type-inference" #-}
-  let inputs = requestedInferenceInputs request
-      (inferredResult, finalState, forwardBindings, inferenceSubject) =
-        inferExpressionWork
-          InferenceOnly
-          inputs
-          (requestedModuleStatementFacts request)
-          expr
-      expression = inferenceSubjectExpr inferenceSubject
-      finalizedInference = finalizeInferenceState inputs expression finalState
-   in expression `seq`
-        forceFinalizedInferenceContainers finalizedInference `seq`
-          do
-            inference <-
-              finishInference
-                InferenceOnly
-                inputs
-                (requestedHideRootBindings request)
-                inferenceSubject
-                inferredResult
-                forwardBindings
-                finalizedInference
-            pure (inference, finalState)
-
-analyzeExpressionWithInputs ::
-  [(CoreNode 'Resolved 'StatementSort, StatementDeclarationFact)] ->
-  InferenceInputs ->
-  Bool ->
-  Expr 'Resolved ->
-  IO
-    ( InferenceResult,
-      Either
-        (NonEmpty.NonEmpty SemanticFactInvariantFailure)
-        (Maybe (Expr 'Analyzed, Map CoreNodeId StatementFacts))
-    )
-analyzeExpressionWithInputs moduleStatementFacts inputs hideRootBindings expression = do
-  (inference, finalState) <-
-    inferExpressionWithRequestAndState
-      InferenceRequest
-        { requestedInferenceInputs = inputs,
-          requestedHideRootBindings = hideRootBindings,
-          requestedModuleStatementFacts = moduleStatementFacts
-        }
-      expression
-  if any isErrorDiagnostic (inferredDiagnostics inference)
-    then pure (inference, Right Nothing)
-    else
-      pure
-        ( inference,
-          Just
-            <$> ( (,)
-                    <$> attachAnalyzedExpression finalState (inferredExpr inference)
-                    <*> attachAnalyzedStatementFacts finalState (map fst moduleStatementFacts)
-                )
-        )
-
 data InferenceSubject
   = InferenceExpression (Expr 'Resolved)
   | InferencePreparedScope (Expr 'Resolved) (PreparedRecursiveScope 'Resolved)
@@ -314,8 +169,8 @@ inferenceSubjectExpr subject =
     InferencePreparedScope expr preparedScope ->
       preparedRecursiveScopeStatements preparedScope `seq` expr
 
-inferExpressionWork :: InferenceMode -> InferenceInputs -> [(CoreNode 'Resolved 'StatementSort, StatementDeclarationFact)] -> Expr 'Resolved -> (Maybe ExpressionType, InferState, Map Int (ResolvedName, SourceSpan), InferenceSubject)
-inferExpressionWork mode inputs moduleStatementFacts expr =
+inferExpressionWork :: InferenceInputs -> [(CoreNode 'Resolved 'StatementSort, StatementDeclarationFact)] -> Expr 'Resolved -> (Maybe ExpressionType, InferState, InferenceSubject)
+inferExpressionWork inputs moduleStatementFacts expr =
   let (importedEnvironment, importedState) = importBindingTypes (inferenceImportedTypes inputs) (initialStateForInference inputs)
       initialState =
         foldl'
@@ -326,11 +181,11 @@ inferExpressionWork mode inputs moduleStatementFacts expr =
         EBlock node statements ->
           let preparedScope =
                 prepareResolvedScope node statements
-              (blockResult, rawBlockState, bindings) =
+              (blockResult, rawBlockState, _) =
                 inferScopeTypeWithModeAndForwardBindingsUsingPreparedScope
                   preparedScope
-                  (inferExprTypeWithMode False)
-                  mode
+                  inferExprTypeWithMode
+                  InferenceOnly
                   importedEnvironment
                   initialState
               blockState =
@@ -341,146 +196,14 @@ inferExpressionWork mode inputs moduleStatementFacts expr =
                       Nothing -> unitType
                   )
                   rawBlockState
-           in (blockResult, blockState, bindings, InferencePreparedScope expr preparedScope)
+           in (blockResult, blockState, InferencePreparedScope expr preparedScope)
         _ ->
           let (result, resultState) =
-                inferExprTypeWithMode
-                  True
-                  mode
+                inferExprTypeDetailed
                   importedEnvironment
                   initialState
                   expr
-           in (result, resultState, Map.empty, InferenceExpression expr)
-
-data FinalizedInference = FinalizedInference
-  { finalizedTypeErrors :: [Diagnostic],
-    finalizedPatternCoverageDiagnostics :: [Diagnostic],
-    finalizedModuleInterface :: ModuleInterface
-  }
-
-finalizeInferenceState :: InferenceInputs -> Expr 'Resolved -> InferState -> FinalizedInference
-finalizeInferenceState inputs expr finalState =
-  FinalizedInference
-    { finalizedTypeErrors = reverse (inferErrorsRev finalState),
-      finalizedPatternCoverageDiagnostics =
-        concatMap
-          (patternCoverageDiagnostics finalState)
-          (sortOn patternCoverageSiteOrdinal (inferPatternCoverageSites finalState)),
-      finalizedModuleInterface = moduleInterfaceFromState inputs expr finalState
-    }
-
-finishInference :: InferenceMode -> InferenceInputs -> Bool -> InferenceSubject -> Maybe ExpressionType -> Map Int (ResolvedName, SourceSpan) -> FinalizedInference -> IO InferenceResult
-finishInference mode inputs hideRootBindings subject inferredResult forwardBindings finalizedInference = do
-  let expression = inferenceSubjectExpr subject
-  AnalysisResult _ analyzerDiagnostics <-
-    case subject of
-      InferencePreparedScope _ preparedScope ->
-        analyzeProgramWithInputsAndPreparedScope
-          (analysisInputsForInference inputs (forwardAnalysisValues mode forwardBindings))
-          hideRootBindings
-          expression
-          preparedScope
-      InferenceExpression expr ->
-        analyzeProgramWithInputs
-          (analysisInputsForInference inputs (forwardAnalysisValues mode forwardBindings))
-          hideRootBindings
-          expr
-  let (warnings, analysisErrors) = partition (isJust . diagnosticWarningCategory) analyzerDiagnostics
-      diagnostics = CompilationDiagnostics warnings analysisErrors (finalizedTypeErrors finalizedInference) (finalizedPatternCoverageDiagnostics finalizedInference)
-  expression `seq`
-    inferredResult `seq`
-      pure
-        InferenceResult
-          { inferredExpr = expression,
-            inferredDiagnosticGroups = diagnostics,
-            inferredModuleInterface = finalizedModuleInterface finalizedInference
-          }
-
--- Ordinary inference owns the finalized diagnostics before the analyzer walk,
--- so rendering thunks cannot keep the complete solver state alive. The
--- remaining result containers are materialized only to WHNF.
-forceFinalizedInferenceContainers :: FinalizedInference -> ()
-forceFinalizedInferenceContainers finalizedInference =
-  forceListWith forceDiagnostic (finalizedTypeErrors finalizedInference) `seq`
-    forceListWith forceDiagnostic (finalizedPatternCoverageDiagnostics finalizedInference) `seq`
-      forceModuleInterfaceContainers (finalizedModuleInterface finalizedInference)
-
-patternCoverageDiagnostics :: InferState -> PatternCoverageSite -> [Diagnostic]
-patternCoverageDiagnostics finalState site =
-  map
-    coverageFailureDiagnostic
-    ( analyzePatternCoverage
-        (patternCoverageSiteConstructorInventory site)
-        (resolveType finalState (patternCoverageSiteScrutineeType site))
-        (patternCoverageSiteArms site)
-    )
-
-coverageFailureDiagnostic :: PatternCoverageFailure -> Diagnostic
-coverageFailureDiagnostic failure =
-  case failure of
-    NonExhaustivePattern missingPattern ->
-      mkNonExhaustivePatternMatchError missingPattern
-    UnreachablePatternArm armIndex ->
-      mkUnreachablePatternArmError armIndex
-
-forceModuleInterfaceContainers :: ModuleInterface -> ()
-forceModuleInterfaceContainers moduleInterface =
-  Map.foldrWithKey (\export (ModuleValueBinding binder binding) forced -> export `seq` binder `seq` binding `seq` forced) () (interfaceValueBindings moduleInterface) `seq`
-    forceMapEntriesWhnf (interfaceDataTypes moduleInterface) `seq`
-      forceMapEntriesWhnf (interfaceClassFacts moduleInterface) `seq`
-        forceSetEntriesWhnf (interfaceGeneratedEqualityClassFacts moduleInterface) `seq`
-          forceSetEntriesWhnf (interfaceConcreteImplFacts moduleInterface) `seq`
-            forceMapEntriesWhnf (interfaceClassMethods moduleInterface) `seq`
-              forceMapEntriesWhnf (interfaceConcreteImplMethods moduleInterface)
-
-forceMapEntriesWhnf :: Map key value -> ()
-forceMapEntriesWhnf = Map.foldrWithKey (\key value forced -> key `seq` value `seq` forced) ()
-
-forceSetEntriesWhnf :: Set value -> ()
-forceSetEntriesWhnf = Set.foldr (\value forced -> value `seq` forced) ()
-
-forceListWith :: (value -> ()) -> [value] -> ()
-forceListWith forceValue values =
-  case values of
-    [] -> ()
-    value : remaining -> forceValue value `seq` forceListWith forceValue remaining
-
-emptyInferenceInputs :: WarningSettings -> InferenceInputs
-emptyInferenceInputs settings =
-  InferenceInputs
-    { inferencePublicExports = Nothing,
-      inferenceWarningSettings = settings,
-      inferenceExternalUses = Set.empty,
-      inferenceImportedTypes = Map.empty,
-      inferenceImportedDataTypes = Map.empty,
-      inferenceImportedConstructorWitnessNames = Map.empty,
-      inferenceImportedCapabilities = emptyScopeCapabilityFacts,
-      inferenceImportedClassNames = Set.empty,
-      inferenceCurrentModulePath = Nothing
-    }
-
-analysisInputsForInference :: InferenceInputs -> Map Int (ResolvedName, AnalysisBinding) -> AnalysisInputs
-analysisInputsForInference inputs forwardValues =
-  AnalysisInputs
-    { analysisWarningSettings = inferenceWarningSettings inputs,
-      analysisExternalUses = inferenceExternalUses inputs,
-      analysisImportedValues =
-        Map.mapKeys typeEnvName (Map.map (const (AnalysisBinding Nothing True)) (inferenceImportedTypes inputs)),
-      analysisForwardFunctions = forwardValues,
-      analysisImportedClasses =
-        Set.union
-          (Set.map (resolvedAmbientName CapabilityNamespace . mkIdentifier) (inferenceImportedClassNames inputs))
-          (Set.map capabilityResolvedName (Map.keysSet (scopeClassFacts (inferenceImportedCapabilities inputs)))),
-      analysisModulePath = inferenceCurrentModulePath inputs
-    }
-
-forwardAnalysisValues :: InferenceMode -> Map Int (ResolvedName, SourceSpan) -> Map Int (ResolvedName, AnalysisBinding)
-forwardAnalysisValues mode forwardBindings
-  | mode /= InferConcreteFunctions = Map.empty
-  | otherwise =
-      Map.map
-        (\(name, bindingSpan) -> (name, AnalysisBinding (Just bindingSpan) False))
-        forwardBindings
+           in (result, resultState, InferenceExpression expr)
 
 initialStateForInference :: InferenceInputs -> InferState
 initialStateForInference inputs =
@@ -550,15 +273,6 @@ declaredModuleBindings expression =
         GeneratedName {} -> False
         _ -> True
 
-inferExpressionDefault :: Expr 'Resolved -> IO InferenceResult
-inferExpressionDefault =
-  inferExpressionWithRequest
-    InferenceRequest
-      { requestedInferenceInputs = emptyInferenceInputs defaultWarningSettings,
-        requestedHideRootBindings = False,
-        requestedModuleStatementFacts = []
-      }
-
 instantiateEnvBinding :: TypeBinding -> InferState -> (Maybe ExpressionType, InferState)
 instantiateEnvBinding binding state =
   case binding of
@@ -573,17 +287,16 @@ instantiateEnvBinding binding state =
     _ -> instantiateNonBuiltinTypeBinding binding state
 
 inferExprTypeWithMode ::
-  Bool ->
   InferenceMode ->
   TypeEnv ->
   InferState ->
   Expr 'Resolved ->
   (Maybe ExpressionType, InferState)
-inferExprTypeWithMode allowForwardSignedFunctions mode env state expr =
+inferExprTypeWithMode mode env state expr =
   case expr of
     EBlock node statements ->
       uncurry recordBlockResult (inferBlock mode node statements)
-    _ -> inferExprTypeDetailedWithMode mode env state expr
+    _ -> inferExprTypeDetailed env state expr
   where
     recordBlockResult result inferredState =
       ( result,
@@ -594,22 +307,14 @@ inferExprTypeWithMode allowForwardSignedFunctions mode env state expr =
       )
 
     inferBlock blockMode node statements =
-      (if allowForwardSignedFunctions then inferScopeTypeWithMode else inferNestedScopeTypeWithMode)
-        (inferExprTypeWithMode False)
+      inferNestedScopeTypeWithMode
+        inferExprTypeWithMode
         blockMode
         env
         state
         (prepareResolvedScope node statements)
 
 -- | Infer expression types and record the semantic facts consumed by analysis.
-inferExprTypeDetailedWithMode ::
-  InferenceMode ->
-  TypeEnv ->
-  InferState ->
-  Expr 'Resolved ->
-  (Maybe ExpressionType, InferState)
-inferExprTypeDetailedWithMode _mode = inferExprTypeDetailed
-
 inferExprTypeDetailed ::
   TypeEnv ->
   InferState ->
@@ -648,7 +353,7 @@ inferExprTypeDetailedRaw env state expr =
           (scrutineeType, stateWithScrutineeType) = case scrutineeResult of
             Just inferredType -> (inferredType, stateAfterScrutinee)
             Nothing -> freshTypeVar stateAfterScrutinee
-          (expressionType, inferredFinalState) = inferPatternCaseType inferExprTypeDetailedWithMode InferConcreteFunctions env scrutineeType stateWithScrutineeType caseArms
+          (expressionType, inferredFinalState) = inferPatternCaseType inferExprTypeDetailed env scrutineeType stateWithScrutineeType caseArms
           finalState =
             recordPatternCoverageSite
               ( PatternCoverageSite
@@ -662,7 +367,7 @@ inferExprTypeDetailedRaw env state expr =
        in (expressionType, finalState)
     EList _ elements -> inferListElements state elements
     ETuple _ elements -> inferTupleElements state elements
-    EBlock node statements -> inferNestedScopeTypeWithMode (inferExprTypeWithMode False) InferConcreteFunctions env state (prepareResolvedScope node statements)
+    EBlock node statements -> inferNestedScopeTypeWithMode inferExprTypeWithMode InferConcreteFunctions env state (prepareResolvedScope node statements)
     EVar node name ->
       let (expressionType, finalState) = inferVariableType node name state
        in (expressionType, annotateNewErrorsWithPrimarySpan (coreNodeSpan node) state finalState)
@@ -679,19 +384,19 @@ inferExprTypeDetailedRaw env state expr =
           if sectionFallback then inferSectionApplicationWithFallback function argument symbol left right else inferBuiltinOperatorApplication symbol aliasScheme left right
       | Just (methodName, methodSpan, methodKey, arguments) <- qualifiedMethodApplicationSpine expr state,
         Map.notMember methodName env ->
-          let (expressionType, finalState, argumentResults) = inferQualifiedMethodApplicationWithResults inferLocatedMethodArgument InferConcreteFunctions env state (coreNodeId (expressionNode expr)) methodKey arguments
+          let (expressionType, finalState, argumentResults) = inferQualifiedMethodApplicationWithResults inferLocatedMethodArgument env state (coreNodeId (expressionNode expr)) methodKey arguments
               stateWithSpineFacts = case (expressionType, sequenceA argumentResults) of
                 (Just resultType, Just argumentTypes) -> recordQualifiedMethodSpineFacts expr (foldr SemanticFunction (resolveType finalState resultType) (map (resolveType finalState) argumentTypes)) finalState
                 _ -> finalState
            in (expressionType, annotateNewErrorsWithPrimarySpan methodSpan state stateWithSpineFacts)
       | otherwise -> inferGenericApplication function argument
     ETypeApplication node function argumentSpan argument ->
-      inferExplicitTypeApplication inferExprTypeDetailedWithMode InferConcreteFunctions env state (coreNodeId node) function argumentSpan argument
+      inferExplicitTypeApplication inferExprTypeDetailed env state (coreNodeId node) function argumentSpan argument
     ESectionLeft _ left symbol -> inferLeftSection symbol left
     ESectionRight _ symbol right -> inferRightSection symbol right
   where
-    inferLocatedMethodArgument mode argumentEnv priorState argumentExpr =
-      let (argumentType, nextState) = inferExprTypeDetailedWithMode mode argumentEnv priorState argumentExpr
+    inferLocatedMethodArgument argumentEnv priorState argumentExpr =
+      let (argumentType, nextState) = inferExprTypeDetailed argumentEnv priorState argumentExpr
        in (argumentType, annotateNewErrorsWithPrimarySpan (coreNodeSpan (expressionNode argumentExpr)) priorState nextState)
 
     inferVariableType node name initialState =

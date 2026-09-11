@@ -163,8 +163,7 @@ analysisInputs =
       analysisExternalUses = Set.empty,
       analysisImportedValues = Map.empty,
       analysisForwardFunctions = Map.empty,
-      analysisImportedClasses = Set.empty,
-      analysisModulePath = Nothing
+      analysisImportedClasses = Set.empty
     }
 
 testRebindingDoesNotCreateRetroactiveRecursion :: IO ()

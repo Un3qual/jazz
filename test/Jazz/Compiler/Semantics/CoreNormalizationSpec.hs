@@ -18,14 +18,14 @@ import Jazz.Compiler.AST
     Statement (..),
   )
 import Jazz.Compiler.Diagnostics (SourceSpan (..))
+import Jazz.Compiler.ModuleAnalysis
+  ( inferExpressionDefault,
+  )
 import Jazz.Compiler.ModuleExports (exportInventory)
 import Jazz.Compiler.ModuleResolver (resolveStandaloneExprNames)
 import Jazz.Compiler.Parser (parseSurfaceProgram)
 import Jazz.Compiler.Parser.Lower (lowerSurfaceExpr)
-import Jazz.Compiler.TypeInference
-  ( inferExpressionDefault,
-  )
-import Jazz.Compiler.TypeInference.Result (InferenceResult (inferredExpr))
+import Jazz.Compiler.TypeInference.Result (InferenceResult (inferenceResolvedExpr))
 import Jazz.TestHarness
   ( NamedTest,
     assertEqual,
@@ -50,7 +50,7 @@ testIfRemainsCanonicalIf =
     let lowered = lowerSurfaceExpr surface
     assertRight "resolve if" (resolveStandaloneExprNames (exportInventory []) lowered) $ \resolved -> do
       inference <- inferExpressionDefault resolved
-      assertEqual "resolved equals inferred" resolved (inferredExpr inference)
+      assertEqual "resolved equals inferred" resolved (inferenceResolvedExpr inference)
 
 testDollarLowersToApplication :: IO ()
 testDollarLowersToApplication =
