@@ -3,6 +3,7 @@
 module Main (main) where
 
 import Data.Maybe (isJust)
+import Jazz.Compiler.CoreIdentity (CapabilityId (..))
 import Jazz.Compiler.DiagnosticCatalog
   ( DiagnosticSeverity (..),
     ErrorCode (..),
@@ -44,7 +45,7 @@ import Jazz.Compiler.Diagnostics
 import Jazz.Compiler.Diagnostics.Render
   ( renderDiagnostic,
   )
-import Jazz.Compiler.Name (NameNamespace (ValueNamespace), mkIdentifier, resolvedLocalName)
+import Jazz.Compiler.Name (NameNamespace (CapabilityNamespace, ValueNamespace), mkIdentifier, resolvedLocalName)
 import Jazz.Compiler.TypeInference.DiagnosticCause (TypeErrorCause (..))
 import Jazz.Compiler.TypeInference.Diagnostics (addTypeError, annotateNewErrorsWithContext, mkSignatureTypeMismatchError)
 import qualified Jazz.Compiler.TypeInference.Diagnostics as Inference
@@ -227,7 +228,7 @@ testSemanticErrorReports = do
   assertEqual
     "method argument reports share names across their entire argument list"
     "no matching qualified method body 'Eq::equal' for argument types (t0, t1, t0), t1"
-    (diagnosticSummary (Inference.mkNoMatchingQualifiedMethodBodyError "Eq::equal" [pair 7, variable 8]))
+    (diagnosticSummary (Inference.mkNoMatchingQualifiedMethodBodyError (equalityCapability, mkIdentifier "equal") [pair 7, variable 8]))
   assertEqual
     "pattern and scrutinee share report names in presentation order"
     "case pattern of type (t0, t1, t0) does not match scrutinee type t1"
@@ -247,6 +248,7 @@ testSemanticErrorReports = do
       assertEqual (label <> " retains semantic cause") True (isJust (diagnosticTypeError earlier))
       assertEqual (label <> " ignores allocation offsets") (renderDiagnostic earlier) (renderDiagnostic later)
     variable = SemanticVariable
+    equalityCapability = CapabilityId (resolvedLocalName CapabilityNamespace (mkIdentifier "Eq"))
     pair offset = SemanticTuple [variable offset, variable (offset + 1), variable offset]
     name = resolvedLocalName ValueNamespace (mkIdentifier "item")
     spanValue = SourceRangeIn "src/Lib/Check.jz" 3 4 3 12
@@ -257,12 +259,12 @@ testSemanticErrorReports = do
         ("numeric section", \n -> Inference.mkNumericSectionOperandTypeError "+" (pair n)),
         ("numeric constraint", \n -> Inference.mkTypeSchemeNumericConstraintError AnyNumericConstraint (pair n)),
         ("equality constraint", \n -> Inference.mkTypeSchemeStrictEqualityConstraintError (pair n)),
-        ("missing method match", \n -> Inference.mkNoMatchingQualifiedMethodBodyError "Eq::equal" [pair n, variable (n + 1)]),
-        ("ambiguous method match", \n -> Inference.mkAmbiguousQualifiedMethodBodyForArgumentsError "Eq::equal" [pair n, variable (n + 1)]),
+        ("missing method match", \n -> Inference.mkNoMatchingQualifiedMethodBodyError (equalityCapability, mkIdentifier "equal") [pair n, variable (n + 1)]),
+        ("ambiguous method match", \n -> Inference.mkAmbiguousQualifiedMethodBodyForArgumentsError (equalityCapability, mkIdentifier "equal") [pair n, variable (n + 1)]),
         ("undeclared class constraint", \n -> Inference.mkUndeclaredSignatureConstraintError "f" False "Eq" (pair n) spanValue),
         ("undeclared primitive constraint", \n -> Inference.mkUndeclaredSignatureConstraintError "f" True "Numeric" (pair n) spanValue),
-        ("ambiguous inferred constraint", \n -> Inference.mkAmbiguousDeferredConstraintError True "Eq" (pair n)),
-        ("ambiguous explicit constraint", \n -> Inference.mkAmbiguousDeferredConstraintError False "Eq" (pair n)),
+        ("ambiguous inferred constraint", \n -> Inference.mkAmbiguousDeferredConstraintError True equalityCapability (pair n)),
+        ("ambiguous explicit constraint", \n -> Inference.mkAmbiguousDeferredConstraintError False equalityCapability (pair n)),
         ("pattern mismatch", \n -> Inference.mkPatternTypeMismatchError (variable (n + 1)) (pair n)),
         ("list pattern mismatch", \n -> Inference.mkListPatternTypeMismatchError (pair n)),
         ("tuple pattern mismatch", \n -> Inference.mkTuplePatternTypeMismatchError (pair n)),

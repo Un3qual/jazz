@@ -27,9 +27,9 @@ import Jazz.Compiler.AST
   )
 import Jazz.Compiler.CapabilityFacts
   ( ConcreteImplFact (..),
-    concreteImplFactClassName,
+    concreteImplFactCapability,
   )
-import Jazz.Compiler.CoreIdentity (ResolvedReference (LexicalReference))
+import Jazz.Compiler.CoreIdentity (CapabilityId (..), CapabilityMethodKey, ResolvedReference (LexicalReference), renderCapabilityId)
 import Jazz.Compiler.ModuleExports
   ( ModuleExportInventory,
     exportNamesInNamespace,
@@ -313,7 +313,7 @@ importSelectedInterface origin maybeAlias maybeSymbols publicInventory moduleInt
         member = mkIdentifier (moduleExportName export)
 
     dataTypeNames = Set.map identifierText (Map.keysSet (interfaceDataTypes moduleInterface))
-    classNames = Map.keysSet (interfaceClassFacts moduleInterface)
+    classNames = Set.map renderCapabilityId (Map.keysSet (interfaceClassFacts moduleInterface))
     selectedInventory =
       selectExportNames
         maybeSymbols
@@ -324,15 +324,15 @@ importSelectedInterface origin maybeAlias maybeSymbols publicInventory moduleInt
         (interfaceValueBindings moduleInterface)
     selectedClassNames = exportNamesInNamespace CapabilityNamespace selectedInventory
     selectedClassFacts =
-      Map.restrictKeys
+      Map.filterWithKey
+        (\capability _ -> Set.member (renderCapabilityId capability) selectedClassNames)
         (interfaceClassFacts moduleInterface)
-        selectedClassNames
     selectedCapabilities =
       ScopeCapabilityFacts
         { scopeClassFacts = selectedClassFacts,
           scopeGeneratedEqualityClassFacts =
             Set.filter
-              (`Set.member` selectedClassNames)
+              (\capability -> Set.member (renderCapabilityId capability) selectedClassNames)
               (interfaceGeneratedEqualityClassFacts moduleInterface),
           scopeConcreteImplFacts =
             Set.filter (factUsesClass selectedClassNames) (interfaceConcreteImplFacts moduleInterface),
@@ -342,12 +342,6 @@ importSelectedInterface origin maybeAlias maybeSymbols publicInventory moduleInt
             Map.filterWithKey (methodUsesClass selectedClassNames) (interfaceConcreteImplMethods moduleInterface)
         }
 
-qualifiedKey :: ResolvedNameOrigin -> Text -> Text
-qualifiedKey origin name =
-  case origin of
-    ImportedModule modulePath -> renderModulePath modulePath <> "::" <> name
-    _ -> name
-
 moduleOrigin :: ModulePath -> ResolvedNameOrigin
 moduleOrigin = ImportedModule
 
@@ -355,11 +349,11 @@ modulePathTexts :: ModulePath -> [Text]
 modulePathTexts = NonEmpty.toList . modulePathTextSegments
 
 factUsesClass :: Set.Set Text -> ConcreteImplFact -> Bool
-factUsesClass classNames fact = Set.member (concreteImplFactClassName fact) classNames
+factUsesClass classNames fact = Set.member (renderCapabilityId (concreteImplFactCapability fact)) classNames
 
-methodUsesClass :: Set.Set Text -> Text -> value -> Bool
+methodUsesClass :: Set.Set Text -> CapabilityMethodKey -> value -> Bool
 methodUsesClass classNames methodKey _ =
-  any (\className -> (className <> "::") `Text.isPrefixOf` methodKey) (Set.toList classNames)
+  Set.member (renderCapabilityId (fst methodKey)) classNames
 
 rebaseTypeBinding :: ResolvedNameOrigin -> Set.Set Text -> Set.Set Text -> SemanticBinding variable -> SemanticBinding variable
 rebaseTypeBinding origin dataTypeNames classNames binding =
@@ -416,12 +410,12 @@ rebaseTypeScheme origin dataTypeNames classNames typeScheme =
     rebaseSchemeConstraint constraint =
       case constraint of
         TypeSchemeConstraint capabilityName argumentType ->
-          TypeSchemeConstraint (rebaseKnownText origin classNames capabilityName) (rebaseExpressionType origin dataTypeNames argumentType)
+          TypeSchemeConstraint (rebaseCapabilityId origin classNames capabilityName) (rebaseExpressionType origin dataTypeNames argumentType)
         TypeSchemeInferredConstraint capabilityName argumentType ->
-          TypeSchemeInferredConstraint (rebaseKnownText origin classNames capabilityName) (rebaseExpressionType origin dataTypeNames argumentType)
+          TypeSchemeInferredConstraint (rebaseCapabilityId origin classNames capabilityName) (rebaseExpressionType origin dataTypeNames argumentType)
         TypeSchemeMethodConstraint capabilityName methodKey argumentType ->
           TypeSchemeMethodConstraint
-            (rebaseKnownText origin classNames capabilityName)
+            (rebaseCapabilityId origin classNames capabilityName)
             (rebaseMethodKey origin classNames methodKey)
             (rebaseExpressionType origin dataTypeNames argumentType)
     rebasePrimitiveConstraint = fmap (rebaseExpressionType origin dataTypeNames)
@@ -429,8 +423,8 @@ rebaseTypeScheme origin dataTypeNames classNames typeScheme =
 rebaseCapabilityFacts :: ResolvedNameOrigin -> Set.Set Text -> Set.Set Text -> ScopeCapabilityFacts -> ScopeCapabilityFacts
 rebaseCapabilityFacts origin dataTypeNames classNames facts =
   ScopeCapabilityFacts
-    { scopeClassFacts = Map.mapKeys (rebaseKnownText origin classNames) (scopeClassFacts facts),
-      scopeGeneratedEqualityClassFacts = Set.map (rebaseKnownText origin classNames) (scopeGeneratedEqualityClassFacts facts),
+    { scopeClassFacts = Map.mapKeys (rebaseCapabilityId origin classNames) (scopeClassFacts facts),
+      scopeGeneratedEqualityClassFacts = Set.map (rebaseCapabilityId origin classNames) (scopeGeneratedEqualityClassFacts facts),
       scopeConcreteImplFacts = Set.map (rebaseConcreteImplFact origin dataTypeNames classNames) (scopeConcreteImplFacts facts),
       scopeClassMethodSignatures =
         Map.fromList
@@ -460,7 +454,7 @@ rebaseConcreteImplFact ::
   ConcreteImplFact
 rebaseConcreteImplFact origin dataTypeNames classNames (ConcreteImplFact capabilityName argument) =
   ConcreteImplFact
-    (rebaseKnownName origin CapabilityNamespace classNames capabilityName)
+    (rebaseCapabilityId origin classNames capabilityName)
     (rebaseExpressionType origin dataTypeNames argument)
 
 rebaseKnownName :: ResolvedNameOrigin -> NameNamespace -> Set.Set Text -> ResolvedName -> ResolvedName
@@ -476,13 +470,10 @@ rebaseKnownName origin namespace knownNames name =
     localDeclaration LocalDeclaration {} = True
     localDeclaration _ = False
 
-rebaseKnownText :: ResolvedNameOrigin -> Set.Set Text -> Text -> Text
-rebaseKnownText origin knownNames name
-  | Set.member name knownNames = qualifiedKey origin name
-  | otherwise = name
+rebaseCapabilityId :: ResolvedNameOrigin -> Set.Set Text -> CapabilityId -> CapabilityId
+rebaseCapabilityId origin knownNames (CapabilityId name) =
+  CapabilityId (rebaseKnownName origin CapabilityNamespace knownNames name)
 
-rebaseMethodKey :: ResolvedNameOrigin -> Set.Set Text -> Text -> Text
-rebaseMethodKey origin classNames methodKey =
-  case [className | className <- Set.toList classNames, (className <> "::") `Text.isPrefixOf` methodKey] of
-    className : _ -> qualifiedKey origin className <> Text.drop (Text.length className) methodKey
-    [] -> methodKey
+rebaseMethodKey :: ResolvedNameOrigin -> Set.Set Text -> CapabilityMethodKey -> CapabilityMethodKey
+rebaseMethodKey origin classNames (capability, method) =
+  (rebaseCapabilityId origin classNames capability, method)

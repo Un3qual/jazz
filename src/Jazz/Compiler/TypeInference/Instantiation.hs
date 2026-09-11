@@ -12,9 +12,6 @@ import Data.List.NonEmpty
   ( NonEmpty (..),
   )
 import qualified Data.Map.Strict as Map
-import Data.Text
-  ( Text,
-  )
 import Jazz.Compiler.AST
   ( CoreNode (coreNodeFacts, coreNodeId, coreNodeSpan),
     CoreNodeId,
@@ -23,12 +20,12 @@ import Jazz.Compiler.AST
     SignatureType,
     expressionNode,
   )
+import Jazz.Compiler.CoreIdentity (CapabilityMethodKey, capabilityMethodKeyFromReference, resolvedValueReference)
 import Jazz.Compiler.Diagnostics
   ( SourceSpan,
   )
 import Jazz.Compiler.Name
   ( ResolvedName,
-    identifierText,
     operatorBindingName,
   )
 import Jazz.Compiler.TypeInference.Capabilities
@@ -231,15 +228,14 @@ explicitTypeApplicationTargetName functionExpr =
     EOperatorValue _ operatorSymbol -> Just (operatorBindingName operatorSymbol)
     _ -> Nothing
 
-explicitQualifiedMethodTypeApplicationKey :: TypeEnv -> InferState -> Expr 'Resolved -> Maybe Text
+explicitQualifiedMethodTypeApplicationKey :: TypeEnv -> InferState -> Expr 'Resolved -> Maybe CapabilityMethodKey
 explicitQualifiedMethodTypeApplicationKey env state functionExpr =
   case functionExpr of
     EVar node name
       | Map.notMember (typeEnvReferenceKey (coreNodeFacts node) name) env,
+        Just methodKey <- capabilityMethodKeyFromReference (resolvedValueReference (coreNodeFacts node)),
         qualifiedMethodClassIsVisible methodKey state ->
           Just methodKey
-      where
-        methodKey = identifierText name
     _ -> Nothing
 
 explicitTypeApplicationScheme :: TypeEnv -> Expr 'Resolved -> Maybe TypeScheme

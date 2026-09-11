@@ -52,7 +52,7 @@ import Jazz.Compiler.BuiltinCatalog
     numericTypeIntegerBounds,
     numericTypeLiteralIntegerBounds,
   )
-import Jazz.Compiler.CoreIdentity (CoreBinderId, ResolvedNodeFacts (..), ResolvedReference (..), resolvedValueReference)
+import Jazz.Compiler.CoreIdentity (CapabilityMethodKey, CoreBinderId, ResolvedNodeFacts (..), ResolvedReference (..), capabilityMethodKeyFromReference, capabilityResolvedName, resolvedValueReference)
 import Jazz.Compiler.Diagnostics
   ( CompilationDiagnostics (..),
     Diagnostic,
@@ -463,12 +463,9 @@ analysisInputsForInference inputs forwardValues =
         Map.mapKeys typeEnvName (Map.map (const (AnalysisBinding Nothing True)) (inferenceImportedTypes inputs)),
       analysisForwardFunctions = forwardValues,
       analysisImportedClasses =
-        Set.map
-          (resolvedAmbientName CapabilityNamespace . mkIdentifier)
-          ( Set.union
-              (inferenceImportedClassNames inputs)
-              (Map.keysSet (scopeClassFacts (inferenceImportedCapabilities inputs)))
-          ),
+        Set.union
+          (Set.map (resolvedAmbientName CapabilityNamespace . mkIdentifier) (inferenceImportedClassNames inputs))
+          (Set.map capabilityResolvedName (Map.keysSet (scopeClassFacts (inferenceImportedCapabilities inputs)))),
       analysisModulePath = inferenceCurrentModulePath inputs
     }
 
@@ -700,7 +697,7 @@ inferExprTypeDetailedRaw env state expr =
           case instantiateBuiltinType (resolvedValueReference (coreNodeFacts node)) initialState of
             Just (builtinType, nextState) -> (Just builtinType, nextState)
             Nothing ->
-              case instantiateQualifiedMethodType (coreNodeId node) (identifierText name) initialState of
+              case instantiateQualifiedMethodType (coreNodeId node) (resolvedValueReference (coreNodeFacts node)) initialState of
                 Just qualifiedMethodResult -> qualifiedMethodResult
                 Nothing -> (Nothing, initialState)
 
@@ -1165,11 +1162,11 @@ discardFailedFunctionApplicationConstraints stateBeforeFunction stateAfterApplic
     )
     stateAfterApplication
 
-qualifiedMethodApplicationSpine :: Expr 'Resolved -> InferState -> Maybe (TypeEnvKey, SourceSpan, Text, [Expr 'Resolved])
+qualifiedMethodApplicationSpine :: Expr 'Resolved -> InferState -> Maybe (TypeEnvKey, SourceSpan, CapabilityMethodKey, [Expr 'Resolved])
 qualifiedMethodApplicationSpine expr state =
   case applicationSpine expr of
     Just (methodName, methodSpan, argumentExprs)
-      | let methodKey = identifierText (typeEnvName methodName),
+      | Just methodKey <- capabilityMethodKeyFromReference (typeEnvReference methodName),
         qualifiedMethodClassIsVisible methodKey state ->
           Just (methodName, methodSpan, methodKey, argumentExprs)
     _ -> Nothing

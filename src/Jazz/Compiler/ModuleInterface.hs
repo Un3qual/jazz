@@ -23,7 +23,7 @@ import Data.Set (Set)
 import qualified Data.Set as Set
 import Data.Text (Text)
 import GHC.Generics (Generic)
-import Jazz.Compiler.CoreIdentity (CoreBinderId)
+import Jazz.Compiler.CoreIdentity (CapabilityId, CapabilityMethodKey, CoreBinderId, renderCapabilityId)
 import Jazz.Compiler.ModuleExports
   ( ModuleExport (..),
     ModuleExportInventory,
@@ -62,11 +62,11 @@ data ModuleValueBinding = ModuleValueBinding
 data ModuleInterface = ModuleInterface
   { interfaceValueBindings :: Map ModuleExport ModuleValueBinding,
     interfaceDataTypes :: Map ResolvedName DataTypeBinding,
-    interfaceClassFacts :: Map Text Int,
-    interfaceGeneratedEqualityClassFacts :: Set Text,
+    interfaceClassFacts :: Map CapabilityId Int,
+    interfaceGeneratedEqualityClassFacts :: Set CapabilityId,
     interfaceConcreteImplFacts :: Set ConcreteImplFact,
-    interfaceClassMethods :: Map Text ClassMethodType,
-    interfaceConcreteImplMethods :: Map Text [ImplMethodType]
+    interfaceClassMethods :: Map CapabilityMethodKey ClassMethodType,
+    interfaceConcreteImplMethods :: Map CapabilityMethodKey [ImplMethodType]
   }
   deriving stock (Eq, Generic, Show)
   deriving anyclass (NFData)
@@ -78,7 +78,7 @@ moduleInterfaceExportInventory interface =
         <> [ ModuleExport TypeNamespace (renderName name)
            | name <- Map.keys (interfaceDataTypes interface)
            ]
-        <> [ ModuleExport CapabilityNamespace name
+        <> [ ModuleExport CapabilityNamespace (renderCapabilityId name)
            | name <- Map.keys (interfaceClassFacts interface)
            ]
     )

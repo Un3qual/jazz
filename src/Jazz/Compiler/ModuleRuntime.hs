@@ -29,8 +29,7 @@ import Data.Text (Text)
 import Jazz.Compiler.AST
   ( CorePhase (..),
   )
-import Jazz.Compiler.CapabilityFacts (splitQualifiedMethodKey)
-import Jazz.Compiler.CoreIdentity (CapabilityId (..), ResolvedReference (..))
+import Jazz.Compiler.CoreIdentity (CapabilityId (..), ResolvedReference (..), renderCapabilityId)
 import Jazz.Compiler.Diagnostics
   ( Diagnostic,
   )
@@ -449,8 +448,9 @@ interfaceExports publicInventory moduleInterface =
     moduleExportNamespace export `elem` [ValueNamespace, ConstructorNamespace]
   ]
     <> [ RuntimeCapabilityMethodExport className methodName
-       | methodKey <- Map.keys (interfaceClassMethods moduleInterface),
-         Just (className, methodName) <- [splitQualifiedMethodKey methodKey],
+       | (capability, method) <- Map.keys (interfaceClassMethods moduleInterface),
+         let className = renderCapabilityId capability,
+         let methodName = identifierText method,
          Set.member className publicClassNames
        ]
   where

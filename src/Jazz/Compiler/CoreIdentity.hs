@@ -2,12 +2,17 @@
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE OverloadedStrings #-}
 
 -- | Declaration and reference identities shared from resolution onwards.
 module Jazz.Compiler.CoreIdentity
   ( CoreNodeId (..),
     CoreBinderId (..),
     CapabilityId (..),
+    CapabilityMethodKey,
+    capabilityMethodKeyFromReference,
+    renderCapabilityId,
+    renderCapabilityMethodKey,
     ImplId (..),
     MethodId (..),
     ResolvedReference (..),
@@ -25,7 +30,7 @@ import Data.Set (Set)
 import Data.Text (Text)
 import GHC.Generics (Generic)
 import Jazz.Compiler.ModuleIdentity (SourceUnitOwner)
-import Jazz.Compiler.Name (Identifier, ResolvedName)
+import Jazz.Compiler.Name (Identifier, ResolvedName, identifierText)
 
 newtype CoreNodeId = CoreNodeId Int
   deriving stock (Eq, Generic, Ord, Show)
@@ -36,9 +41,22 @@ newtype CoreBinderId = CoreBinderId (SourceUnitOwner, CoreNodeId)
   deriving stock (Eq, Generic, Ord, Show)
   deriving anyclass (NFData)
 
-newtype CapabilityId = CapabilityId ResolvedName
+newtype CapabilityId = CapabilityId {capabilityResolvedName :: ResolvedName}
   deriving stock (Eq, Generic, Ord, Show)
   deriving anyclass (NFData)
+
+type CapabilityMethodKey = (CapabilityId, Identifier)
+
+capabilityMethodKeyFromReference :: ResolvedReference -> Maybe CapabilityMethodKey
+capabilityMethodKeyFromReference reference = case reference of
+  CapabilityMethodReference capability method -> Just (capability, method)
+  _ -> Nothing
+
+renderCapabilityId :: CapabilityId -> Text
+renderCapabilityId = identifierText . capabilityResolvedName
+
+renderCapabilityMethodKey :: CapabilityMethodKey -> Text
+renderCapabilityMethodKey (capability, method) = renderCapabilityId capability <> "::" <> identifierText method
 
 newtype ImplId = ImplId (SourceUnitOwner, CoreNodeId)
   deriving stock (Eq, Generic, Ord, Show)

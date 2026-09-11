@@ -67,7 +67,7 @@ import Jazz.Compiler.BuiltinCatalog
 import Jazz.Compiler.CapabilityFacts
   ( qualifiedMethodKey,
   )
-import Jazz.Compiler.CoreIdentity (ResolvedNodeFacts (resolvedNodeCaptures, resolvedNodeOwner, resolvedNodeReference), ResolvedReference (..), resolvedBinderReference, resolvedValueReference)
+import Jazz.Compiler.CoreIdentity (ResolvedNodeFacts (resolvedNodeCaptures, resolvedNodeOwner, resolvedNodeReference), ResolvedReference (..), renderCapabilityMethodKey, resolvedBinderReference, resolvedValueReference)
 import Jazz.Compiler.DiagnosticCatalog
   ( ErrorCode (..),
   )
@@ -927,7 +927,7 @@ evaluateRuntimeScopePureRequest request = go Nothing indexedStatements
       foldl' insertMethod env methods
       where
         insertMethod envAcc (ClassMethodSignature node methodName _) =
-          let methodKey = qualifiedMethodKey capabilityName methodName
+          let methodKey = renderCapabilityMethodKey (qualifiedMethodKey capabilityName methodName)
               methodName' = resolvedValueReference (statementResolution (coreNodeFacts node))
               methodValue = case statementDeclarationFact (coreNodeFacts node) of
                 MethodDeclaration _ signature ->
@@ -958,7 +958,7 @@ evaluateRuntimeScopePureRequest request = go Nothing indexedStatements
             methodCandidates =
               map
                 ( \(ImplMethod methodNode methodName methodExpr) ->
-                    let methodKey = qualifiedMethodKey capabilityName methodName
+                    let methodKey = renderCapabilityMethodKey (qualifiedMethodKey capabilityName methodName)
                         methodName' = resolvedValueReference (statementResolution (coreNodeFacts methodNode))
                         evidence = runtimeEvidence methodModulePath (coreNodeId implementationNode) capabilityName methodName runtimeImplTarget
                      in ( methodName',

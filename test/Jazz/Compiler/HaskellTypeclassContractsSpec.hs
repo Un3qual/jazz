@@ -238,45 +238,47 @@ testScopeCapabilityFacts = do
   assertEqual
     "class facts remain left-biased"
     (Just 1)
-    (Map.lookup "Comparable" (scopeClassFacts combined))
+    (Map.lookup comparable (scopeClassFacts combined))
   assertEqual
     "method facts remain left-biased"
     (Just (ClassMethodType "Left" TypeRepresentation.SemanticInt))
-    (Map.lookup "compare" (scopeClassMethodSignatures combined))
+    (Map.lookup compareMethod (scopeClassMethodSignatures combined))
   assertEqual
     "implementation methods preserve left-to-right order"
     (Just [fixtureImplMethod TypeRepresentation.SemanticInt, fixtureImplMethod TypeRepresentation.SemanticBool])
-    (Map.lookup "Comparable" (scopeConcreteImplMethods combined))
+    (Map.lookup compareMethod (scopeConcreteImplMethods combined))
   assertEqual
     "three-way implementation collisions preserve left-to-right order"
     (Just [fixtureImplMethod TypeRepresentation.SemanticInt, fixtureImplMethod TypeRepresentation.SemanticBool, fixtureImplMethod TypeRepresentation.SemanticBool])
-    (Map.lookup "Comparable" (scopeConcreteImplMethods (first <> second <> third)))
+    (Map.lookup compareMethod (scopeConcreteImplMethods (first <> second <> third)))
   where
+    comparable = CapabilityId (localCapabilityName "Comparable")
+    compareMethod = (comparable, mkIdentifier "compare")
     combined = first <> second
     first =
       mempty
-        { scopeClassFacts = Map.singleton "Comparable" 1,
+        { scopeClassFacts = Map.singleton comparable 1,
           scopeClassMethodSignatures =
-            Map.singleton "compare" (ClassMethodType "Left" TypeRepresentation.SemanticInt),
+            Map.singleton compareMethod (ClassMethodType "Left" TypeRepresentation.SemanticInt),
           scopeConcreteImplMethods =
-            Map.singleton "Comparable" [fixtureImplMethod TypeRepresentation.SemanticInt]
+            Map.singleton compareMethod [fixtureImplMethod TypeRepresentation.SemanticInt]
         }
     second =
       mempty
-        { scopeClassFacts = Map.singleton "Comparable" 2,
+        { scopeClassFacts = Map.singleton comparable 2,
           scopeClassMethodSignatures =
-            Map.singleton "compare" (ClassMethodType "Right" TypeRepresentation.SemanticBool),
+            Map.singleton compareMethod (ClassMethodType "Right" TypeRepresentation.SemanticBool),
           scopeConcreteImplMethods =
-            Map.singleton "Comparable" [fixtureImplMethod TypeRepresentation.SemanticBool]
+            Map.singleton compareMethod [fixtureImplMethod TypeRepresentation.SemanticBool]
         }
     third =
       mempty
-        { scopeClassFacts = Map.singleton "Comparable" 3,
+        { scopeClassFacts = Map.singleton comparable 3,
           scopeClassMethodSignatures =
-            Map.singleton "compare" (ClassMethodType "Third" TypeRepresentation.SemanticInt),
+            Map.singleton compareMethod (ClassMethodType "Third" TypeRepresentation.SemanticInt),
           scopeConcreteImplMethods =
-            Map.singleton "Comparable" [fixtureImplMethod TypeRepresentation.SemanticBool],
-          scopeGeneratedEqualityClassFacts = Set.singleton "Eq",
+            Map.singleton compareMethod [fixtureImplMethod TypeRepresentation.SemanticBool],
+          scopeGeneratedEqualityClassFacts = Set.singleton (CapabilityId (localCapabilityName "Eq")),
           scopeConcreteImplFacts = Set.singleton (fixtureConcreteImplFact (localCapabilityName "Comparable") TypeInt)
         }
 
@@ -352,7 +354,7 @@ assertImportedConstraintFactAccepted label sourceArgument importedArgument = do
           inferenceImportedConstructorWitnessNames = Map.empty,
           inferenceImportedCapabilities =
             emptyScopeCapabilityFacts
-              { scopeClassFacts = Map.singleton "Marked" 1,
+              { scopeClassFacts = Map.singleton (CapabilityId (localCapabilityName "Marked")) 1,
                 scopeConcreteImplFacts = Set.singleton (fixtureConcreteImplFact (localCapabilityName "Marked") factArgument)
               },
           inferenceImportedClassNames = Set.singleton "Marked",

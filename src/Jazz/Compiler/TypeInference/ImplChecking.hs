@@ -17,6 +17,7 @@ import Jazz.Compiler.AST
     ImplMethod (..),
   )
 import Jazz.Compiler.CapabilityFacts (qualifiedMethodKey)
+import Jazz.Compiler.CoreIdentity (renderCapabilityMethodKey)
 import Jazz.Compiler.Diagnostics (DiagnosticContext (CheckingImplMethod))
 import Jazz.Compiler.Name (ResolvedName, identifierText, qualifiedMemberName)
 import Jazz.Compiler.SemanticDeclarations (concreteImplementationType)
@@ -70,7 +71,7 @@ checkImplMethodBodies inferExpected resultType env initialState capabilityName a
           methodKey = qualifiedMethodKey capabilityName methodName
       result <- case Map.lookup methodKey (inferClassMethodSignatures beforeSignature) of
         Nothing -> do
-          modify' (\current -> addTypeError current (mkImplMethodMissingClassMethodError methodKey methodSpan))
+          modify' (\current -> addTypeError current (mkImplMethodMissingClassMethodError (renderCapabilityMethodKey methodKey) methodSpan))
           pure Nothing
         Just classMethodType -> do
           let ClassMethodType parameter declaredMethodType = classMethodType
@@ -93,7 +94,7 @@ checkImplMethodBodies inferExpected resultType env initialState capabilityName a
                         addTypeError
                           afterBody
                           ( mkImplMethodTypeMismatchError
-                              methodKey
+                              (renderCapabilityMethodKey methodKey)
                               methodSpan
                               (defaultLiteralTypes afterBody (resolveType afterBody expectedType))
                               (defaultLiteralTypes afterBody (resolveType afterBody methodType))
@@ -102,7 +103,7 @@ checkImplMethodBodies inferExpected resultType env initialState capabilityName a
               modify' (finalizeDeferredExplicitConstraintsAt methodSpan beforeBody)
               pure (Just (methodIndex, methodResult))
 
-      modify' (annotateNewErrorsWithContext (CheckingImplMethod methodKey) methodSpan beforeSignature)
+      modify' (annotateNewErrorsWithContext (CheckingImplMethod (renderCapabilityMethodKey methodKey)) methodSpan beforeSignature)
       pure result
 
     implMethodEnv implTarget stateForBindings =

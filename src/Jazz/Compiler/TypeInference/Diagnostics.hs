@@ -95,6 +95,7 @@ import Jazz.Compiler.CapabilityFacts
     identifierLooksLikeTypeVariable,
     renderConcreteImplFact,
   )
+import Jazz.Compiler.CoreIdentity (CapabilityId (..), CapabilityMethodKey, renderCapabilityId, renderCapabilityMethodKey)
 import Jazz.Compiler.DiagnosticCatalog
   ( ErrorCode (..),
   )
@@ -293,14 +294,24 @@ mkTypeSchemeStrictEqualityConstraintError foundType = mkInferenceTypeError E2004
 mkMissingOperatorBindingError :: Text -> Diagnostic
 mkMissingOperatorBindingError symbol = mkErrorDiagnostic E2010 CompilationOrigin ("operator '" <> symbol <> "' has no executable binding")
 
-mkMissingClassMethodError, mkMissingImplMethodBodyError, mkAmbiguousQualifiedMethodBodyError :: Text -> Diagnostic
-mkMissingClassMethodError key = withSubject key $ mkErrorDiagnostic E2015 CompilationOrigin ("missing class method '" <> key <> "'")
-mkMissingImplMethodBodyError key = withSubject key $ mkErrorDiagnostic E2015 CompilationOrigin ("missing impl method body '" <> key <> "'")
-mkAmbiguousQualifiedMethodBodyError key = withSubject key $ mkErrorDiagnostic E2015 CompilationOrigin ("ambiguous qualified method body '" <> key <> "'")
+mkMissingClassMethodError, mkMissingImplMethodBodyError, mkAmbiguousQualifiedMethodBodyError :: CapabilityMethodKey -> Diagnostic
+mkMissingClassMethodError methodKey = withSubject key $ mkErrorDiagnostic E2015 CompilationOrigin ("missing class method '" <> key <> "'")
+  where
+    key = renderCapabilityMethodKey methodKey
+mkMissingImplMethodBodyError methodKey = withSubject key $ mkErrorDiagnostic E2015 CompilationOrigin ("missing impl method body '" <> key <> "'")
+  where
+    key = renderCapabilityMethodKey methodKey
+mkAmbiguousQualifiedMethodBodyError methodKey = withSubject key $ mkErrorDiagnostic E2015 CompilationOrigin ("ambiguous qualified method body '" <> key <> "'")
+  where
+    key = renderCapabilityMethodKey methodKey
 
-mkNoMatchingQualifiedMethodBodyError, mkAmbiguousQualifiedMethodBodyForArgumentsError :: Text -> [ExpressionType] -> Diagnostic
-mkNoMatchingQualifiedMethodBodyError key types = withSubject key $ mkInferenceTypeError E2015 (NoMatchingMethodArguments key types)
-mkAmbiguousQualifiedMethodBodyForArgumentsError key types = withSubject key $ mkInferenceTypeError E2015 (AmbiguousMethodArguments key types)
+mkNoMatchingQualifiedMethodBodyError, mkAmbiguousQualifiedMethodBodyForArgumentsError :: CapabilityMethodKey -> [ExpressionType] -> Diagnostic
+mkNoMatchingQualifiedMethodBodyError methodKey types = withSubject key $ mkInferenceTypeError E2015 (NoMatchingMethodArguments key types)
+  where
+    key = renderCapabilityMethodKey methodKey
+mkAmbiguousQualifiedMethodBodyForArgumentsError methodKey types = withSubject key $ mkInferenceTypeError E2015 (AmbiguousMethodArguments key types)
+  where
+    key = renderCapabilityMethodKey methodKey
 
 mkInvalidQualifiedMethodSignatureError :: Text -> SignaturePayload 'Resolved -> Diagnostic
 mkInvalidQualifiedMethodSignatureError key payload =
@@ -342,18 +353,22 @@ mkInvalidConstructorPayloadTypeError detail =
 mkMissingConstructorTypeParameterBindingError :: Text -> Diagnostic
 mkMissingConstructorTypeParameterBindingError name = mkErrorDiagnostic E2013 CompilationOrigin ("internal constructor scheme error: missing binding for type parameter '" <> name <> "'")
 
-mkMissingExplicitConstraintClassError :: Text -> Diagnostic
-mkMissingExplicitConstraintClassError name = mkErrorDiagnostic E2009 CompilationOrigin ("missing class declaration '" <> name <> "'")
+mkMissingExplicitConstraintClassError :: CapabilityId -> Diagnostic
+mkMissingExplicitConstraintClassError capability = mkErrorDiagnostic E2009 CompilationOrigin ("missing class declaration '" <> name <> "'")
+  where
+    name = renderCapabilityId capability
 
-mkExplicitConstraintArityError :: Text -> Int -> Diagnostic
-mkExplicitConstraintArityError name arity = mkErrorDiagnostic E2009 CompilationOrigin ("constraint '" <> name <> "' expects " <> tshow arity <> " argument(s), got 1")
+mkExplicitConstraintArityError :: CapabilityId -> Int -> Diagnostic
+mkExplicitConstraintArityError capability arity = mkErrorDiagnostic E2009 CompilationOrigin ("constraint '" <> name <> "' expects " <> tshow arity <> " argument(s), got 1")
+  where
+    name = renderCapabilityId capability
 
 mkMissingExplicitConstraintImplFactError :: Text -> Diagnostic
 mkMissingExplicitConstraintImplFactError key = mkErrorDiagnostic E2009 CompilationOrigin ("missing impl fact '" <> key <> "'")
 
-mkAmbiguousDeferredConstraintError :: Bool -> Text -> ExpressionType -> Diagnostic
+mkAmbiguousDeferredConstraintError :: Bool -> CapabilityId -> ExpressionType -> Diagnostic
 mkAmbiguousDeferredConstraintError inferred name argumentType =
-  mkInferenceTypeError E2009 (AmbiguousDeferredConstraint inferred name argumentType)
+  mkInferenceTypeError E2009 (AmbiguousDeferredConstraint inferred (renderCapabilityId name) argumentType)
 
 mkPatternTypeMismatchError :: ExpressionType -> ExpressionType -> Diagnostic
 mkPatternTypeMismatchError scrutineeType patternType = mkInferenceTypeError E2011 (PatternTypeMismatch patternType scrutineeType)
@@ -609,7 +624,7 @@ concreteConstraintFailureSummary state constraints
           Nothing
       where
         constraintNameText = identifierText constraintName
-        maybeClassArity = Map.lookup constraintNameText (inferClassFacts state)
+        maybeClassArity = Map.lookup (CapabilityId constraintName) (inferClassFacts state)
 
 constrainedSignatureHasTypeVariable :: [SignatureConstraint 'Resolved] -> SignatureType 'Resolved -> Bool
 constrainedSignatureHasTypeVariable constraints signatureType =

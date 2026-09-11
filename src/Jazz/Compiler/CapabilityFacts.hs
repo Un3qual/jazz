@@ -8,7 +8,7 @@ module Jazz.Compiler.CapabilityFacts
   ( ConcreteImplFact (..),
     concreteConstraintArgument,
     concreteImplFact,
-    concreteImplFactClassName,
+    concreteImplFactCapability,
     constraintSignatureAliasNames,
     constraintSignatureAliasVariants,
     constraintSignatureTypeVariableNamesInOrder,
@@ -30,6 +30,7 @@ import Jazz.Compiler.BuiltinCatalog
   ( numericTypeFromName,
     renderNumericTypeName,
   )
+import Jazz.Compiler.CoreIdentity (CapabilityId (..), CapabilityMethodKey, renderCapabilityId)
 import Jazz.Compiler.Name
   ( Name (..),
     ResolvedName,
@@ -78,19 +79,19 @@ type SignatureType = AST.SignatureType 'AST.Resolved
 concreteImplFact :: ResolvedName -> [SignatureType] -> Maybe ConcreteImplFact
 concreteImplFact capabilityName arguments =
   case arguments of
-    [argument] -> ConcreteImplFact capabilityName <$> concreteSignatureType argument
+    [argument] -> ConcreteImplFact (CapabilityId capabilityName) <$> concreteSignatureType argument
     _ -> Nothing
 
 renderConcreteImplFact :: ConcreteImplFact -> Text
 renderConcreteImplFact (ConcreteImplFact capabilityName argument) =
-  renderName capabilityName <> "(" <> renderSignatureType (implementationTargetSignature argument) <> ")"
+  renderCapabilityId capabilityName <> "(" <> renderSignatureType (implementationTargetSignature argument) <> ")"
 
-concreteImplFactClassName :: ConcreteImplFact -> Text
-concreteImplFactClassName (ConcreteImplFact capabilityName _) = renderName capabilityName
+concreteImplFactCapability :: ConcreteImplFact -> CapabilityId
+concreteImplFactCapability (ConcreteImplFact capabilityName _) = capabilityName
 
-qualifiedMethodKey :: ResolvedName -> ResolvedName -> Text
+qualifiedMethodKey :: ResolvedName -> ResolvedName -> CapabilityMethodKey
 qualifiedMethodKey capabilityName methodName =
-  renderName capabilityName <> "::" <> renderName methodName
+  (CapabilityId capabilityName, mkIdentifier (renderName methodName))
 
 splitQualifiedMethodKey :: Text -> Maybe (Text, Text)
 splitQualifiedMethodKey nameText =

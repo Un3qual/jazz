@@ -48,7 +48,7 @@ import Data.Text (Text)
 import Data.Void (Void, absurd)
 import GHC.Generics (Generic)
 import Jazz.Compiler.BuiltinCatalog (BuiltinSymbol, numericTypeFromName)
-import Jazz.Compiler.CoreIdentity (CapabilityId, CoreBinderId, MethodId)
+import Jazz.Compiler.CoreIdentity (CapabilityId, CapabilityMethodKey, CoreBinderId, MethodId)
 import Jazz.Compiler.Name (ResolvedName, identifierLooksLikeTypeVariable, identifierText)
 import Jazz.Compiler.StableSet (StableSet, stableSetFromPreferred, stableSetMembershipSet, stableSetOrderedList)
 import Jazz.Compiler.TypeRepresentation (SemanticType (..), SignatureType (..), semanticTypeToSignature, substituteSemanticVariables)
@@ -59,7 +59,7 @@ data ClassMethodType = ClassMethodType Text (SemanticType ResolvedName Text)
   deriving anyclass (NFData)
 
 -- | A checked implementation target with nominal capability/type identity.
-data ConcreteImplFact = ConcreteImplFact ResolvedName (SemanticType ResolvedName Void)
+data ConcreteImplFact = ConcreteImplFact CapabilityId (SemanticType ResolvedName Void)
   deriving stock (Eq, Generic, Ord, Show)
   deriving anyclass (NFData)
 
@@ -247,18 +247,18 @@ data SchemePrimitiveConstraint typeValue
   deriving anyclass (NFData)
 
 data SchemeConstraint typeValue
-  = TypeSchemeConstraint Text typeValue
-  | TypeSchemeInferredConstraint Text typeValue
-  | TypeSchemeMethodConstraint Text Text typeValue
+  = TypeSchemeConstraint CapabilityId typeValue
+  | TypeSchemeInferredConstraint CapabilityId typeValue
+  | TypeSchemeMethodConstraint CapabilityId CapabilityMethodKey typeValue
   deriving stock (Eq, Foldable, Functor, Generic, Ord, Show, Traversable)
   deriving anyclass (NFData)
 
 data ScopeCapabilityFacts = ScopeCapabilityFacts
-  { scopeClassFacts :: Map Text Int,
-    scopeGeneratedEqualityClassFacts :: Set Text,
+  { scopeClassFacts :: Map CapabilityId Int,
+    scopeGeneratedEqualityClassFacts :: Set CapabilityId,
     scopeConcreteImplFacts :: Set ConcreteImplFact,
-    scopeClassMethodSignatures :: Map Text ClassMethodType,
-    scopeConcreteImplMethods :: Map Text [ImplMethodType]
+    scopeClassMethodSignatures :: Map CapabilityMethodKey ClassMethodType,
+    scopeConcreteImplMethods :: Map CapabilityMethodKey [ImplMethodType]
   }
   deriving stock (Eq, Generic, Show)
   deriving anyclass (NFData)

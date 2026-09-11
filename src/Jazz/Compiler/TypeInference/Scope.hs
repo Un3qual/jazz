@@ -58,7 +58,7 @@ import Jazz.Compiler.CapabilityFacts
   ( constraintSignatureTypeVariableNamesInOrder,
     signaturePayloadConstraintType,
   )
-import Jazz.Compiler.CoreIdentity (CoreBinderId, ResolvedNodeFacts (..), ResolvedReference (..), ResolvedScopeFacts (..))
+import Jazz.Compiler.CoreIdentity (CoreBinderId, ResolvedNodeFacts (..), ResolvedReference (..), ResolvedScopeFacts (..), renderCapabilityId, resolvedValueReference)
 import Jazz.Compiler.Diagnostics
   ( Diagnostic,
     DiagnosticContext (CheckingBinding),
@@ -238,7 +238,7 @@ inferExprTypeWithExpectedModeRaw inferExpression mode env state expectedType exp
         Just result <-
           instantiateQualifiedMethodTypeWithExpected
             (coreNodeId node)
-            (identifierText name)
+            (resolvedValueReference (coreNodeFacts node))
             expectedType
             state ->
           result
@@ -1911,7 +1911,7 @@ addUndeclaredSignatureConstraintErrors bindingName statementStartState pendingSi
       map (resolveTypeSchemeConstraint state) (pendingSignatureExplicitConstraints pendingSignature)
 
     inferredObligations =
-      [ (False, constraintName, targetType)
+      [ (False, Right constraintName, targetType)
       | constraint <- newInferredClassConstraints statementStartState state,
         Just (constraintName, targetType) <- [constraintIdentity (resolveTypeSchemeConstraint state constraint)],
         targetUsesSignatureVariables targetType
@@ -1919,8 +1919,8 @@ addUndeclaredSignatureConstraintErrors bindingName statementStartState pendingSi
 
     primitiveObligations =
       [ case primitiveConstraint of
-          TypeSchemeNumericConstraint _ targetType -> (True, "Num", targetType)
-          TypeSchemeStrictEqualityConstraint targetType -> (True, "Eq", targetType)
+          TypeSchemeNumericConstraint _ targetType -> (True, Left "Num", targetType)
+          TypeSchemeStrictEqualityConstraint targetType -> (True, Left "Eq", targetType)
       | primitiveConstraint <- typeSchemePrimitiveConstraints state signatureVariables
       ]
 
@@ -1942,7 +1942,7 @@ addUndeclaredSignatureConstraintErrors bindingName statementStartState pendingSi
         matches declaredConstraint =
           case constraintIdentity declaredConstraint of
             Just (declaredName, declaredTarget) ->
-              declaredName == requiredName
+              sameConstraintName (Right declaredName) requiredName
                 && resolveType state declaredTarget == resolveType state requiredTarget
             Nothing -> False
 
@@ -1959,7 +1959,7 @@ addUndeclaredSignatureConstraintErrors bindingName statementStartState pendingSi
           | any (sameObligation constraintName targetType) obligations = obligations
           | otherwise = obligations ++ [obligation]
         sameObligation constraintName targetType (_, existingName, existingTarget) =
-          constraintName == existingName
+          sameConstraintName constraintName existingName
             && resolveType state targetType == resolveType state existingTarget
 
     addMissingConstraint stateAcc (primitive, constraintName, targetType) =
@@ -1968,10 +1968,15 @@ addUndeclaredSignatureConstraintErrors bindingName statementStartState pendingSi
         ( mkUndeclaredSignatureConstraintError
             bindingName
             primitive
-            constraintName
+            (constraintLabel constraintName)
             (resolveType state targetType)
             (pendingSignatureSpan pendingSignature)
         )
+
+    constraintLabel = either id renderCapabilityId
+
+    sameConstraintName (Right left) (Right right) = left == right
+    sameConstraintName left right = constraintLabel left == constraintLabel right
 
 pruneCapturedInferredClassConstraints :: InferState -> TypeBinding -> InferState -> InferState
 pruneCapturedInferredClassConstraints statementStartState binding =

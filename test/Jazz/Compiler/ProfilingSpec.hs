@@ -206,7 +206,7 @@ testDeepModuleInterfaceForcing =
         emptyModuleInterface
           { interfaceClassMethods =
               Map.singleton
-                "method"
+                (CapabilityId (resolvedLocalName CapabilityNamespace (mkIdentifier "Capability")), mkIdentifier "method")
                 (ClassMethodType "Capability" (SemanticList (throw (userError "nested signature type was forced"))))
           }
       ),
@@ -215,7 +215,7 @@ testDeepModuleInterfaceForcing =
         emptyModuleInterface
           { interfaceConcreteImplMethods =
               Map.singleton
-                "Capability::method"
+                (CapabilityId (resolvedLocalName CapabilityNamespace (mkIdentifier "Capability")), mkIdentifier "method")
                 [ImplMethodType (SemanticList (throw (userError "nested signature type was forced"))) (CapabilityId (resolvedLocalName CapabilityNamespace (mkIdentifier "Capability"))) (MethodId (ImplId (StandaloneSourceUnit standaloneModulePath, CoreNodeId 0), mkIdentifier "method"))]
           }
       )

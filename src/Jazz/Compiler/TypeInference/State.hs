@@ -63,6 +63,7 @@ import qualified Data.Sequence as Seq
 import Data.Set (Set)
 import qualified Data.Set as Set
 import Data.Text (Text)
+import Jazz.Compiler.CoreIdentity (CapabilityMethodKey)
 import Jazz.Compiler.Diagnostics (Diagnostic)
 import Jazz.Compiler.Name (ResolvedName, UnresolvedName)
 import Jazz.Compiler.PatternCoverage (PatternCoverageSite)
@@ -102,11 +103,11 @@ data SolverState = SolverState
 
 data DeclarationState = DeclarationState
   { declarationDataTypes :: Map ResolvedName DataTypeBinding,
-    declarationClassFacts :: Map Text Int,
-    declarationGeneratedEqualityClassFacts :: Set Text,
+    declarationClassFacts :: Map CapabilityId Int,
+    declarationGeneratedEqualityClassFacts :: Set CapabilityId,
     declarationConcreteImplFacts :: Set ConcreteImplFact,
-    declarationClassMethodSignatures :: Map Text ClassMethodType,
-    declarationConcreteImplMethods :: Map Text [ImplMethodType]
+    declarationClassMethodSignatures :: Map CapabilityMethodKey ClassMethodType,
+    declarationConcreteImplMethods :: Map CapabilityMethodKey [ImplMethodType]
   }
   deriving (Eq, Show)
 
@@ -166,8 +167,8 @@ data InferState = InferState
   deriving (Eq, Show)
 
 data DeferredExplicitConstraint = DeferredExplicitConstraint
-  { deferredConstraintName :: Text,
-    deferredMethodKey :: Maybe Text,
+  { deferredConstraintName :: CapabilityId,
+    deferredMethodKey :: Maybe CapabilityMethodKey,
     deferredWasInferred :: Bool,
     deferredArgumentType :: ExpressionType,
     deferredVisibleFacts :: ScopeCapabilityFacts,
@@ -253,19 +254,19 @@ inferRigidTypeVars = solverRigidTypeVars . inferSolver
 inferDataTypes :: InferState -> Map ResolvedName DataTypeBinding
 inferDataTypes = declarationDataTypes . inferDeclarations
 
-inferClassFacts :: InferState -> Map Text Int
+inferClassFacts :: InferState -> Map CapabilityId Int
 inferClassFacts = declarationClassFacts . inferDeclarations
 
-inferGeneratedEqualityClassFacts :: InferState -> Set Text
+inferGeneratedEqualityClassFacts :: InferState -> Set CapabilityId
 inferGeneratedEqualityClassFacts = declarationGeneratedEqualityClassFacts . inferDeclarations
 
 inferConcreteImplFacts :: InferState -> Set ConcreteImplFact
 inferConcreteImplFacts = declarationConcreteImplFacts . inferDeclarations
 
-inferClassMethodSignatures :: InferState -> Map Text ClassMethodType
+inferClassMethodSignatures :: InferState -> Map CapabilityMethodKey ClassMethodType
 inferClassMethodSignatures = declarationClassMethodSignatures . inferDeclarations
 
-inferConcreteImplMethods :: InferState -> Map Text [ImplMethodType]
+inferConcreteImplMethods :: InferState -> Map CapabilityMethodKey [ImplMethodType]
 inferConcreteImplMethods = declarationConcreteImplMethods . inferDeclarations
 
 inferCurrentModulePath :: InferState -> Maybe [Text]

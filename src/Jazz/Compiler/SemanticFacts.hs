@@ -41,7 +41,7 @@ import Data.Map.Strict (Map)
 import Data.Sequence (Seq)
 import Data.Text (Text)
 import GHC.Generics (Generic)
-import Jazz.Compiler.CoreIdentity (CapabilityId (..), CoreBinderId (..), CoreNodeId (..), ImplId (..), MethodId (..), ResolvedNodeFacts)
+import Jazz.Compiler.CoreIdentity (CapabilityId (..), CapabilityMethodKey, CoreBinderId (..), CoreNodeId (..), ImplId (..), MethodId (..), ResolvedNodeFacts)
 import Jazz.Compiler.Name (Identifier, ResolvedName)
 import Jazz.Compiler.TypeRepresentation
   ( InferenceVariable,
@@ -201,9 +201,9 @@ data AnalyzedScheme = AnalyzedScheme
   deriving anyclass (NFData)
 
 data AnalyzedSchemeConstraint
-  = AnalyzedExplicitCapabilityConstraint Text AnalyzedType
-  | AnalyzedInferredCapabilityConstraint Text AnalyzedType
-  | AnalyzedMethodCapabilityConstraint Text Text AnalyzedType
+  = AnalyzedExplicitCapabilityConstraint CapabilityId AnalyzedType
+  | AnalyzedInferredCapabilityConstraint CapabilityId AnalyzedType
+  | AnalyzedMethodCapabilityConstraint CapabilityId CapabilityMethodKey AnalyzedType
   deriving stock (Eq, Generic, Ord, Show)
   deriving anyclass (NFData)
 

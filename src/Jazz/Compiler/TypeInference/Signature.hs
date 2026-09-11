@@ -37,6 +37,7 @@ import Jazz.Compiler.CapabilityFacts
     constraintSignatureTypeVariableNamesInOrder,
     identifierLooksLikeTypeVariable,
   )
+import Jazz.Compiler.CoreIdentity (CapabilityId (..))
 import Jazz.Compiler.Name (identifierText)
 import Jazz.Compiler.SemanticDeclarations (SignatureTypeFailure (..), normalizeSignatureType)
 import Jazz.Compiler.TypeInference.Solver
@@ -204,7 +205,7 @@ variableConstraintToTypeSchemeConstraint ::
 variableConstraintToTypeSchemeConstraint signatureVariables (SignatureConstraint constraintName arguments) =
   case arguments of
     [TypeVariable argumentName] ->
-      TypeSchemeConstraint (identifierText constraintName)
+      TypeSchemeConstraint (CapabilityId constraintName)
         <$> Map.lookup (identifierText argumentName) signatureVariables
     _ -> Nothing
 
@@ -240,7 +241,7 @@ supportedVariableConstraints state constraints signatureType =
 
 supportedConcreteConstraint :: InferState -> SignatureConstraint 'Resolved -> Bool
 supportedConcreteConstraint state (SignatureConstraint constraintName arguments) =
-  case (Map.lookup (identifierText constraintName) (inferClassFacts state), arguments) of
+  case (Map.lookup (CapabilityId constraintName) (inferClassFacts state), arguments) of
     (Just 1, [argument]) ->
       concreteConstraintArgument argument
         && maybe False (`Set.member` inferConcreteImplFacts state) (concreteImplFact constraintName [argument])
@@ -248,7 +249,7 @@ supportedConcreteConstraint state (SignatureConstraint constraintName arguments)
 
 supportedVariableConstraint :: InferState -> SignatureConstraint 'Resolved -> Bool
 supportedVariableConstraint state (SignatureConstraint constraintName arguments) =
-  case (Map.lookup (identifierText constraintName) (inferClassFacts state), arguments) of
+  case (Map.lookup (CapabilityId constraintName) (inferClassFacts state), arguments) of
     (Just 1, [TypeVariable {}]) -> True
     _ -> False
 
@@ -304,9 +305,9 @@ duplicateConstraintName constraints =
         [] -> Nothing
         SignatureConstraint constraintName _ : rest ->
           let constraintNameText = identifierText constraintName
-           in if Set.member constraintNameText seen
+           in if Set.member (CapabilityId constraintName) seen
                 then Just constraintNameText
-                else go (Set.insert constraintNameText seen) rest
+                else go (Set.insert (CapabilityId constraintName) seen) rest
 
 -- | Project a concrete inferred type for the signature-based capability rules.
 -- Quantified variables have no concrete signature and propagate failure.

@@ -18,7 +18,7 @@ import Jazz.Compiler.AST
     Expr (..),
     Statement (..),
   )
-import Jazz.Compiler.CoreIdentity (ResolvedReference (UnresolvedReference))
+import Jazz.Compiler.CoreIdentity (CapabilityId (..), ResolvedReference (UnresolvedReference))
 import Jazz.Compiler.Name
   ( NameNamespace (CapabilityNamespace, TypeNamespace, ValueNamespace),
     ResolvedName,
@@ -177,7 +177,7 @@ testDuplicateConstraintsReportFirstRepeatedName =
 
 testStateRecordModifiers :: IO ()
 testStateRecordModifiers = do
-  assertEqual "declaration update" (Map.singleton "Eq" 1) (inferClassFacts updatedState)
+  assertEqual "declaration update" (Map.singleton (CapabilityId (capabilityName "Eq")) 1) (inferClassFacts updatedState)
   assertEqual "module update" (Just ["App", "Main"]) (inferCurrentModulePath updatedState)
   assertEqual "output update" 3 (inferErrorCount updatedState)
   where
@@ -187,7 +187,7 @@ testStateRecordModifiers = do
         ( modifyModuleInferenceState
             (\moduleState -> moduleState {inferenceModulePath = Just ["App", "Main"]})
             ( modifyDeclarationState
-                (\declarations -> declarations {declarationClassFacts = Map.singleton "Eq" 1})
+                (\declarations -> declarations {declarationClassFacts = Map.singleton (CapabilityId (capabilityName "Eq")) 1})
                 initialInferState
             )
         )
@@ -223,13 +223,13 @@ testInferenceOutputConstraintCursors = do
         initialInferState
     firstDeferred = deferredConstraint "Eq" SemanticInt
     secondDeferred = deferredConstraint "Show" SemanticText
-    firstInferred = TypeSchemeInferredConstraint "Eq" SemanticInt
-    secondInferred = TypeSchemeMethodConstraint "Show" "Show::show" SemanticText
+    firstInferred = TypeSchemeInferredConstraint (CapabilityId (capabilityName "Eq")) SemanticInt
+    secondInferred = TypeSchemeMethodConstraint (CapabilityId (capabilityName "Show")) (CapabilityId (capabilityName "Show"), mkIdentifier "show") SemanticText
 
 deferredConstraint :: Text -> ExpressionType -> DeferredExplicitConstraint
 deferredConstraint constraintName argumentType =
   DeferredExplicitConstraint
-    { deferredConstraintName = constraintName,
+    { deferredConstraintName = CapabilityId (capabilityName constraintName),
       deferredMethodKey = Nothing,
       deferredWasInferred = False,
       deferredArgumentType = argumentType,
@@ -247,8 +247,8 @@ testSchemeConstraintDeduplicationOrder =
     [middleConstraint, repeatedConstraint]
     (dedupeTypeSchemeConstraints [repeatedConstraint, middleConstraint, repeatedConstraint])
   where
-    repeatedConstraint = TypeSchemeConstraint "Eq" (SemanticVariable 0)
-    middleConstraint = TypeSchemeInferredConstraint "Ord" (SemanticVariable 1)
+    repeatedConstraint = TypeSchemeConstraint (CapabilityId (capabilityName "Eq")) (SemanticVariable 0)
+    middleConstraint = TypeSchemeInferredConstraint (CapabilityId (capabilityName "Ord")) (SemanticVariable 1)
 
 testEmptySchemeConstraintsSkipCapabilityFacts :: IO ()
 testEmptySchemeConstraintsSkipCapabilityFacts =
@@ -360,8 +360,8 @@ testTypeOpsCollectConstraintFreeVariables = do
     "class constraint free variables"
     (Set.fromList [1, 2])
     ( freeTypeVariablesInTypeSchemeConstraints
-        [ TypeSchemeConstraint "Eq" (SemanticList (SemanticVariable 1)),
-          TypeSchemeMethodConstraint "Show" "Show::show" (SemanticVariable 2)
+        [ TypeSchemeConstraint (CapabilityId (capabilityName "Eq")) (SemanticList (SemanticVariable 1)),
+          TypeSchemeMethodConstraint (CapabilityId (capabilityName "Show")) (CapabilityId (capabilityName "Show"), mkIdentifier "show") (SemanticVariable 2)
         ]
     )
   assertEqual
@@ -388,10 +388,10 @@ testTypeOpsInstantiateConstraints = do
   let replacements = Map.singleton 1 SemanticText
   assertEqual
     "class constraint instantiation"
-    (TypeSchemeMethodConstraint "Show" "Show::show" (SemanticList SemanticText))
+    (TypeSchemeMethodConstraint (CapabilityId (capabilityName "Show")) (CapabilityId (capabilityName "Show"), mkIdentifier "show") (SemanticList SemanticText))
     ( instantiateTypeSchemeConstraint
         replacements
-        (TypeSchemeMethodConstraint "Show" "Show::show" (SemanticList (SemanticVariable 1)))
+        (TypeSchemeMethodConstraint (CapabilityId (capabilityName "Show")) (CapabilityId (capabilityName "Show"), mkIdentifier "show") (SemanticList (SemanticVariable 1)))
     )
   assertEqual
     "primitive constraint instantiation"
@@ -688,17 +688,14 @@ testImplChecksPreserveRollback :: IO ()
 testImplChecksPreserveRollback = do
   let (variable, allocated) = freshTypeVar initialInferState
       signature = ClassMethodType "a" (SemanticTuple [SemanticInt, SemanticInt])
-      initialState =
-        modifyDeclarationState
-          (\declarations -> declarations {declarationClassMethodSignatures = Map.fromList [("Probe::first", signature), ("Probe::second", signature)]})
-          allocated
       inferBody _ current expected expression =
         case expression of
           ELit _ _ -> ((Just (SemanticTuple [variable, SemanticBool]), resolveType current variable), current)
           _ -> ((Just expected, resolveType current variable), current)
   case resolvedProgram "class Probe(a) { first :: (Int, Int). second :: (Int, Int). }. impl Probe(Int) { first = 0. second = (1, 2). }." of
     EBlock _ [SClass {}, SImpl _ capability _ methods] -> do
-      let (finalState, results) = checkImplMethodBodies inferBody fst Map.empty initialState capability [SemanticInt] methods
+      let initialState = modifyDeclarationState (\declarations -> declarations {declarationClassMethodSignatures = Map.fromList [((CapabilityId capability, mkIdentifier method), signature) | method <- ["first", "second"]]}) allocated
+          (finalState, results) = checkImplMethodBodies inferBody fst Map.empty initialState capability [SemanticInt] methods
       assertEqual "both bodies checked in source order" [0, 1] (map fst results)
       assertEqual "failed tuple unification did not leak into next body" [variable, variable] (map (snd . snd) results)
       assertEqual "one mismatch survives the successful subsequent body" 1 (inferErrorCount finalState)

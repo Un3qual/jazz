@@ -60,6 +60,7 @@ import Jazz.Compiler.ModuleExports
     exportInventory,
     exportNamesInNamespace,
     firstExportNamespace,
+    selectExportNames,
   )
 import Jazz.Compiler.ModuleIdentity (SourceUnitOwner (..), mkModulePath, standaloneModulePath)
 import Jazz.Compiler.ModuleResolver.Imports
@@ -305,9 +306,45 @@ resolveExprNames context rootExpression = Right (publishResolvedCaptures (resolv
               UserName (ResolvedUserName origin ValueNamespace identifier)
                 | [className, method] <- Text.splitOn "::" (identifierText identifier) ->
                     CapabilityMethodReference
-                      (CapabilityId (UserName (ResolvedUserName (if origin == CurrentModule then LocalDeclaration owner else origin) CapabilityNamespace (mkIdentifier className))))
+                      (CapabilityId (resolveDeclarationReference owner (UserName (ResolvedUserName origin CapabilityNamespace (mkIdentifier className)))))
                       (mkIdentifier method)
               _ -> UnresolvedReference name
+
+    -- Legacy expression callers may supply sequential module bodies in one
+    -- lowered block. Resolve their imported declaration identities here too;
+    -- checking must never recover a target by matching a rendered class name.
+    inlineModuleStatements = case rootExpression of
+      EBlock _ statements ->
+        Map.fromListWith (flip (++)) (snd (mapAccumL ownedStatement (resolutionSourceOwner context) statements))
+      _ -> Map.empty
+      where
+        ownedStatement activeOwner statement =
+          let owner = case statement of
+                SModule _ segments | Just path <- NonEmpty.nonEmpty (map mkIdentifier segments) -> NamedSourceUnit (mkModulePath path)
+                _ -> activeOwner
+           in (owner, (owner, [statement]))
+
+    inlineDeclarationOrigins = Map.map importedDeclarations inlineModuleStatements
+      where
+        inventories = Map.map statementInventory inlineModuleStatements
+        importedDeclarations statements =
+          Map.fromList
+            [ ((namespace, name), ImportedModule path)
+            | let localDeclarations = statementInventory statements,
+              SImport _ segments Nothing symbols <- statements,
+              Just pathSegments <- [NonEmpty.nonEmpty (map mkIdentifier segments)],
+              let path = mkModulePath pathSegments,
+              Just inventory <- [Map.lookup (NamedSourceUnit path) inventories],
+              namespace <- [TypeNamespace, CapabilityNamespace],
+              name <- Set.toList (exportNamesInNamespace namespace (selectExportNames symbols inventory)),
+              Set.notMember name (exportNamesInNamespace namespace localDeclarations)
+            ]
+
+    resolveDeclarationReference owner name = case name of
+      UserName (ResolvedUserName CurrentModule namespace identifier)
+        | Just origin <- Map.lookup owner inlineDeclarationOrigins >>= Map.lookup (namespace, identifierText identifier) ->
+            UserName (ResolvedUserName origin namespace identifier)
+      _ -> resolveDeclarationOwner owner name
 
     resolveBlockStatements owner initialBoundValues statements =
       snd (mapAccumL resolveBlockStatement (owner, initialBoundValues) statements)
@@ -406,7 +443,7 @@ resolveExprNames context rootExpression = Right (publishResolvedCaptures (resolv
           SClass (resolveNode owner node) (resolveDeclarationOwner owner (resolveBinder CapabilityNamespace name)) (map (resolveBinder TypeNamespace) parameters) (map (resolveClassMethod owner (resolveDeclarationOwner owner (resolveBinder CapabilityNamespace name))) methods)
         SImpl node name arguments methods ->
           let methodBindings = foldl' (\acc (ImplMethod _ methodName _) -> insertVisibleName ValueNamespace methodName acc) boundValues methods
-           in SImpl (resolveNode owner node) (resolveDeclarationOwner owner (resolveName Map.empty CapabilityNamespace name)) (map (resolveSignatureType owner) arguments) (map (resolveImplMethod owner methodBindings (resolveDeclarationOwner owner (resolveName Map.empty CapabilityNamespace name))) methods)
+           in SImpl (resolveNode owner node) (resolveDeclarationReference owner (resolveName Map.empty CapabilityNamespace name)) (map (resolveSignatureType owner) arguments) (map (resolveImplMethod owner methodBindings (resolveDeclarationReference owner (resolveName Map.empty CapabilityNamespace name))) methods)
         SModule node path -> SModule (resolveNode owner node) path
         SImport node path alias symbols -> SImport (resolveNode owner node) path alias symbols
         SExpr node value -> SExpr (resolveNode owner node) (resolveExpr owner boundValues value)
@@ -444,14 +481,14 @@ resolveExprNames context rootExpression = Right (publishResolvedCaptures (resolv
             (resolveSignatureType owner signatureType)
         UnsupportedSignature tokens -> UnsupportedSignature (map (resolveSignatureToken owner) tokens)
 
-    resolveSignatureToken owner = fmap (resolveDeclarationOwner owner . resolveName Map.empty TypeNamespace)
+    resolveSignatureToken owner = fmap (resolveDeclarationReference owner . resolveName Map.empty TypeNamespace)
 
     resolveSignatureConstraint owner (SignatureConstraint name arguments) =
-      SignatureConstraint (resolveDeclarationOwner owner (resolveName Map.empty CapabilityNamespace name)) (map (resolveSignatureType owner) arguments)
+      SignatureConstraint (resolveDeclarationReference owner (resolveName Map.empty CapabilityNamespace name)) (map (resolveSignatureType owner) arguments)
 
     resolveSignatureType owner =
       bimap
-        (resolveDeclarationOwner owner . resolveName Map.empty TypeNamespace)
+        (resolveDeclarationReference owner . resolveName Map.empty TypeNamespace)
         (resolveBinder TypeNamespace)
 
     sourceNameText name =
@@ -493,11 +530,10 @@ resolveStandaloneExprNames ambientExports expression =
 
 standaloneLocalInventory :: Expr 'Lowered -> ModuleExportInventory
 standaloneLocalInventory expression =
-  exportInventory
-    ( case expression of
-        EBlock _ statements -> concatMap statementExports statements
-        _ -> []
-    )
+  statementInventory (case expression of EBlock _ statements -> statements; _ -> [])
+
+statementInventory :: [Statement 'Lowered] -> ModuleExportInventory
+statementInventory = exportInventory . concatMap statementExports
   where
     statementExports statement =
       case statement of
