@@ -429,7 +429,7 @@ seedImplMethodFacts implementationNode capabilityName arguments methods facts =
 builtinDollarOperatorExpr :: TypeEnv -> Expr 'Resolved -> Bool
 builtinDollarOperatorExpr env expr =
   case expr of
-    EOperatorValue _ "$" -> True
+    EVar node _ | resolvedNodeReference (coreNodeFacts node) == Just (BuiltinOperatorReference "$") -> True
     EVar node name ->
       case Map.lookup (typeEnvReferenceKey (coreNodeFacts node) name) env of
         Just (BuiltinOperatorAliasTypeBinding "$") -> True
@@ -1383,7 +1383,7 @@ constraintBlockRuntimeHint state env initialLocalHints statements =
 
 checkedDollarOperatorExpr :: TypeEnv -> Expr 'Analyzed -> Bool
 checkedDollarOperatorExpr env expression = case expression of
-  EOperatorValue _ "$" -> True
+  EVar node _ | resolvedNodeReference (expressionResolution (coreNodeFacts node)) == Just (BuiltinOperatorReference "$") -> True
   EVar node name -> case Map.lookup (typeEnvReferenceKey (expressionResolution (coreNodeFacts node)) name) env of
     Just (BuiltinOperatorAliasTypeBinding "$") -> True
     Just (OperatorAliasSchemeTypeBinding "$" _) -> True

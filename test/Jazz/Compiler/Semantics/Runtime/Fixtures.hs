@@ -63,7 +63,7 @@ import Jazz.Compiler.AST
     Statement (..),
   )
 import Jazz.Compiler.CapabilityFacts (signaturePayloadConstraintType)
-import Jazz.Compiler.CoreIdentity (emptyResolvedNodeFacts)
+import Jazz.Compiler.CoreIdentity (ResolvedReference (BuiltinOperatorReference), emptyResolvedNodeFacts, resolvedNodeReference)
 import Jazz.Compiler.Diagnostics (SourceSpan (..))
 import Jazz.Compiler.ModuleIdentity (SourceUnitOwner (StandaloneSourceUnit), standaloneModulePath)
 import Jazz.Compiler.Name
@@ -76,9 +76,11 @@ import Jazz.Compiler.Name
     UserNameLike (renderUserName),
     identifierText,
     mkIdentifier,
+    operatorBindingName,
     qualifiedMemberName,
     resolvedAmbientName,
   )
+import Jazz.Compiler.Parser.Operator (isBuiltinOperatorSymbol)
 import Jazz.Compiler.SemanticFacts
   ( AnalyzedMethodSignature (..),
     AnalyzedScheme (..),
@@ -194,7 +196,10 @@ expressionLambda :: UnresolvedName -> Expr 'Analyzed -> Expr 'Analyzed
 expressionLambda name body = ELambda expressionNode (valueName name) body
 
 expressionOperatorValue :: Text -> Expr 'Analyzed
-expressionOperatorValue = EOperatorValue expressionNode
+expressionOperatorValue symbol =
+  EVar (expressionNode {coreNodeFacts = facts {expressionResolution = (expressionResolution facts) {resolvedNodeReference = if isBuiltinOperatorSymbol symbol then Just (BuiltinOperatorReference symbol) else Nothing}}}) (operatorBindingName symbol)
+  where
+    facts = coreNodeFacts expressionNode
 
 expressionList :: [Expr 'Analyzed] -> Expr 'Analyzed
 expressionList = EList expressionNode

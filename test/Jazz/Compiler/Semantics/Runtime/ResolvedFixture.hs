@@ -71,7 +71,11 @@ resolveRuntimeFixtureWith owner external fixture =
         _ -> UnresolvedReference name
     allocateExpression binder target (CoreNode _ spanValue facts) = state $ \(next, es, ps, ss) ->
       let index = CoreNodeId next
-       in (CoreNode index spanValue (nodeFacts index binder target), (next + 1, Map.insert index facts es, ps, ss))
+          resolution = nodeFacts index binder target
+          operatorResolution = case resolvedNodeReference (expressionResolution facts) of
+            Just operatorReference@BuiltinOperatorReference {} -> resolution {resolvedNodeReference = Just operatorReference}
+            _ -> resolution
+       in (CoreNode index spanValue operatorResolution, (next + 1, Map.insert index facts es, ps, ss))
     allocatePattern binder target (CoreNode _ spanValue facts) = state $ \(next, es, ps, ss) ->
       let index = CoreNodeId next
        in (CoreNode index spanValue (nodeFacts index binder target), (next + 1, es, Map.insert index facts ps, ss))

@@ -21,7 +21,6 @@ import Jazz.Compiler.AST
 import Jazz.Compiler.CoreIdentity (CapabilityMethodKey, capabilityMethodKeyFromReference, resolvedValueReference)
 import Jazz.Compiler.Name
   ( ResolvedName,
-    operatorBindingName,
   )
 import Jazz.Compiler.SemanticFacts (SemanticFactInvariantFailure (MissingExpressionFacts))
 import Jazz.Compiler.TypeInference.Analyzed (ExpressionDecision (..), draftDecidedExpressionNode, draftExpressionNode, noExpressionDecision)
@@ -159,7 +158,6 @@ inferExplicitTypeApplication inferExpression env state expression@(ETypeApplicat
           decision = noExpressionDecision {decisionInstantiation = seed, decisionEvidence = evidence}
           function = case functionExpr of
             EVar _ name -> EVar <$> draftExpressionNode result functionExpr <*> pure name
-            EOperatorValue _ symbol -> EOperatorValue <$> draftExpressionNode result functionExpr <*> pure symbol
             _ -> rejectedDraft (MissingExpressionFacts (coreNodeId (expressionNode functionExpr)))
           tree = ETypeApplication <$> draftDecidedExpressionNode decision result expression <*> function <*> pure typeArgumentSpan <*> pure typeArgument
        in (CheckedExpr result tree, next)
@@ -169,7 +167,6 @@ explicitTypeApplicationTargetName :: Expr 'Resolved -> Maybe ResolvedName
 explicitTypeApplicationTargetName functionExpr =
   case functionExpr of
     EVar _ name -> Just name
-    EOperatorValue _ operatorSymbol -> Just (operatorBindingName operatorSymbol)
     _ -> Nothing
 
 explicitQualifiedMethodTypeApplicationKey :: TypeEnv -> InferState -> Expr 'Resolved -> Maybe CapabilityMethodKey
@@ -187,8 +184,6 @@ explicitTypeApplicationScheme env functionExpr =
   case functionExpr of
     EVar node name ->
       Map.lookup (typeEnvReferenceKey (coreNodeFacts node) name) env >>= typeBindingScheme
-    EOperatorValue node operatorSymbol ->
-      Map.lookup (typeEnvReferenceKey (coreNodeFacts node) (operatorBindingName operatorSymbol)) env >>= typeBindingScheme
     _ -> Nothing
 
 instantiateTypeSchemeWithExplicitArgument ::

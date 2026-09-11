@@ -290,7 +290,7 @@ inferExprTypeDetailed :: TypeEnv -> InferState -> Expr 'Resolved -> (CheckedExpr
 inferExprTypeDetailed env state expr = case expr of
   ELit _ literal -> leaf (\node -> ELit node literal)
   EVar _ name -> leaf (\node -> EVar node name)
-  EOperatorValue _ symbol -> leaf (\node -> EOperatorValue node symbol)
+  EOperatorValue {} -> (CheckedExpr Nothing (rejectedDraft (MissingExpressionFacts (coreNodeId (expressionNode expr)))), state)
   ETuple _ [] -> leaf (\node -> ETuple node [])
   EIf _ condition thenExpression elseExpression ->
     let (conditionCheck, stateAfterCondition) = inferExprTypeDetailed env state condition
@@ -520,6 +520,13 @@ inferLeafExpression env state expr = case expr of
     let (literalType, afterLiteral) = literalExpressionType literal state
      in (Just literalType, Nothing, checkLiteralType afterLiteral literal)
   ETuple _ [] -> (Just (SemanticTuple []), Nothing, state)
+  EVar node _
+    | Just (BuiltinOperatorReference symbol) <- resolvedNodeReference (coreNodeFacts node) ->
+        ordinary
+          ( case instantiateOperatorType symbol state of
+              Just (operatorType, next) -> (Just operatorType, next)
+              Nothing -> (Nothing, addTypeError state (mkUnsupportedOperatorValueError symbol))
+          )
   EVar node name ->
     let (result, evidence, finalState) = case Map.lookup (typeEnvReferenceKey (coreNodeFacts node) name) env of
           Just binding -> ordinary (instantiateEnvBinding binding state)
@@ -529,14 +536,6 @@ inferLeafExpression env state expr = case expr of
               Just (selection, next) -> (selectedMethodType selection, selectedMethodEvidence selection, next)
               Nothing -> (Nothing, Nothing, state)
      in (result, evidence, annotateNewErrorsWithPrimarySpan (coreNodeSpan node) state finalState)
-  EOperatorValue node symbol ->
-    ordinary
-      ( case instantiateOperatorType symbol state of
-          Just (operatorType, next) -> (Just operatorType, next)
-          Nothing
-            | isBuiltinOperatorSymbol symbol -> (Nothing, addTypeError state (mkUnsupportedOperatorValueError symbol))
-          Nothing -> instantiateDeclaredOperatorBindingType env (coreNodeFacts node) symbol state
-      )
   _ -> (Nothing, Nothing, state)
   where
     ordinary (result, next) = (result, Nothing, next)
@@ -691,8 +690,9 @@ applicationSpine expr =
   where
     go argumentExprs currentExpr =
       case currentExpr of
-        EApply _ (EOperatorValue _ "$") functionExpr ->
-          go argumentExprs functionExpr
+        EApply _ (EVar node _) functionExpr
+          | resolvedNodeReference (coreNodeFacts node) == Just (BuiltinOperatorReference "$") ->
+              go argumentExprs functionExpr
         EApply _ functionExpr argumentExpr ->
           go (argumentExpr : argumentExprs) functionExpr
         EVar node name ->
@@ -712,10 +712,11 @@ draftQualifiedMethodSpine evidence root methodType arguments =
        in draftDecidedExpressionNode decision (Just result) expression
     rejected expression = rejectedDraft (MissingExpressionFacts (coreNodeId (expressionNode expression)))
     walk expression remaining = case expression of
-      EApply _ dollar@(EOperatorValue _ "$") function ->
-        let (functionType, functionTree, rest) = walk function remaining
-            dollarTree = EOperatorValue <$> facts dollar (SemanticFunction functionType functionType) <*> pure "$"
-         in (functionType, EApply <$> facts expression functionType <*> dollarTree <*> functionTree, rest)
+      EApply _ dollar@(EVar dollarNode dollarName) function
+        | resolvedNodeReference (coreNodeFacts dollarNode) == Just (BuiltinOperatorReference "$") ->
+            let (functionType, functionTree, rest) = walk function remaining
+                dollarTree = EVar <$> facts dollar (SemanticFunction functionType functionType) <*> pure dollarName
+             in (functionType, EApply <$> facts expression functionType <*> dollarTree <*> functionTree, rest)
       EApply _ function _ ->
         let (functionType, functionTree, rest) = walk function remaining
             result = case functionType of SemanticFunction _ value -> value; _ -> functionType
@@ -751,7 +752,6 @@ draftBuiltinApplication env selectedSymbol operation root left right leftType ri
     rejected expression = rejectedDraft (MissingExpressionFacts (coreNodeId (expressionNode expression)))
     leaf expression result = case expression of
       EVar _ name -> EVar <$> facts expression result <*> pure name
-      EOperatorValue _ symbol -> EOperatorValue <$> facts expression result <*> pure symbol
       _ -> rejected expression
     callable expression result = case expression of
       EApply _ dollar nested -> wrapper expression dollar nested result callable
@@ -800,8 +800,8 @@ builtinOperatorApplicationSpine env expr =
 builtinOperatorSymbolExpr :: TypeEnv -> Expr 'Resolved -> Maybe (Text, Maybe TypeScheme)
 builtinOperatorSymbolExpr env expr =
   case expr of
-    EOperatorValue _ operatorSymbol
-      | isBuiltinOperatorSymbol operatorSymbol ->
+    EVar node _
+      | Just (BuiltinOperatorReference operatorSymbol) <- resolvedNodeReference (coreNodeFacts node) ->
           Just (operatorSymbol, Nothing)
     EApply _ dollarExpr operatorExpr
       | builtinDollarOperatorExpr env dollarExpr ->

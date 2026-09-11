@@ -1058,8 +1058,8 @@ inferScopeTypeInternal
       builtinOperatorSymbolExpr :: TypeEnv -> Expr 'Resolved -> Maybe (Text, Maybe TypeScheme)
       builtinOperatorSymbolExpr currentEnv expression =
         case expression of
-          EOperatorValue _ operatorSymbol
-            | isBuiltinOperatorSymbol operatorSymbol ->
+          EVar node _
+            | Just (BuiltinOperatorReference operatorSymbol) <- resolvedNodeReference (coreNodeFacts node) ->
                 Just (operatorSymbol, Nothing)
           EApply _ dollarExpr operatorExpr
             | builtinDollarOperatorExpr currentEnv dollarExpr ->
@@ -1092,8 +1092,9 @@ inferScopeTypeInternal
                 then PlainTypeBinding <$> maybeInferredType
                 else ordinaryBindingForValue statementIndex currentEnv environmentVariables valueExpr maybeInferredType maybePendingSignature state
          in case valueExpr of
-              EOperatorValue _ operatorSymbol
-                | isNothing maybePendingSignature,
+              EVar node _
+                | Just (BuiltinOperatorReference operatorSymbol) <- resolvedNodeReference (coreNodeFacts node),
+                  isNothing maybePendingSignature,
                   builtinOperatorAliasSymbol operatorSymbol ->
                     Just (operatorAliasBinding operatorSymbol monomorphicBinding)
               EApply _ _ _

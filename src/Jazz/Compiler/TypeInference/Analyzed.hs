@@ -32,7 +32,7 @@ import Jazz.Compiler.AST
     expressionNode,
   )
 import Jazz.Compiler.CoreIdentity (ResolvedNodeFacts (..), ResolvedReference (..))
-import Jazz.Compiler.Name (ResolvedName, identifierText, operatorBindingName)
+import Jazz.Compiler.Name (ResolvedName, identifierText)
 import Jazz.Compiler.SemanticDeclarations (instantiateDeclarationType)
 import Jazz.Compiler.SemanticFacts
   ( AnalyzedMethodSignature (..),
@@ -249,7 +249,6 @@ referencedName :: Expr 'Resolved -> Maybe ResolvedName
 referencedName expression =
   case expression of
     EVar _ name -> Just name
-    EOperatorValue _ operatorSymbol -> Just (operatorBindingName operatorSymbol)
     ETypeApplication _ function _ _ -> referencedName function
     _ -> Nothing
 

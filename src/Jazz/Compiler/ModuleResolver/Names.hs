@@ -245,7 +245,7 @@ resolveExprNames context rootExpression = Right (publishResolvedCaptures (resolv
         ELambda node parameter body ->
           let lambdaBoundValues = maybe boundValues (\name -> Map.insert name ValueNamespace boundValues) (sourceNameText parameter)
            in ELambda (resolveBinderNode owner node) (resolveBinder ValueNamespace parameter) (resolveExpr owner lambdaBoundValues body)
-        EOperatorValue node symbol -> EOperatorValue (resolveOperatorNode owner boundValues symbol node) symbol
+        EOperatorValue node symbol -> EVar (resolveOperatorNode owner boundValues symbol node) (operatorBindingName symbol)
         EList node items -> EList (resolveNode owner node) (map (resolveExpr owner boundValues) items)
         ETuple node items -> ETuple (resolveNode owner node) (map (resolveExpr owner boundValues) items)
         EApply node function argument ->

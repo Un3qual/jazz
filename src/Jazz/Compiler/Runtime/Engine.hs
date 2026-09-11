@@ -1290,6 +1290,9 @@ stepEvaluationMachine observeStatistics observeProfile host machine =
         ELit _ literal -> do
           value <- liftRuntimeResult (specializeAnalyzedLiteral facts literal)
           continueWith (ReturnRuntimeValue value) expressionMachine
+        EVar node _
+          | Just (BuiltinOperatorReference symbol) <- resolvedNodeReference (expressionResolution (coreNodeFacts node)) ->
+              continueWith (ReturnRuntimeValue (VOperator symbol [])) expressionMachine
         EVar node name ->
           case Map.lookup (resolvedValueReference (expressionResolution (coreNodeFacts node))) (evaluationEnvironment context) of
             Just runtimeCell -> do
@@ -1336,14 +1339,8 @@ stepEvaluationMachine observeStatistics observeProfile host machine =
                   )
               )
               expressionMachine
-        EOperatorValue node operatorSymbol
-          | isBuiltinOperatorSymbol operatorSymbol ->
-              continueWith (ReturnRuntimeValue (VOperator operatorSymbol [])) expressionMachine
-          | otherwise -> do
-              operatorValue <-
-                liftRuntimeResult
-                  (lookupDeclaredOperatorCell operatorSymbol (resolvedValueReference (expressionResolution (coreNodeFacts node))) (evaluationEnvironment context))
-              forceReference operatorValue
+        EOperatorValue {} ->
+          throwRuntimeDiagnostic (runtimeDiagnostic E3021 "analyzed expression contains an unresolved operator value")
         EList _ [] ->
           continueWith (ReturnRuntimeValue (VList [] Nothing)) expressionMachine
         EList _ (element : rest) ->

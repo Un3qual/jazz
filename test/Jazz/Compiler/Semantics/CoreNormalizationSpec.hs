@@ -17,12 +17,14 @@ import Jazz.Compiler.AST
     Pattern (..),
     Statement (..),
   )
+import Jazz.Compiler.CoreIdentity (ResolvedNodeFacts (..), ResolvedReference (..))
 import Jazz.Compiler.Diagnostics (SourceSpan (..))
 import Jazz.Compiler.ModuleAnalysis
   ( inferExpressionDefault,
   )
 import Jazz.Compiler.ModuleExports (exportInventory)
 import Jazz.Compiler.ModuleResolver (resolveStandaloneExprNames)
+import Jazz.Compiler.Name (operatorBindingName)
 import Jazz.Compiler.Parser (parseSurfaceProgram)
 import Jazz.Compiler.Parser.Lower (lowerSurfaceExpr)
 import Jazz.Compiler.TypeInference.Result (InferenceResult (inferenceResolvedExpr))
@@ -40,6 +42,7 @@ tests :: [NamedTest]
 tests =
   [ ("if remains the canonical boolean conditional", testIfRemainsCanonicalIf),
     ("dollar lowers directly to application", testDollarLowersToApplication),
+    ("operator values resolve to callable references", testOperatorValuesResolveToReferences),
     ("lowering assigns deterministic pre-order node identities", testDeterministicNodeIdentities),
     ("lowering preserves a complete span on every canonical node", testCompleteCanonicalSpans)
   ]
@@ -59,6 +62,20 @@ testDollarLowersToApplication =
       EBlock _ [SExpr statementNode (EApply _ (EVar _ "f") (EVar _ "x"))]
         | coreNodeSpan statementNode == SourceRange 1 1 1 2 -> pure ()
       lowered -> assertEqual "canonical dollar shape" "application block" (show lowered)
+
+testOperatorValuesResolveToReferences :: IO ()
+testOperatorValuesResolveToReferences =
+  assertRight "parse operator value" (parseSurfaceProgram "(+).") $ \surface ->
+    case lowerSurfaceExpr surface of
+      lowered@(EBlock _ [SExpr _ (EOperatorValue sourceNode "+")]) ->
+        assertRight "resolve operator value" (resolveStandaloneExprNames (exportInventory []) lowered) $ \resolved -> case resolved of
+          EBlock _ [SExpr _ (EVar node name)] -> do
+            assertEqual "callable name" (operatorBindingName "+") name
+            assertEqual "builtin operator target" (Just (BuiltinOperatorReference "+")) (resolvedNodeReference (coreNodeFacts node))
+            assertEqual "operator identity" (coreNodeId sourceNode) (coreNodeId node)
+            assertEqual "authored operator span" (coreNodeSpan sourceNode) (coreNodeSpan node)
+          _ -> assertEqual "resolved operator shape" "callable reference" (show resolved)
+      _ -> assertEqual "lowered operator stays canonical" "operator value" (show (lowerSurfaceExpr surface))
 
 testDeterministicNodeIdentities :: IO ()
 testDeterministicNodeIdentities =
