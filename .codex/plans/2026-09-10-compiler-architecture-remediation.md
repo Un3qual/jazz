@@ -1,3 +1,24 @@
+---
+id: JN-COMPILER-ARCHITECTURE-BASELINE-001
+status: ready
+priority: P1
+size: M
+kind: coordination
+autonomous_ready: yes
+depends_on: []
+last_verified: 2026-09-11
+plan_section: "T01 — Record the preservation baseline"
+target_paths:
+  - test/Jazz/Compiler/Modules/ModulePipelineContractSpec.hs
+  - benchmark/Jazz/Benchmark/ScaleCases.hs
+verification:
+  - cabal test all --test-show-details=failures --jobs=4
+  - cabal bench jazz-bench
+  - bash scripts/check-execution-queue.sh
+deliverable: Record preservation coverage and matched benchmark baselines before compiler changes.
+supersedes: []
+---
+
 # Compiler architecture remediation implementation plan
 
 > Execute inline, task by task, using the executing-plans workflow. This document proposes implementation; its creation does not start compiler changes. If delegation is subsequently requested, the user's restriction is GPT-5.6-Luna at Max reasoning only.
@@ -10,7 +31,7 @@
 
 **Spec:** [Validated audit findings](2026-09-10-compiler-architecture-validation.md), together with the target contracts and preservation rules below. The report preserves the disposition of all three input audits. The two Luna drafts were withdrawn after validation; their rejected or qualified recommendations are not implementation guidance.
 
-**Status:** Proposed, not implementation-dispatched. The existing execution queue has no ready item. Keep it unchanged until implementation is requested; then curate the first bounded milestone rather than enqueueing this entire program as one task.
+**Status:** Execution requested on 2026-09-11. T01 is the active bounded milestone in the execution queue. Execute the remaining tasks inline in dependency order; promote the next milestone when its prerequisites pass.
 
 **Existing architecture decision:** [RFC 0016](../../rfcs/accepted/0016-optional-backend-removal.md) explicitly says to keep “attached analysis facts, and runtime plans.” Direct construction still retains attached facts, but T11a proposes changing the retained runtime-plan contract. Approval of this plan should therefore include that specific architectural decision and a narrow amendment through the repository's RFC process before removal. This is a dependency of T11a, not a reason to block unrelated tasks or ask for another confirmation while preparing this plan. If runtime plans are to remain, retain the small sequence and pursue direct identity/ownership improvements around it; do not claim its deletion completed.
 
@@ -146,12 +167,12 @@ The table is a dependency order, not a request for parallel agents. Work inline.
 
 **Files:** Existing suites in `test/Jazz/Compiler/{Modules,Semantics,Parser,Runtime,Diagnostics}`, `benchmark/Jazz/Benchmark/{Stages,ScaleCases}.hs`; evidence attached to this plan during execution. Do not add a generic snapshot framework.
 
-- [ ] Record starting SHA, source diff, toolchain, and the compiler file/line inventory. Inspect any intervening changes before reusing this plan's findings.
-- [ ] Run the current Haskell test suite once using the command below. Record any pre-existing failures separately from refactor failures.
-- [ ] Inventory existing cases for the preservation matrix below. Add only missing cross-path cases, using the current public driver and an injected deterministic host. Compare value/exit/diagnostics/host trace; compare observations according to their documented semantics.
-- [ ] Capture benchmark results using the existing harness before changing runtime/analysis structure. Include sequential polymorphism, shared-interface fanout, resolver facts, recursive previews/interleaving/rebinding, capability width, host-free opaque environments, and deep lambdas. Use existing generated scale cases, selected from the source registry.
-- [ ] Keep the smallest/largest relevant cases so an apparent constant-factor win does not hide a worse growth rate. Record host/toolchain/build settings with the harness's result artifact.
-- [ ] Commit only new meaningful contract coverage and baseline notes. If existing tests already cover the matrix, do not manufacture a test-only commit.
+- [x] Record starting SHA, source diff, toolchain, and the compiler file/line inventory. Inspect any intervening changes before reusing this plan's findings.
+- [x] Run the current Haskell test suite once using the command below. Record any pre-existing failures separately from refactor failures.
+- [x] Inventory existing cases for the preservation matrix below. Add only missing cross-path cases, using the current public driver and an injected deterministic host. Compare value/exit/diagnostics/host trace; compare observations according to their documented semantics.
+- [x] Capture benchmark results using the existing harness before changing runtime/analysis structure. Include sequential polymorphism, shared-interface fanout, resolver facts, recursive previews/interleaving/rebinding, capability width, host-free opaque environments, and deep lambdas. Use existing generated scale cases, selected from the source registry.
+- [x] Keep the smallest/largest relevant cases so an apparent constant-factor win does not hide a worse growth rate. Record host/toolchain/build settings with the harness's result artifact.
+- [x] Commit only new meaningful contract coverage and baseline notes. If existing tests already cover the matrix, do not manufacture a test-only commit.
 
 **Done when:** Later changes can be compared with a known-good executable baseline. Performance numbers are measured rather than inferred from source size.
 
@@ -463,3 +484,30 @@ Nine existing compiler suites passed under GHC 9.14.1:
 These checks validate current behavior and the proposed preservation constraints. They do not constitute implementation verification, a full-suite run, or a benchmark of the proposed architecture. Runtime storage consolidation remains a measured implementation decision in T13.
 
 Documentation verification at plan completion checks local evidence targets/line bounds, all A/B/C ledger entries, every task reference, whitespace, and repository documentation/plan governance checks. Results are reported with the delivery commit.
+
+## Execution record
+
+### T01 — preservation baseline (complete, 2026-09-11)
+
+- Starting checkout: `b0b7dfca564b35613319fe1855479a74c6d509d0`, clean detached HEAD in the existing isolated worktree. `git diff 2695289b -- src app test jazz` is empty: the intervening commits contain audit/plan documentation only.
+- Baseline test command: `cabal test all --test-show-details=failures --jobs=4` inside the pinned Nix development shell. Full output: `/private/tmp/jazz-architecture-t01-tests.log`.
+- Compiler inventory: 88 Haskell files / 37,171 physical lines in `src/Jazz/Compiler`, exactly matching the audit. Toolchain: GHC 9.14.1, cabal-install 3.16.1.0; ordinary build profile `-O1`.
+- Preservation coverage inventory (existing tests retained; no redundant snapshot framework or test-only commit):
+
+  | Contract | Verified existing coverage |
+  | --- | --- |
+  | Lexical identity, builtin/import shadowing, ordered quantification, definition-site schemes | `ModulePipelineContractSpec`: `testLexicalBindersShadowImportedAndBuiltinNames`, `testExplicitInstantiationBinderShadowing`, `testExplicitOperatorInstantiationBinder`, `testStatementSchemesAreDefinitionSiteFacts`; binding-signature `GeneralizationTests` |
+  | Recursion, interleaved groups, rebinding, pattern captures | `RecursiveBindingsSpec` nearest-prior, conditional-alias, nested-pattern and group cases; binding-signature `RecursionTests`; runtime semantics component suites |
+  | Checked facts, numeric operation choice, literal ranges, declaration execution | `ModulePipelineContractSpec`: completeness, binary alias selection, literal-range facts, runtime source-type erasure, generic constructor fields; primitive-semantics suites |
+  | ADT patterns, guards, coverage | `adt-pattern-type-spec`, `adt-pattern-runtime-spec`, `pattern-semantics-spec`, `pattern-coverage-spec` |
+  | Namespace exports, aliases, private/transitive visibility | `ModulePipelineContractSpec` explicit/namespace-selected exports and transitive non-leakage; loader `AliasClassTests`, `VisibilityTests`, `CapabilitiesTests` |
+  | Pure/host parity, source ownership, skipped dependency expressions | `ModulePipelineContractSpec`: `testModuleRuntimePathParity`, `testDependencyExpressionContract`, `testAnalyzedDependencyTerminalExpressionIsSkipped`, `testSourcePathContract`; `prelude-loading-spec` and `cli-spec` |
+  | Deterministic host trace and force caching | `ModulePipelineContractSpec.testModuleGraphInjectsRuntimeHost` injects `recordingHost` and checks exact call order; observation `StatisticsTests` checks deferred cache hits/misses and recursion |
+  | Value, valueless completion, exit, failure, no execution | `ModulePipelineContractSpec.testRunResultProjectionInvariants`, runtime `OutcomeTests`, observation/CLI exit and failure cases |
+  | Observation semantics and profile finalization | `StatisticsTests` disabled-result parity and retained failure reports; `ProfileTests` balanced frames, determinism and incomplete failure profiles; CLI exit finalization |
+  | Grammar, exact ranges, diagnostics and warning policy | `SourceRangesSpec`; loader `AliasClassTests.testDiagnosticComponents` already distinguishes a type argument from a repeated same-spelled class head, including parentheses; structured diagnostics, warning configuration and rebinding suites |
+  | Hosted compatibility | Existing canonical lexer/parser/core comparison and Jazz parser parity suites run in the default test gate |
+
+- Baseline result: 61 of 62 default suites pass. `jazz-parser-types-declarations-modules-spec` reports the same ten qualified-name/signature parity failures recorded in the RFC 0017 implementation plan's "Deferred hosted parity" section. No compiler or hosted source was modified. The initial `cabal test all` stopped after that failure; the 22 not-yet-completed suites then passed using `cabal test <remaining suites> --keep-going --test-show-details=failures --jobs=4`, with output in `/private/tmp/jazz-architecture-t01-remaining.log`.
+- These are explicitly pre-existing, maintainer-deferred bootstrap failures, not a new regression or a green full-suite claim. Preserve the exact failure set while executing the Haskell architecture work; do not change the hosted grammar to hide the baseline.
+- Initial capture completed: 44 benchmark leaves passed; CSV/environment are in `/private/tmp/jazz-architecture-bench/architecture-remediation/20260911T151658086430000000Z`. The maintainer then explicitly removed benchmarks from this rewrite. Skip all further benchmark work and focus on code and correctness tests; retain current cell storage while consolidating execution rather than introduce an unmeasured storage replacement.

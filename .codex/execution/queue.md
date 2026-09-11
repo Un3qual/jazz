@@ -12,8 +12,9 @@ public behavior.
 
 | id  | title | priority | size | kind | autonomous_ready | depends_on | plan | plan_section | target_paths | deliverable | verification | last_verified |
 | --- | ----- | -------- | ---- | ---- | ---------------- | ---------- | ---- | ------------ | ------------ | ----------- | ------------ | ------------- |
+| `JN-COMPILER-ARCHITECTURE-BASELINE-001` | Record compiler architecture preservation baseline | `P1` | `M` | `coordination` | `yes` | `-` | [compiler architecture remediation](../plans/2026-09-10-compiler-architecture-remediation.md) | `T01 — Record the preservation baseline` | `test/Jazz/Compiler/Modules/ModulePipelineContractSpec.hs`, `benchmark/Jazz/Benchmark/ScaleCases.hs` | Record preservation coverage and matched benchmark baselines before compiler changes. | `cabal test all --test-show-details=failures --jobs=4`; `cabal bench jazz-bench`; `bash scripts/check-execution-queue.sh` | `2026-09-11` |
 
-Current executor status (`2026-09-09`): Ready Now is empty. RFC 0017 alias-qualified classes are implemented in the Haskell compiler at `b36baa72`. Bootstrap work, including affected hosted parser parity, is deferred by the maintainer. There is no source-backed next curation target and no named candidate currently.
+Current executor status (`2026-09-11`): Compiler architecture remediation execution is authorized. T01 records the existing behavior and performance before T02 changes discovery ownership. This bounded coordination item is the required measured unblocker for implementation. Further milestones will be promoted from the accepted remediation plan as their prerequisites pass. Hosted bootstrap feature work remains deferred.
 
 ## Next Curation Target
 
