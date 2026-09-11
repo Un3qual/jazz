@@ -61,13 +61,14 @@ data ResolvedNodeFacts = ResolvedNodeFacts
   { resolvedNodeOwner :: SourceUnitOwner,
     resolvedNodeBinder :: Maybe CoreBinderId,
     resolvedNodeReference :: Maybe ResolvedReference,
-    resolvedNodeScope :: Maybe ResolvedScopeFacts
+    resolvedNodeScope :: Maybe ResolvedScopeFacts,
+    resolvedNodeCaptures :: [(ResolvedReference, ResolvedName)]
   }
   deriving stock (Eq, Generic, Show)
   deriving anyclass (NFData)
 
 emptyResolvedNodeFacts :: SourceUnitOwner -> ResolvedNodeFacts
-emptyResolvedNodeFacts owner = ResolvedNodeFacts owner Nothing Nothing Nothing
+emptyResolvedNodeFacts owner = ResolvedNodeFacts owner Nothing Nothing Nothing []
 
 -- | Lexical facts for the exact, source-ordered statements of a resolved block.
 -- Statement indices are local views; binding identities remain source-owned.

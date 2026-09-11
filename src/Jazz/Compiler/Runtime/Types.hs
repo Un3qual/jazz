@@ -89,7 +89,6 @@ import Jazz.Compiler.BuiltinCatalog (BuiltinSymbol)
 import Jazz.Compiler.Diagnostics (Diagnostic)
 import Jazz.Compiler.FractionalLiteral (FractionalLiteralSource)
 import Jazz.Compiler.Name (ResolvedName)
-import Jazz.Compiler.RecursiveBindings (LambdaCaptureHints)
 import Jazz.Compiler.Runtime.Observation
   ( RuntimeCallableIdentity,
     RuntimeObservationState,
@@ -142,7 +141,6 @@ type RuntimeHostEvaluationT m = StateT RuntimeHostEvaluationState m
 data RuntimeClosure = RuntimeClosure
   { runtimeClosureEnvironment :: RuntimeEnv,
     runtimeClosureEnvironmentMayReachHostCells :: Bool,
-    runtimeClosureLambdaCaptureHints :: LambdaCaptureHints 'Analyzed,
     runtimeClosureParameter :: ResolvedName,
     runtimeClosureBody :: Expr 'Analyzed,
     runtimeClosureTypeHint :: Maybe AnalyzedType,

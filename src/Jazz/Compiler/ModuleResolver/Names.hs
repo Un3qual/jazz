@@ -95,6 +95,7 @@ import Jazz.Compiler.RecursiveBindings
   ( buildRecursiveScopeFacts,
     exprContainsFunctionBranch,
     inferSelfRecursiveBindings,
+    publishResolvedCaptures,
     recursiveScopeBindingNames,
     recursiveScopeGroups,
   )
@@ -126,7 +127,7 @@ resolveExprNames ::
   ResolutionContext ->
   Expr 'Lowered ->
   Either (NonEmpty Diagnostic) (Expr 'Resolved)
-resolveExprNames context rootExpression = Right (resolveExpr (resolutionSourceOwner context) Map.empty rootExpression)
+resolveExprNames context rootExpression = Right (publishResolvedCaptures (resolveExpr (resolutionSourceOwner context) Map.empty rootExpression))
   where
     ambientExports = resolutionAmbientExports context
     localInventory = resolutionLocalInventory context

@@ -4,17 +4,24 @@
 module Main (main) where
 
 import qualified Data.Map as Map
+import Data.Maybe (listToMaybe)
 import qualified Data.Set as Set
 import Data.Text (Text)
 import qualified Data.Text as Text
 import Jazz.Compiler.AST
-  ( CorePhase (Lowered),
+  ( CoreNode (..),
+    CorePhase (Lowered, Resolved),
     Expr (..),
     Statement (..),
+    expressionNode,
   )
+import Jazz.Compiler.CoreIdentity (ResolvedNodeFacts (..), ResolvedReference (..))
 import Jazz.Compiler.Diagnostics.Render (renderDiagnostic)
+import Jazz.Compiler.ModuleExports (exportInventory)
+import Jazz.Compiler.ModuleResolver.Names (resolveStandaloneExprNames)
 import Jazz.Compiler.Name
   ( UnresolvedName,
+    identifierText,
     mkIdentifier,
     operatorBindingName,
     sourceName,
@@ -25,14 +32,10 @@ import Jazz.Compiler.RecursiveBindings
   ( PreparedRecursiveScope,
     buildRecursiveScopeFacts,
     collectBindingNames,
-    collectLambdaCaptureHints,
     freeVarsExprWithBound,
     freeVarsScopeWithBound,
     inferRecursiveGroupsOrdered,
     inferSelfRecursiveBindings,
-    lambdaCaptureHintsChild,
-    lookupLambdaCapturedNames,
-    lookupLambdaCapturedNamesOrdered,
     prepareRecursiveScope,
     preparedRecursiveScopeBindingNames,
     preparedRecursiveScopeGroups,
@@ -51,8 +54,8 @@ tests =
   [ ("collect binding names keeps let declaration indices", testCollectBindingNames),
     ("recursive scope facts own binding names and ordered groups together", testRecursiveScopeFacts),
     ("prepared recursive scopes own exact statements and derived maps", testPreparedRecursiveScope),
-    ("lambda capture plans address nested lambdas without AST keys", testLambdaCapturePlans),
-    ("lambda capture plans preserve first occurrence order", testLambdaCaptureOrder),
+    ("resolved lambdas own nested capture candidates", testLambdaCapturePlans),
+    ("resolved captures preserve first occurrence order", testLambdaCaptureOrder),
     ("free vars treat lambda parameters as bound", testFreeVarsLambdaParameterBound),
     ("ordinary binding initializers keep their own name free", testFreeVarsScopeKeepsOrdinaryInitializerNameFree),
     ("ordinary binding initializers resolve an outer same-name binding", testFreeVarsScopeResolvesOuterInitializerName),
@@ -114,25 +117,45 @@ testPreparedRecursiveScope = do
     statements = programStatements "left = \\(item) -> right. 0. right = \\(item) -> left."
 
 testLambdaCapturePlans :: IO ()
-testLambdaCapturePlans = do
-  assertEqual "outer lambda captures" (Just (Set.singleton (ident "outside"))) (fst <$> lookupLambdaCapturedNames outerLambdaHints)
-  assertEqual "ordered outer lambda captures" (Just [ident "outside"]) (fst <$> lookupLambdaCapturedNamesOrdered outerLambdaHints)
-  assertEqual "nested lambda captures" (Just (Set.fromList [ident "outside", ident "outer"])) (fst <$> lookupLambdaCapturedNames nestedLambdaHints)
-  assertEqual "ordered nested lambda captures" (Just [ident "outer", ident "outside"]) (fst <$> lookupLambdaCapturedNamesOrdered nestedLambdaHints)
-  where
-    rootHints = collectLambdaCaptureHints expression
-    outerLambdaHints = lambdaCaptureHintsChild 1 rootHints
-    nestedBodyHints = maybe rootHints snd (lookupLambdaCapturedNames outerLambdaHints)
-    nestedLambdaHints = lambdaCaptureHintsChild 0 nestedBodyHints
-    expression = fixtureExpression "consume (\\(outer) -> (\\(inner) -> (outer, inner, outside)) outer)."
+testLambdaCapturePlans =
+  case resolvedFixture "consume (\\(outer) -> (\\(inner) -> (outer, inner, outside)) outer)." of
+    EApply _ _ outer@(ELambda _ _ (EApply _ nested _)) -> do
+      assertEqual "outer lambda captures" ["outside"] (captures outer)
+      assertEqual "nested lambda captures" ["outer", "outside"] (captures nested)
+    expression -> error ("unexpected capture fixture: " <> show expression)
 
 testLambdaCaptureOrder :: IO ()
 testLambdaCaptureOrder = do
-  assertEqual "ordered captures deduplicate by first occurrence and exclude the parameter" (Just [ident "right", ident "left"]) (fst <$> lookupLambdaCapturedNamesOrdered rootHints)
-  assertEqual "ordered captures exclude a prior block-local binding" (Just [ident "outside", ident "tail"]) (fst <$> lookupLambdaCapturedNamesOrdered blockHints)
+  assertEqual
+    "captures deduplicate by first occurrence and exclude the parameter"
+    ["right", "left"]
+    (captures (resolvedFixture "probe = \\(item) -> (right, left, right, item)."))
+  assertEqual
+    "captures exclude a prior block-local binding"
+    ["outside", "tail"]
+    (captures (resolvedFixture "probe = \\(item) -> { local = outside. (local, outside, tail, item). }."))
+
+  case resolveStandaloneExprNames (exportInventory []) (loweredProgram "outside = 1. probe = \\(item) -> { outside = outside + 1. \\(inner) -> outside. }.") of
+    Right (EBlock _ [SLet outerNode _ _, SLet _ _ outer@(ELambda _ _ (EBlock _ [SLet localNode _ _, SExpr _ nested]))]) -> do
+      assertEqual
+        "outer closure captures the earlier declaration"
+        (fmap LexicalReference (resolvedNodeBinder (coreNodeFacts outerNode)))
+        (fst <$> firstCapture outer)
+      assertEqual
+        "nested closure captures the local rebinding"
+        (fmap LexicalReference (resolvedNodeBinder (coreNodeFacts localNode)))
+        (fst <$> firstCapture nested)
+    expression -> error ("unexpected rebinding capture fixture: " <> show expression)
   where
-    rootHints = collectLambdaCaptureHints (fixtureExpression "probe = \\(item) -> (right, left, right, item).")
-    blockHints = collectLambdaCaptureHints (fixtureExpression "probe = \\(item) -> { local = outside. (local, outside, tail, item). }.")
+    firstCapture = listToMaybe . resolvedNodeCaptures . coreNodeFacts . expressionNode
+
+captures :: Expr 'Resolved -> [Text]
+captures = map (identifierText . snd) . resolvedNodeCaptures . coreNodeFacts . expressionNode
+
+resolvedFixture :: Text -> Expr 'Resolved
+resolvedFixture source = case resolveStandaloneExprNames (exportInventory []) (fixtureExpression source) of
+  Right expression -> expression
+  Left diagnostics -> error (show diagnostics)
 
 testFreeVarsLambdaParameterBound :: IO ()
 testFreeVarsLambdaParameterBound =

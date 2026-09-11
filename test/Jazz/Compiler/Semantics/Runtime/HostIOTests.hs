@@ -43,7 +43,6 @@ import Jazz.Compiler.Driver
   )
 import Jazz.Compiler.ModuleIdentity (mkModulePath)
 import Jazz.Compiler.Name (UnresolvedName, qualifiedName)
-import Jazz.Compiler.RecursiveBindings (emptyLambdaCaptureHints)
 import Jazz.Compiler.Runtime
   ( ModuleEvaluationMode (..),
     RuntimeAnnotation (..),
@@ -679,7 +678,6 @@ testStackedResultObligationsPreserveRecursiveUnwindOrder = do
           RuntimeClosure
             { runtimeClosureEnvironment = Map.empty,
               runtimeClosureEnvironmentMayReachHostCells = False,
-              runtimeClosureLambdaCaptureHints = emptyLambdaCaptureHints,
               runtimeClosureParameter = fixtureValueName "itemValue",
               runtimeClosureBody = expressionVariable "itemValue",
               runtimeClosureTypeHint = Nothing,

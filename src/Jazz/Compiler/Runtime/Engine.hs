@@ -67,6 +67,7 @@ import Jazz.Compiler.BuiltinCatalog
 import Jazz.Compiler.CapabilityFacts
   ( qualifiedMethodKey,
   )
+import Jazz.Compiler.CoreIdentity (ResolvedNodeFacts (resolvedNodeCaptures))
 import Jazz.Compiler.DiagnosticCatalog
   ( ErrorCode (..),
   )
@@ -93,13 +94,6 @@ import Jazz.Compiler.Parser.Operator
   )
 import Jazz.Compiler.Pattern
   ( patternBinderNames,
-  )
-import Jazz.Compiler.RecursiveBindings
-  ( LambdaCaptureHints,
-    closureCaptureCandidatesWithBound,
-    collectLambdaCaptureHints,
-    lambdaCaptureHintsChild,
-    lookupLambdaCapturedNames,
   )
 import Jazz.Compiler.Runtime.HostEvaluation
   ( freshDeferredHostScopeId,
@@ -235,7 +229,7 @@ import Jazz.Compiler.SemanticFacts
     CapabilityId (..),
     CoreNodeId,
     EvidenceReference (..),
-    ExpressionFacts (expressionRuntimePlan),
+    ExpressionFacts (expressionResolution, expressionRuntimePlan),
     ImplId (..),
     MethodId (..),
     RuntimeObligation (..),
@@ -365,17 +359,9 @@ data EvaluationContext = EvaluationContext
   { evaluationModulePath :: Maybe SourceUnitOwner,
     evaluationEnvironment :: RuntimeEnv,
     evaluationEnvironmentMayReachHostCells :: Bool,
-    evaluationLambdaCaptureHints :: LambdaCaptureHints 'Analyzed,
     evaluationClosureBaseName :: Text,
     evaluationLambdaStage :: Int
   }
-
-evaluationContextForLambdaChild :: Int -> EvaluationContext -> EvaluationContext
-evaluationContextForLambdaChild childIndex context =
-  context
-    { evaluationLambdaCaptureHints =
-        lambdaCaptureHintsChild childIndex (evaluationLambdaCaptureHints context)
-    }
 
 data RuntimeResultObligation
   = ApplyFunctionResultHint AnalyzedType
@@ -400,11 +386,11 @@ data EvaluationControl
 data EvaluationFrame
   = EvaluateApplicationArgument EvaluationContext (Expr 'Analyzed)
   | ApplyEvaluatedFunction RuntimeValue
-  | EvaluateListElement EvaluationContext Int [RuntimeValue] [Expr 'Analyzed]
-  | EvaluateTupleElement EvaluationContext Int [RuntimeValue] [Expr 'Analyzed]
+  | EvaluateListElement EvaluationContext [RuntimeValue] [Expr 'Analyzed]
+  | EvaluateTupleElement EvaluationContext [RuntimeValue] [Expr 'Analyzed]
   | EvaluateIfBranch EvaluationContext (Expr 'Analyzed) (Expr 'Analyzed)
-  | EvaluateCaseArms EvaluationContext [(Int, CaseArm 'Analyzed)]
-  | EvaluateCaseGuard EvaluationContext RuntimeValue RuntimeEnv Int (Expr 'Analyzed) [(Int, CaseArm 'Analyzed)]
+  | EvaluateCaseArms EvaluationContext [CaseArm 'Analyzed]
+  | EvaluateCaseGuard EvaluationContext RuntimeValue RuntimeEnv (Expr 'Analyzed) [CaseArm 'Analyzed]
   | EvaluateBuiltinRightOperand EvaluationContext Text (Expr 'Analyzed)
   | ApplyBuiltinBinary Text RuntimeValue
   | EvaluateDeclaredOperatorLeft EvaluationContext (Expr 'Analyzed) (Expr 'Analyzed)
@@ -1172,7 +1158,6 @@ evalValueWithModulePath currentModulePath env expr =
                     { evaluationModulePath = currentModulePath,
                       evaluationEnvironment = env,
                       evaluationEnvironmentMayReachHostCells = False,
-                      evaluationLambdaCaptureHints = collectLambdaCaptureHints expr,
                       evaluationClosureBaseName = "<entry>",
                       evaluationLambdaStage = 1
                     }
@@ -1378,14 +1363,9 @@ stepEvaluationMachine observeStatistics observeProfile host machine =
                 Nothing ->
                   throwRuntimeDiagnostic
                     (runtimeDiagnostic E3002 ("runtime unbound variable '" <> identifierText name <> "'"))
-        ELambda _ parameterName bodyExpr ->
+        ELambda node parameterName bodyExpr ->
           do
-            let (capturedNames, nestedCaptureHints) =
-                  fromMaybe
-                    ( closureCaptureCandidatesWithBound (Set.singleton parameterName) bodyExpr,
-                      collectLambdaCaptureHints bodyExpr
-                    )
-                    (lookupLambdaCapturedNames (evaluationLambdaCaptureHints context))
+            let capturedNames = Set.fromList (map snd (resolvedNodeCaptures (expressionResolution (coreNodeFacts node))))
                 capturedEnvironment =
                   Map.restrictKeys
                     (evaluationEnvironment context)
@@ -1403,8 +1383,6 @@ stepEvaluationMachine observeStatistics observeProfile host machine =
                         { runtimeClosureEnvironment = capturedEnvironment,
                           runtimeClosureEnvironmentMayReachHostCells =
                             capturedEnvironmentMayReachHostCells,
-                          runtimeClosureLambdaCaptureHints =
-                            nestedCaptureHints,
                           runtimeClosureParameter = parameterName,
                           runtimeClosureBody = bodyExpr,
                           runtimeClosureTypeHint = Nothing,
@@ -1431,8 +1409,8 @@ stepEvaluationMachine observeStatistics observeProfile host machine =
         EList _ (element : rest) ->
           suspendEvaluation
             expressionMachine
-            (EvaluateListElement context 1 [] rest)
-            (EvaluateExpression (evaluationContextForLambdaChild 0 context) element)
+            (EvaluateListElement context [] rest)
+            (EvaluateExpression context element)
         ETuple _ [] ->
           do
             recordRuntimeStatisticWhen observeStatistics (recordRuntimeConstruction TupleConstruction 1)
@@ -1440,13 +1418,13 @@ stepEvaluationMachine observeStatistics observeProfile host machine =
         ETuple _ (element : rest) ->
           suspendEvaluation
             expressionMachine
-            (EvaluateTupleElement context 1 [] rest)
-            (EvaluateExpression (evaluationContextForLambdaChild 0 context) element)
+            (EvaluateTupleElement context [] rest)
+            (EvaluateExpression context element)
         EApply _ functionExpr argumentExpr ->
           suspendEvaluation
             expressionMachine
             (EvaluateApplicationArgument context argumentExpr)
-            (EvaluateExpression (evaluationContextForLambdaChild 0 context) functionExpr)
+            (EvaluateExpression context functionExpr)
         ETypeApplication _ functionExpr _ _ ->
           case functionExpr of
             EVar _ name ->
@@ -1462,18 +1440,18 @@ stepEvaluationMachine observeStatistics observeProfile host machine =
           suspendEvaluation
             expressionMachine
             (EvaluateIfBranch context thenExpr elseExpr)
-            (EvaluateExpression (evaluationContextForLambdaChild 0 context) conditionExpr)
+            (EvaluateExpression context conditionExpr)
         EPatternCase _ scrutineeExpr caseArms ->
           suspendEvaluation
             expressionMachine
-            (EvaluateCaseArms context (zip [0 ..] caseArms))
-            (EvaluateExpression (evaluationContextForLambdaChild 0 context) scrutineeExpr)
+            (EvaluateCaseArms context caseArms)
+            (EvaluateExpression context scrutineeExpr)
         EBinary _ operatorSymbol leftExpr rightExpr
           | isBuiltinOperatorSymbol operatorSymbol ->
               suspendEvaluation
                 expressionMachine
                 (EvaluateBuiltinRightOperand context operatorSymbol rightExpr)
-                (EvaluateExpression (evaluationContextForLambdaChild 0 context) leftExpr)
+                (EvaluateExpression context leftExpr)
           | otherwise -> do
               operatorValue <-
                 liftRuntimeResult
@@ -1486,12 +1464,12 @@ stepEvaluationMachine observeStatistics observeProfile host machine =
           suspendEvaluation
             expressionMachine
             (EvaluateLeftSection context operatorSymbol)
-            (EvaluateExpression (evaluationContextForLambdaChild 0 context) leftExpr)
+            (EvaluateExpression context leftExpr)
         ESectionRight _ operatorSymbol rightExpr ->
           suspendEvaluation
             expressionMachine
             (EvaluateRightSection context operatorSymbol)
-            (EvaluateExpression (evaluationContextForLambdaChild 0 context) rightExpr)
+            (EvaluateExpression context rightExpr)
         EBlock _ statements ->
           stepBlock expressionMachine context statements
       where
@@ -1523,7 +1501,7 @@ stepEvaluationMachine observeStatistics observeProfile host machine =
       suspendEvaluation
         expressionMachine
         FinishTypeApplication
-        (EvaluateExpression (evaluationContextForLambdaChild 0 context) functionExpr)
+        (EvaluateExpression context functionExpr)
 
     stepBlock expressionMachine context statements =
       case reverse statements of
@@ -1540,7 +1518,7 @@ stepEvaluationMachine observeStatistics observeProfile host machine =
               (evaluationEnvironment context)
               prefixStatements
           let terminalContext =
-                (evaluationContextForLambdaChild (length prefixStatements) context)
+                context
                   { evaluationModulePath =
                       runtimeModulePathAfterStatements
                         (evaluationModulePath context)
@@ -1654,8 +1632,6 @@ stepEvaluationMachine observeStatistics observeProfile host machine =
                         (runtimeClosureEnvironment closure),
                     evaluationEnvironmentMayReachHostCells =
                       runtimeClosureEnvironmentMayReachHostCells closure,
-                    evaluationLambdaCaptureHints =
-                      runtimeClosureLambdaCaptureHints closure,
                     evaluationClosureBaseName = nextClosureBaseName,
                     evaluationLambdaStage = nextLambdaStage
                   }
@@ -1789,10 +1765,10 @@ resumeEvaluationFrame observeStatistics observeProfile host machine frame runtim
       suspendEvaluation
         machine
         (ApplyEvaluatedFunction runtimeValue)
-        (EvaluateExpression (evaluationContextForLambdaChild 1 context) argumentExpr)
+        (EvaluateExpression context argumentExpr)
     ApplyEvaluatedFunction functionValue ->
       continueWith (ApplyCallable functionValue runtimeValue) machine
-    EvaluateListElement context nextChildIndex reversedElements remainingElements ->
+    EvaluateListElement context reversedElements remainingElements ->
       case remainingElements of
         [] -> do
           let elements = reverse (runtimeValue : reversedElements)
@@ -1803,9 +1779,9 @@ resumeEvaluationFrame observeStatistics observeProfile host machine frame runtim
         nextElement : rest ->
           suspendEvaluation
             machine
-            (EvaluateListElement context (nextChildIndex + 1) (runtimeValue : reversedElements) rest)
-            (EvaluateExpression (evaluationContextForLambdaChild nextChildIndex context) nextElement)
-    EvaluateTupleElement context nextChildIndex reversedElements remainingElements ->
+            (EvaluateListElement context (runtimeValue : reversedElements) rest)
+            (EvaluateExpression context nextElement)
+    EvaluateTupleElement context reversedElements remainingElements ->
       case remainingElements of
         [] -> do
           recordRuntimeStatisticWhen observeStatistics (recordRuntimeConstruction TupleConstruction 1)
@@ -1815,29 +1791,29 @@ resumeEvaluationFrame observeStatistics observeProfile host machine frame runtim
         nextElement : rest ->
           suspendEvaluation
             machine
-            (EvaluateTupleElement context (nextChildIndex + 1) (runtimeValue : reversedElements) rest)
-            (EvaluateExpression (evaluationContextForLambdaChild nextChildIndex context) nextElement)
+            (EvaluateTupleElement context (runtimeValue : reversedElements) rest)
+            (EvaluateExpression context nextElement)
     EvaluateIfBranch context thenExpr elseExpr ->
       case runtimeValue of
         VBool True ->
           continueWith
-            (EvaluateExpression (evaluationContextForLambdaChild 1 context) thenExpr)
+            (EvaluateExpression context thenExpr)
             machine
         VBool False ->
           continueWith
-            (EvaluateExpression (evaluationContextForLambdaChild 2 context) elseExpr)
+            (EvaluateExpression context elseExpr)
             machine
         other ->
           throwRuntimeDiagnostic
             (runtimeDiagnostic E3003 ("runtime branch condition must be Bool, found " <> renderRuntimeType other))
     EvaluateCaseArms context caseArms ->
       continueCaseEvaluation observeStatistics machine context runtimeValue caseArms
-    EvaluateCaseGuard context scrutineeValue armEnv armIndex bodyExpr remainingArms ->
+    EvaluateCaseGuard context scrutineeValue armEnv bodyExpr remainingArms ->
       case runtimeValue of
         VBool True ->
           continueWith
             ( EvaluateExpression
-                ( (evaluationContextForLambdaChild (2 + (2 * armIndex)) context)
+                ( context
                     { evaluationEnvironment = armEnv
                     }
                 )
@@ -1853,7 +1829,7 @@ resumeEvaluationFrame observeStatistics observeProfile host machine frame runtim
       suspendEvaluation
         machine
         (ApplyBuiltinBinary operatorSymbol runtimeValue)
-        (EvaluateExpression (evaluationContextForLambdaChild 1 context) rightExpr)
+        (EvaluateExpression context rightExpr)
     ApplyBuiltinBinary operatorSymbol leftValue
       | operatorSymbol == "$" ->
           continueWith (ApplyCallable leftValue runtimeValue) machine
@@ -1873,7 +1849,7 @@ resumeEvaluationFrame observeStatistics observeProfile host machine frame runtim
       suspendEvaluation
         machine
         (ApplyDeclaredOperatorLeft context runtimeValue rightExpr)
-        (EvaluateExpression (evaluationContextForLambdaChild 0 context) leftExpr)
+        (EvaluateExpression context leftExpr)
     ApplyDeclaredOperatorLeft context operatorValue rightExpr ->
       suspendEvaluation
         machine
@@ -1883,7 +1859,7 @@ resumeEvaluationFrame observeStatistics observeProfile host machine frame runtim
       suspendEvaluation
         machine
         (ApplyEvaluatedFunction runtimeValue)
-        (EvaluateExpression (evaluationContextForLambdaChild 1 context) rightExpr)
+        (EvaluateExpression context rightExpr)
     EvaluateLeftSection context operatorSymbol
       | isBuiltinOperatorSymbol operatorSymbol ->
           continueWith
@@ -1933,7 +1909,7 @@ continueCaseEvaluation ::
   EvaluationMachine ->
   EvaluationContext ->
   RuntimeValue ->
-  [(Int, CaseArm 'Analyzed)] ->
+  [CaseArm 'Analyzed] ->
   ExceptT RuntimeControl (RuntimeHostEvaluationT m) EvaluationProgress
 continueCaseEvaluation observeStatistics machine context scrutineeValue =
   chooseArm
@@ -1942,7 +1918,7 @@ continueCaseEvaluation observeStatistics machine context scrutineeValue =
       case remainingArms of
         [] ->
           throwRuntimeDiagnostic (runtimeDiagnostic E3022 "pattern case matched no arms")
-        (armIndex, caseArm@(CaseArm _ casePattern _ _)) : rest -> do
+        caseArm@(CaseArm _ casePattern _ _) : rest -> do
           recordRuntimeStatisticWhen observeStatistics recordRuntimePatternAttempt
           case matchCaseArm
             (evaluationModulePath context)
@@ -1956,7 +1932,7 @@ continueCaseEvaluation observeStatistics machine context scrutineeValue =
                 (recordRuntimePatternMatch (Set.size (patternBinderNames casePattern)))
               continueWith
                 ( EvaluateExpression
-                    ( (evaluationContextForLambdaChild (2 + (2 * armIndex)) context)
+                    ( context
                         { evaluationEnvironment = armEnv
                         }
                     )
@@ -1969,9 +1945,9 @@ continueCaseEvaluation observeStatistics machine context scrutineeValue =
                 (recordRuntimePatternMatch (Set.size (patternBinderNames casePattern)))
               suspendEvaluation
                 machine
-                (EvaluateCaseGuard context scrutineeValue armEnv armIndex bodyExpr rest)
+                (EvaluateCaseGuard context scrutineeValue armEnv bodyExpr rest)
                 ( EvaluateExpression
-                    ( (evaluationContextForLambdaChild (1 + (2 * armIndex)) context)
+                    ( context
                         { evaluationEnvironment = armEnv
                         }
                     )
@@ -2200,7 +2176,6 @@ evalValueWithHost host currentModulePath env envMayReachHostCells expr =
       { evaluationModulePath = currentModulePath,
         evaluationEnvironment = env,
         evaluationEnvironmentMayReachHostCells = envMayReachHostCells,
-        evaluationLambdaCaptureHints = collectLambdaCaptureHints expr,
         evaluationClosureBaseName = "<entry>",
         evaluationLambdaStage = 1
       }
