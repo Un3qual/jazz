@@ -40,23 +40,20 @@ import Jazz.Compiler.AST
   )
 import Jazz.Compiler.BuiltinCatalog
   ( BuiltinSymbol (..),
-    kernelBuiltinNames,
     lookupKernelBuiltinSymbol,
   )
+import Jazz.Compiler.CoreIdentity (ResolvedScopeFacts (..))
 import Jazz.Compiler.ModuleIdentity (ModulePath, mkModulePath)
 import Jazz.Compiler.Name
-  ( NameNamespace (..),
-    ResolvedName,
+  ( ResolvedName,
     identifierText,
     mkIdentifier,
-    resolvedAmbientName,
   )
 import Jazz.Compiler.RecursiveBindings
-  ( buildRecursiveScopeFacts,
+  ( PreparedRecursiveScope,
     exprContainsFunctionBranch,
-    inferSelfRecursiveBindings,
-    recursiveScopeBindingNames,
-    recursiveScopeGroups,
+    preparedRecursiveScopeFacts,
+    preparedRecursiveScopeStatements,
   )
 import Jazz.Compiler.SourceUnitOwnership (SourceUnitOwner (..), sourceUnitStatementRuntimePaths)
 
@@ -74,10 +71,9 @@ buildRuntimeScopePlan ::
   ModulePath ->
   Set Int ->
   Maybe SourceUnitOwner ->
-  Set ResolvedName ->
-  [Statement 'Analyzed] ->
+  PreparedRecursiveScope 'Analyzed ->
   RuntimeScopePlan
-buildRuntimeScopePlan preludePath preludeStatementIndices initialModulePath outerBindingNames statements =
+buildRuntimeScopePlan preludePath preludeStatementIndices initialModulePath preparedScope =
   RuntimeScopePlan
     { runtimeScopePlanIndexedStatements = indexedStatements,
       runtimeScopePlanStatementsByIndex = statementsByIndex,
@@ -90,22 +86,11 @@ buildRuntimeScopePlan preludePath preludeStatementIndices initialModulePath oute
   where
     indexedStatements = zip [0 ..] statements
     statementsByIndex = IntMap.fromDistinctAscList indexedStatements
-    recursionOuterBindingNames =
-      Set.union
-        outerBindingNames
-        (Set.map (resolvedAmbientName ValueNamespace . mkIdentifier) kernelBuiltinNames)
-    recursiveScopeFactsValue =
-      buildRecursiveScopeFacts
-        recursionOuterBindingNames
-        indexedStatements
-    recursiveGroupsMap = recursiveScopeGroups recursiveScopeFactsValue
-    recursiveGroups = IntMap.fromDistinctAscList (Map.toAscList recursiveGroupsMap)
-    selfRecursiveFunctions =
-      IntSet.fromList
-        (Set.toList (inferSelfRecursiveBindings recursionOuterBindingNames exprContainsFunctionBranch indexedStatements))
-    bindingNames =
-      IntMap.fromDistinctAscList
-        (Map.toAscList (recursiveScopeBindingNames recursiveScopeFactsValue))
+    statements = preparedRecursiveScopeStatements preparedScope
+    lexicalFacts = preparedRecursiveScopeFacts preparedScope
+    recursiveGroups = IntMap.fromDistinctAscList (Map.toAscList (resolvedScopeRecursiveGroups lexicalFacts))
+    selfRecursiveFunctions = IntSet.fromList (Set.toList (resolvedScopeSelfRecursiveFunctions lexicalFacts))
+    bindingNames = IntMap.fromDistinctAscList (Map.toAscList (resolvedScopeBindingNames lexicalFacts))
     modulePathsByStatement =
       IntMap.fromDistinctAscList
         ( zip

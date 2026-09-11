@@ -29,8 +29,6 @@ import qualified Data.Set as Set
 import Data.Text (Text)
 import Jazz.Compiler.AST
   ( CorePhase (..),
-    Expr (..),
-    Statement,
   )
 import Jazz.Compiler.CapabilityFacts (splitQualifiedMethodKey)
 import Jazz.Compiler.Diagnostics
@@ -172,7 +170,7 @@ evaluateAnalyzedProgramPureUnchecked analyzedProgram = do
               (Just (NamedSourceUnit (preparedModulePath preparedModule)))
               (preparedModuleEvaluationMode preparedModule)
               (preparedModuleImportedEnvironment preparedModule)
-              (scopeStatements (coreModuleExpr analyzedModule))
+              (coreModuleExpr analyzedModule)
           let (nextRuntimeModules, nextOutput) =
                 completeModuleEvaluation preparedModule analyzedModule scopeResult runtimeModules output
           evaluateModules ambientEnv nextRuntimeModules nextOutput rest
@@ -187,7 +185,7 @@ evaluatePrelude analyzedPrelude =
           (Just (PreludeSourceUnit (coreModulePath analyzedModule)))
           EvaluateDependencyModule
           Map.empty
-          (scopeStatements (coreModuleExpr analyzedModule))
+          (coreModuleExpr analyzedModule)
       pure
         ( publishEnvironment
             AmbientPrelude
@@ -273,7 +271,7 @@ evaluateAnalyzedProgramWithEvaluationHostUnchecked evaluationHost analyzedProgra
                   (Just (NamedSourceUnit (preparedModulePath preparedModule)))
                   (preparedModuleEvaluationMode preparedModule)
                   (preparedModuleImportedEnvironment preparedModule)
-                  (scopeStatements (coreModuleExpr analyzedModule))
+                  (coreModuleExpr analyzedModule)
               )
           let (nextRuntimeModules, nextOutput) =
                 completeModuleEvaluation preparedModule analyzedModule scopeResult runtimeModules output
@@ -346,7 +344,7 @@ evaluatePreludeWithEvaluationHost host analyzedPrelude =
           (Just (PreludeSourceUnit (coreModulePath analyzedModule)))
           EvaluateDependencyModule
           Map.empty
-          (scopeStatements (coreModuleExpr analyzedModule))
+          (coreModuleExpr analyzedModule)
       pure $
         fmap
           ( \result ->
@@ -485,9 +483,3 @@ lookupExportCell :: RuntimeExport -> RuntimeEnv -> Maybe RuntimeCell
 lookupExportCell runtimeExport =
   Map.lookup
     (resolvedLocalName (runtimeExportNamespace runtimeExport) (mkIdentifier (runtimeExportName runtimeExport)))
-
-scopeStatements :: Expr 'Analyzed -> [Statement 'Analyzed]
-scopeStatements expression =
-  case expression of
-    EBlock _ statements -> statements
-    _ -> []

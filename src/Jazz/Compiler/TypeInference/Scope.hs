@@ -48,14 +48,14 @@ import Jazz.Compiler.AST
     expressionNode,
   )
 import Jazz.Compiler.BuiltinCatalog
-  ( kernelBuiltinNames,
-    lookupKernelBuiltinSymbol,
+  ( lookupKernelBuiltinSymbol,
     numericTypeFloatMax,
   )
 import Jazz.Compiler.CapabilityFacts
   ( constraintSignatureTypeVariableNamesInOrder,
     signaturePayloadConstraintType,
   )
+import Jazz.Compiler.CoreIdentity (ResolvedScopeFacts (..))
 import Jazz.Compiler.Diagnostics
   ( Diagnostic,
     DiagnosticContext (CheckingBinding),
@@ -63,25 +63,19 @@ import Jazz.Compiler.Diagnostics
     setDiagnosticPrimarySpan,
   )
 import Jazz.Compiler.Name
-  ( NameNamespace (ValueNamespace),
-    ResolvedName,
+  ( ResolvedName,
     identifierText,
-    mkIdentifier,
-    resolvedAmbientName,
   )
 import Jazz.Compiler.Parser.Operator
   ( isBuiltinOperatorSymbol,
   )
 import Jazz.Compiler.RecursiveBindings
   ( PreparedRecursiveScope,
-    exprContainsFunctionBranch,
     freeVarsExprWithBound,
-    inferSelfRecursiveBindings,
-    inferSelfReferencedBindings,
-    preparedRecursiveScopeFactsForOuterBindings,
+    preparedRecursiveScopeBindingNames,
+    preparedRecursiveScopeFacts,
+    preparedRecursiveScopeGroups,
     preparedRecursiveScopeStatements,
-    recursiveScopeBindingNames,
-    recursiveScopeGroups,
   )
 import Jazz.Compiler.SemanticFacts
   ( StatementDeclarationFact (..),
@@ -346,7 +340,7 @@ inferScopeTypeWithModeAndForwardBindings inferExpression mode initialEnv initial
         scopeInferenceMode = mode,
         scopeInitialEnv = initialEnv,
         scopeInitialState = initialState,
-        scopePreparedInference = preparedInferenceScope (inferenceOuterBindingNames initialEnv) preparedScope
+        scopePreparedInference = preparedScope
       }
 
 inferScopeTypeWithModeAndForwardBindingsUsingPreparedScope ::
@@ -357,17 +351,16 @@ inferScopeTypeWithModeAndForwardBindingsUsingPreparedScope ::
   InferState ->
   (Maybe ExpressionType, InferState, Map Int (ResolvedName, SourceSpan))
 inferScopeTypeWithModeAndForwardBindingsUsingPreparedScope preparedScope inferExpression mode initialEnv initialState =
-  let inferenceScope = preparedInferenceScope (inferenceOuterBindingNames initialEnv) preparedScope
-   in inferenceScope `seq`
-        inferScopeTypeInternal
-          ScopeInferenceRequest
-            { scopeForwardSignedFunctionsPolicy = PermitForwardSignedFunctions,
-              scopeInferExpression = inferExpression,
-              scopeInferenceMode = mode,
-              scopeInitialEnv = initialEnv,
-              scopeInitialState = initialState,
-              scopePreparedInference = inferenceScope
-            }
+  preparedScope `seq`
+    inferScopeTypeInternal
+      ScopeInferenceRequest
+        { scopeForwardSignedFunctionsPolicy = PermitForwardSignedFunctions,
+          scopeInferExpression = inferExpression,
+          scopeInferenceMode = mode,
+          scopeInitialEnv = initialEnv,
+          scopeInitialState = initialState,
+          scopePreparedInference = preparedScope
+        }
 
 inferNestedScopeTypeWithMode :: InferExprWithModeFn -> InferenceMode -> TypeEnv -> InferState -> PreparedRecursiveScope 'Resolved -> (Maybe ExpressionType, InferState)
 inferNestedScopeTypeWithMode inferExpression mode initialEnv initialState preparedScope =
@@ -379,7 +372,7 @@ inferNestedScopeTypeWithMode inferExpression mode initialEnv initialState prepar
               scopeInferenceMode = mode,
               scopeInitialEnv = initialEnv,
               scopeInitialState = initialState,
-              scopePreparedInference = preparedInferenceScope (inferenceOuterBindingNames initialEnv) preparedScope
+              scopePreparedInference = preparedScope
             }
    in (inferredResult, finalState)
 
@@ -393,14 +386,6 @@ inferScopeType inferExpression initialEnv initialState preparedScope =
           initialState
           preparedScope
    in (inferredResult, finalState)
-
-inferenceOuterBindingNames :: TypeEnv -> Set ResolvedName
-inferenceOuterBindingNames initialEnv =
-  Set.union
-    (Map.keysSet initialEnv)
-    (Set.map (resolvedAmbientName ValueNamespace . mkIdentifier) kernelBuiltinNames)
-
-data PreparedInferenceScope = PreparedInferenceScope ![Statement 'Resolved] !(Map Int ResolvedName) !(Map Int [Int])
 
 data ForwardSignedFunctionsPolicy
   = ForbidForwardSignedFunctions
@@ -418,7 +403,7 @@ data ScopeInferenceRequest = ScopeInferenceRequest
     scopeInferenceMode :: InferenceMode,
     scopeInitialEnv :: TypeEnv,
     scopeInitialState :: InferState,
-    scopePreparedInference :: PreparedInferenceScope
+    scopePreparedInference :: PreparedRecursiveScope 'Resolved
   }
 
 data ScopeWalkState = ScopeWalkState
@@ -433,16 +418,6 @@ data ScopeWalkState = ScopeWalkState
     scopeWalkInferState :: !InferState
   }
 
-preparedInferenceScope :: Set ResolvedName -> PreparedRecursiveScope 'Resolved -> PreparedInferenceScope
-preparedInferenceScope expectedOuterBindingNames preparedScope =
-  PreparedInferenceScope
-    (preparedRecursiveScopeStatements preparedScope)
-    (recursiveScopeBindingNames recursiveScopeFactsValue)
-    (recursiveScopeGroups recursiveScopeFactsValue)
-  where
-    recursiveScopeFactsValue =
-      preparedRecursiveScopeFactsForOuterBindings expectedOuterBindingNames preparedScope
-
 inferScopeTypeInternal :: ScopeInferenceRequest -> (Maybe ExpressionType, InferState, Map Int (ResolvedName, SourceSpan))
 inferScopeTypeInternal
   ScopeInferenceRequest
@@ -451,7 +426,7 @@ inferScopeTypeInternal
       scopeInferenceMode,
       scopeInitialEnv,
       scopeInitialState,
-      scopePreparedInference = PreparedInferenceScope statements bindingNamesByStatement recursiveGroupsByStatement
+      scopePreparedInference = preparedScope
     } =
     let initialWalkState =
           ScopeWalkState
@@ -473,6 +448,10 @@ inferScopeTypeInternal
           forwardAnalysisBindings
         )
     where
+      statements = preparedRecursiveScopeStatements preparedScope
+      bindingNamesByStatement = preparedRecursiveScopeBindingNames preparedScope
+      recursiveGroupsByStatement = preparedRecursiveScopeGroups preparedScope
+      lexicalFacts = preparedRecursiveScopeFacts preparedScope
       inferExpression = scopeInferExpression
       mode = scopeInferenceMode
       initialEnv = scopeInitialEnv
@@ -667,21 +646,8 @@ inferScopeTypeInternal
           | statementIndex <- Set.toList previewGroupMemberIndices,
             Just (SLet _ _ valueExpr) <- [Map.lookup statementIndex statementsByIndex]
           ]
-      selfRecursiveFunctionStatements =
-        inferSelfRecursiveBindings
-          ( Set.union
-              (Map.keysSet initialEnv)
-              (Set.map (resolvedAmbientName ValueNamespace . mkIdentifier) kernelBuiltinNames)
-          )
-          exprContainsFunctionBranch
-          indexedStatements
-      selfRecursiveTypeStatements =
-        inferSelfReferencedBindings
-          ( Set.union
-              (Map.keysSet initialEnv)
-              (Set.map (resolvedAmbientName ValueNamespace . mkIdentifier) kernelBuiltinNames)
-          )
-          indexedStatements
+      selfRecursiveFunctionStatements = resolvedScopeSelfRecursiveFunctions lexicalFacts
+      selfRecursiveTypeStatements = resolvedScopeSelfReferences lexicalFacts
       signedBindingStatements = collectSignedBindingStatements indexedStatements
       statementsByIndex = Map.fromList indexedStatements
       predeclaredDataTypes =

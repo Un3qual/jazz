@@ -18,10 +18,11 @@ module Jazz.Compiler.RecursiveBindings
     inferRecursiveGroupsOrdered,
     inferSelfReferencedBindings,
     inferSelfRecursiveBindings,
-    prepareRecursiveScope,
     prepareResolvedScope,
+    prepareAnalyzedScope,
+    selectPreparedScope,
+    preparedRecursiveScopeFacts,
     preparedRecursiveScopeBindingNames,
-    preparedRecursiveScopeFactsForOuterBindings,
     preparedRecursiveScopeGroups,
     preparedRecursiveScopeOuterBindingNames,
     preparedRecursiveScopeStatements,
@@ -47,7 +48,7 @@ import Jazz.Compiler.AST
     ClassMethodSignature (..),
     CoreNameAt,
     CoreNode (..),
-    CorePhase (Resolved),
+    CorePhase (Analyzed, Resolved),
     CoreSort (ExpressionSort),
     CoreUserNameAt,
     DataConstructor (..),
@@ -64,6 +65,7 @@ import Jazz.Compiler.Parser.Operator
 import Jazz.Compiler.Pattern
   ( extendBoundWithPattern,
   )
+import Jazz.Compiler.SemanticFacts (ExpressionFacts (expressionResolution))
 import Jazz.Compiler.StableSet
   ( stableSetDifference,
     stableSetMembershipSet,
@@ -203,67 +205,58 @@ buildRecursiveScopeFacts outerBindingNames indexedStatements =
       recursiveScopeGroups = inferRecursiveGroupsOrderedInternal outerBindingNames indexedStatements
     }
 
--- | One statement scope paired with the outer visibility projection and
--- recursive facts from which it was derived. The constructor stays private so
--- consumers cannot cross-pair any of the three.
-data PreparedRecursiveScope phase
-  = PreparedRecursiveScope ![Statement phase] !(Set (CoreNameAt phase)) !(RecursiveScopeFacts phase)
-  | PreparedResolvedScope ![Statement phase] !(Set (CoreNameAt phase)) !(RecursiveScopeFacts phase)
+-- | A view of source-ordered statements and their published lexical facts.
+-- Constructors stay private: consumers may select statements, never rediscover
+-- visibility using a type or value environment.
+data PreparedRecursiveScope phase = PreparedRecursiveScope ![Statement phase] !ResolvedScopeFacts
 
--- | The resolved block is authoritative even when a consumer's type or value
--- environment contains a different diagnostic/public-name projection.
 prepareResolvedScope :: CoreNode 'Resolved 'ExpressionSort -> [Statement 'Resolved] -> PreparedRecursiveScope 'Resolved
-prepareResolvedScope node statements = case resolvedNodeScope (coreNodeFacts node) of
-  Just facts ->
-    PreparedResolvedScope
-      statements
-      (resolvedScopeOuterBindingNames facts)
-      (RecursiveScopeFacts (resolvedScopeBindingNames facts) (resolvedScopeRecursiveGroups facts))
-  Nothing -> error ("resolved block has no lexical facts: " <> show (coreNodeId node))
+prepareResolvedScope node = prepareScope (coreNodeFacts node)
 
-prepareRecursiveScope :: (Ord (CoreUserNameAt phase)) => Set (CoreNameAt phase) -> [Statement phase] -> PreparedRecursiveScope phase
-prepareRecursiveScope outerBindingNames statements =
-  PreparedRecursiveScope
-    statements
-    outerBindingNames
-    (buildRecursiveScopeFacts outerBindingNames (zip [0 ..] statements))
+prepareAnalyzedScope :: Expr 'Analyzed -> PreparedRecursiveScope 'Analyzed
+prepareAnalyzedScope (EBlock node statements) = prepareScope (expressionResolution (coreNodeFacts node)) statements
+prepareAnalyzedScope _ = error "expected analyzed block"
+
+prepareScope :: ResolvedNodeFacts -> [Statement phase] -> PreparedRecursiveScope phase
+prepareScope facts statements = case resolvedNodeScope facts of
+  Just scope -> PreparedRecursiveScope statements scope
+  Nothing -> error "block has no resolved lexical facts"
+
+-- | Restrict a scope to an ordered statement selection, renumbering its local
+-- indices. Declaration IDs and the resolver's visibility decisions survive.
+selectPreparedScope :: [Int] -> PreparedRecursiveScope phase -> PreparedRecursiveScope phase
+selectPreparedScope indices (PreparedRecursiveScope statements facts) =
+  PreparedRecursiveScope selectedStatements selectedFacts
+  where
+    byIndex = Map.fromList (zip [0 ..] statements)
+    selectedStatements = map (byIndex Map.!) indices
+    renumber = Map.fromList (zip indices [0 ..])
+    project :: Map Int a -> Map Int a
+    project values = Map.fromList [(new, value) | (old, new) <- Map.toList renumber, Just value <- [Map.lookup old values]]
+    projectSet values = Set.fromList [new | old <- Set.toList values, Just new <- [Map.lookup old renumber]]
+    selectedFacts =
+      facts
+        { resolvedScopeBindingNames = project (resolvedScopeBindingNames facts),
+          resolvedScopeBinderIds = project (resolvedScopeBinderIds facts),
+          resolvedScopeRecursiveGroups = Map.map (\members -> [new | old <- members, Just new <- [Map.lookup old renumber]]) (project (resolvedScopeRecursiveGroups facts)),
+          resolvedScopeSelfRecursiveFunctions = projectSet (resolvedScopeSelfRecursiveFunctions facts),
+          resolvedScopeSelfReferences = projectSet (resolvedScopeSelfReferences facts)
+        }
 
 preparedRecursiveScopeStatements :: PreparedRecursiveScope phase -> [Statement phase]
-preparedRecursiveScopeStatements (PreparedRecursiveScope statements _ _) = statements
-preparedRecursiveScopeStatements (PreparedResolvedScope statements _ _) = statements
+preparedRecursiveScopeStatements (PreparedRecursiveScope statements _) = statements
 
-preparedRecursiveScopeOuterBindingNames :: PreparedRecursiveScope phase -> Set (CoreNameAt phase)
-preparedRecursiveScopeOuterBindingNames (PreparedRecursiveScope _ outerBindingNames _) =
-  outerBindingNames
-preparedRecursiveScopeOuterBindingNames (PreparedResolvedScope _ outerBindingNames _) =
-  outerBindingNames
+preparedRecursiveScopeFacts :: PreparedRecursiveScope phase -> ResolvedScopeFacts
+preparedRecursiveScopeFacts (PreparedRecursiveScope _ facts) = facts
 
--- | Reuse the owned facts when the consumer has the same outer visibility.
--- A prepared scope crossing a compiler boundary with different imports or
--- builtin visibility is repaired from its retained statements rather than
--- silently applying recursion facts derived for another environment.
-preparedRecursiveScopeFactsForOuterBindings ::
-  (Ord (CoreUserNameAt phase)) =>
-  Set (CoreNameAt phase) ->
-  PreparedRecursiveScope phase ->
-  RecursiveScopeFacts phase
-preparedRecursiveScopeFactsForOuterBindings
-  expectedOuterBindingNames
-  (PreparedRecursiveScope statements preparedOuterBindingNames recursiveScopeFactsValue)
-    | expectedOuterBindingNames == preparedOuterBindingNames = recursiveScopeFactsValue
-    | otherwise =
-        buildRecursiveScopeFacts expectedOuterBindingNames (zip [0 ..] statements)
-preparedRecursiveScopeFactsForOuterBindings _ (PreparedResolvedScope _ _ facts) = facts
+preparedRecursiveScopeOuterBindingNames :: PreparedRecursiveScope phase -> Set ResolvedName
+preparedRecursiveScopeOuterBindingNames = resolvedScopeOuterBindingNames . preparedRecursiveScopeFacts
 
-preparedRecursiveScopeBindingNames :: PreparedRecursiveScope phase -> Map Int (CoreNameAt phase)
-preparedRecursiveScopeBindingNames (PreparedRecursiveScope _ _ recursiveScopeFactsValue) =
-  recursiveScopeBindingNames recursiveScopeFactsValue
-preparedRecursiveScopeBindingNames (PreparedResolvedScope _ _ facts) = recursiveScopeBindingNames facts
+preparedRecursiveScopeBindingNames :: PreparedRecursiveScope phase -> Map Int ResolvedName
+preparedRecursiveScopeBindingNames = resolvedScopeBindingNames . preparedRecursiveScopeFacts
 
 preparedRecursiveScopeGroups :: PreparedRecursiveScope phase -> Map Int [Int]
-preparedRecursiveScopeGroups (PreparedRecursiveScope _ _ recursiveScopeFactsValue) =
-  recursiveScopeGroups recursiveScopeFactsValue
-preparedRecursiveScopeGroups (PreparedResolvedScope _ _ facts) = recursiveScopeGroups facts
+preparedRecursiveScopeGroups = resolvedScopeRecursiveGroups . preparedRecursiveScopeFacts
 
 freeVarsExprWithBound :: (Ord (CoreUserNameAt phase)) => Set (CoreNameAt phase) -> Expr phase -> Set (CoreNameAt phase)
 freeVarsExprWithBound = freeVarsExprWithVisibleBindings Set.empty

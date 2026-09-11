@@ -98,6 +98,7 @@ import Jazz.Compiler.RecursiveBindings
     publishResolvedCaptures,
     recursiveScopeBindingNames,
     recursiveScopeGroups,
+    resolvedExpressionReferences,
   )
 import Jazz.Compiler.SourceUnitOwnership (sourceUnitOwnerOrigin, sourceUnitStatementOwners)
 import Jazz.Compiler.TypeRepresentation
@@ -289,7 +290,8 @@ resolveExprNames context rootExpression = Right (publishResolvedCaptures (resolv
           resolvedScopeBindingNames = recursiveScopeBindingNames recursion,
           resolvedScopeBinderIds = Map.fromList [(index, binder) | (index, SLet node _ _) <- indexed, Just binder <- [resolvedNodeBinder (coreNodeFacts node)]],
           resolvedScopeRecursiveGroups = recursiveScopeGroups recursion,
-          resolvedScopeSelfRecursiveFunctions = inferSelfRecursiveBindings outerNames exprContainsFunctionBranch indexed
+          resolvedScopeSelfRecursiveFunctions = inferSelfRecursiveBindings outerNames exprContainsFunctionBranch indexed,
+          resolvedScopeSelfReferences = Set.fromList [index | (index, SLet node _ rhs) <- indexed, Just binder <- [resolvedNodeBinder (coreNodeFacts node)], Map.member binder (resolvedExpressionReferences rhs)]
         }
       where
         indexed = zip [0 ..] statements

@@ -257,7 +257,7 @@ testDisabledObservationSkipsContinuationDepthState = do
                 Nothing
                 EvaluateEntryModule
                 Map.empty
-                [statementExpression (SourceSpan 1 1) expression]
+                (expressionBlock [statementExpression (SourceSpan 1 1) expression])
           )
   case result of
     Right ScopeResult {scopeResultValue = Just (VList [VText observedMachineCount, VText observedDepth] _)} -> do

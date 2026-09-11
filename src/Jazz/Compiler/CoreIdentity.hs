@@ -77,7 +77,8 @@ data ResolvedScopeFacts = ResolvedScopeFacts
     resolvedScopeBindingNames :: Map Int ResolvedName,
     resolvedScopeBinderIds :: Map Int CoreBinderId,
     resolvedScopeRecursiveGroups :: Map Int [Int],
-    resolvedScopeSelfRecursiveFunctions :: Set Int
+    resolvedScopeSelfRecursiveFunctions :: Set Int,
+    resolvedScopeSelfReferences :: Set Int
   }
   deriving stock (Eq, Generic, Show)
   deriving anyclass (NFData)

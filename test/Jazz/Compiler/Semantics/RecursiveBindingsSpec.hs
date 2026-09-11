@@ -36,10 +36,9 @@ import Jazz.Compiler.RecursiveBindings
     freeVarsScopeWithBound,
     inferRecursiveGroupsOrdered,
     inferSelfRecursiveBindings,
-    prepareRecursiveScope,
+    prepareResolvedScope,
     preparedRecursiveScopeBindingNames,
     preparedRecursiveScopeGroups,
-    preparedRecursiveScopeOuterBindingNames,
     preparedRecursiveScopeStatements,
     recursiveScopeBindingNames,
     recursiveScopeGroups,
@@ -108,13 +107,15 @@ testRecursiveScopeFacts = do
 testPreparedRecursiveScope :: IO ()
 testPreparedRecursiveScope = do
   assertEqual "prepared statements" statements (preparedRecursiveScopeStatements preparedScope)
-  assertEqual "prepared binding names" (Map.fromList [(0, "left"), (2, "right")]) (preparedRecursiveScopeBindingNames preparedScope)
+  assertEqual "prepared binding names" (Map.fromList [(0, "left"), (2, "right")]) (Map.map identifierText (preparedRecursiveScopeBindingNames preparedScope))
   assertEqual "prepared recursive groups" (Map.fromList [(0, [0, 2]), (2, [0, 2])]) (preparedRecursiveScopeGroups preparedScope)
-  assertEqual "prepared outer binding names" (Set.singleton (ident "outside")) (preparedRecursiveScopeOuterBindingNames preparedScope)
   where
-    preparedScope :: PreparedRecursiveScope 'Lowered
-    preparedScope = prepareRecursiveScope (Set.singleton (ident "outside")) statements
-    statements = programStatements "left = \\(item) -> right. 0. right = \\(item) -> left."
+    preparedScope :: PreparedRecursiveScope 'Resolved
+    preparedScope = prepareResolvedScope (expressionNode program) statements
+    statements = case program of
+      EBlock _ values -> values
+      _ -> error "expected resolved block"
+    program = either (error . show) id (resolveStandaloneExprNames (exportInventory []) (loweredProgram "left = \\(item) -> right. 0. right = \\(item) -> left."))
 
 testLambdaCapturePlans :: IO ()
 testLambdaCapturePlans =

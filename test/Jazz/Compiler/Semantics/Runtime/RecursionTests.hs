@@ -48,6 +48,7 @@ import Jazz.Compiler.Name
     ResolvedUserName (..),
     mkIdentifier,
   )
+import Jazz.Compiler.RecursiveBindings (prepareAnalyzedScope)
 import Jazz.Compiler.Runtime
   ( RuntimeValue (..),
     evaluateRuntimeExpr,
@@ -71,7 +72,6 @@ import Jazz.Compiler.RuntimeHost
 import Jazz.Compiler.Semantics.Runtime.Fixtures
 import Jazz.Compiler.SourceProgram
   ( parseAndLowerStandaloneSource,
-    scopeStatements,
   )
 import Jazz.Compiler.SourceUnitOwnership (SourceUnitOwner (..))
 import Jazz.Compiler.TypeInference (analyzeSourceUnitExpression)
@@ -496,8 +496,7 @@ testPatternCaseBinderDoesNotGainRecursiveFunctionVisibility = do
           preludeModulePath
           Set.empty
           Nothing
-          Set.empty
-          witnessStatements
+          (prepareAnalyzedScope (expressionBlock witnessStatements))
   assertEqual "pattern-binder witness is not a runtime recursive group" False (scopePlanIsRecursiveBinding plan 0)
   assertEqual "pattern-binder witness gets no recursive function visibility" False (scopePlanIsSelfRecursiveFunction plan 0)
   result <- runSource defaultWarningSettings witnessSource
@@ -532,8 +531,7 @@ testPreludeScopePlanUsesNonemptyModulePath = do
           preludeModulePath
           (Set.singleton 0)
           Nothing
-          Set.empty
-          [statementLet "preludeValue" (SourceSpan 1 1) (expressionLiteral (LInt 1))]
+          (prepareAnalyzedScope (expressionBlock [statementLet "preludeValue" (SourceSpan 1 1) (expressionLiteral (LInt 1))]))
   assertEqual
     "prelude statement path"
     (Just (InjectedPreludeSourceUnit preludeModulePath Nothing))
@@ -592,8 +590,7 @@ scopePlanForSource source =
                 preludeModulePath
                 Set.empty
                 Nothing
-                Set.empty
-                (scopeStatements analyzedExpression)
+                (prepareAnalyzedScope analyzedExpression)
             )
   where
     toList (diagnostic :| diagnostics) = diagnostic : diagnostics

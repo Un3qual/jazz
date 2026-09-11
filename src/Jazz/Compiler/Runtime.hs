@@ -42,10 +42,10 @@ import qualified Data.Set as Set
 import Jazz.Compiler.AST
   ( CorePhase (..),
     Expr,
-    Statement,
   )
 import Jazz.Compiler.Diagnostics (Diagnostic)
 import Jazz.Compiler.ModuleIdentity (ModulePath, preludeModulePath)
+import Jazz.Compiler.RecursiveBindings (prepareAnalyzedScope)
 import Jazz.Compiler.Runtime.Engine
   ( evaluateRuntimeExpressionObserved,
     evaluateRuntimeScopeWithHostRequest,
@@ -163,7 +163,7 @@ evaluateModuleScope ::
   Maybe SourceUnitOwner ->
   ModuleEvaluationMode ->
   RuntimeEnv ->
-  [Statement 'Analyzed] ->
+  Expr 'Analyzed ->
   Either Diagnostic ScopeResult
 evaluateModuleScope currentModulePath evaluationMode initialEnv statements =
   runIdentity
@@ -175,7 +175,7 @@ evaluateModuleScope currentModulePath evaluationMode initialEnv statements =
             runtimeScopeCurrentModulePath = currentModulePath,
             runtimeScopeEvaluationMode = evaluationMode,
             runtimeScopeInitialEnvironment = initialEnv,
-            runtimeScopeStatements = statements
+            runtimeScope = prepareAnalyzedScope statements
           }
     )
 
@@ -185,7 +185,7 @@ evaluateModuleScopeWithHost ::
   Maybe SourceUnitOwner ->
   ModuleEvaluationMode ->
   RuntimeEnv ->
-  [Statement 'Analyzed] ->
+  Expr 'Analyzed ->
   m (Either Diagnostic ScopeResult)
 evaluateModuleScopeWithHost host currentModulePath evaluationMode initialEnv statements =
   evaluateRuntimeScopeWithHostRequest
@@ -196,7 +196,7 @@ evaluateModuleScopeWithHost host currentModulePath evaluationMode initialEnv sta
         runtimeScopeCurrentModulePath = currentModulePath,
         runtimeScopeEvaluationMode = evaluationMode,
         runtimeScopeInitialEnvironment = initialEnv,
-        runtimeScopeStatements = statements
+        runtimeScope = prepareAnalyzedScope statements
       }
 
 evaluateModuleScopeWithRequiredHost ::
@@ -205,7 +205,7 @@ evaluateModuleScopeWithRequiredHost ::
   Maybe SourceUnitOwner ->
   ModuleEvaluationMode ->
   RuntimeEnv ->
-  [Statement 'Analyzed] ->
+  Expr 'Analyzed ->
   m (Either Diagnostic ScopeResult)
 evaluateModuleScopeWithRequiredHost host currentModulePath evaluationMode initialEnv statements =
   runRuntimeHostEvaluation host $ \evaluationHost ->
@@ -218,7 +218,7 @@ evaluateModuleScopeWithRequiredHost host currentModulePath evaluationMode initia
             runtimeScopeCurrentModulePath = currentModulePath,
             runtimeScopeEvaluationMode = evaluationMode,
             runtimeScopeInitialEnvironment = initialEnv,
-            runtimeScopeStatements = statements
+            runtimeScope = prepareAnalyzedScope statements
           }
 
 evaluateModuleScopeWithRequiredEvaluationHost ::
@@ -227,7 +227,7 @@ evaluateModuleScopeWithRequiredEvaluationHost ::
   Maybe SourceUnitOwner ->
   ModuleEvaluationMode ->
   RuntimeEnv ->
-  [Statement 'Analyzed] ->
+  Expr 'Analyzed ->
   RuntimeHostEvaluationT m (Either Diagnostic ScopeResult)
 evaluateModuleScopeWithRequiredEvaluationHost host currentModulePath evaluationMode initialEnv statements =
   runtimeControlAsDiagnosticResult
@@ -244,7 +244,7 @@ evaluateModuleScopeWithRequiredEvaluationHostControl ::
   Maybe SourceUnitOwner ->
   ModuleEvaluationMode ->
   RuntimeEnv ->
-  [Statement 'Analyzed] ->
+  Expr 'Analyzed ->
   RuntimeHostEvaluationT m (Either RuntimeControl ScopeResult)
 evaluateModuleScopeWithRequiredEvaluationHostControl host currentModulePath evaluationMode initialEnv statements =
   evaluateRuntimeScopeWithRequiredHostRequest
@@ -255,5 +255,5 @@ evaluateModuleScopeWithRequiredEvaluationHostControl host currentModulePath eval
         runtimeScopeCurrentModulePath = currentModulePath,
         runtimeScopeEvaluationMode = evaluationMode,
         runtimeScopeInitialEnvironment = initialEnv,
-        runtimeScopeStatements = statements
+        runtimeScope = prepareAnalyzedScope statements
       }

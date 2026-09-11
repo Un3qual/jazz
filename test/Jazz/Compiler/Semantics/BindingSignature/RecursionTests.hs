@@ -15,7 +15,7 @@ import qualified Data.Set as Set
 import Jazz.Compiler.AST
   ( CorePhase (Resolved),
     Expr (..),
-    Statement,
+    expressionNode,
   )
 import Jazz.Compiler.Analyzer
   ( AnalysisInputs (..),
@@ -29,14 +29,7 @@ import Jazz.Compiler.Driver
   ( compileErrors,
     compileExpr,
   )
-import Jazz.Compiler.Name
-  ( NameNamespace (ValueNamespace),
-    mkIdentifier,
-    resolvedLocalName,
-  )
-import Jazz.Compiler.RecursiveBindings
-  ( prepareRecursiveScope,
-  )
+import Jazz.Compiler.RecursiveBindings (PreparedRecursiveScope, prepareResolvedScope)
 import Jazz.Compiler.Semantics.BindingSignature.Shared
 import Jazz.Compiler.WarningConfig
   ( defaultWarningSettings,
@@ -55,7 +48,6 @@ recursionTests =
     ("three-node mutual recursion group is accepted", testThreeNodeMutualRecursionGroup),
     ("non-recursive forward reference in bindings is rejected", testNonRecursiveForwardReference),
     ("prepared analyzer scopes cannot cross-pair statements and facts", testPreparedScopesCannotCrossPairStatementsAndFacts),
-    ("prepared analyzer scopes rederive facts for current outer bindings", testPreparedAnalyzerScopeRederivesForOuterBindings),
     ("ordinary roots stay lazy while owned prepared statements detach", testAnalyzerRootLaziness),
     ("rebinding cannot retroactively create recursion group", testRebindingDoesNotCreateRetroactiveRecursion),
     ("source pipeline preserves inferred method constraints across mutual recursion", testSourcePreservesInferredMethodConstraintsAcrossMutualRecursion),
@@ -106,13 +98,13 @@ testPreparedScopesCannotCrossPairStatementsAndFacts = do
       analysisInputs
       Set.empty
       recursiveProgram
-      (prepareRecursiveScope Set.empty recursiveStatements)
+      (programScope recursiveProgram)
   AnalysisResult forwardExpr forwardDiagnostics <-
     Analyzer.analyzeProgramWithInputsAndPreparedScope
       analysisInputs
       Set.empty
       forwardProgram
-      (prepareRecursiveScope Set.empty forwardStatements)
+      (programScope forwardProgram)
   assertEqual
     "recursive prepared expression"
     recursiveProgram
@@ -131,28 +123,7 @@ testPreparedScopesCannotCrossPairStatementsAndFacts = do
     (filter isErrorDiagnostic forwardDiagnostics)
   where
     recursiveProgram = resolvedProgram "left = right.\nright = left.\nleft."
-    recursiveStatements = programStatements recursiveProgram
     forwardProgram = resolvedProgram "x = y.\ny = 1.\nx."
-    forwardStatements = programStatements forwardProgram
-
-testPreparedAnalyzerScopeRederivesForOuterBindings :: IO ()
-testPreparedAnalyzerScopeRederivesForOuterBindings = do
-  ordinaryResult <-
-    Analyzer.analyzeProgramWithInputs
-      analysisInputs
-      Set.empty
-      program
-  preparedResult <-
-    Analyzer.analyzeProgramWithInputsAndPreparedScope
-      analysisInputs
-      Set.empty
-      program
-      (prepareRecursiveScope (Set.singleton selfName) statements)
-  assertEqual "prepared scope under current inputs" ordinaryResult preparedResult
-  where
-    program = resolvedProgram "self = self.\nself."
-    statements = programStatements program
-    selfName = resolvedLocalName ValueNamespace (mkIdentifier "self")
 
 testAnalyzerRootLaziness :: IO ()
 testAnalyzerRootLaziness = do
@@ -174,16 +145,16 @@ testAnalyzerRootLaziness = do
           analysisInputs
           Set.empty
           (error "ordinary analyzer root was forced")
-          (prepareRecursiveScope Set.empty (error "prepared statements were retained lazily"))
+          (prepareResolvedScope (expressionNode (resolvedProgram "0.")) (error "prepared statements were retained lazily"))
       ) ::
       IO (Either ErrorCall AnalysisResult)
   case preparedOutcome of
     Left _ -> pure ()
     Right _ -> failTest "expected the analyzer boundary to force its prepared statements"
 
-programStatements :: Expr 'Resolved -> [Statement 'Resolved]
-programStatements (EBlock _ statements) = statements
-programStatements expression = error ("expected resolved block, got " <> show expression)
+programScope :: Expr 'Resolved -> PreparedRecursiveScope 'Resolved
+programScope (EBlock node statements) = prepareResolvedScope node statements
+programScope expression = error ("expected resolved block, got " <> show expression)
 
 analysisInputs :: AnalysisInputs
 analysisInputs =

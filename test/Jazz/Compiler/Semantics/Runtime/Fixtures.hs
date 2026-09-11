@@ -65,7 +65,7 @@ import Jazz.Compiler.AST
     Statement (..),
   )
 import Jazz.Compiler.CapabilityFacts (signaturePayloadConstraintType)
-import Jazz.Compiler.CoreIdentity (ResolvedNodeFacts (..), ResolvedReference (..), emptyResolvedNodeFacts)
+import Jazz.Compiler.CoreIdentity (ResolvedNodeFacts (..), ResolvedReference (..), ResolvedScopeFacts (..), emptyResolvedNodeFacts)
 import Jazz.Compiler.Diagnostics (SourceSpan (..))
 import Jazz.Compiler.ModuleIdentity (SourceUnitOwner (StandaloneSourceUnit), standaloneModulePath)
 import Jazz.Compiler.Name
@@ -81,7 +81,7 @@ import Jazz.Compiler.Name
     qualifiedMemberName,
     resolvedAmbientName,
   )
-import Jazz.Compiler.RecursiveBindings (closureCaptureCandidatesWithBound)
+import Jazz.Compiler.RecursiveBindings (buildRecursiveScopeFacts, closureCaptureCandidatesWithBound, exprContainsFunctionBranch, inferSelfRecursiveBindings, inferSelfReferencedBindings, recursiveScopeBindingNames, recursiveScopeGroups)
 import Jazz.Compiler.SemanticFacts
   ( AnalyzedMethodSignature (..),
     AnalyzedScheme (..),
@@ -271,7 +271,21 @@ expressionSectionRight :: Text -> Expr 'Analyzed -> Expr 'Analyzed
 expressionSectionRight = ESectionRight expressionNode
 
 expressionBlock :: [Statement 'Analyzed] -> Expr 'Analyzed
-expressionBlock = EBlock expressionNode
+expressionBlock statements = EBlock node statements
+  where
+    indexed = zip [0 ..] statements
+    recursion = buildRecursiveScopeFacts Set.empty indexed
+    lexicalFacts =
+      ResolvedScopeFacts
+        { resolvedScopeOuterBindingNames = Set.empty,
+          resolvedScopeBindingNames = recursiveScopeBindingNames recursion,
+          resolvedScopeBinderIds = Map.empty,
+          resolvedScopeRecursiveGroups = recursiveScopeGroups recursion,
+          resolvedScopeSelfRecursiveFunctions = inferSelfRecursiveBindings Set.empty exprContainsFunctionBranch indexed,
+          resolvedScopeSelfReferences = inferSelfReferencedBindings Set.empty indexed
+        }
+    facts = coreNodeFacts expressionNode
+    node = expressionNode {coreNodeFacts = facts {expressionResolution = (expressionResolution facts) {resolvedNodeScope = Just lexicalFacts}}}
 
 patternWildcard :: Pattern 'Analyzed
 patternWildcard = PWildcard patternNode

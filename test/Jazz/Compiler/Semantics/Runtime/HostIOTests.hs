@@ -492,7 +492,7 @@ testHostDependencyScopeKeepsUnusedBindingLazy = do
               Nothing
               EvaluateDependencyModule
               Map.empty
-              statements
+              (expressionBlock statements)
           )
           []
   assertEqual "dependency scope result" True (isRight result)
@@ -518,7 +518,7 @@ testHostDependencyBindingIsShared = do
             (Just (NamedSourceUnit (mkModulePath ("Dependency" :| []))))
             EvaluateDependencyModule
             Map.empty
-            dependencyStatements
+            (expressionBlock dependencyStatements)
         case dependencyResult of
           Left diagnostic -> pure (Left diagnostic)
           Right dependencyScope ->
@@ -527,7 +527,7 @@ testHostDependencyBindingIsShared = do
               (Just (NamedSourceUnit (mkModulePath ("Main" :| []))))
               EvaluateEntryModule
               (scopeResultEnvironment dependencyScope)
-              entryStatements
+              (expressionBlock entryStatements)
       (result, calls) = runState action []
   assertEqual "shared dependency binding result" True (isRight result)
   assertEqual "shared dependency host call" [ReadStdinCall] calls
@@ -566,7 +566,7 @@ testHostMapCallbackPreservesActiveHostCacheAndEffectOrder = do
               (Just (NamedSourceUnit (mkModulePath ("Dependency" :| []))))
               EvaluateDependencyModule
               Map.empty
-              dependencyStatements
+              (expressionBlock dependencyStatements)
           case dependencyResult of
             Left diagnostic -> pure (Left diagnostic)
             Right dependencyScope ->
@@ -575,7 +575,7 @@ testHostMapCallbackPreservesActiveHostCacheAndEffectOrder = do
                 (Just (NamedSourceUnit (mkModulePath ("Main" :| []))))
                 EvaluateEntryModule
                 (scopeResultEnvironment dependencyScope)
-                entryStatements
+                (expressionBlock entryStatements)
       (result, calls) = runState action []
   case result of
     Right scopeResult ->
@@ -605,7 +605,7 @@ testPublicHostScopeKeepsImportedDeferredCellOnActiveHost = do
             (Just (NamedSourceUnit (mkModulePath ("Dependency" :| []))))
             EvaluateDependencyModule
             Map.empty
-            dependencyStatements
+            (expressionBlock dependencyStatements)
         case dependencyResult of
           Left diagnostic -> pure (Left diagnostic)
           Right dependencyScope ->
@@ -614,7 +614,7 @@ testPublicHostScopeKeepsImportedDeferredCellOnActiveHost = do
               (Just (NamedSourceUnit (mkModulePath ("Main" :| []))))
               EvaluateEntryModule
               (scopeResultEnvironment dependencyScope)
-              entryStatements
+              (expressionBlock entryStatements)
       (result, calls) = runState action []
   case result of
     Right scopeResult ->
@@ -651,7 +651,7 @@ testHostDependencyScopeKeepsDeferredCellsOnActiveHost = do
             (Just (NamedSourceUnit (mkModulePath ("Dependency" :| []))))
             EvaluateDependencyModule
             Map.empty
-            dependencyStatements
+            (expressionBlock dependencyStatements)
         case dependencyResult of
           Left diagnostic -> pure (Left diagnostic)
           Right dependencyScope ->
@@ -660,7 +660,7 @@ testHostDependencyScopeKeepsDeferredCellsOnActiveHost = do
               (Just (NamedSourceUnit (mkModulePath ("Main" :| []))))
               EvaluateEntryModule
               (scopeResultEnvironment dependencyScope)
-              entryStatements
+              (expressionBlock entryStatements)
       (result, calls) = runState action []
   case result of
     Right scopeResult ->
@@ -700,7 +700,7 @@ testStackedResultObligationsPreserveRecursiveUnwindOrder = do
               Nothing
               EvaluateEntryModule
               (Map.singleton (fixtureValueName "convert") (Right stackedFunction))
-              statements
+              (expressionBlock statements)
           )
           []
   assertEqual "stacked result obligation host calls" [] calls
@@ -740,7 +740,7 @@ testHostDependencyBindingRetainsRuntimePlan = do
             (Just (NamedSourceUnit (mkModulePath ("Dependency" :| []))))
             EvaluateDependencyModule
             Map.empty
-            dependencyStatements
+            (expressionBlock dependencyStatements)
         case dependencyResult of
           Left diagnostic -> pure (Left diagnostic)
           Right dependencyScope ->
@@ -749,7 +749,7 @@ testHostDependencyBindingRetainsRuntimePlan = do
               (Just (NamedSourceUnit (mkModulePath ("Main" :| []))))
               EvaluateEntryModule
               (scopeResultEnvironment dependencyScope)
-              entryStatements
+              (expressionBlock entryStatements)
       (result, calls) = runState action []
   assertEqual "planned dependency host calls" [] calls
   case result of

@@ -7,8 +7,9 @@ module Jazz.Compiler.Runtime.Request
 where
 
 import Data.Set (Set)
-import Jazz.Compiler.AST (CorePhase (..), Expr, Statement)
+import Jazz.Compiler.AST (CorePhase (..), Expr)
 import Jazz.Compiler.ModuleIdentity (ModulePath)
+import Jazz.Compiler.RecursiveBindings (PreparedRecursiveScope)
 import Jazz.Compiler.Runtime.Types
   ( ModuleEvaluationMode,
     RuntimeEnv,
@@ -27,5 +28,5 @@ data RuntimeScopeRequest = RuntimeScopeRequest
     runtimeScopeCurrentModulePath :: Maybe SourceUnitOwner,
     runtimeScopeEvaluationMode :: ModuleEvaluationMode,
     runtimeScopeInitialEnvironment :: RuntimeEnv,
-    runtimeScopeStatements :: [Statement 'Analyzed]
+    runtimeScope :: PreparedRecursiveScope 'Analyzed
   }
