@@ -89,6 +89,8 @@ data ResolvedNodeFacts = ResolvedNodeFacts
     resolvedNodeBinder :: Maybe CoreBinderId,
     resolvedNodeShadowedReference :: Maybe ResolvedReference,
     resolvedNodeReference :: Maybe ResolvedReference,
+    -- | Authored token retained for diagnostics after operator normalization.
+    resolvedOperatorSpelling :: Maybe Text,
     resolvedNodeImportTarget :: Maybe ModulePath,
     resolvedNodeScope :: Maybe ResolvedScopeFacts,
     resolvedNodeCaptures :: [(ResolvedReference, ResolvedName)]
@@ -97,7 +99,7 @@ data ResolvedNodeFacts = ResolvedNodeFacts
   deriving anyclass (NFData)
 
 emptyResolvedNodeFacts :: SourceUnitOwner -> ResolvedNodeFacts
-emptyResolvedNodeFacts owner = ResolvedNodeFacts owner Nothing Nothing Nothing Nothing Nothing []
+emptyResolvedNodeFacts owner = ResolvedNodeFacts owner Nothing Nothing Nothing Nothing Nothing Nothing []
 
 resolvedBinderReference :: ResolvedNodeFacts -> ResolvedReference
 resolvedBinderReference facts = case resolvedNodeBinder facts of

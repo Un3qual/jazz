@@ -33,7 +33,9 @@ import Jazz.Compiler.AST
   ( CaseArm (..),
     ClassMethodSignature (..),
     CoreNode (..),
+    CoreNodeId (..),
     CorePhase (..),
+    CoreSort (ExpressionSort),
     DataConstructor (..),
     Expr (..),
     ImplMethod (..),
@@ -72,7 +74,8 @@ import Jazz.Compiler.ModuleResolver.Imports
     importedNameOrigins,
   )
 import Jazz.Compiler.Name
-  ( Name (..),
+  ( GeneratedNameKind (..),
+    Name (..),
     NameNamespace (..),
     ResolvedName,
     ResolvedNameOrigin (..),
@@ -260,13 +263,71 @@ resolveExprNames context rootExpression = Right (publishResolvedCaptures (resolv
             (resolveExpr owner boundValues falseBranch)
         EPatternCase node scrutinee arms ->
           EPatternCase (resolveNode owner node) (resolveExpr owner boundValues scrutinee) (map (resolveCaseArm owner boundValues) arms)
-        EBinary node symbol left right ->
-          EBinary (resolveOperatorNode owner boundValues symbol node) symbol (resolveExpr owner boundValues left) (resolveExpr owner boundValues right)
-        ESectionLeft node left symbol -> ESectionLeft (resolveOperatorNode owner boundValues symbol node) (resolveExpr owner boundValues left) symbol
-        ESectionRight node symbol right -> ESectionRight (resolveOperatorNode owner boundValues symbol node) symbol (resolveExpr owner boundValues right)
+        EBinary node symbol left right
+          | isBuiltinOperatorSymbol symbol ->
+              EBinary (resolveOperatorNode owner boundValues symbol node) symbol (recur left) (recur right)
+          | otherwise ->
+              EApply (resolveNode owner node) (EApply (generatedNode owner node 1) (operatorReference owner boundValues node 2 symbol) (recur left)) (recur right)
+        ESectionLeft node left symbol
+          | isBuiltinOperatorSymbol symbol -> ESectionLeft (resolveOperatorNode owner boundValues symbol node) (recur left) symbol
+          | otherwise ->
+              let name = sectionName OperatorSectionLeft node
+               in EApply
+                    (resolveNode owner node)
+                    (generatedLambda owner node 1 name (EApply (generatedNode owner node 2) (operatorReference owner boundValues node 3 symbol) (generatedReference owner node 4 name)))
+                    (recur left)
+        ESectionRight node symbol right
+          | isBuiltinOperatorSymbol symbol -> ESectionRight (resolveOperatorNode owner boundValues symbol node) symbol (recur right)
+          | otherwise ->
+              let rightName = sectionName OperatorSectionRight node
+                  leftName = sectionName OperatorSectionLeft node
+                  functionName = sectionName OperatorSectionFunction node
+                  call =
+                    EApply
+                      (generatedNode owner node 5)
+                      (EApply (generatedNode owner node 6) (generatedReference owner node 7 functionName) (generatedReference owner node 8 leftName))
+                      (generatedReference owner node 9 rightName)
+               in EApply
+                    (resolveNode owner node)
+                    ( generatedLambda
+                        owner
+                        node
+                        1
+                        rightName
+                        ( EApply
+                            (generatedNode owner node 2)
+                            (generatedLambda owner node 3 functionName (generatedLambda owner node 4 leftName call))
+                            (operatorReference owner boundValues node 10 symbol)
+                        )
+                    )
+                    (recur right)
         EBlock node statements ->
           let resolvedStatements = resolveBlockStatements owner boundValues statements
            in EBlock (resolveNode owner node) resolvedStatements
+      where
+        recur = resolveExpr owner boundValues
+
+    -- Lowering allocates nonnegative source IDs. Resolution reserves sixteen
+    -- negative IDs per authored operator node; each template uses at most ten.
+    -- Existing source nodes and their spans remain unchanged.
+    generatedNode :: SourceUnitOwner -> CoreNode 'Lowered 'ExpressionSort -> Int -> CoreNode 'Resolved 'ExpressionSort
+    generatedNode owner sourceNode slot =
+      let CoreNodeId sourceId = coreNodeId sourceNode
+       in CoreNode (CoreNodeId (negate (16 * sourceId + slot))) (coreNodeSpan sourceNode) (emptyResolvedNodeFacts owner)
+    generatedLambda :: SourceUnitOwner -> CoreNode 'Lowered 'ExpressionSort -> Int -> ResolvedName -> Expr 'Resolved -> Expr 'Resolved
+    generatedLambda owner sourceNode slot name body =
+      let node = generatedNode owner sourceNode slot
+          binder = CoreBinderId (owner, coreNodeId node)
+       in ELambda (node {coreNodeFacts = (coreNodeFacts node) {resolvedNodeBinder = Just binder}}) name body
+    generatedReference :: SourceUnitOwner -> CoreNode 'Lowered 'ExpressionSort -> Int -> ResolvedName -> Expr 'Resolved
+    generatedReference owner sourceNode slot name =
+      let node = generatedNode owner sourceNode slot
+       in EVar (node {coreNodeFacts = (coreNodeFacts node) {resolvedNodeReference = Just (UnresolvedReference name)}}) name
+    operatorReference owner boundValues sourceNode slot symbol =
+      let node = generatedNode owner sourceNode slot
+          target = resolvedNodeReference (coreNodeFacts (resolveOperatorNode owner boundValues symbol sourceNode))
+       in EVar (node {coreNodeFacts = (coreNodeFacts node) {resolvedNodeReference = target, resolvedOperatorSpelling = Just symbol}}) (operatorBindingName symbol)
+    sectionName kind sourceNode = let CoreNodeId sourceId = coreNodeId sourceNode in GeneratedName (kind sourceId)
 
     externalNames =
       Set.unions
@@ -279,8 +340,9 @@ resolveExprNames context rootExpression = Right (publishResolvedCaptures (resolv
         ]
     importedNames namespace origins = Set.fromList [resolvedImportedName path namespace (mkIdentifier name) | (name, path) <- Map.toList origins]
 
+    resolveOperatorNode :: SourceUnitOwner -> Map.Map Text.Text NameNamespace -> Text.Text -> CoreNode 'Lowered 'ExpressionSort -> CoreNode 'Resolved 'ExpressionSort
     resolveOperatorNode owner boundValues symbol node =
-      (resolveNode owner node) {coreNodeFacts = (emptyResolvedNodeFacts owner) {resolvedNodeReference = Just target}}
+      (resolveNode owner node) {coreNodeFacts = (emptyResolvedNodeFacts owner) {resolvedNodeReference = Just target, resolvedOperatorSpelling = Just symbol}}
       where
         name :: ResolvedName
         name = operatorBindingName symbol

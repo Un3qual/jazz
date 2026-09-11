@@ -69,14 +69,14 @@ testEveryNameOriginRenders = do
       imported = resolvedImportedName modulePath ValueNamespace (mkIdentifier "answer")
       ambient = resolvedAmbientName ValueNamespace (mkIdentifier "answer")
       builtin = BuiltinName (mkIdentifier "print") :: ResolvedName
-      generated = generatedName OperatorSectionFunction :: UnresolvedName
+      generated = generatedName (OperatorSectionFunction 3) :: UnresolvedName
   assertEqual "unqualified source" "answer" (renderName unqualified)
   assertEqual "qualified source" "Lib::answer" (renderName qualified)
   assertEqual "local resolved" "answer" (renderName local)
   assertEqual "imported resolved" "Lib::answer" (renderName imported)
   assertEqual "ambient resolved" "answer" (renderName ambient)
   assertEqual "builtin" "print" (renderName builtin)
-  assertEqual "generated" "<generated:OperatorSectionFunction>" (renderName generated)
+  assertEqual "generated" "<generated:OperatorSectionFunction 3>" (renderName generated)
 
 testDeclarationViews :: IO ()
 testDeclarationViews = do

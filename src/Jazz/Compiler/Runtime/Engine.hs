@@ -67,7 +67,7 @@ import Jazz.Compiler.BuiltinCatalog
 import Jazz.Compiler.CapabilityFacts
   ( qualifiedMethodKey,
   )
-import Jazz.Compiler.CoreIdentity (ResolvedNodeFacts (resolvedNodeCaptures, resolvedNodeOwner, resolvedNodeReference), ResolvedReference (..), renderCapabilityMethodKey, resolvedBinderReference, resolvedValueReference)
+import Jazz.Compiler.CoreIdentity (ResolvedNodeFacts (resolvedNodeCaptures, resolvedNodeOwner, resolvedNodeReference, resolvedOperatorSpelling), ResolvedReference (..), renderCapabilityMethodKey, resolvedBinderReference, resolvedValueReference)
 import Jazz.Compiler.DiagnosticCatalog
   ( ErrorCode (..),
   )
@@ -1302,6 +1302,9 @@ stepEvaluationMachine observeStatistics observeProfile host machine =
               case resolvedNodeReference (expressionResolution (coreNodeFacts node)) >>= kernelReference of
                 Just builtinFunction ->
                   continueWith (ReturnRuntimeValue (VBuiltin builtinFunction [])) expressionMachine
+                Nothing
+                  | Just symbol <- resolvedOperatorSpelling (expressionResolution (coreNodeFacts node)) ->
+                      throwRuntimeDiagnostic (runtimeDiagnostic E3027 ("operator '" <> symbol <> "' has no executable binding"))
                 Nothing ->
                   throwRuntimeDiagnostic
                     (runtimeDiagnostic E3002 ("runtime unbound variable '" <> identifierText name <> "'"))

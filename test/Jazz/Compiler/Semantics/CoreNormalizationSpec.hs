@@ -43,6 +43,7 @@ tests =
   [ ("if remains the canonical boolean conditional", testIfRemainsCanonicalIf),
     ("dollar lowers directly to application", testDollarLowersToApplication),
     ("operator values resolve to callable references", testOperatorValuesResolveToReferences),
+    ("declared sections and binary operators resolve to applications", testDeclaredOperatorsResolveToApplications),
     ("lowering assigns deterministic pre-order node identities", testDeterministicNodeIdentities),
     ("lowering preserves a complete span on every canonical node", testCompleteCanonicalSpans)
   ]
@@ -76,6 +77,19 @@ testOperatorValuesResolveToReferences =
             assertEqual "authored operator span" (coreNodeSpan sourceNode) (coreNodeSpan node)
           _ -> assertEqual "resolved operator shape" "callable reference" (show resolved)
       _ -> assertEqual "lowered operator stays canonical" "operator value" (show (lowerSurfaceExpr surface))
+
+testDeclaredOperatorsResolveToApplications :: IO ()
+testDeclaredOperatorsResolveToApplications =
+  assertRight "parse declared operator forms" (parseSurfaceProgram "operator %% tier 2. (%%) = \\(left, right) -> left - right. ((3 %%) 2, (%% 3) 2, 3 %% 2).") $ \surface -> do
+    let lowered = lowerSurfaceExpr surface
+    assertRight "resolve declared operator forms" (resolveStandaloneExprNames (exportInventory []) lowered) $ \resolved -> do
+      let identities = map fst (canonicalNodeFacts resolved)
+      assertEqual "generated identities are distinct" (length identities) (length (nub identities))
+      assertEqual "authored identities survive normalization" True (all (`elem` identities) (canonicalNodeIds lowered))
+      assertEqual "generated spans retain the operator location" True (all (completeSpan . snd) (canonicalNodeFacts resolved))
+      case resolved of
+        EBlock _ [SLet {}, SExpr _ (ETuple _ [EApply _ (EApply _ ELambda {} _) _, EApply _ (EApply _ ELambda {} _) _, EApply _ (EApply _ EVar {} _) _])] -> pure ()
+        _ -> assertEqual "normalized declared operators" "capturing applications and lambdas" (show resolved)
 
 testDeterministicNodeIdentities :: IO ()
 testDeterministicNodeIdentities =

@@ -530,6 +530,7 @@ inferLeafExpression env state expr = case expr of
   EVar node name ->
     let (result, evidence, finalState) = case Map.lookup (typeEnvReferenceKey (coreNodeFacts node) name) env of
           Just binding -> ordinary (instantiateEnvBinding binding state)
+          Nothing | Just symbol <- resolvedOperatorSpelling (coreNodeFacts node) -> (Nothing, Nothing, addTypeError state (mkMissingOperatorBindingError symbol))
           Nothing -> case instantiateBuiltinType (resolvedValueReference (coreNodeFacts node)) state of
             Just (builtinType, next) -> (Just builtinType, Nothing, next)
             Nothing -> case instantiateQualifiedMethodType (resolvedValueReference (coreNodeFacts node)) state of

@@ -144,9 +144,9 @@ resolveDeclarationOwner owner name = case name of
 data GeneratedNameKind
   = LambdaPatternArgument Int
   | OperatorBinding Text
-  | OperatorSectionFunction
-  | OperatorSectionLeft
-  | OperatorSectionRight
+  | OperatorSectionFunction Int
+  | OperatorSectionLeft Int
+  | OperatorSectionRight Int
   deriving stock (Eq, Generic, Ord, Show)
   deriving anyclass (NFData)
 
