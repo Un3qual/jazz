@@ -300,13 +300,22 @@ testStandalonePreludeExecution = do
 
 testSingleModuleAnalysis :: IO ()
 testSingleModuleAnalysis = do
-  (resolved, analyzed) <- analyzeFixtureProgram factCompletenessSources
+  (resolved, analyzed) <- analyzeFixtureProgram sources
   let inputs = emptyCompileInputs defaultWarningSettings
       entryPath = nominalModulePath ("App" :| ["Main"])
       interfaces = Map.fromList [(coreModulePath checked, analyzedModuleInterface facts) | checked <- NonEmpty.toList (coreProgramModules analyzed), let facts = coreModuleFacts checked]
   entry <- maybe (fail "missing resolved entry") pure (lookupCoreModule entryPath resolved)
   expected <- maybe (fail "missing analyzed entry") pure (lookupCoreModule entryPath analyzed)
-  imports <- traverse (dependencyInterface interfaces) (coreModuleImports entry)
+  let factsInterface = interfaces Map.! nominalModulePath ("Lib" :| ["Facts"])
+  assertEqual
+    "dependency interface excludes private and transitive values"
+    (Set.fromList [ModuleExport ValueNamespace "identity", ModuleExport ConstructorNamespace "Box"])
+    (Map.keysSet (interfaceValueBindings factsInterface))
+  assertEqual
+    "unreachable private type metadata remains module-owned"
+    (Set.singleton (resolvedImportedName (nominalModulePath ("Lib" :| ["Facts"])) TypeNamespace (mkIdentifier "Box")))
+    (Map.keysSet (interfaceDataTypes factsInterface))
+  imports <- traverse (dependencyInterface (resolvedModuleImportScope (coreModuleFacts entry)) interfaces) (coreModuleImports entry)
   (inference, actual) <- analyzeModule inputs NamedSourceUnit False (mconcat imports) entry
   assertEqual "single-module diagnostics" [] (inferredDiagnostics inference)
   assertEqual "single-module facts, binders and evidence match program analysis" (Just expected) actual
@@ -317,10 +326,16 @@ testSingleModuleAnalysis = do
   assertEqual "failed module has no analyzed artifact" Nothing failedModule
   assertEqual "single-module diagnostic order matches program analysis" programDiagnostics (inferredDiagnostics failedInference)
   where
-    dependencyInterface interfaces importDecl =
+    sources =
+      Map.fromList
+        [ ("src/App/Main.jz", "module App::Main (result) { import Lib::Facts as Facts. import Lib::Facts (Box). result = Facts::identity @Int (case Facts::Box 1 { | Box item -> if Facts::Eq::equals item 1 then item else 0 }). result. }"),
+          ("src/Lib/Facts.jz", "module Lib::Facts (identity, type Box(Box), Eq) { import Lib::Hidden. privateHelper = \\(item) -> item. identity :: a -> a. identity = \\(item) -> privateHelper item. data Box a = Box a. data Unused = Unused. class Eq(a) { equals :: a -> a -> Bool. }. impl Eq(Int) { equals = \\(left, right) -> left == right + hiddenZero. }. }"),
+          ("src/Lib/Hidden.jz", "module Lib::Hidden { hiddenZero = 0. }")
+        ]
+    dependencyInterface scope interfaces importDecl =
       case Map.lookup (importedModule importDecl) interfaces of
         Nothing -> fail "missing dependency interface"
-        Just interface -> pure (dependencyImportInterface importDecl interface)
+        Just interface -> pure (dependencyImportInterface scope (importedModule importDecl) interface)
 
 testExportedSchemeParameterIdentity :: IO ()
 testExportedSchemeParameterIdentity = do
@@ -1558,7 +1573,7 @@ testRuntimeModulePublishesPublicClassMethodsOnly = do
         Just runtimeModule ->
           assertEqual
             "public class method runtime exports"
-            (Set.singleton (RuntimeCapabilityMethodExport "Eq" "equals"))
+            (Set.singleton (RuntimeCapabilityMethodExport (CapabilityId (resolvedImportedName (nominalModulePath ("Lib" :| ["Facts"])) CapabilityNamespace (mkIdentifier "Eq"))) (mkIdentifier "equals")))
             (Map.keysSet (runtimeModuleExports runtimeModule))
 
 explicitExportSources :: Map.Map FilePath Text

@@ -694,6 +694,7 @@ resolveCoreModuleNames owner externalReferences ambientExports localInventory pu
             ModuleGraph.coreModuleFacts =
               ModuleGraph.ResolvedModuleFacts
                 { ModuleGraph.resolvedModuleExports = publicInventory,
+                  ModuleGraph.resolvedModuleImportScope = importScope,
                   ModuleGraph.resolvedModuleExportSelectors =
                     ModuleGraph.declaredModuleExportSelectors
                       <$> ModuleGraph.declaredModuleExports (ModuleGraph.coreModuleFacts coreModule)

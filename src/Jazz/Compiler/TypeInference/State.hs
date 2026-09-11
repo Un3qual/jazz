@@ -114,7 +114,7 @@ data DeclarationState = DeclarationState
 data ModuleInferenceState = ModuleInferenceState
   { inferenceModulePath :: Maybe ModulePath,
     inferenceLocalCapabilities :: ScopeCapabilityFacts,
-    inferenceModuleCapabilities :: Map ModulePath ScopeCapabilityFacts,
+    inferenceModuleCapabilities :: Map (Maybe ModulePath) ScopeCapabilityFacts,
     inferenceDeclarationParameters :: Map InferenceVariable DeclarationVariable,
     inferenceConstructorWitnessNames :: Map ResolvedName UnresolvedName,
     inferenceVisibleTypes :: TypeEnv
@@ -275,7 +275,7 @@ inferCurrentModulePath = inferenceModulePath . inferModule
 inferCurrentModuleLocalCapabilityFacts :: InferState -> ScopeCapabilityFacts
 inferCurrentModuleLocalCapabilityFacts = inferenceLocalCapabilities . inferModule
 
-inferModuleCapabilityFacts :: InferState -> Map ModulePath ScopeCapabilityFacts
+inferModuleCapabilityFacts :: InferState -> Map (Maybe ModulePath) ScopeCapabilityFacts
 inferModuleCapabilityFacts = inferenceModuleCapabilities . inferModule
 
 inferConstructorWitnessNames :: InferState -> Map ResolvedName UnresolvedName

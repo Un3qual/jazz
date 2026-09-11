@@ -19,13 +19,14 @@ where
 
 import Control.DeepSeq (NFData)
 import Data.Bifoldable (bifoldMap)
+import Data.Bifunctor (first)
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
 import Data.Set (Set)
 import qualified Data.Set as Set
 import Data.Text (Text)
 import GHC.Generics (Generic)
-import Jazz.Compiler.CoreIdentity (CapabilityId, CapabilityMethodKey, CoreBinderId, renderCapabilityId)
+import Jazz.Compiler.CoreIdentity (CapabilityId (..), CapabilityMethodKey, CoreBinderId, renderCapabilityId)
 import Jazz.Compiler.ModuleExports
   ( ModuleExport (..),
     ModuleExportInventory,
@@ -34,7 +35,8 @@ import Jazz.Compiler.ModuleExports
     inventoryHasExport,
     restrictExportInventory,
   )
-import Jazz.Compiler.Name (NameNamespace (..), ResolvedName, renderName)
+import Jazz.Compiler.ModuleIdentity (SourceUnitOwner (..))
+import Jazz.Compiler.Name (Name (..), NameNamespace (..), ResolvedName, ResolvedNameOrigin (..), ResolvedUserName (..), renderName)
 import Jazz.Compiler.SemanticDeclarations
   ( ClassMethodType (..),
     ConcreteImplFact (..),
@@ -42,6 +44,7 @@ import Jazz.Compiler.SemanticDeclarations
     DataTypeBinding (..),
     DeclarationVariable,
     ImplMethodType (..),
+    SchemeConstraint (..),
     ScopeCapabilityFacts (..),
     SemanticBinding (..),
     SemanticScheme (..),
@@ -88,7 +91,15 @@ moduleInterfaceExportInventory = interfacePublicExports
 -- from a public declaration; they do not introduce importable names.
 publishModuleInterface :: Maybe ModuleExportInventory -> Map ResolvedName DataTypeBinding -> ModuleInterface -> ModuleInterface
 publishModuleInterface requested typeDefinitions declarations =
-  public {interfaceDataTypes = reachableTypes roots}
+  public
+    { interfaceValueBindings = Map.map (\binding -> binding {interfaceBindingType = publishBindingNames (interfaceBindingType binding)}) (interfaceValueBindings public),
+      interfaceDataTypes = Map.mapKeys publishedName (Map.map publishDataNames (reachableTypes roots)),
+      interfaceClassFacts = Map.mapKeys publishedCapability (interfaceClassFacts public),
+      interfaceGeneratedEqualityClassFacts = Set.map publishedCapability (interfaceGeneratedEqualityClassFacts public),
+      interfaceConcreteImplFacts = Set.map publishImplFact (interfaceConcreteImplFacts public),
+      interfaceClassMethods = Map.mapKeys publishedMethod (Map.map publishMethodType (interfaceClassMethods public)),
+      interfaceConcreteImplMethods = Map.mapKeys publishedMethod (Map.map (map publishImplType) (interfaceConcreteImplMethods public))
+    }
   where
     available = declaredInterfaceInventory declarations
     exports = maybe available (\inventory -> restrictExportInventory (Set.intersection (exportInventoryEntries available) (exportInventoryEntries inventory)) inventory) requested
@@ -160,6 +171,68 @@ emptyModuleInterface =
       interfaceClassMethods = Map.empty,
       interfaceConcreteImplMethods = Map.empty
     }
+
+-- Publication gives nominal names their external diagnostic spelling once.
+-- Their defining owner (and therefore equality/ordering) is unchanged. Import
+-- aliases never rewrite declaration identities or their nested semantic types.
+publishedName :: ResolvedName -> ResolvedName
+publishedName (UserName (ResolvedUserName (LocalDeclaration (NamedSourceUnit path)) namespace identifier)) =
+  UserName (ResolvedUserName (ImportedModule path) namespace identifier)
+publishedName name = name
+
+publishedCapability :: CapabilityId -> CapabilityId
+publishedCapability (CapabilityId name) = CapabilityId (publishedName name)
+
+publishedMethod :: CapabilityMethodKey -> CapabilityMethodKey
+publishedMethod = first publishedCapability
+
+publishBindingNames :: SemanticBinding variable -> SemanticBinding variable
+publishBindingNames binding = case binding of
+  PlainTypeBinding value -> PlainTypeBinding (first publishedName value)
+  SchemeTypeBinding scheme -> SchemeTypeBinding (publishSchemeNames scheme)
+  OperatorAliasSchemeTypeBinding symbol scheme -> OperatorAliasSchemeTypeBinding symbol (publishSchemeNames scheme)
+  ConstructorTypeBinding name parameters fields -> ConstructorTypeBinding (publishedName name) parameters (map publishFieldNames fields)
+  _ -> binding
+
+publishSchemeNames :: SemanticScheme variable -> SemanticScheme variable
+publishSchemeNames scheme =
+  scheme
+    { schemeClassConstraints = map publishConstraint (schemeClassConstraints scheme),
+      schemePrimitiveConstraints = map (fmap (first publishedName)) (schemePrimitiveConstraints scheme),
+      schemeDefiningCapabilities = publishCapabilityNames (schemeDefiningCapabilities scheme),
+      schemeResultType = first publishedName (schemeResultType scheme)
+    }
+  where
+    publishConstraint constraint = case constraint of
+      TypeSchemeConstraint capability value -> TypeSchemeConstraint (publishedCapability capability) (first publishedName value)
+      TypeSchemeInferredConstraint capability value -> TypeSchemeInferredConstraint (publishedCapability capability) (first publishedName value)
+      TypeSchemeMethodConstraint capability method value -> TypeSchemeMethodConstraint (publishedCapability capability) (publishedMethod method) (first publishedName value)
+
+publishCapabilityNames :: ScopeCapabilityFacts -> ScopeCapabilityFacts
+publishCapabilityNames facts =
+  ScopeCapabilityFacts
+    { scopeClassFacts = Map.mapKeys publishedCapability (scopeClassFacts facts),
+      scopeGeneratedEqualityClassFacts = Set.map publishedCapability (scopeGeneratedEqualityClassFacts facts),
+      scopeConcreteImplFacts = Set.map publishImplFact (scopeConcreteImplFacts facts),
+      scopeClassMethodSignatures = Map.mapKeys publishedMethod (Map.map publishMethodType (scopeClassMethodSignatures facts)),
+      scopeConcreteImplMethods = Map.mapKeys publishedMethod (Map.map (map publishImplType) (scopeConcreteImplMethods facts))
+    }
+
+publishImplFact :: ConcreteImplFact -> ConcreteImplFact
+publishImplFact (ConcreteImplFact capability value) = ConcreteImplFact (publishedCapability capability) (first publishedName value)
+
+publishImplType :: ImplMethodType -> ImplMethodType
+publishImplType method = method {implMethodTarget = first publishedName (implMethodTarget method), implMethodCapability = publishedCapability (implMethodCapability method)}
+
+publishMethodType :: ClassMethodType -> ClassMethodType
+publishMethodType (ClassMethodType parameter value) = ClassMethodType parameter (first publishedName value)
+
+publishFieldNames :: ConstructorArgumentType -> ConstructorArgumentType
+publishFieldNames (ConstructorArgumentType value) = ConstructorArgumentType (first publishedName value)
+publishFieldNames ConstructorArgumentFresh = ConstructorArgumentFresh
+
+publishDataNames :: DataTypeBinding -> DataTypeBinding
+publishDataNames (DataTypeBinding parameters constructors) = DataTypeBinding parameters (map (map publishFieldNames) constructors)
 
 data CompileInputs = CompileInputs
   { compileInputWarningSettings :: WarningSettings,

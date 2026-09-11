@@ -313,20 +313,13 @@ updateRootModuleBaselineFacts moduleBaselineFacts previousState nextState =
 
 flushCurrentModuleCapabilityFacts :: InferState -> InferState
 flushCurrentModuleCapabilityFacts state =
-  case inferCurrentModulePath state of
-    Just modulePath ->
-      modifyModuleInferenceState
-        ( \moduleState ->
-            moduleState
-              { inferenceModuleCapabilities =
-                  Map.insert
-                    modulePath
-                    (inferCurrentModuleLocalCapabilityFacts state)
-                    (inferModuleCapabilityFacts state)
-              }
-        )
-        state
-    Nothing -> state
+  modifyModuleInferenceState
+    ( \moduleState ->
+        moduleState
+          { inferenceModuleCapabilities = Map.insert (inferCurrentModulePath state) (inferCurrentModuleLocalCapabilityFacts state) (inferModuleCapabilityFacts state)
+          }
+    )
+    state
 
 enterModuleCapabilityScope :: ScopeCapabilityFacts -> ModulePath -> InferState -> InferState
 enterModuleCapabilityScope baselineFacts modulePath state =
@@ -343,7 +336,7 @@ importModuleCapabilityFacts :: ModulePath -> Maybe Text -> Maybe [Text] -> Infer
 importModuleCapabilityFacts modulePath maybeAlias maybeSymbolNames state =
   applyCapabilityFacts
     ( capabilityFactsFromState state
-        <> filterImportedCapabilityFacts maybeAlias maybeSymbolNames (Map.findWithDefault emptyScopeCapabilityFacts modulePath (inferModuleCapabilityFacts state))
+        <> filterImportedCapabilityFacts maybeAlias maybeSymbolNames (Map.findWithDefault emptyScopeCapabilityFacts (Just modulePath) (inferModuleCapabilityFacts state))
     )
     state
 
@@ -393,9 +386,7 @@ registerClassCapabilityFacts capabilityName arity methods =
 modifyCapabilityFacts :: (ScopeCapabilityFacts -> ScopeCapabilityFacts) -> InferState -> InferState
 modifyCapabilityFacts update state =
   let stateWithVisibleFacts = applyCapabilityFacts (update (capabilityFactsFromState state)) state
-   in case inferCurrentModulePath state of
-        Just _ -> modifyModuleInferenceState (\moduleState -> moduleState {inferenceLocalCapabilities = update (inferCurrentModuleLocalCapabilityFacts state)}) stateWithVisibleFacts
-        Nothing -> stateWithVisibleFacts
+   in modifyModuleInferenceState (\moduleState -> moduleState {inferenceLocalCapabilities = update (inferCurrentModuleLocalCapabilityFacts state)}) stateWithVisibleFacts
 
 registerImplementation :: CoreNode 'Resolved 'StatementSort -> ResolvedName -> [SemanticType ResolvedName Void] -> [ImplMethod 'Resolved] -> InferState -> InferState
 registerImplementation node capabilityName targets methods =

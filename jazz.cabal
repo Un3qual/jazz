@@ -188,6 +188,7 @@ library jazz-internal
       Jazz.Compiler.TypeRepresentation
       Jazz.Compiler.WarningConfig
   other-modules:
+      Jazz.Compiler.ModuleImportScope
   build-depends:
       aeson >= 2.2 && < 2.3,
       base >= 4.22 && < 4.23,

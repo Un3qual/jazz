@@ -29,16 +29,14 @@ import Jazz.Compiler.CapabilityFacts
   ( ConcreteImplFact (..),
     concreteImplFactCapability,
   )
-import Jazz.Compiler.CoreIdentity (CapabilityId (..), CapabilityMethodKey, ResolvedReference (LexicalReference), renderCapabilityId)
+import Jazz.Compiler.CoreIdentity (CapabilityMethodKey, ResolvedReference (LexicalReference), capabilityExportName)
 import Jazz.Compiler.ModuleExports
   ( ModuleExportInventory,
     exportNamesInNamespace,
     inventoryHasExport,
-    selectExportNames,
   )
 import Jazz.Compiler.ModuleGraph
   ( CoreModule,
-    ImportExposure (..),
     ModuleImport,
     coreModuleExpr,
     coreModuleFacts,
@@ -50,18 +48,17 @@ import qualified Jazz.Compiler.ModuleGraph as ModuleGraph
 import Jazz.Compiler.ModuleIdentity
   ( ModulePath,
     SourceUnitOwner (..),
-    moduleQualifierIdentifier,
     renderModulePath,
   )
+import Jazz.Compiler.ModuleImportScope (ValidatedImportScope, dependencyImportViews)
 import Jazz.Compiler.ModuleInterface
 import Jazz.Compiler.Name
   ( Name (..),
-    NameNamespace (CapabilityNamespace, ConstructorNamespace, TypeNamespace),
+    NameNamespace (CapabilityNamespace, ConstructorNamespace),
     ResolvedName,
     ResolvedNameOrigin (..),
     ResolvedUserName (..),
     UnresolvedName,
-    identifierText,
     mkIdentifier,
     qualifiedName,
     sourceName,
@@ -79,15 +76,9 @@ import Jazz.Compiler.TypeInference
   )
 import Jazz.Compiler.TypeInference.Result (InferenceResult (..))
 import Jazz.Compiler.TypeInference.Types
-  ( ClassMethodType (..),
-    ConstructorArgumentType (..),
-    DataTypeBinding (..),
-    ImplMethodType (..),
-    SchemeConstraint (..),
+  ( DataTypeBinding,
     ScopeCapabilityFacts (..),
-    SemanticBinding (..),
-    SemanticScheme (..),
-    SemanticType (..),
+    SemanticBinding,
     TypeEnvKey (..),
   )
 
@@ -115,7 +106,7 @@ analyzeModule inputs owner hideRootBindings importedInterface resolvedModule = d
   case maybeAnalyzedModule of
     Just analyzed
       | moduleInterfaceExportInventory (ModuleGraph.analyzedModuleInterface (coreModuleFacts analyzed)) /= ModuleGraph.resolvedModuleExports (coreModuleFacts resolvedModule) ->
-          fail ("typed module exports disagree with resolution in " <> Text.unpack (renderModulePath modulePath))
+          fail ("typed module exports disagree with resolution in " <> Text.unpack (renderModulePath modulePath) <> ": expected " <> show (ModuleGraph.resolvedModuleExports (coreModuleFacts resolvedModule)) <> ", got " <> show (moduleInterfaceExportInventory (ModuleGraph.analyzedModuleInterface (coreModuleFacts analyzed))))
     _ -> pure ()
   pure (inference, maybeAnalyzedModule)
 
@@ -169,6 +160,7 @@ analyzedModuleFromExpression resolvedModule inference moduleStatementFacts analy
                   { ModuleGraph.analyzedModuleExports = ModuleGraph.resolvedModuleExports (coreModuleFacts resolvedModule),
                     ModuleGraph.analyzedModuleExportSelectors = ModuleGraph.resolvedModuleExportSelectors (coreModuleFacts resolvedModule),
                     ModuleGraph.analyzedModuleInterface = moduleInterface,
+                    ModuleGraph.analyzedModuleImportScope = ModuleGraph.resolvedModuleImportScope (coreModuleFacts resolvedModule),
                     ModuleGraph.analyzedModuleDiagnosticGroups = inferredDiagnosticGroups inference
                   }
             }
@@ -200,30 +192,9 @@ analyzedImport factsByNode importDecl =
                 ModuleGraph.importExposure = ModuleGraph.importExposure importDecl
               }
 
-dependencyImportInterface :: ModuleImport 'Resolved -> ModuleInterface -> ImportedInterface
-dependencyImportInterface importDecl moduleInterface =
-  case ModuleGraph.importExposure importDecl of
-    ImportAllUnqualified ->
-      importSelectedInterface
-        (moduleOrigin (ModuleGraph.importedModule importDecl))
-        Nothing
-        Nothing
-        (moduleInterfaceExportInventory moduleInterface)
-        moduleInterface
-    ImportOnlyUnqualified symbolNames ->
-      importSelectedInterface
-        (moduleOrigin (ModuleGraph.importedModule importDecl))
-        Nothing
-        (Just (map identifierText (NonEmpty.toList symbolNames)))
-        (moduleInterfaceExportInventory moduleInterface)
-        moduleInterface
-    ImportQualifiedOnly qualifier ->
-      importSelectedInterface
-        (moduleOrigin (ModuleGraph.importedModule importDecl))
-        (Just (identifierText (moduleQualifierIdentifier qualifier)))
-        Nothing
-        (moduleInterfaceExportInventory moduleInterface)
-        moduleInterface
+dependencyImportInterface :: ValidatedImportScope -> ModulePath -> ModuleInterface -> ImportedInterface
+dependencyImportInterface scope path interface =
+  foldMap (\(alias, selected) -> importSelectedInterface (ImportedModule path) alias selected interface) (dependencyImportViews path scope)
 
 data ImportedInterface = ImportedInterface
   { importedTypes :: Map TypeEnvKey (SemanticBinding DeclarationVariable),
@@ -270,32 +241,27 @@ importWholeInterface origin moduleInterface =
   importSelectedInterface
     origin
     Nothing
-    Nothing
     (moduleInterfaceExportInventory moduleInterface)
     moduleInterface
 
-importSelectedInterface :: ResolvedNameOrigin -> Maybe Text -> Maybe [Text] -> ModuleExportInventory -> ModuleInterface -> ImportedInterface
-importSelectedInterface origin maybeAlias maybeSymbols publicInventory moduleInterface =
+importSelectedInterface :: ResolvedNameOrigin -> Maybe Text -> ModuleExportInventory -> ModuleInterface -> ImportedInterface
+importSelectedInterface origin maybeAlias selectedInventory moduleInterface =
   ImportedInterface
     { importedTypes =
         Map.fromList
           [ ( TypeEnvKey (LexicalReference binder) (UserName (ResolvedUserName origin (moduleExportNamespace export) (mkIdentifier (moduleExportName export)))),
-              rebaseTypeBinding origin dataTypeNames classNames binding
+              binding
             )
           | (export, ModuleValueBinding binder binding) <- Map.toList selectedValueTypes
           ],
-      importedDataTypes =
-        Map.map
-          (rebaseDataTypeBinding origin dataTypeNames classNames)
-          (interfaceDataTypes moduleInterface),
+      importedDataTypes = interfaceDataTypes moduleInterface,
       importedConstructorWitnessNames =
         Map.fromList
           [ (importedName export, sourceConstructorName export)
           | export <- Map.keys selectedValueTypes,
             moduleExportNamespace export == ConstructorNamespace
           ],
-      importedCapabilities =
-        rebaseCapabilityFacts origin dataTypeNames classNames selectedCapabilities,
+      importedCapabilities = selectedCapabilities,
       importedClassNames = case maybeAlias of
         Nothing -> selectedClassNames
         Just _ -> Set.empty
@@ -316,12 +282,6 @@ importSelectedInterface origin maybeAlias maybeSymbols publicInventory moduleInt
       where
         member = mkIdentifier (moduleExportName export)
 
-    dataTypeNames = Set.map identifierText (Map.keysSet (interfaceDataTypes moduleInterface))
-    classNames = Set.map renderCapabilityId (Map.keysSet (interfaceClassFacts moduleInterface))
-    selectedInventory =
-      selectExportNames
-        maybeSymbols
-        publicInventory
     selectedValueTypes =
       Map.filterWithKey
         (\export _ -> inventoryHasExport export selectedInventory)
@@ -329,14 +289,14 @@ importSelectedInterface origin maybeAlias maybeSymbols publicInventory moduleInt
     selectedClassNames = exportNamesInNamespace CapabilityNamespace selectedInventory
     selectedClassFacts =
       Map.filterWithKey
-        (\capability _ -> Set.member (renderCapabilityId capability) selectedClassNames)
+        (\capability _ -> Set.member (capabilityExportName capability) selectedClassNames)
         (interfaceClassFacts moduleInterface)
     selectedCapabilities =
       ScopeCapabilityFacts
         { scopeClassFacts = selectedClassFacts,
           scopeGeneratedEqualityClassFacts =
             Set.filter
-              (\capability -> Set.member (renderCapabilityId capability) selectedClassNames)
+              (\capability -> Set.member (capabilityExportName capability) selectedClassNames)
               (interfaceGeneratedEqualityClassFacts moduleInterface),
           scopeConcreteImplFacts =
             Set.filter (factUsesClass selectedClassNames) (interfaceConcreteImplFacts moduleInterface),
@@ -346,135 +306,9 @@ importSelectedInterface origin maybeAlias maybeSymbols publicInventory moduleInt
             Map.filterWithKey (methodUsesClass selectedClassNames) (interfaceConcreteImplMethods moduleInterface)
         }
 
-moduleOrigin :: ModulePath -> ResolvedNameOrigin
-moduleOrigin = ImportedModule
-
 factUsesClass :: Set.Set Text -> ConcreteImplFact -> Bool
-factUsesClass classNames fact = Set.member (renderCapabilityId (concreteImplFactCapability fact)) classNames
+factUsesClass classNames fact = Set.member (capabilityExportName (concreteImplFactCapability fact)) classNames
 
 methodUsesClass :: Set.Set Text -> CapabilityMethodKey -> value -> Bool
 methodUsesClass classNames methodKey _ =
-  Set.member (renderCapabilityId (fst methodKey)) classNames
-
-rebaseTypeBinding :: ResolvedNameOrigin -> Set.Set Text -> Set.Set Text -> SemanticBinding variable -> SemanticBinding variable
-rebaseTypeBinding origin dataTypeNames classNames binding =
-  case binding of
-    PlainTypeBinding expressionType ->
-      PlainTypeBinding (rebaseExpressionType origin dataTypeNames expressionType)
-    SchemeTypeBinding typeScheme ->
-      SchemeTypeBinding (rebaseTypeScheme origin dataTypeNames classNames typeScheme)
-    BuiltinAliasTypeBinding {} -> binding
-    BuiltinOperatorAliasTypeBinding {} -> binding
-    OperatorAliasSchemeTypeBinding operatorSymbol typeScheme ->
-      OperatorAliasSchemeTypeBinding operatorSymbol (rebaseTypeScheme origin dataTypeNames classNames typeScheme)
-    ConstructorTypeBinding typeName parameters arguments ->
-      ConstructorTypeBinding
-        (rebaseKnownName origin TypeNamespace dataTypeNames typeName)
-        parameters
-        (map (rebaseConstructorArgument origin dataTypeNames) arguments)
-
-rebaseDataTypeBinding :: ResolvedNameOrigin -> Set.Set Text -> Set.Set Text -> DataTypeBinding -> DataTypeBinding
-rebaseDataTypeBinding origin dataTypeNames _ (DataTypeBinding parameters constructors) =
-  DataTypeBinding parameters (map (map (rebaseConstructorArgument origin dataTypeNames)) constructors)
-
-rebaseConstructorArgument :: ResolvedNameOrigin -> Set.Set Text -> ConstructorArgumentType -> ConstructorArgumentType
-rebaseConstructorArgument origin dataTypeNames argument =
-  case argument of
-    ConstructorArgumentType fieldType ->
-      ConstructorArgumentType (rebaseExpressionType origin dataTypeNames fieldType)
-    ConstructorArgumentFresh -> argument
-
-rebaseExpressionType :: ResolvedNameOrigin -> Set.Set Text -> SemanticType ResolvedName variable -> SemanticType ResolvedName variable
-rebaseExpressionType origin dataTypeNames expressionType =
-  case expressionType of
-    SemanticList elementType -> SemanticList (rebaseExpressionType origin dataTypeNames elementType)
-    SemanticTuple elementTypes -> SemanticTuple (map (rebaseExpressionType origin dataTypeNames) elementTypes)
-    SemanticData typeName arguments ->
-      SemanticData
-        (rebaseKnownName origin TypeNamespace dataTypeNames typeName)
-        (map (rebaseExpressionType origin dataTypeNames) arguments)
-    SemanticFunction argumentType resultType ->
-      SemanticFunction
-        (rebaseExpressionType origin dataTypeNames argumentType)
-        (rebaseExpressionType origin dataTypeNames resultType)
-    _ -> expressionType
-
-rebaseTypeScheme :: ResolvedNameOrigin -> Set.Set Text -> Set.Set Text -> SemanticScheme variable -> SemanticScheme variable
-rebaseTypeScheme origin dataTypeNames classNames typeScheme =
-  typeScheme
-    { schemeClassConstraints = map rebaseSchemeConstraint (schemeClassConstraints typeScheme),
-      schemePrimitiveConstraints = map rebasePrimitiveConstraint (schemePrimitiveConstraints typeScheme),
-      schemeDefiningCapabilities = rebaseCapabilityFacts origin dataTypeNames classNames (schemeDefiningCapabilities typeScheme),
-      schemeResultType = rebaseExpressionType origin dataTypeNames (schemeResultType typeScheme)
-    }
-  where
-    rebaseSchemeConstraint constraint =
-      case constraint of
-        TypeSchemeConstraint capabilityName argumentType ->
-          TypeSchemeConstraint (rebaseCapabilityId origin classNames capabilityName) (rebaseExpressionType origin dataTypeNames argumentType)
-        TypeSchemeInferredConstraint capabilityName argumentType ->
-          TypeSchemeInferredConstraint (rebaseCapabilityId origin classNames capabilityName) (rebaseExpressionType origin dataTypeNames argumentType)
-        TypeSchemeMethodConstraint capabilityName methodKey argumentType ->
-          TypeSchemeMethodConstraint
-            (rebaseCapabilityId origin classNames capabilityName)
-            (rebaseMethodKey origin classNames methodKey)
-            (rebaseExpressionType origin dataTypeNames argumentType)
-    rebasePrimitiveConstraint = fmap (rebaseExpressionType origin dataTypeNames)
-
-rebaseCapabilityFacts :: ResolvedNameOrigin -> Set.Set Text -> Set.Set Text -> ScopeCapabilityFacts -> ScopeCapabilityFacts
-rebaseCapabilityFacts origin dataTypeNames classNames facts =
-  ScopeCapabilityFacts
-    { scopeClassFacts = Map.mapKeys (rebaseCapabilityId origin classNames) (scopeClassFacts facts),
-      scopeGeneratedEqualityClassFacts = Set.map (rebaseCapabilityId origin classNames) (scopeGeneratedEqualityClassFacts facts),
-      scopeConcreteImplFacts = Set.map (rebaseConcreteImplFact origin dataTypeNames classNames) (scopeConcreteImplFacts facts),
-      scopeClassMethodSignatures =
-        Map.fromList
-          [ (rebaseMethodKey origin classNames methodKey, rebaseClassMethod origin dataTypeNames classNames methodType)
-          | (methodKey, methodType) <- Map.toList (scopeClassMethodSignatures facts)
-          ],
-      scopeConcreteImplMethods =
-        Map.fromList
-          [ (rebaseMethodKey origin classNames methodKey, map (rebaseImplMethod origin dataTypeNames classNames) methodTypes)
-          | (methodKey, methodTypes) <- Map.toList (scopeConcreteImplMethods facts)
-          ]
-    }
-
-rebaseClassMethod :: ResolvedNameOrigin -> Set.Set Text -> Set.Set Text -> ClassMethodType -> ClassMethodType
-rebaseClassMethod origin dataTypeNames _ (ClassMethodType parameter methodType) =
-  ClassMethodType parameter (rebaseExpressionType origin dataTypeNames methodType)
-
-rebaseImplMethod :: ResolvedNameOrigin -> Set.Set Text -> Set.Set Text -> ImplMethodType -> ImplMethodType
-rebaseImplMethod origin dataTypeNames _ method =
-  method {implMethodTarget = rebaseExpressionType origin dataTypeNames (implMethodTarget method)}
-
-rebaseConcreteImplFact ::
-  ResolvedNameOrigin ->
-  Set.Set Text ->
-  Set.Set Text ->
-  ConcreteImplFact ->
-  ConcreteImplFact
-rebaseConcreteImplFact origin dataTypeNames classNames (ConcreteImplFact capabilityName argument) =
-  ConcreteImplFact
-    (rebaseCapabilityId origin classNames capabilityName)
-    (rebaseExpressionType origin dataTypeNames argument)
-
-rebaseKnownName :: ResolvedNameOrigin -> NameNamespace -> Set.Set Text -> ResolvedName -> ResolvedName
-rebaseKnownName origin namespace knownNames name =
-  case name of
-    UserName (ResolvedUserName definingOrigin _ identifier)
-      | localDeclaration definingOrigin,
-        Set.member (identifierText identifier) knownNames ->
-          UserName (ResolvedUserName origin namespace identifier)
-    _ -> name
-  where
-    localDeclaration CurrentModule = True
-    localDeclaration LocalDeclaration {} = True
-    localDeclaration _ = False
-
-rebaseCapabilityId :: ResolvedNameOrigin -> Set.Set Text -> CapabilityId -> CapabilityId
-rebaseCapabilityId origin knownNames (CapabilityId name) =
-  CapabilityId (rebaseKnownName origin CapabilityNamespace knownNames name)
-
-rebaseMethodKey :: ResolvedNameOrigin -> Set.Set Text -> CapabilityMethodKey -> CapabilityMethodKey
-rebaseMethodKey origin classNames (capability, method) =
-  (rebaseCapabilityId origin classNames capability, method)
+  Set.member (capabilityExportName (fst methodKey)) classNames

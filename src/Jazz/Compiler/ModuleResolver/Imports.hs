@@ -70,33 +70,12 @@ import Jazz.Compiler.ModuleIdentity
     moduleQualifierIdentifier,
     renderModulePath,
   )
+import Jazz.Compiler.ModuleImportScope
 import Jazz.Compiler.Name
   ( NameNamespace (..),
     identifierText,
   )
 import Jazz.Compiler.SourceSpan (unqualifySourceSpan)
-
--- | Origin metadata for imported bindings/aliases used in collision
--- diagnostics.
-data BindingOrigin = BindingOrigin
-  { bindingOriginModulePath :: ModulePath,
-    bindingOriginSpan :: SourceSpan
-  }
-
--- | Successful import validation is the owner of imported visibility. Resolution
--- consumes these namespace-aware targets instead of selecting exports again.
-data ValidatedImportScope = ValidatedImportScope
-  { importScopeAliases :: Map Text BindingOrigin,
-    importScopeNames :: Map NameNamespace (Map Text BindingOrigin),
-    importScopeInventories :: Map ModulePath ModuleExportInventory
-  }
-
-emptyImportScope :: ValidatedImportScope
-emptyImportScope = ValidatedImportScope Map.empty Map.empty Map.empty
-
-importedNameOrigins :: NameNamespace -> ValidatedImportScope -> Map Text ModulePath
-importedNameOrigins namespace =
-  Map.map bindingOriginModulePath . Map.findWithDefault Map.empty namespace . importScopeNames
 
 declaredImportSpan :: ModuleGraph.ModuleImport 'Lowered -> SourceSpan
 declaredImportSpan importDecl =

@@ -520,9 +520,7 @@ moduleInterfaceFromState inputs expr state =
   where
     (declaredValues, declaredDataTypes) = declaredModuleBindings expr
     localCapabilities =
-      case inferenceCurrentModulePath inputs of
-        Just modulePath -> Map.findWithDefault emptyScopeCapabilityFacts modulePath (inferModuleCapabilityFacts state)
-        Nothing -> capabilityFactsFromState state
+      Map.findWithDefault emptyScopeCapabilityFacts (inferenceCurrentModulePath inputs) (inferModuleCapabilityFacts state)
 
 declaredModuleBindings :: Expr 'Resolved -> (Map ResolvedName CoreBinderId, Set ResolvedName)
 declaredModuleBindings expression =

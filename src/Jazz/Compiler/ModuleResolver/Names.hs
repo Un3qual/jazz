@@ -546,16 +546,12 @@ statementInventory = exportInventory . concatMap statementExports
         SData _ typeName _ constructors ->
           maybeExport TypeNamespace typeName
             <> concatMap constructorExports constructors
-        SClass _ className _ methods ->
+        SClass _ className _ _ ->
           maybeExport CapabilityNamespace className
-            <> concatMap methodExports methods
         _ -> []
 
     constructorExports (DataConstructor _ name _) =
       maybeExport ConstructorNamespace name
-
-    methodExports (ClassMethodSignature _ name _) =
-      maybeExport ValueNamespace name
 
     maybeExport namespace name =
       case name of

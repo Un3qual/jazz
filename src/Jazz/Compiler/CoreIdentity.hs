@@ -12,6 +12,7 @@ module Jazz.Compiler.CoreIdentity
     CapabilityMethodKey,
     capabilityMethodKeyFromReference,
     renderCapabilityId,
+    capabilityExportName,
     renderCapabilityMethodKey,
     ImplId (..),
     MethodId (..),
@@ -31,7 +32,7 @@ import Data.Set (Set)
 import Data.Text (Text)
 import GHC.Generics (Generic)
 import Jazz.Compiler.ModuleIdentity (ModulePath, SourceUnitOwner)
-import Jazz.Compiler.Name (Identifier, ResolvedName, identifierText)
+import Jazz.Compiler.Name (Identifier, Name (..), ResolvedName, ResolvedUserName (..), identifierText)
 
 newtype CoreNodeId = CoreNodeId Int
   deriving stock (Eq, Generic, Ord, Show)
@@ -55,6 +56,11 @@ capabilityMethodKeyFromReference reference = case reference of
 
 renderCapabilityId :: CapabilityId -> Text
 renderCapabilityId = identifierText . capabilityResolvedName
+
+-- | The namespace member used by export inventories, independent of display qualification.
+capabilityExportName :: CapabilityId -> Text
+capabilityExportName (CapabilityId (UserName (ResolvedUserName _ _ member))) = identifierText member
+capabilityExportName capability = renderCapabilityId capability
 
 renderCapabilityMethodKey :: CapabilityMethodKey -> Text
 renderCapabilityMethodKey (capability, method) = renderCapabilityId capability <> "::" <> identifierText method

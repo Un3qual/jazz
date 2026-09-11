@@ -93,8 +93,8 @@ analyzeProgram inputs resolvedProgram =
       let importedInterface =
             ambientInterface
               <> foldMap
-                (uncurry dependencyImportInterface)
-                [ (importDecl, dependency)
+                (uncurry (dependencyImportInterface (ModuleGraph.resolvedModuleImportScope (coreModuleFacts resolvedModule))))
+                [ (ModuleGraph.importedModule importDecl, dependency)
                 | importDecl <- coreModuleImports resolvedModule,
                   Just dependency <- [Map.lookup (ModuleGraph.importedModule importDecl) dependenciesByPath]
                 ]

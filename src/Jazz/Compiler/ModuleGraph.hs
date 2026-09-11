@@ -68,6 +68,7 @@ import Jazz.Compiler.ModuleIdentity
     ModuleQualifier,
     moduleIdentityPath,
   )
+import Jazz.Compiler.ModuleImportScope (ValidatedImportScope)
 import Jazz.Compiler.ModuleInterface (ModuleInterface)
 import Jazz.Compiler.Name (Identifier)
 
@@ -119,7 +120,8 @@ data DeclaredModuleFacts = DeclaredModuleFacts
 
 data ResolvedModuleFacts = ResolvedModuleFacts
   { resolvedModuleExports :: ModuleExportInventory,
-    resolvedModuleExportSelectors :: Maybe [ModuleExportSelector]
+    resolvedModuleExportSelectors :: Maybe [ModuleExportSelector],
+    resolvedModuleImportScope :: ValidatedImportScope
   }
   deriving stock (Eq, Generic, Show)
   deriving anyclass (NFData)
@@ -128,6 +130,7 @@ data AnalyzedModuleFacts = AnalyzedModuleFacts
   { analyzedModuleExports :: ModuleExportInventory,
     analyzedModuleExportSelectors :: Maybe [ModuleExportSelector],
     analyzedModuleInterface :: ModuleInterface,
+    analyzedModuleImportScope :: ValidatedImportScope,
     analyzedModuleDiagnosticGroups :: CompilationDiagnostics
   }
   deriving stock (Eq, Generic, Show)

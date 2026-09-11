@@ -1,5 +1,5 @@
 ---
-id: JN-COMPILER-SEMANTIC-INTERFACES-001
+id: JN-COMPILER-INFERENCE-OWNERSHIP-001
 status: ready
 priority: P1
 size: L
@@ -7,14 +7,14 @@ kind: impl
 autonomous_ready: yes
 depends_on: []
 last_verified: 2026-09-11
-plan_section: "T08 — Publish complete semantic module interfaces"
+plan_section: "T09 — Make inference speculation and diagnostic ownership explicit"
 target_paths:
-  - src/Jazz/Compiler/ModuleInterface.hs
+  - src/Jazz/Compiler/TypeInference/State.hs
   - src/Jazz/Compiler/ModuleAnalysis.hs
 verification:
-  - cabal test module-pipeline-contract-spec module-exports-spec module-resolution-spec loader-spec prelude-loading-spec binding-signature-coherence-spec --test-show-details=failures --jobs=4
+  - cabal test binding-signature-coherence-spec pattern-semantics-spec pattern-coverage-spec structured-error-diagnostics-spec rebinding-warning-spec module-pipeline-contract-spec --test-options=--skip-performance --jobs=4
   - bash scripts/check-execution-queue.sh
-deliverable: Publish complete semantic interfaces with explicit public visibility and validated import views.
+deliverable: Make speculative retention policies explicit and move diagnostic orchestration to module analysis.
 supersedes: []
 ---
 
@@ -30,7 +30,7 @@ supersedes: []
 
 **Spec:** [Validated audit findings](2026-09-10-compiler-architecture-validation.md), together with the target contracts and preservation rules below. The report preserves the disposition of all three input audits. The two Luna drafts were withdrawn after validation; their rejected or qualified recommendations are not implementation guidance.
 
-**Status:** Execution requested on 2026-09-11. T08 is the active bounded milestone in the execution queue. Execute the remaining tasks inline in dependency order; promote the next milestone when its prerequisites pass.
+**Status:** Execution requested on 2026-09-11. T09 is the active bounded milestone in the execution queue. Execute the remaining tasks inline in dependency order; promote the next milestone when its prerequisites pass.
 
 **Existing architecture decision:** [RFC 0016](../../rfcs/accepted/0016-optional-backend-removal.md) explicitly says to keep “attached analysis facts, and runtime plans.” Direct construction still retains attached facts, but T11a proposes changing the retained runtime-plan contract. Approval of this plan should therefore include that specific architectural decision and a narrow amendment through the repository's RFC process before removal. This is a dependency of T11a, not a reason to block unrelated tasks or ask for another confirmation while preparing this plan. If runtime plans are to remain, retain the small sequence and pursue direct identity/ownership improvements around it; do not claim its deletion completed.
 
@@ -265,14 +265,14 @@ The table is a dependency order, not a request for parallel agents. Work inline.
 
 **Files:** `src/Jazz/Compiler/ModuleInterface.hs`, `src/Jazz/Compiler/ModuleAnalysis.hs`, `src/Jazz/Compiler/ModuleCompiler.hs`, `src/Jazz/Compiler/ModuleExports.hs`, `src/Jazz/Compiler/ModuleResolver/{Imports,Names}.hs`, `src/Jazz/Compiler/TypeInference/{Result,State,Evidence}.hs`, `src/Jazz/Compiler/ModuleRuntime.hs`; tests `test/Jazz/Compiler/Modules/{ModulePipelineContractSpec,ModuleExportsSpec,ModuleResolutionSpec}.hs`, `test/Jazz/Compiler/Modules/Loader/{VisibilityTests,CapabilitiesTests,AliasClassTests}.hs`.
 
-- [ ] Define the successful module interface as exported semantic declarations plus stable binder/evidence identities. Keep private checking/runtime metadata owned by the module. Public projection is explicit and namespace-aware.
-- [ ] Include evidence produced/registered during checking in the exported interface. Remove the publication-time dependency-body scan and separate binder inventory argument.
-- [ ] Replace `(inventory, interface, binders, candidates)` with one semantic interface argument at the typed dependency boundary. The earlier resolver inventory stays in discovery and is checked against the published public view.
-- [ ] Build the importer environment from the validated scope from T02 and stable exported identities. Aliases affect local lookup/display, not the defining identity of a type/class/method.
-- [ ] Remove rebasing of current-module-relative types and independently merged parallel identity maps as stable identities make them unnecessary. Preserve ordered implementation preference and generated equality behavior.
-- [ ] Strengthen the existing single-module contract test: analyze an importer with only dependency interfaces and its own resolved module; make dependency source/body unavailable. Include nominal generic constructors, explicit instantiation, selected implementation evidence, aliases, private declarations, and transitive non-leakage.
-- [ ] Run module-pipeline, exports, resolution, loader, prelude, and binding-signature suites. Measure shared-interface and wide-module-fanout cases.
-- [ ] Commit interface publication and import migration, then delete the sidecar tuple and rescans.
+- [x] Define the successful module interface as exported semantic declarations plus stable binder/evidence identities. Keep private checking/runtime metadata owned by the module. Public projection is explicit and namespace-aware.
+- [x] Include evidence produced/registered during checking in the exported interface. Remove the publication-time dependency-body scan and separate binder inventory argument.
+- [x] Replace `(inventory, interface, binders, candidates)` with one semantic interface argument at the typed dependency boundary. The earlier resolver inventory stays in discovery and is checked against the published public view.
+- [x] Build the importer environment from the validated scope from T02 and stable exported identities. Aliases affect local lookup/display, not the defining identity of a type/class/method.
+- [x] Remove rebasing of current-module-relative types and independently merged parallel identity maps as stable identities make them unnecessary. Preserve ordered implementation preference and generated equality behavior.
+- [x] Strengthen the existing single-module contract test: analyze an importer with only dependency interfaces and its own resolved module; make dependency source/body unavailable. Include nominal generic constructors, explicit instantiation, selected implementation evidence, aliases, private declarations, and transitive non-leakage.
+- [x] Run module-pipeline, exports, resolution, loader, prelude, and binding-signature suites. Measure shared-interface and wide-module-fanout cases.
+- [x] Commit interface publication and import migration, then delete the sidecar tuple and rescans.
 
 **Deletion criterion:** An importer never needs the resolved dependency body, an external binder inventory, or a separate evidence-candidate map. Runtime no longer imports inference-owned declaration types via the module boundary. Do not add serialization without a current caller.
 
@@ -641,3 +641,11 @@ Documentation verification at plan completion checks local evidence targets/line
 - Added an explicit namespace-aware public inventory to the typed interface. Publication filters values, constructors, classes, and implementations, and retains only nominal definitions reachable from public declarations or their captured capabilities. Private checking state stays local. Grouped constructor ownership remains intact.
 - Typed dependency calls now take one interface instead of an inventory/interface tuple. Successful module analysis checks its typed public view against the resolver inventory. Existing private-helper and selected-constructor contract assertions were changed to require public-only interfaces; they failed before implementation and now pass.
 - Module pipeline, exports, and loader correctness suites pass (`/private/tmp/jazz-t08-public.log`). No benchmark or performance tests ran. The next slice consumes the validated import scope and removes inventory-dependent rebasing.
+
+### T08 complete — shared validated visibility and nominal publication
+
+- Resolved and analyzed modules retain the validated import scope. Its populated constructors are internal to the library; the resolver exports opaque queries. Checking and execution consume source-ordered namespace selections from that same scope, including aliases. Removed importer-side semantic rebasing and selector replay.
+- Published semantic names receive their defining module diagnostic spelling once. Nominal equality remains unchanged. Runtime capability exports now carry the actual capability/method identity; runtime publication no longer takes a separate inventory or reconstructs identities from labels.
+- The interface-only contract now includes an alias, nominal generic constructors, explicit instantiation, selected method evidence, private helpers/types, and a transitive dependency. It asserts that private and transitive names and unreachable private type metadata are absent.
+- The public-view consistency check exposed stale standalone discovery/publication: method signatures were listed as ordinary exports, and root capability facts were discarded by lexical restoration. Standalone inventories now publish classes consistently with named modules; checked local capability facts are retained at the scope boundary before restoration, while the existing standalone scheme-capture policy is unchanged.
+- Required binding/signature, module pipeline, exports, resolution, loader, and prelude correctness suites pass, as do name semantics and Haskell semantic contracts (`/private/tmp/jazz-t08-capability-publication.log`, `/private/tmp/jazz-t08-final.log`, `/private/tmp/jazz-t08-standalone-exports.log`). Profiling and coverage API consumers compiled only (`/private/tmp/jazz-t08-api-build.log`). Ormolu, HLint, and whitespace checks pass. No benchmark/performance tests ran; the plan's measurement items remain waived/deferred by the maintainer. T08 is complete; T09 is active.
