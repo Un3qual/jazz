@@ -2,6 +2,7 @@
 {-# LANGUAGE ExplicitNamespaces #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE PatternSynonyms #-}
+{-# LANGUAGE TupleSections #-}
 
 -- | The mutually recursive evaluator machine, scope, forcing, and callable
 -- application engine. These responsibilities stay together because each can
@@ -140,7 +141,8 @@ import Jazz.Compiler.Runtime.Request
     RuntimeScopeRequest (..),
   )
 import Jazz.Compiler.Runtime.ScopePlan
-  ( buildRuntimeScopePlan,
+  ( RuntimeScopePlan,
+    buildRuntimeScopePlan,
     exprDefinitelyNotFunctionValue,
     runtimeExprRequiresHost,
     runtimeStatementRequiresHost,
@@ -470,14 +472,51 @@ evaluateRuntimeScopeWithEvaluationHostRequest host request =
     preparedScope = runtimeScope request
     statements = preparedRecursiveScopeStatements preparedScope
 
+-- Storage differs at the forcing boundary; both modes use the same lexical
+-- environments and source-order execution below.
+data ScopeCellStorage = LazyScopeCells | DeferredScopeCells DeferredHostScopeId
+
+data PreparedRuntimeCells = PreparedRuntimeCells
+  { preparedCellPlan :: RuntimeScopePlan,
+    preparedFinalEnvironment :: RuntimeEnv,
+    preparedEnvironmentBefore :: Int -> RuntimeEnv,
+    preparedBindingCellAt :: Int -> RuntimeCell
+  }
+
 evaluateRuntimeScopePureRequest :: RuntimeScopeRequest -> Either Diagnostic ScopeResult
-evaluateRuntimeScopePureRequest request = go Nothing indexedStatements
+evaluateRuntimeScopePureRequest =
+  evaluateRuntimeScope LazyScopeCells False evalValueWithModulePath id
+
+evaluateRuntimeScope ::
+  (Monad m) =>
+  ScopeCellStorage ->
+  Bool ->
+  (Maybe SourceUnitOwner -> RuntimeEnv -> Expr 'Analyzed -> m RuntimeValue) ->
+  (RuntimeCell -> m RuntimeValue) ->
+  RuntimeScopeRequest ->
+  m ScopeResult
+evaluateRuntimeScope storage envMayReachHostCells evaluateValue forceCell request =
+  go Nothing (scopePlanIndexedStatements scopePlan)
   where
-    evaluationMode = runtimeScopeEvaluationMode request
-    initialEnv = runtimeScopeInitialEnvironment request
-    preparedScope = runtimeScope request
-    scopePlan =
-      buildRuntimeScopePlan preparedScope
+    cells = prepareRuntimeCells storage (runtimeScopeInitialEnvironment request) (runtimeScope request)
+    scopePlan = preparedCellPlan cells
+    go lastValue remaining = case remaining of
+      [] -> pure (ScopeResult (preparedFinalEnvironment cells) lastValue envMayReachHostCells)
+      (statementIndex, statement) : rest ->
+        case (runtimeScopeEvaluationMode request, statement) of
+          (EvaluateEntryModule, SLet {}) -> do
+            _ <- forceCell (preparedBindingCellAt cells statementIndex)
+            go Nothing rest
+          (EvaluateEntryModule, SExpr _ expr) -> do
+            value <- evaluateValue (scopePlanModulePathForStatement scopePlan statementIndex) (preparedEnvironmentBefore cells statementIndex) expr
+            go (Just value) rest
+          _ -> go Nothing rest
+
+prepareRuntimeCells :: ScopeCellStorage -> RuntimeEnv -> PreparedRecursiveScope 'Analyzed -> PreparedRuntimeCells
+prepareRuntimeCells storage initialEnv preparedScope =
+  PreparedRuntimeCells scopePlan finalEnvironment envBefore bindingCellAt
+  where
+    scopePlan = buildRuntimeScopePlan preparedScope
     indexedStatements = scopePlanIndexedStatements scopePlan
     bindingCells =
       LazyIntMap.fromDistinctAscList
@@ -502,40 +541,6 @@ evaluateRuntimeScopePureRequest request = go Nothing indexedStatements
           insertImplMethods (modulePathForStatement statementIndex) implementationNode capabilityName methods env
         _ -> env
 
-    go :: Maybe RuntimeValue -> [(Int, Statement 'Analyzed)] -> Either Diagnostic ScopeResult
-    go lastExprValue remainingStatements =
-      case remainingStatements of
-        [] ->
-          -- Declaration-only scopes intentionally remain `Nothing` until a terminal `SExpr` sets a value.
-          Right (ScopeResult finalEnvironment lastExprValue False)
-        (statementIndex, statement) : rest ->
-          case statement of
-            SSignature {} ->
-              go Nothing rest
-            SModule {} ->
-              go Nothing rest
-            SImport {} ->
-              go Nothing rest
-            SClass {} ->
-              go Nothing rest
-            SImpl {} ->
-              go Nothing rest
-            SData {} ->
-              go Nothing rest
-            SLet {} ->
-              case evaluationMode of
-                EvaluateDependencyModule ->
-                  go Nothing rest
-                EvaluateEntryModule -> do
-                  _ <- bindingCellAt statementIndex
-                  go Nothing rest
-            SExpr _ expr ->
-              case evaluationMode of
-                EvaluateDependencyModule -> go Nothing rest
-                EvaluateEntryModule -> do
-                  value <- evalValueAt statementIndex (envBefore statementIndex) expr
-                  go (Just value) rest
-
     modulePathForStatement :: Int -> Maybe SourceUnitOwner
     modulePathForStatement = scopePlanModulePathForStatement scopePlan
 
@@ -554,11 +559,32 @@ evaluateRuntimeScopePureRequest request = go Nothing indexedStatements
     cellForStatement :: Int -> Statement 'Analyzed -> RuntimeCell
     cellForStatement statementIndex statement =
       case statement of
-        SLet _ bindingName valueExpr ->
-          bindingCell statementIndex bindingName valueExpr
+        SLet bindingNode bindingName valueExpr ->
+          case storage of
+            LazyScopeCells -> bindingCell statementIndex bindingName valueExpr
+            DeferredScopeCells scopeId ->
+              Right
+                ( VDeferredHostBinding
+                    (DeferredHostBindingKey scopeId (coreNodeId bindingNode) bindingName)
+                    (recursiveBindingDiagnostic statementIndex valueExpr)
+                    (modulePathForStatement statementIndex)
+                    valueExpr
+                    (bindingEnv statementIndex)
+                )
         _ ->
           Left
             (runtimeDiagnostic E3020 "internal runtime error: expected binding statement")
+
+    -- Explicit cells detect cycles through their evaluating cache state. Lazy
+    -- cells below resolve alias edges before tying a value thunk's knot.
+    recursiveBindingDiagnostic statementIndex valueExpr
+      | scopePlanIsHostRecursiveBinding scopePlan statementIndex =
+          runtimeDiagnostic E3021 "runtime recursive host binding has no concrete value"
+      | scopePlanIsRecursiveBinding scopePlan statementIndex,
+        not (exprDefinitelyNotFunctionValue valueExpr) =
+          runtimeDiagnostic E3021 "runtime recursive alias cycle has no concrete value"
+      | otherwise =
+          runtimeDiagnostic E3021 "runtime recursive binding has no concrete value"
 
     bindingCell :: Int -> ResolvedName -> Expr 'Analyzed -> RuntimeCell
     bindingCell statementIndex bindingName valueExpr =
@@ -633,7 +659,8 @@ evaluateRuntimeScopePureRequest request = go Nothing indexedStatements
 
     functionSelfReferenceCell :: Int -> Maybe RuntimeCell
     functionSelfReferenceCell statementIndex
-      | recursiveFunctionNeedsSelf statementIndex =
+      | LazyScopeCells <- storage,
+        recursiveFunctionNeedsSelf statementIndex =
           Just (Left (runtimeDiagnostic E3021 "runtime recursive binding has no concrete value"))
       | otherwise =
           Nothing
@@ -649,8 +676,13 @@ evaluateRuntimeScopePureRequest request = go Nothing indexedStatements
       -- closure after wrapper evaluation. Pre-seeding `self` here is only
       -- needed for non-function recursive bindings; doing it eagerly for block
       -- alias wrappers can blackhole before the closure is returned.
-      scopePlanIsRecursiveBinding scopePlan statementIndex
-        && not (scopePlanIsSelfRecursiveFunction scopePlan statementIndex)
+      case storage of
+        LazyScopeCells ->
+          scopePlanIsRecursiveBinding scopePlan statementIndex
+            && not (scopePlanIsSelfRecursiveFunction scopePlan statementIndex)
+        DeferredScopeCells _ ->
+          scopePlanIsRecursiveBinding scopePlan statementIndex
+            || recursiveFunctionNeedsSelf statementIndex
 
     -- Wrapper expressions like `if` and `{ g = \(x) -> f x. g. }` should
     -- evaluate to their closure first, then get their own binding stitched
@@ -787,7 +819,7 @@ evaluateRuntimeScopePureRequest request = go Nothing indexedStatements
         SExpr _ (EVar aliasNode _) : precedingStatements ->
           let prefixStatements = reverse precedingStatements
            in fmap
-                (\aliasExpr -> (prefixStatements, aliasExpr))
+                (prefixStatements,)
                 (followLocalAlias Set.empty (resolvedValueReference (expressionResolution (coreNodeFacts aliasNode))) (localAliasBindings prefixStatements))
         _ -> Nothing
 
@@ -817,56 +849,9 @@ evaluateRuntimeScopePureRequest request = go Nothing indexedStatements
           Nothing ->
             Nothing
 
-    blockLocalAliasEnv :: Maybe SourceUnitOwner -> RuntimeEnv -> PreparedRecursiveScope 'Analyzed -> RuntimeEnv
-    blockLocalAliasEnv blockModulePath blockInitialEnv blockScope =
-      case LazyIntMap.lookup (length indexedBlockStatements) blockPrefixEnvironments of
-        Just env -> env
-        Nothing -> blockInitialEnv
-      where
-        blockScopePlan =
-          buildRuntimeScopePlan blockScope
-        indexedBlockStatements = scopePlanIndexedStatements blockScopePlan
-        blockBindingCells =
-          LazyIntMap.fromDistinctAscList
-            [ (statementIndex, blockCellForStatement statementIndex statement)
-            | (statementIndex, statement) <- indexedBlockStatements
-            ]
-        blockPrefixEnvironments =
-          LazyIntMap.fromDistinctAscList
-            (zip [0 ..] (scanl' extendBlockPrefixEnvironment blockInitialEnv indexedBlockStatements))
-
-        blockEnvBefore statementIndex =
-          LazyIntMap.findWithDefault blockInitialEnv statementIndex blockPrefixEnvironments
-
-        extendBlockPrefixEnvironment env (statementIndex, statement) =
-          case statement of
-            SLet node _ _ ->
-              LazyMap.insert (resolvedBinderReference (statementResolution (coreNodeFacts node))) (blockBindingCellAt statementIndex) env
-            SData _ _ _ constructors ->
-              insertDataConstructors blockModulePath constructors env
-            SClass _ capabilityName _ methods ->
-              insertClassMethods blockModulePath capabilityName methods env
-            SImpl implementationNode capabilityName _ methods ->
-              insertImplMethods blockModulePath implementationNode capabilityName methods env
-            _ -> env
-
-        blockBindingCellAt statementIndex =
-          case LazyIntMap.lookup statementIndex blockBindingCells of
-            Just cell -> cell
-            Nothing ->
-              Left
-                (runtimeDiagnostic E3020 "internal runtime error: missing block binding cell for alias selection")
-
-        blockCellForStatement statementIndex statement =
-          case statement of
-            SLet _ _ valueExpr ->
-              evalValueWithModulePath
-                blockModulePath
-                (blockEnvBefore statementIndex)
-                valueExpr
-            _ ->
-              Left
-                (runtimeDiagnostic E3020 "internal runtime error: expected block binding statement for alias selection")
+    blockLocalAliasEnv :: RuntimeEnv -> PreparedRecursiveScope 'Analyzed -> RuntimeEnv
+    blockLocalAliasEnv blockInitialEnv =
+      preparedFinalEnvironment . prepareRuntimeCells LazyScopeCells blockInitialEnv
 
     envBefore :: Int -> RuntimeEnv
     envBefore statementIndex =
@@ -953,23 +938,38 @@ evaluateRuntimeScopePureRequest request = go Nothing indexedStatements
                         evidence = runtimeEvidence methodModulePath (coreNodeId implementationNode) capabilityName methodName runtimeImplTarget
                      in ( methodName',
                           methodKey,
-                          RuntimeMethodCandidate evidence (methodCandidateCell runtimeImplTarget methodName' methodKey methodExpr)
+                          RuntimeMethodCandidate evidence (methodCandidateCell runtimeImplTarget methodNode methodName methodName' methodKey methodExpr)
                         )
                 )
                 methods
-            methodCandidateCell candidateImplTarget methodName methodKey methodExpr =
-              case selectedQualifiedMethodAliasTarget methodModulePath methodExprsByKey Set.empty methodEnv methodName methodExpr of
-                Left diagnostic ->
-                  Left diagnostic
-                Right True ->
-                  Left
-                    ( runtimeDiagnostic
-                        E3021
-                        ("runtime recursive qualified method alias cycle '" <> methodKey <> "' has no concrete value")
+            methodCandidateCell candidateImplTarget methodNode methodIdentifier methodName methodKey methodExpr =
+              case storage of
+                DeferredScopeCells scopeId ->
+                  attachRuntimeMethodSignature
+                    methodModulePath
+                    methodEnv
+                    candidateImplTarget
+                    methodName
+                    ( VDeferredHostBinding
+                        (DeferredHostBindingKey scopeId (coreNodeId methodNode) (qualifiedMemberName capabilityName methodIdentifier))
+                        (runtimeDiagnostic E3021 ("runtime recursive qualified method alias cycle '" <> methodKey <> "' has no concrete value"))
+                        methodModulePath
+                        methodExpr
+                        methodEnv
                     )
-                Right False ->
-                  evalValueWithModulePath methodModulePath methodEnv methodExpr
-                    >>= attachRuntimeMethodSignature methodModulePath methodEnv candidateImplTarget methodName
+                LazyScopeCells ->
+                  case selectedQualifiedMethodAliasTarget methodModulePath methodExprsByKey Set.empty methodEnv methodName methodExpr of
+                    Left diagnostic ->
+                      Left diagnostic
+                    Right True ->
+                      Left
+                        ( runtimeDiagnostic
+                            E3021
+                            ("runtime recursive qualified method alias cycle '" <> methodKey <> "' has no concrete value")
+                        )
+                    Right False ->
+                      evalValueWithModulePath methodModulePath methodEnv methodExpr
+                        >>= attachRuntimeMethodSignature methodModulePath methodEnv candidateImplTarget methodName
             insertCandidate envAcc (methodName, _, methodCandidate) =
               Map.adjust (addMethodCandidate methodCandidate) methodName envAcc
         _ -> env
@@ -1016,7 +1016,7 @@ evaluateRuntimeScopePureRequest request = go Nothing indexedStatements
                     methodModulePath
                     methodExprsByKey
                     visitedMethodKeys
-                    (blockLocalAliasEnv methodModulePath env (selectPreparedScope [0 .. length prefixStatements - 1] (prepareAnalyzedScope blockExpression)))
+                    (blockLocalAliasEnv env (selectPreparedScope [0 .. length prefixStatements - 1] (prepareAnalyzedScope blockExpression)))
                     methodKey
                     aliasExpr
                 Nothing ->
@@ -2008,239 +2008,24 @@ evalScopeWithHost ::
   ExceptT RuntimeControl (RuntimeHostEvaluationT m) ScopeResult
 evalScopeWithHost host evaluationMode initialEnvMayReachHostCells initialEnv preparedScope = do
   scopeId <- lift freshDeferredHostScopeId
-  observationEnabled <-
-    lift
-      (runtimeObservationEnabled . runtimeHostEvaluationObservation <$> get)
-  evalScopeWithHostInstance
-    observationEnabled
-    scopeId
-    host
-    evaluationMode
-    initialEnvMayReachHostCells
-    initialEnv
-    preparedScope
-
-evalScopeWithHostInstance ::
-  (Monad m) =>
-  Bool ->
-  DeferredHostScopeId ->
-  RuntimeHost (RuntimeHostEvaluationT m) ->
-  ModuleEvaluationMode ->
-  Bool ->
-  RuntimeEnv ->
-  PreparedRecursiveScope 'Analyzed ->
-  ExceptT RuntimeControl (RuntimeHostEvaluationT m) ScopeResult
-evalScopeWithHostInstance observationEnabled scopeId host evaluationMode initialEnvMayReachHostCells initialEnv preparedScope =
-  go initialEnvMayReachHostCells initialEnv Nothing indexedStatements
+  let envMayReachHostCells =
+        initialEnvMayReachHostCells || any introducesCells (preparedRecursiveScopeStatements preparedScope)
+      evaluateValue owner env = evalValueWithHost host owner env envMayReachHostCells
+      forceCell cell = liftRuntimeResult cell >>= forceRuntimeValueWithHost host
+  evaluateRuntimeScope
+    (DeferredScopeCells scopeId)
+    envMayReachHostCells
+    evaluateValue
+    forceCell
+    RuntimeScopeRequest
+      { runtimeScopeEvaluationMode = evaluationMode,
+        runtimeScopeInitialEnvironment = initialEnv,
+        runtimeScope = preparedScope
+      }
   where
-    scopePlan =
-      buildRuntimeScopePlan preparedScope
-    indexedStatements = scopePlanIndexedStatements scopePlan
-    modulePathForStatement = scopePlanModulePathForStatement scopePlan
-
-    go hostCellsMayBeReachable env lastValue [] =
-      pure (ScopeResult env lastValue hostCellsMayBeReachable)
-    go hostCellsMayBeReachable env _ remaining@((statementIndex, statement) : rest)
-      | statementMayUsePureChunk hostCellsMayBeReachable statementIndex statement = do
-          let (pureChunk, remainingAfterChunk) =
-                span
-                  (\(index, chunkStatement) -> statementMayUsePureChunk hostCellsMayBeReachable index chunkStatement)
-                  remaining
-          scopeResult <-
-            liftRuntimeResult
-              ( evaluateRuntimeScopePureRequest
-                  RuntimeScopeRequest
-                    { runtimeScopeEvaluationMode = evaluationMode,
-                      runtimeScopeInitialEnvironment = env,
-                      runtimeScope = selectPreparedScope (map fst pureChunk) preparedScope
-                    }
-              )
-          go
-            hostCellsMayBeReachable
-            (scopeResultEnvironment scopeResult)
-            (scopeResultValue scopeResult)
-            remainingAfterChunk
-      | otherwise =
-          case statement of
-            SLet node _ _ ->
-              let name = resolvedBinderReference (statementResolution (coreNodeFacts node))
-                  bindingCell = hostBindingCell hostCellsMayBeReachable statementIndex env
-               in case evaluationMode of
-                    EvaluateDependencyModule ->
-                      go
-                        True
-                        (LazyMap.insert name bindingCell env)
-                        Nothing
-                        rest
-                    EvaluateEntryModule -> do
-                      value <- forceRuntimeCellWithHost bindingCell
-                      go True (Map.insert name (Right value) env) Nothing rest
-            SImpl implementationNode capabilityName _ methods ->
-              go
-                True
-                (insertImplMethodsWithHost (modulePathForStatement statementIndex) implementationNode capabilityName methods env)
-                Nothing
-                rest
-            SExpr _ valueExpr ->
-              case evaluationMode of
-                EvaluateDependencyModule -> go hostCellsMayBeReachable env Nothing rest
-                EvaluateEntryModule -> do
-                  value <-
-                    evalValueWithHost
-                      host
-                      (modulePathForStatement statementIndex)
-                      env
-                      hostCellsMayBeReachable
-                      valueExpr
-                  go hostCellsMayBeReachable env (Just value) rest
-            _ ->
-              throwRuntimeDiagnostic
-                (runtimeDiagnostic E3020 "internal runtime error: unsupported direct host statement")
-
-    statementMayUsePureChunk hostCellsMayBeReachable statementIndex statement
-      | not observationEnabled =
-          not (statementNeedsDirectHostEvaluation hostCellsMayBeReachable statementIndex statement)
-      | otherwise =
-          case statement of
-            SLet {} -> False
-            SImpl {} -> False
-            SExpr {} -> False
-            _ -> True
-
-    -- Once direct host evaluation has introduced a deferred cell (or a value
-    -- that can capture one), later bindings must stay on the same host lane.
-    -- Sending them through the pure scope evaluator would install the disabled
-    -- host inside their lazy cells and split cache/effect state when forced.
-    statementNeedsDirectHostEvaluation hostCellsMayBeReachable statementIndex statement =
-      case statement of
-        SLet _ _ valueExpr ->
-          hostCellsMayBeReachable
-            || runtimeExprRequiresHost valueExpr
-            || scopePlanIsHostRecursiveBinding scopePlan statementIndex
-            || not (scopePlanIsRecursiveBinding scopePlan statementIndex)
-        SImpl _ _ _ methods -> hostCellsMayBeReachable || any implMethodRequiresHost methods
-        SExpr {} -> True
-        _ -> False
-
-    implMethodRequiresHost (ImplMethod _ _ methodExpr) = runtimeExprRequiresHost methodExpr
-
-    hostBindingCell hostCellsMayBeReachable statementIndex baseEnv =
-      case scopePlanRecursiveGroupAt scopePlan statementIndex of
-        Just groupMembers ->
-          makeHostBindingCell hostCellsMayBeReachable statementIndex recursiveEnv baseEnv
-          where
-            recursiveEnv = foldl' insertGroupMember baseEnv groupMembers
-
-            insertGroupMember envAcc groupIndex =
-              case scopePlanBindingNameAt scopePlan groupIndex of
-                Just _
-                  | Map.notMember (scopePlanBindingReferenceAt scopePlan groupIndex) baseEnv ->
-                      LazyMap.insert
-                        (scopePlanBindingReferenceAt scopePlan groupIndex)
-                        (makeHostBindingCell hostCellsMayBeReachable groupIndex recursiveEnv baseEnv)
-                        envAcc
-                _ -> envAcc
-        Nothing ->
-          case scopePlanBindingNameAt scopePlan statementIndex of
-            Just _
-              | scopePlanIsSelfRecursiveFunction scopePlan statementIndex,
-                Map.notMember (scopePlanBindingReferenceAt scopePlan statementIndex) baseEnv ->
-                  selfCell
-              where
-                selfCell = makeHostBindingCell hostCellsMayBeReachable statementIndex selfEnv baseEnv
-                selfEnv = LazyMap.insert (scopePlanBindingReferenceAt scopePlan statementIndex) selfCell baseEnv
-            _ -> makeHostBindingCell hostCellsMayBeReachable statementIndex baseEnv baseEnv
-
-    makeHostBindingCell hostCellsMayBeReachable statementIndex capturedEnv diagnosticBaseEnv =
-      case scopePlanStatementAt scopePlan statementIndex of
-        Just (SLet bindingNode bindingName valueExpr) ->
-          Right
-            ( VDeferredHostBinding
-                (DeferredHostBindingKey scopeId (coreNodeId bindingNode) bindingName)
-                (recursiveBindingDiagnostic hostCellsMayBeReachable statementIndex diagnosticBaseEnv)
-                (modulePathForStatement statementIndex)
-                valueExpr
-                capturedEnv
-            )
-        _ ->
-          Left
-            (runtimeDiagnostic E3020 "internal runtime error: expected host binding statement")
-
-    recursiveBindingDiagnostic hostCellsMayBeReachable statementIndex diagnosticBaseEnv =
-      case scopePlanRecursiveGroupAt scopePlan statementIndex of
-        Just groupMembers
-          | not hostCellsMayBeReachable,
-            not (scopePlanIsHostRecursiveBinding scopePlan statementIndex) ->
-              case evaluateRuntimeScopePureRequest
-                RuntimeScopeRequest
-                  { runtimeScopeEvaluationMode = EvaluateEntryModule,
-                    runtimeScopeInitialEnvironment = diagnosticBaseEnv,
-                    runtimeScope = selectPreparedScope (map fst indexedGroupStatements) preparedScope
-                  } of
-                Left diagnostic -> diagnostic
-                Right _ -> recursiveBindingFallback
-          where
-            indexedGroupStatements =
-              [ (groupIndex, groupStatement)
-              | groupIndex <- groupMembers,
-                Just groupStatement <- [scopePlanStatementAt scopePlan groupIndex]
-              ]
-            recursiveBindingFallback =
-              runtimeDiagnostic E3021 "runtime recursive binding has no concrete value"
-        _ ->
-          runtimeDiagnostic E3021 "runtime recursive host binding has no concrete value"
-
-    forceRuntimeCellWithHost bindingCell =
-      liftRuntimeResult bindingCell
-        >>= forceRuntimeValueWithHost host
-
-    insertImplMethodsWithHost methodModulePath implementationNode capabilityName methods env =
-      case statementDeclarationFact (coreNodeFacts implementationNode) of
-        ImplementationDeclaration _ [implTarget] -> methodEnv
-          where
-            runtimeImplTarget = qualifyRuntimeType methodModulePath implTarget
-            methodEnv = foldl' insertCandidate env methodCandidates
-            methodCandidates =
-              map
-                ( \(ImplMethod methodNode methodName methodExpr) ->
-                    let qualifiedMethodName = qualifiedMemberName capabilityName methodName
-                        evidence = runtimeEvidence methodModulePath (coreNodeId implementationNode) capabilityName methodName runtimeImplTarget
-                     in ( resolvedValueReference (statementResolution (coreNodeFacts methodNode)),
-                          RuntimeMethodCandidate
-                            evidence
-                            ( attachRuntimeMethodSignature
-                                methodModulePath
-                                methodEnv
-                                runtimeImplTarget
-                                (resolvedValueReference (statementResolution (coreNodeFacts methodNode)))
-                                ( VDeferredHostBinding
-                                    (DeferredHostBindingKey scopeId (coreNodeId methodNode) qualifiedMethodName)
-                                    (runtimeDiagnostic E3021 "runtime recursive host binding has no concrete value")
-                                    methodModulePath
-                                    methodExpr
-                                    methodEnv
-                                )
-                            )
-                        )
-                )
-                methods
-
-            insertCandidate envAcc (methodName, methodCandidate) =
-              Map.adjust (addMethodCandidate methodCandidate) methodName envAcc
-
-            addMethodCandidate methodCandidate methodCell =
-              case methodCell of
-                Right (VQualifiedMethodApplication methodKey classParameter methodSignature candidates capturedArgs) ->
-                  Right
-                    ( VQualifiedMethodApplication
-                        methodKey
-                        classParameter
-                        methodSignature
-                        (appendRuntimeMethodCandidate methodCandidate candidates)
-                        capturedArgs
-                    )
-                _ -> methodCell
-        _ -> env
+    introducesCells SLet {} = True
+    introducesCells SImpl {} = True
+    introducesCells _ = False
 
 evalHostBindingValue ::
   (Monad m) =>

@@ -1,5 +1,5 @@
 ---
-id: JN-COMPILER-SCOPE-TRAVERSAL-001
+id: JN-COMPILER-ARCHITECTURE-CLOSEOUT-001
 status: ready
 priority: P1
 size: L
@@ -7,14 +7,14 @@ kind: impl
 autonomous_ready: yes
 depends_on: []
 last_verified: 2026-09-11
-plan_section: "T13 — Consolidate scope execution, then choose cell storage from measurements"
+plan_section: "T14 — Remove obsolete adapters and make phase ownership navigable"
 target_paths:
   - src/Jazz/Compiler/ModuleRuntime.hs
   - src/Jazz/Compiler/Runtime/Engine.hs
 verification:
   - cabal test runtime-semantics-spec recursive-bindings-spec purity-semantics-spec adt-pattern-runtime-spec module-pipeline-contract-spec cli-spec --test-options=--skip-performance --jobs=4
   - bash scripts/check-execution-queue.sh
-deliverable: Consolidate lexical scope execution while retaining the existing pure and deferred cell storage strategies.
+deliverable: Remove obsolete phase adapters and complete compiler architecture correctness and repository checks.
 supersedes: []
 ---
 
@@ -30,7 +30,7 @@ supersedes: []
 
 **Spec:** [Validated audit findings](2026-09-10-compiler-architecture-validation.md), together with the target contracts and preservation rules below. The report preserves the disposition of all three input audits. The two Luna drafts were withdrawn after validation; their rejected or qualified recommendations are not implementation guidance.
 
-**Status:** Execution requested on 2026-09-11. T13 is the active bounded milestone in the execution queue. Execute the remaining tasks inline in dependency order; promote the next milestone when its prerequisites pass.
+**Status:** Execution requested on 2026-09-11. T14 is the active bounded milestone in the execution queue. Execute the remaining tasks inline in dependency order; promote the next milestone when its prerequisites pass.
 
 **Existing architecture decision:** [RFC 0016](../../rfcs/accepted/0016-optional-backend-removal.md) explicitly says to keep “attached analysis facts, and runtime plans.” Direct construction still retains attached facts, but T11a proposes changing the retained runtime-plan contract. Approval of this plan should therefore include that specific architectural decision and a narrow amendment through the repository's RFC process before removal. This is a dependency of T11a, not a reason to block unrelated tasks or ask for another confirmation while preparing this plan. If runtime plans are to remain, retain the small sequence and pursue direct identity/ownership improvements around it; do not claim its deletion completed.
 
@@ -364,14 +364,14 @@ The table is a dependency order, not a request for parallel agents. Work inline.
 
 **Files:** `src/Jazz/Compiler/Runtime/{Engine,ScopePlan,Types,Request,HostEvaluation}.hs`, `src/Jazz/Compiler/ModuleRuntime.hs`; tests `test/Jazz/Compiler/Semantics/{RuntimeSemanticsSpec,RecursiveBindingsSpec,PuritySemanticsSpec}.hs`, `test/Jazz/Compiler/Runtime/Observation/{StatisticsTests,ProfileTests}.hs`, `test/Jazz/Compiler/Modules/ModulePipelineContractSpec.hs`; existing runtime/scale benchmark cases.
 
-- [ ] Make one scope traversal consume T05's resolved groups/IDs and preserve sequential expression execution, definition-site environments, recursive initialization, and lazy forcing.
-- [ ] Initially preserve the current lazy pure cells and explicit host deferred cells as small storage operations under that traversal. This isolates lexical-rule consolidation from a storage/performance change.
-- [ ] Remove host-to-pure request partitioning once one traversal can execute host-free and host-capable statements. Observation hooks must observe this traversal rather than select a second lexical algorithm.
-- [ ] Prototype one explicit memoized cell representation with unevaluated/evaluating/evaluated/failed states, source-unit-qualified IDs, and evaluation-instance identity. Distinct closure invocations must not share a cache entry accidentally. Preserve blackhole diagnostics and no duplicate host effects on force.
-- [ ] Compare against T01 on host-free opaque environments, recursion/rebinding/alias cases, tail recursion, deep lambdas, lists, and observed/unobserved workloads. Check time and maximum residency/allocations where the configured profiling build supports them.
-- [ ] If unified explicit cells pass semantics and the performance gate, remove the old pure cell representation. If they regress materially and the regression cannot be eliminated locally, retain two small storage strategies under the **one** scope algorithm and record the measured reason. Do not retain two scope interpreters.
-- [ ] Run runtime, recursion, purity, ADT runtime, module-pipeline, runtime-observation, profiling, and CLI suites. Assert identical program results/host traces across observation modes and coherent profile finalization for value, error, and exit.
-- [ ] Commit shared traversal separately from any accepted storage replacement.
+- [x] Make one scope traversal consume T05's resolved groups/IDs and preserve sequential expression execution, definition-site environments, recursive initialization, and lazy forcing.
+- [x] Initially preserve the current lazy pure cells and explicit host deferred cells as small storage operations under that traversal. This isolates lexical-rule consolidation from a storage/performance change.
+- [x] Remove host-to-pure request partitioning once one traversal can execute host-free and host-capable statements. Observation hooks must observe this traversal rather than select a second lexical algorithm.
+- [x] Prototype one explicit memoized cell representation with unevaluated/evaluating/evaluated/failed states, source-unit-qualified IDs, and evaluation-instance identity. Distinct closure invocations must not share a cache entry accidentally. Preserve blackhole diagnostics and no duplicate host effects on force.
+- [x] Compare against T01 on host-free opaque environments, recursion/rebinding/alias cases, tail recursion, deep lambdas, lists, and observed/unobserved workloads. Check time and maximum residency/allocations where the configured profiling build supports them.
+- [x] If unified explicit cells pass semantics and the performance gate, remove the old pure cell representation. If they regress materially and the regression cannot be eliminated locally, retain two small storage strategies under the **one** scope algorithm and record the measured reason. Do not retain two scope interpreters.
+- [x] Run runtime, recursion, purity, ADT runtime, module-pipeline, runtime-observation, profiling, and CLI suites. Assert identical program results/host traces across observation modes and coherent profile finalization for value, error, and exit.
+- [x] Commit shared traversal separately from any accepted storage replacement.
 
 **Performance gate:** Reject a repeatable regression above 10% on a relevant matched workload's median time or peak residency after repeated runs, or any worse asymptotic trend, unless the user explicitly accepts the measured tradeoff. The percentage is a proposed engineering gate, not a measured current result. Investigate noisy results rather than making a decision from one run.
 
@@ -706,3 +706,9 @@ Documentation verification at plan completion checks local evidence targets/line
 
 - Pure and host APIs now specialize one monadic program traversal. Prelude environment publication, dependency order, entry/dependency mode, imports, exports, and terminal value assembly each have one implementation. Public wrappers retain the existing host/cache/observation lifetime.
 - Module pipeline, prelude, loader, and CLI correctness suites pass in `/private/tmp/jazz-t12-program-traversal.log`, including host functions exported from dependencies, skipped dependency expressions, and CLI exit behavior. Ormolu, HLint, and whitespace checks pass. Observation/profiling execution and all benchmarks remain deferred. T12 is complete; T13 is active.
+
+### T13 shared lexical scope execution
+
+- One scope traversal now sequences statements for pure and host callers. One environment builder owns definition-site prefixes, resolved recursive peers, self references, constructors, and implementation publication. Block-local alias inspection reuses that builder. Removed host-to-pure statement chunking and the fallback that re-evaluated a pure scope to recover a host recursion diagnostic.
+- Retained lazy pure cells and evaluation-instance-keyed deferred host cells. Their forcing operations differ: lazy cells detect alias cycles before tying value knots; deferred cells use existing evaluating/evaluated/failed cache outcomes. Explicit cells share the same lexical environments and method publication. No replacement cell prototype or performance comparison was attempted: the maintainer explicitly waived benchmarks and prohibited performance tests until the entire plan is complete. This instruction supersedes T13's measurement-dependent prototype and storage-selection steps; existing storage remains the conservative retention decision, not a claim of measured superiority.
+- Runtime correctness, recursion, purity, ADT runtime, module pipeline, CLI, binding/signature, and loader suites pass. Logs: `/private/tmp/jazz-t13-shared-scope.log`, `/private/tmp/jazz-t13-scope-storage-contracts.log` (one fixture naming error, corrected), `/private/tmp/jazz-t13-scope-storage-final.log`. Added correctness coverage for interleaved recursive definition sites and one host effect per distinct closure invocation. Observation/profiling/benchmark-stage consumers compile only in `/private/tmp/jazz-t13-api-build.log`. Ormolu, HLint, and whitespace checks pass. No benchmark or performance tests ran. T13 is complete; T14 is active.

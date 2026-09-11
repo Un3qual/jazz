@@ -234,6 +234,8 @@ tests =
     ("analyzed generic constructor fields remain module-stable", testAnalyzedGenericConstructorFieldsRemainModuleStable),
     ("analyzed dependency terminal expressions are skipped", testAnalyzedDependencyTerminalExpressionIsSkipped),
     ("host-free and host-capable module paths preserve observable results", testModuleRuntimePathParity),
+    ("scope storage preserves interleaved recursive definition sites", testScopeStorageDefinitionSites),
+    ("deferred cells memoize within each closure invocation", testScopeStorageInvocationIdentity),
     ("run result projections distinguish all execution states", testRunResultProjectionInvariants),
     ("module graph execution carries one host through dependency exports", testModuleGraphInjectsRuntimeHost),
     ("alias imports stay qualified", testAliasIsolationContract),
@@ -1604,6 +1606,43 @@ testModuleRuntimePathParity = do
       assertEqual "pure and host-capable observable module parity" hostFreeProjection hostCapableProjection
     (Left diagnostic, _) -> fail ("host-free runtime failed: " <> Text.unpack (renderDiagnostic diagnostic))
     (_, Left diagnostic) -> fail ("host-capable runtime failed: " <> Text.unpack (renderDiagnostic diagnostic))
+
+testScopeStorageDefinitionSites :: IO ()
+testScopeStorageDefinitionSites = do
+  let source =
+        Text.unlines
+          [ "offset = 1.",
+            "first = \\(n) -> if n == 0 then offset else second (n - 1).",
+            "offset = 9.",
+            "second = \\(n) -> if n == 0 then offset else first (n - 1).",
+            "(first 1, second 1)."
+          ]
+      hostSource = "if False then __kernel_writeStdoutRaw! \"unused\" else (True, \"\", \"\", \"\"). " <> source
+  calls <- newIORef []
+  pureResult <- runSourceWithPrelude defaultWarningSettings Nothing source
+  hostResult <- runSourceWithPreludeAndHost (recordingHost calls) defaultWarningSettings Nothing hostSource
+  mapM_
+    ( \result -> do
+        assertEqual "recursive definition-site compile errors" [] (runCompileErrors result)
+        assertEqual "recursive definition-site runtime errors" [] (runRuntimeErrors result)
+        assertEqual "recursive definition-site output" (Just "(9, 1)") (runOutput result)
+    )
+    [pureResult, hostResult]
+  assertEqual "unselected host branch" [] =<< readIORef calls
+
+testScopeStorageInvocationIdentity :: IO ()
+testScopeStorageInvocationIdentity = do
+  calls <- newIORef []
+  result <-
+    runSourceWithPreludeAndHost
+      (recordingHost calls)
+      defaultWarningSettings
+      Nothing
+      "emit! = \\(text) -> { receipt! = __kernel_writeStdoutRaw! text. receipt!. receipt!. }. emit! \"first\". emit! \"second\"."
+  assertEqual "invocation compile errors" [] (runCompileErrors result)
+  assertEqual "invocation runtime errors" [] (runRuntimeErrors result)
+  assertEqual "one effect per distinct invocation" ["first", "second"] =<< readIORef calls
+  assertEqual "invocation result" (Just "(True, \"\", \"\", \"\")") (runOutput result)
 
 testRunResultProjectionInvariants :: IO ()
 testRunResultProjectionInvariants =
