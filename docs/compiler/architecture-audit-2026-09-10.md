@@ -32,32 +32,32 @@ The largest opportunities are to establish declaration identities once, preserve
 
 The audited directory contains **88 Haskell files and 37,171 physical lines**. These counts include comments, blank lines, imports, and language pragmas; they are not executable-line counts.
 
-| Area | Files | Physical lines | Share |
-| --- | ---: | ---: | ---: |
-| Type inference | 19 | 10,807 | 29.1% |
-| Runtime, including module execution and host interface | 14 | 7,920 | 21.3% |
-| Parser and lowering | 16 | 6,712 | 18.1% |
-| Modules, driver, prelude, and source plumbing | 15 | 5,337 | 14.4% |
-| Analyzer, recursion, and pattern coverage | 4 | 3,016 | 8.1% |
-| Shared models, diagnostics, and utilities | 20 | 3,379 | 9.1% |
-| **Total** | **88** | **37,171** | **100%** |
+| Area                                                   |  Files | Physical lines |    Share |
+| ------------------------------------------------------ | -----: | -------------: | -------: |
+| Type inference                                         |     19 |         10,807 |    29.1% |
+| Runtime, including module execution and host interface |     14 |          7,920 |    21.3% |
+| Parser and lowering                                    |     16 |          6,712 |    18.1% |
+| Modules, driver, prelude, and source plumbing          |     15 |          5,337 |    14.4% |
+| Analyzer, recursion, and pattern coverage              |      4 |          3,016 |     8.1% |
+| Shared models, diagnostics, and utilities              |     20 |          3,379 |     9.1% |
+| **Total**                                              | **88** |     **37,171** | **100%** |
 
 Percentages are rounded independently. The runtime category contains `Runtime.hs`, `Runtime/`, `ModuleRuntime.hs`, and `RuntimeHost.hs`. Parser and inference categories include their corresponding root facade modules. The modules/plumbing category includes the remaining `Module*` files, `Driver`, prelude support, `SourceProgram`, and `SourceUnitOwnership`.
 
 The largest files are:
 
-| File | Lines | Main responsibility |
-| --- | ---: | --- |
-| `Runtime/Engine.hs` | 2,859 | Expression machine, scope evaluation, cells, host operations, and dispatch |
-| `TypeInference/Scope.hs` | 2,347 | Declaration traversal, generalization, signatures, and recursive-group handling |
+| File                            | Lines | Main responsibility                                                                |
+| ------------------------------- | ----: | ---------------------------------------------------------------------------------- |
+| `Runtime/Engine.hs`             | 2,859 | Expression machine, scope evaluation, cells, host operations, and dispatch         |
+| `TypeInference/Scope.hs`        | 2,347 | Declaration traversal, generalization, signatures, and recursive-group handling    |
 | `TypeInference/Capabilities.hs` | 1,829 | Capability constraints, candidate selection, evidence, and runtime-hint prediction |
-| `TypeInference.hs` | 1,512 | Inference orchestration and expression checking |
-| `Parser/Expression.hs` | 1,350 | Expression grammar and contextual boundary disambiguation |
-| `Runtime/Semantics.hs` | 1,266 | Runtime typing, matching, rendering, and numeric conversion |
-| `Analyzer.hs` | 1,161 | Visibility, declaration checks, purity checks, and warnings |
-| `Runtime/Primitives.hs` | 1,060 | Builtin operations |
-| `ModuleResolver.hs` | 994 | Discovery, graph construction, references, and exports |
-| `Parser/Declaration.hs` | 977 | Declaration grammar and expression/signature disambiguation |
+| `TypeInference.hs`              | 1,512 | Inference orchestration and expression checking                                    |
+| `Parser/Expression.hs`          | 1,350 | Expression grammar and contextual boundary disambiguation                          |
+| `Runtime/Semantics.hs`          | 1,266 | Runtime typing, matching, rendering, and numeric conversion                        |
+| `Analyzer.hs`                   | 1,161 | Visibility, declaration checks, purity checks, and warnings                        |
+| `Runtime/Primitives.hs`         | 1,060 | Builtin operations                                                                 |
+| `ModuleResolver.hs`             |   994 | Discovery, graph construction, references, and exports                             |
+| `Parser/Declaration.hs`         |   977 | Declaration grammar and expression/signature disambiguation                        |
 
 The directory includes a substantial interpreter. A comparison with another Haskell compiler must account for differences in runtime, standard-library primitives, diagnostics, and supported semantics. No external compiler-size comparison was performed here. The architecture findings do not depend on such a comparison.
 
@@ -84,14 +84,14 @@ flowchart TD
 
 The important boundaries are:
 
-| Boundary | Product | Important information still implicit or reconstructed later |
-| --- | --- | --- |
-| Parsing | Surface expressions, statements, and signature payloads | Some individual name locations; contextual declaration interpretation |
-| Lowering | Phase-indexed core with node IDs | Many operator forms, declaration structure, and signature syntax |
-| Name resolution | Names with origin, namespace, and spelling | Particular local declaration referenced; some unresolved-reference errors |
-| Inference | Inference state, diagnostics, interface, and fact seeds | Attachment of facts, binder identification for instantiation metadata, executable specialization |
-| Analyzed attachment | Same core shape with semantic facts and runtime plans | Runtime binding preparation, closure captures, remaining method selection |
-| Runtime scope preparation | Statement indexes, recursive groups, environments, and cells | Evaluation-time forcing, representation hints, and candidate matching |
+| Boundary                  | Product                                                      | Important information still implicit or reconstructed later                                      |
+| ------------------------- | ------------------------------------------------------------ | ------------------------------------------------------------------------------------------------ |
+| Parsing                   | Surface expressions, statements, and signature payloads      | Some individual name locations; contextual declaration interpretation                            |
+| Lowering                  | Phase-indexed core with node IDs                             | Many operator forms, declaration structure, and signature syntax                                 |
+| Name resolution           | Names with origin, namespace, and spelling                   | Particular local declaration referenced; some unresolved-reference errors                        |
+| Inference                 | Inference state, diagnostics, interface, and fact seeds      | Attachment of facts, binder identification for instantiation metadata, executable specialization |
+| Analyzed attachment       | Same core shape with semantic facts and runtime plans        | Runtime binding preparation, closure captures, remaining method selection                        |
+| Runtime scope preparation | Statement indexes, recursive groups, environments, and cells | Evaluation-time forcing, representation hints, and candidate matching                            |
 
 Multiple passes are not inherently a problem. A compiler can have many simple passes with strong contracts. The weakness here is that too many passes revisit what a construct means instead of consuming the result of an earlier decision.
 
@@ -447,17 +447,17 @@ Remove or narrow compatibility modes and adapters when their actual consumers no
 
 ## Cross-cutting causes
 
-| Representation or design choice | Downstream complexity |
-| --- | --- |
-| Local references retain spelling instead of declaration identity | Repeated lexical environment reconstruction |
-| Analyzed core preserves source distinctions | Repeated operator, alias, and application-shape recognition |
-| Semantic facts are accumulated separately from the checked tree | Attachment, projection, and invariant machinery |
-| Dispatch is partially static and partially implicit at runtime | Overlapping selection algorithms and type-hint prediction |
-| Binding groups are recovered from syntax in several phases | Recursive previews and shape-sensitive runtime preparation |
-| Pure and host scopes use different cell strategies | Routing, provenance, chunking, and cache coordination |
-| Standalone source splices in prelude statements | Statement-index ownership and visibility bookkeeping |
-| Interfaces retain syntax and relative names | Repeated normalization, qualification, and rebasing |
-| Parsed nodes omit information required by diagnostics | Token rescans and reconstruction |
+| Representation or design choice                                  | Downstream complexity                                       |
+| ---------------------------------------------------------------- | ----------------------------------------------------------- |
+| Local references retain spelling instead of declaration identity | Repeated lexical environment reconstruction                 |
+| Analyzed core preserves source distinctions                      | Repeated operator, alias, and application-shape recognition |
+| Semantic facts are accumulated separately from the checked tree  | Attachment, projection, and invariant machinery             |
+| Dispatch is partially static and partially implicit at runtime   | Overlapping selection algorithms and type-hint prediction   |
+| Binding groups are recovered from syntax in several phases       | Recursive previews and shape-sensitive runtime preparation  |
+| Pure and host scopes use different cell strategies               | Routing, provenance, chunking, and cache coordination       |
+| Standalone source splices in prelude statements                  | Statement-index ownership and visibility bookkeeping        |
+| Interfaces retain syntax and relative names                      | Repeated normalization, qualification, and rebasing         |
+| Parsed nodes omit information required by diagnostics            | Token rescans and reconstruction                            |
 
 The code supports an explanation of incremental feature growth around representations that were not strengthened enough as the language grew. This is a structural inference from the current implementation, not a claim about project history.
 
@@ -527,18 +527,18 @@ The acceptance condition is simpler control flow and fewer reconstruction passes
 
 ## Behavior-preserving refactors versus language decisions
 
-| Proposal | Intended category | Constraint |
-| --- | --- | --- |
-| Stable declaration identities | Representation refactor | Preserve shadowing, forward-reference, and recursion meaning |
-| Persist resolved dependencies and groups | Representation refactor | Separate checking dependencies from evaluation order |
-| Normalize module identities and exported schemes | Boundary refactor | Preserve exports, private-type visibility, and diagnostic spelling |
-| Represent standalone input as a synthetic module | Program-construction refactor | Preserve prelude and standalone behavior |
-| Standardize parser control and retain spans | Parser refactor | Preserve contextual grammar and error behavior |
-| Replace statically settled selection with direct evidence | Elaboration refactor | Prove equivalence of selection and partial application |
-| Consolidate runtime cells | Execution refactor with performance risk | Preserve forcing, effects, recursion errors, and observation |
-| Remove interleaved-recursion previews | Potential language decision | Current generalization behavior may require them |
-| Simplify pipe syntax and signature/qualification ambiguity | Language decision | Accepted programs may change |
-| Remove representation-sensitive dispatch rules | Language decision unless equivalence is proven | Current candidate precedence is observable |
+| Proposal                                                   | Intended category                              | Constraint                                                         |
+| ---------------------------------------------------------- | ---------------------------------------------- | ------------------------------------------------------------------ |
+| Stable declaration identities                              | Representation refactor                        | Preserve shadowing, forward-reference, and recursion meaning       |
+| Persist resolved dependencies and groups                   | Representation refactor                        | Separate checking dependencies from evaluation order               |
+| Normalize module identities and exported schemes           | Boundary refactor                              | Preserve exports, private-type visibility, and diagnostic spelling |
+| Represent standalone input as a synthetic module           | Program-construction refactor                  | Preserve prelude and standalone behavior                           |
+| Standardize parser control and retain spans                | Parser refactor                                | Preserve contextual grammar and error behavior                     |
+| Replace statically settled selection with direct evidence  | Elaboration refactor                           | Prove equivalence of selection and partial application             |
+| Consolidate runtime cells                                  | Execution refactor with performance risk       | Preserve forcing, effects, recursion errors, and observation       |
+| Remove interleaved-recursion previews                      | Potential language decision                    | Current generalization behavior may require them                   |
+| Simplify pipe syntax and signature/qualification ambiguity | Language decision                              | Accepted programs may change                                       |
+| Remove representation-sensitive dispatch rules             | Language decision unless equivalence is proven | Current candidate precedence is observable                         |
 
 This separation prevents an architectural cleanup from silently becoming a language redesign.
 

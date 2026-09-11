@@ -1,0 +1,465 @@
+# Compiler architecture remediation implementation plan
+
+> Execute inline, task by task, using the executing-plans workflow. This document proposes implementation; its creation does not start compiler changes. If delegation is subsequently requested, the user's restriction is GPT-5.6-Luna at Max reasoning only.
+
+**Goal:** Reduce the compiler's architectural complexity by giving binding identity, lexical scope, module interfaces, checked expressions, and runtime scope execution one authoritative owner each, while preserving current language and CLI behavior.
+
+**Architecture:** Retain the phase-indexed Haskell core and current interpreter. Resolve declaration identity and lexical structure once; typecheck into an analyzed tree whose semantic facts are sufficient for direct execution. Use one program path for standalone/module inputs and one complete semantic interface per analyzed module. Remove the positional prelude protocol, dependency sidecars, semantic reattachment database, and duplicated lexical execution rules as their replacements become authoritative.
+
+**Tech stack:** Haskell, GHC 9.14.1 through the repository Nix development shell, Cabal, Megaparsec, `containers`, existing test harness and `jazz-bench`. No new dependency is planned.
+
+**Spec:** [Validated audit findings](2026-09-10-compiler-architecture-validation.md), together with the target contracts and preservation rules below. The three input audits are linked there. They contain recommendations that this plan explicitly rejects or narrows.
+
+**Status:** Proposed, not implementation-dispatched. The existing execution queue has no ready item. Keep it unchanged until implementation is requested; then curate the first bounded milestone rather than enqueueing this entire program as one task.
+
+**Existing architecture decision:** [RFC 0016](../../rfcs/accepted/0016-optional-backend-removal.md) explicitly says to keep “attached analysis facts, and runtime plans.” Direct construction still retains attached facts, but T11a proposes changing the retained runtime-plan contract. Approval of this plan should therefore include that specific architectural decision and a narrow amendment through the repository's RFC process before removal. This is a dependency of T11a, not a reason to block unrelated tasks or ask for another confirmation while preparing this plan. If runtime plans are to remain, retain the small sequence and pursue direct identity/ownership improvements around it; do not claim its deletion completed.
+
+**Baseline:** `934802131e74f6833aabebf934cdaa0e179df81c`, with compiler sources identical to `2695289b1e9a7555855eb6b00147a478ae010c6d`. Refresh the diff and tests if implementation begins from a newer checkout.
+
+## Global constraints
+
+1. Preserve accepted syntax, diagnostic codes/severity/order/locations, export visibility, type inference and generalization, numeric semantics, evaluation order/laziness, host traces, explicit exit, and CLI result projections.
+2. Preserve current rebinding and recursive-group semantics, including nearest earlier declarations, interleaved groups, conditional callable aliases, nested pattern scope, and declaration-site capture. No blanket recursive `let` semantics and no ban on rebinding.
+3. Preserve standalone, named-module, and prelude source ownership. Dependency expression statements are checked but skipped during dependency evaluation. Prelude statements retain their own locations and warning policy.
+4. Preserve inspectable analyzed types, schemes, numeric constraints, selected operations, and evidence. A field being unread by the interpreter is insufficient reason to delete a checked-analysis contract.
+5. Keep module graph smart-constructor guarantees, namespace distinctions, ordered quantification, runtime exit/failure distinctions, and source-span diagnostics.
+6. No new backend, generic optimization/pass framework, serialized interface cache, effect framework, trait language, package/reexport system, hosted compiler rewrite, or grammar redesign. Existing hosted parity tests remain regression gates; deferred hosted feature work stays deferred. The canonical `Lowered` schema is unchanged by internal resolved/analyzed normalization.
+7. Implement in active `src/`, `app/`, `test/`, and, only if existing compatibility fixtures require it, `jazz/`. Keep plans under `.codex/plans/`. Do not use implementation plans to redefine public language behavior.
+8. Keep each migration shippable. Temporary adapters must have one named caller/migration purpose and be removed in the task that retires their last consumer. Do not leave two selectable compiler architectures behind a permanent flag.
+9. Tests should establish behavior or a meaningful boundary invariant. Reuse existing suites; add cases only for uncovered distinctions. Do not preserve assertions about an obsolete internal map merely because the old test asserted it.
+10. Commit completed, validated slices. No net line-count quota: record actual removals and replacement costs. A refactor that just renames/moves plumbing has not achieved its deletion criterion.
+
+## Target architecture and concrete contracts
+
+```mermaid
+flowchart TD
+    Source[Source text and source identity] --> Parse[Tokens and surface syntax with locations]
+    Parse --> Discover[Declarations and exported-name inventory]
+    Discover --> Imports[Validated import visibility]
+    Parse --> Lower[Lowered expressions]
+    Imports --> Resolve[Resolved references and lexical scope groups]
+    Lower --> Resolve
+    Resolve --> Check[Inference and checking]
+    Interface[Dependency semantic interfaces] --> Check
+    Check --> Checked[Analyzed tree and module interface]
+    Checked --> Diagnostics[Ordered diagnostic result]
+    Checked --> Run[Shared program and scope evaluator]
+    Run --> Host[Host capability and observation]
+    Run --> Outcome[Value, exit, or runtime failure]
+```
+
+Tokens and surface syntax are temporary frontend products. Discovery may traverse the surface tree once before discarding it. Solver tables are private to checking. There is no additional whole-program executable IR between the analyzed tree and interpreter.
+
+### Ownership contracts
+
+| Concept                        | Authoritative owner                                              | Contract for consumers                                                                                                                                                                          |
+| ------------------------------ | ---------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Source identity/location       | `ModuleIdentity`, source spans, parser node construction         | Semantic phases receive locations and owners; they never find a name's location by rescanning tokens.                                                                                           |
+| Exported names before checking | Existing `ModuleExportInventory` from discovery                  | Resolver can validate imports before typed interfaces exist. This is deliberately a different product from a typed interface.                                                                   |
+| Import visibility              | A validated import scope produced in `ModuleResolver/Imports.hs` | Carries namespace-aware imported targets, aliases, import origins, and spans. Names and typed import selection consume this result instead of reimplementing exposure rules.                    |
+| Binding identity               | Resolution, using declaration/pattern/lambda nodes               | References carry the declaration ID they select. Display names and diagnostic origin remain separate from identity. Builtins retain their catalog identity.                                     |
+| Lexical scope                  | Resolved block facts                                             | Ordered declarations, visible-before relationships needed for rebinding, recursive group membership, and lexical capture candidates are computed once. Consumers use views of this one product. |
+| Declaration meaning            | Declaration checking                                             | Constructor templates, class/method signatures, implementation targets, and scheme binders use normalized semantic types and stable IDs. Raw signatures remain a frontend/diagnostic concern.   |
+| Checked expression facts       | The inference operation checking that expression                 | Returns a draft checked subtree; finalization substitutes solved types and validates completeness. It does not rediscover lexical binders or join six unrelated output maps.                    |
+| Module semantic interface      | Successful module checking                                       | Complete exported semantic declarations, binder identities, and evidence. An importer can typecheck from this artifact without a dependency body.                                               |
+| Local module environment       | Module checking, retained privately as needed                    | Includes private declarations required by exported types/method execution. Public projection is explicit and cannot publish private names accidentally.                                         |
+| Runtime specialization         | Interpreter consuming analyzed facts                             | Closed type applications, concrete method evidence, literal targets, and result constraints have one path. Genuinely unresolved polymorphic dispatch remains dynamic.                           |
+| Runtime lexical execution      | Shared scope executor                                            | Uses resolved scope groups and reference IDs. Cell state/value selection remain runtime concerns.                                                                                               |
+| Diagnostics/outcomes           | Artifact queries, compiler coordinator, runtime boundary         | Preserve ordered diagnostics on failed analysis, artifact-local diagnostics, normal completion, explicit exit, failure, and no execution.                                                       |
+
+### Binding identity details
+
+Use source-unit ownership plus the binder's declaration node identity, extending the existing identity types rather than inventing a symbol server. Source-unit identity distinguishes standalone/prelude/named units even if their display paths overlap. Pattern variables, `as` binders, lambda parameters, constructors, and method declarations use their own nodes; do not assign every binder in a declaration the same ID.
+
+Resolved value uses identify a binder, builtin, or capability method directly. A capability-method reference identifies the class/method even when its implementation remains polymorphic and is selected later. Operator values refer to the selected operator declaration/builtin; spelling alone no longer causes a later lexical lookup. Keep authored spelling and origin for diagnostics. Unresolved uses may exist only in a diagnostic-producing intermediate result; successful analysis must not manufacture a current-module binding for them.
+
+Type names and capability identities must also be module-stable. This does not require using a value-binder ID for every kind of name. Retain namespace-specific identities where they already express the distinction clearly.
+
+### Analyzed execution details
+
+Keep `Expr 'Analyzed` as the interpreter input. The four current `RuntimeObligation` constructors are derived from facts already available at analyzed nodes. Retire the stored `Seq RuntimeObligation` by consuming those facts at the relevant operation:
+
+- Literals use their checked numeric target at construction.
+- Explicit type applications use a checked instantiation target and ordered arguments. The target discriminates a lexical binder from a qualified method; it must not be recovered by inspecting expression spelling.
+- Concrete evidence identifies the implementation/method directly. Calls with no statically selected implementation retain the existing dynamic specialization semantics.
+- Return handling applies the checked result type's representation/defaulting rule and existing profile/continuation behavior. It does not require building and interpreting a second expression-wide sequence.
+
+Preserve the current order: explicit instantiation, evidence restriction, literal specialization where relevant, result constraints. Higher-order function annotations and result policies remain until a replacement proves equivalent. Removing a runtime-plan type while storing the same instruction sequence under another name does not satisfy T11.
+
+### Inference state details
+
+Retain the existing solver, declaration, module, and output separation initially. Make speculation explicit with two distinct operations:
+
+- **Preview:** restore the original semantic/output state while keeping the advanced fresh-variable watermark and returning the preview's temporary result separately.
+- **Rejected pattern:** restore stable semantic state while preserving diagnostics from the failed attempt.
+
+Other restoration operations, such as lexical capability scope restoration, remain separately named. Do not apply one generic transaction policy to all three.
+
+The checked-tree migration uses a private draft form during solving, then finalizes it. Recursive groups may keep a temporary map keyed by declaration ID while members are solved. This is a private algorithm data structure with one owner, not an inter-phase database requiring consumers to reconstruct the tree.
+
+## File responsibilities
+
+Paths below are repository-relative; their existing implementations are indexed in the validation report. New files are limited to concrete ownership changes:
+
+| Files                                                                                                      | Intended responsibility/change                                                                                                                                                                               |
+| ---------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `Parser/{AST,Declaration,Signature,CapabilityDeclaration,ModuleDeclaration,TokenParser,Lower}.hs`          | Preserve source locations and use one parser-control protocol.                                                                                                                                               |
+| `ModuleResolver.hs`, `ModuleResolver/{Imports,Names}.hs`                                                   | Discovery product, validated import scope, and stable reference resolution.                                                                                                                                  |
+| New `CoreIdentity.hs`                                                                                      | Move node/binder/implementation/method identity primitives out of semantic output definitions so early resolution can use them without an import cycle. Keep `ModuleIdentity.hs` for source/module identity. |
+| `AST.hs`, `Name.hs`, `SemanticFacts.hs`, `RecursiveBindings.hs`                                            | Phase-specific resolved reference/scope facts and analyzed semantic facts. Do not create a parallel generic AST framework.                                                                                   |
+| `Analyzer.hs`, `Analyzer/UnusedBindings.hs`, `TypeInference/Scope.hs`, `Runtime/ScopePlan.hs`              | Consume lexical facts instead of each owning scope discovery.                                                                                                                                                |
+| `SourceProgram.hs`, `Prelude.hs`, `Driver.hs`, `ModuleGraph.hs`, `SourceUnitOwnership.hs`                  | One standalone/module construction path; retire injected positional ownership.                                                                                                                               |
+| New `SemanticDeclarations.hs`, existing `TypeRepresentation.hs`                                            | Inference-independent normalized declaration/scheme types; reuse the existing generic semantic type representation.                                                                                          |
+| `TypeInference/{Types,Signature,Capabilities,ImplChecking}.hs`, `CapabilityFacts.hs`                       | Construct/use normalized declarations and stable evidence identities.                                                                                                                                        |
+| `ModuleInterface.hs`, `ModuleAnalysis.hs`, `ModuleCompiler.hs`, `ModuleExports.hs`                         | Complete public semantic interfaces; private scope stays private; import views derived once.                                                                                                                 |
+| `TypeInference.hs`, `TypeInference/{State,Result,Analyzed,Pattern,Scope,Traversal}.hs`                     | Narrow speculative operations, construct checked subtrees, finalize solved types. `Analyzed.hs` becomes a finalizer or disappears if trivial.                                                                |
+| `Runtime/{Engine,Types,Semantics,Request,ScopePlan,HostEvaluation}.hs`, `ModuleRuntime.hs`                 | Direct checked-fact consumption, shared module walk, shared lexical scope execution.                                                                                                                         |
+| `Runtime/{Outcome,Observation}.hs`, `Driver.hs`, `src/Jazz/CLI/Main.hs`                                    | Preserve meaningful result/report boundaries and thin compatibility entrypoints.                                                                                                                             |
+| `jazz.cabal`, corresponding `test/Jazz/Compiler` suites, `benchmark/Jazz/Benchmark/{Stages,ScaleCases}.hs` | Register changed modules; maintain contract tests and use existing performance cases.                                                                                                                        |
+
+Do not create all proposed files as empty scaffolding. Each is introduced only when its task moves an existing responsibility and consumers to it.
+
+## Sequence, risk, and dependencies
+
+| Task | Result                                                       | Depends on                                                              | Risk        |
+| ---- | ------------------------------------------------------------ | ----------------------------------------------------------------------- | ----------- |
+| T01  | Baseline behavior and performance evidence                   | None                                                                    | Low         |
+| T02  | Located discovery and reusable validated imports             | T01                                                                     | Medium      |
+| T03  | Single parser-control convention                             | T02                                                                     | Medium      |
+| T04  | Resolved declaration identities                              | T02                                                                     | High        |
+| T05  | Shared resolved lexical scope/capture facts                  | T04                                                                     | High        |
+| T06  | Unified standalone/module program construction               | T05                                                                     | High        |
+| T07  | Normalized declarations and module-stable semantic types     | T04                                                                     | High        |
+| T08  | Complete dependency interfaces                               | T02, T06, T07                                                           | High        |
+| T09  | Explicit inference speculation and diagnostic orchestration  | T05, T07                                                                | Medium/high |
+| T10  | Checking constructs the analyzed tree                        | T08, T09                                                                | High        |
+| T11a | Runtime directly consumes instantiation/literal/result facts | T10 and explicit amendment of RFC 0016's retained runtime-plan contract | High        |
+| T11b | Concrete evidence selects method identity                    | T08, T11a                                                               | High        |
+| T11c | Normalize repeatedly interpreted operator forms              | T05, T11a                                                               | High        |
+| T12  | Shared module execution traversal                            | T06, T08                                                                | Medium      |
+| T13  | Shared lexical scope executor with measured cell policy      | T05, T11a, T11b, T11c, T12                                              | High        |
+| T14  | Retire compatibility plumbing and close out architecture     | T03, T08, T10, T11a, T11b, T11c, T12, T13                               | Medium      |
+
+The table is a dependency order, not a request for parallel agents. Work inline. T03, T07, and T12 can be reviewed as independent milestones once their prerequisites hold. T11's three substeps are separate review/commit boundaries.
+
+## T01 — Record the preservation baseline
+
+**Files:** Existing suites in `test/Jazz/Compiler/{Modules,Semantics,Parser,Runtime,Diagnostics}`, `benchmark/Jazz/Benchmark/{Stages,ScaleCases}.hs`; evidence attached to this plan during execution. Do not add a generic snapshot framework.
+
+- [ ] Record starting SHA, source diff, toolchain, and the compiler file/line inventory. Inspect any intervening changes before reusing this plan's findings.
+- [ ] Run the current Haskell test suite once using the command below. Record any pre-existing failures separately from refactor failures.
+- [ ] Inventory existing cases for the preservation matrix below. Add only missing cross-path cases, using the current public driver and an injected deterministic host. Compare value/exit/diagnostics/host trace; compare observations according to their documented semantics.
+- [ ] Capture benchmark results using the existing harness before changing runtime/analysis structure. Include sequential polymorphism, shared-interface fanout, resolver facts, recursive previews/interleaving/rebinding, capability width, host-free opaque environments, and deep lambdas. Use existing generated scale cases, selected from the source registry.
+- [ ] Keep the smallest/largest relevant cases so an apparent constant-factor win does not hide a worse growth rate. Record host/toolchain/build settings with the harness's result artifact.
+- [ ] Commit only new meaningful contract coverage and baseline notes. If existing tests already cover the matrix, do not manufacture a test-only commit.
+
+**Done when:** Later changes can be compared with a known-good executable baseline. Performance numbers are measured rather than inferred from source size.
+
+## T02 — Make discovery own locations and validated visibility
+
+**Files:** `Parser/AST.hs`, `Parser/Signature.hs`, `Parser/CapabilityDeclaration.hs`, `ModuleResolver.hs`, `ModuleResolver/Imports.hs`, `ModuleResolver/Names.hs`; tests `Parser/SourceRangesSpec.hs`, `Modules/ModuleResolutionSpec.hs`, `Modules/Loader/{VisibilityTests,AliasClassTests,DiagnosticsTests}.hs`.
+
+- [ ] Preserve the qualifier/member spans required by qualified type/class diagnostics in the parsed declaration/reference representation. Carry them through lowering; do not assign a broad statement span when the current diagnostic points to a token.
+- [ ] Build one discovery result while the surface tree is authoritative: lowered body, declared exports/imports, referenced-name inventory, and located qualified references. Keep this internal to module discovery.
+- [ ] Delete token-rescanning location recovery in `ModuleResolver.hs` once all its consumers use retained spans. Release the token/surface products after discovery/lowering.
+- [ ] Change import validation to return a validated scope containing alias targets and per-namespace unqualified targets with origin spans. Keep collision/missing/hidden-reference diagnostic ordering unchanged.
+- [ ] Make name resolution consume that scope. Remove its independent exposure-selection and alias/origin reconstruction. Distinguish alias qualification from class qualification using existing namespace rules.
+- [ ] Run source-range, module-resolution, loader, and structured-diagnostics suites. Add one case only if necessary to distinguish repeated identical spellings at different source locations.
+- [ ] Commit the frontend ownership change.
+
+**Deletion criterion:** No downstream token scan to recover qualified-class locations; one implementation of validated imported-name exposure. Discovery still has a cheap untyped export inventory.
+
+## T03 — Standardize parser control without changing grammar
+
+**Files:** `Parser/Declaration.hs`, `Parser/DeclarationTokens.hs`, `Parser/TokenParser.hs`, `Parser/Failure.hs`, `Parser/Context.hs`, `Parser/Expression.hs`; tests `Parser/{DeclarationParserSpec,ExpressionParserSpec,ModuleImportParserSpec,OperatorInvalidSyntaxSpec,ParserFoundationSpec,TokenParserSpec}.hs`.
+
+- [ ] Migrate declaration parsing from manual `TokenStream -> Either ParserFailure` consumption/re-entry to the existing Megaparsec token parser, one declaration family at a time: imports/modules, signatures, then bindings/function heads. Reuse token utilities that only inspect/classify tokens.
+- [ ] Preserve commitment/backtracking behavior, known-alias context, accepted declaration ambiguity, and current diagnostic spans. Do not replace grammar decisions with a new global token preprocessor.
+- [ ] Remove consumption-count adapters when their final caller is migrated. Keep one conversion from parser failures to user diagnostics at the frontend boundary.
+- [ ] Run the parser suites above and canonical parser comparison/parity suites. Exercise invalid as well as accepted syntax; compare failures and locations, not just whether parsing succeeds.
+- [ ] Run existing parser scale cases before/after to catch accidental backtracking amplification.
+- [ ] Commit each declaration-family migration when independently green; finish with adapter removal.
+
+**Deletion criterion:** A declaration no longer crosses between two independently maintained consumed-token/error protocols. Context-sensitive syntax remains unchanged.
+
+## T04 — Establish declaration identity during resolution
+
+**Files:** New `CoreIdentity.hs`; `AST.hs`, `Name.hs`, `SemanticFacts.hs`, `ModuleResolver/Names.hs`, `RecursiveBindings.hs`, `TypeInference/Analyzed.hs`, `jazz.cabal`; tests `Semantics/NameSemanticsSpec.hs`, `Modules/ModulePipelineContractSpec.hs`, `Semantics/RecursiveBindingsSpec.hs`.
+
+- [ ] Move early identity primitives out of semantic-output ownership, preserving compatibility re-exports during migration. Make binder identity source-unit-qualified; preserve `ImplId`/`MethodId` ownership distinctions.
+- [ ] Assign IDs from declaration, lambda, pattern, constructor, and method nodes. Handle multiple pattern/constructor binders without collisions. Retain source spelling separately.
+- [ ] Extend resolved phase facts for value/operator uses and binders. Resolve uses with the current ordered rebinding/recursive visibility algorithm; do not substitute ordinary whole-block recursive scope rules.
+- [ ] Make explicit instantiation targets carry the resolved binder/method target. Change attachment to consume it and remove its `referencedBinder` name reconstruction for migrated uses.
+- [ ] Preserve error-stage behavior for unresolved names: resolution may report/retain the same diagnostic cause without converting a legitimate forward recursive reference into an error or manufacturing a successful binding.
+- [ ] Run name, recursive-binding, binding-signature, module-pipeline, and loader suites. Cover nested pattern shadowing, builtin/import shadowing, operator rebinding, and distinct source-unit ownership.
+- [ ] Commit identity production and its first consumer together. Avoid a permanent tree plus parallel global symbol table.
+
+**Deletion criterion:** Explicit instantiation does not recover a lexical declaration from a map of display names. Every successful checked value reference has an unambiguous target identity.
+
+## T05 — Publish and consume resolved lexical scope facts
+
+**Files:** `AST.hs`, `RecursiveBindings.hs`, `ModuleResolver/Names.hs`, `Analyzer/UnusedBindings.hs`, `TypeInference/{Scope,Analyzed}.hs`, `Runtime/{ScopePlan,Engine,Types}.hs`; tests `Semantics/RecursiveBindingsSpec.hs`, `Semantics/BindingSignature/RecursionTests.hs`, `Semantics/RebindingWarningSpec.hs`, `Semantics/RuntimeSemanticsSpec.hs` and its component modules.
+
+- [ ] Publish ordered binder definitions, recursive-group membership, and lexical capture candidates with each resolved block/lambda. Keep references into existing nodes rather than copying complete subtrees or a full environment per statement.
+- [ ] Keep one ordered visibility algorithm in resolution. A consumer may build a lookup index from published IDs; it must not rerun SCC/name/alias discovery.
+- [ ] Migrate unused-binding analysis and semantic attachment first, then inference scope preparation and runtime scope planning. Keep type-generalization decisions in inference and value-dependent callable selection in runtime.
+- [ ] Replace name-keyed local environments with resolved reference keys at those boundaries. Retain display-name maps only where diagnostics or public export lookup requires them.
+- [ ] Delete duplicated lexical reconstruction and repeated capture discovery after the last consumer migrates. Retain a shared utility only if it still owns a real production transformation.
+- [ ] Run recursion, binding-signature, runtime, rebinding-warning, pattern, and module-pipeline suites. Compare recursive-preview/interleaving/rebinding and deep-lambda scale cases against T01.
+- [ ] Commit consumer migrations in small slices, then delete obsolete discovery entrypoints.
+
+**Deletion criterion:** Analyzed attachment, unused analysis, and runtime do not independently infer lexical groups from source names. Runtime can still select conditional callable values; inference can still preview types where current semantics require it.
+
+## T06 — Unify program construction and retire positional prelude ownership
+
+**Files:** `SourceProgram.hs`, `Prelude.hs`, `Driver.hs`, `ModuleGraph.hs`, `ModuleCompiler.hs`, `ModuleAnalysis.hs`, `SourceUnitOwnership.hs`, `TypeInference.hs`, `Runtime/{Request,ScopePlan}.hs`; tests `Modules/PreludeLoadingSpec.hs`, `Modules/ModulePipelineContractSpec.hs`, `Modules/LoaderSpec.hs`, and `test/Jazz/CLI/CLISpec.hs` registered as `cli-spec`.
+
+- [ ] Wrap standalone source in a synthetic source unit using the existing standalone identity. Keep its standalone owner category even though it enters the same program coordinator.
+- [ ] Build/resolve the prelude as a separate artifact for both standalone and module inputs. Preserve bundled, explicit, disabled, and custom resolved-prelude options, including current name precedence and warnings.
+- [ ] Route standalone compile/run entrypoints through the graph analysis/evaluation path. Adapt the optional terminal value/result at the driver boundary.
+- [ ] Retire prepending/reindexing for prelude composition. Remove hidden/prelude statement-index sets from analysis and runtime requests; derive visibility/warning policy from the artifact/source owner instead.
+- [ ] Remove `InjectedPreludeSourceUnit` once no production path constructs it. Retain `PreludeSourceUnit`, `StandaloneSourceUnit`, and `NamedSourceUnit`; distinguish semantic identity from display paths.
+- [ ] Run prelude, loader, module-pipeline, CLI, warning, and structured-diagnostics suites. Explicitly compare custom-prelude nominal types/implementations, rebinding, source paths, terminal values, dependency expression suppression, and effectful prelude behavior as currently accepted.
+- [ ] Commit route migration, then removal of the positional protocol.
+
+**Deletion criterion:** One analyzed program path and one owner-based prelude policy; no execution request needs a set of injected-statement indexes. Removing list concatenation alone does not count.
+
+## T07 — Normalize declaration semantics once
+
+**Files:** New `SemanticDeclarations.hs`; `TypeRepresentation.hs`, `TypeInference/{Types,Signature,Capabilities,ImplChecking,Analyzed}.hs`, `CapabilityFacts.hs`, `ModuleInterface.hs`, `Runtime/{Semantics,Types}.hs`; tests `Semantics/BindingSignature/`, `Semantics/AdtPatternTypeSpec.hs`, `Diagnostics/SignatureRenderingSpec.hs`, `Modules/Loader/CapabilitiesTests.hs`.
+
+- [ ] Move interface-consumable schemes, constructor templates, class method types, and implementation descriptions into an inference-independent semantic owner. Reuse `SemanticType`; do not add a second semantic type algebra or replace identical type aliases just to reduce names.
+- [ ] Convert authored signatures once after name resolution with an explicit binder environment, preserving quantified-variable order, class-parameter identity, numeric constraints, and source locations for failures.
+- [ ] Close exported schemes over their ordered quantifiers. An imported scheme must not contain a free solver allocation identity belonging to the exporting checker's private state; instantiate its bound parameters into the importing solver when used.
+- [ ] Separate unsupported authored syntax from successfully checked declarations. Preserve current diagnostics/recovery; successful semantic consumers must not reinterpret an `UnsupportedSignature` token payload.
+- [ ] Replace signature-rendered identity/equality and ad hoc textual class/type keys where semantic identity is required. Use nominal module/source identity throughout; render text at diagnostics/file boundaries.
+- [ ] Migrate analyzed declaration projection and imported declaration handling to the normalized types. Runtime uses existing analyzed declaration facts rather than recovering types from source signatures.
+- [ ] Run binding-signature, ADT type/pattern, capability loader, signature-rendering, primitive-semantics, and module-pipeline suites.
+- [ ] Commit one declaration family at a time; remove old converters when all family consumers migrate.
+
+**Deletion criterion:** A valid signature/constructor/class/implementation declaration is interpreted semantically once. Different renderers or inference-variable instantiation are allowed; repeated parsing of authored syntax for semantic decisions is not.
+
+## T08 — Publish complete semantic module interfaces
+
+**Files:** `ModuleInterface.hs`, `ModuleAnalysis.hs`, `ModuleCompiler.hs`, `ModuleExports.hs`, `ModuleResolver/{Imports,Names}.hs`, `TypeInference/{Result,State,Evidence}.hs`, `ModuleRuntime.hs`; tests `Modules/{ModulePipelineContractSpec,ModuleExportsSpec,ModuleResolutionSpec}.hs`, `Modules/Loader/{VisibilityTests,CapabilitiesTests,AliasClassTests}.hs`.
+
+- [ ] Define the successful module interface as exported semantic declarations plus stable binder/evidence identities. Keep private checking/runtime metadata owned by the module. Public projection is explicit and namespace-aware.
+- [ ] Include evidence produced/registered during checking in the exported interface. Remove the publication-time dependency-body scan and separate binder inventory argument.
+- [ ] Replace `(inventory, interface, binders, candidates)` with one semantic interface argument at the typed dependency boundary. The earlier resolver inventory stays in discovery and is checked against the published public view.
+- [ ] Build the importer environment from the validated scope from T02 and stable exported identities. Aliases affect local lookup/display, not the defining identity of a type/class/method.
+- [ ] Remove rebasing of current-module-relative types and independently merged parallel identity maps as stable identities make them unnecessary. Preserve ordered implementation preference and generated equality behavior.
+- [ ] Strengthen the existing single-module contract test: analyze an importer with only dependency interfaces and its own resolved module; make dependency source/body unavailable. Include nominal generic constructors, explicit instantiation, selected implementation evidence, aliases, private declarations, and transitive non-leakage.
+- [ ] Run module-pipeline, exports, resolution, loader, prelude, and binding-signature suites. Measure shared-interface and wide-module-fanout cases.
+- [ ] Commit interface publication and import migration, then delete the sidecar tuple and rescans.
+
+**Deletion criterion:** An importer never needs the resolved dependency body, an external binder inventory, or a separate evidence-candidate map. Runtime no longer imports inference-owned declaration types via the module boundary. Do not add serialization without a current caller.
+
+## T09 — Make inference speculation and diagnostic ownership explicit
+
+**Files:** `TypeInference.hs`, `TypeInference/{State,Scope,Pattern,Capabilities,ImplChecking,Result}.hs`, `Analyzer.hs`, `ModuleAnalysis.hs`; tests `Semantics/BindingSignature/{InferenceOwnershipTests,RecursionTests,DiagnosticsTests,GeneralizationTests}.hs`, `Semantics/{PatternSemanticsSpec,PatternCoverageSpec}.hs`, `Diagnostics/StructuredErrorDiagnosticsSpec.hs`.
+
+- [ ] Implement named preview and rejected-pattern operations with the distinct retention rules above. Replace field-by-field restoration at those call sites; keep lexical declaration restoration separately named.
+- [ ] Limit helper inputs to owned domains where this removes an actual cross-domain read/write. Retain the existing explicit state style where clear; do not rewrite the whole checker into a new monad stack.
+- [ ] Ensure preview facts/diagnostics/constraints cannot leak into real node output, while temporary type-variable IDs cannot be reused. Preserve failed-pattern diagnostics and their order.
+- [ ] Move the top-level orchestration of inference, coverage/unused diagnostics, and warning policy into module analysis/coordinator ownership. Algorithms may still use inferred types; their timing must preserve existing diagnostics.
+- [ ] Rename products whose names imply analyzed syntax when they contain resolved syntax. Remove the ignored detailed-inference mode parameter only after adapting actual call sites; retain modes that control real preview behavior.
+- [ ] Run binding-signature, pattern/coverage, diagnostics, rebinding-warning, and module-pipeline suites. Add a speculative-failure leakage case only if current cases do not distinguish these restoration policies.
+- [ ] Commit transaction cleanup separately from orchestration naming changes if that makes review clearer.
+
+**Deletion criterion:** Callers no longer manually restore unrelated inference fields to implement the same preview policy. Product names and coordinator direction expose actual phases.
+
+## T10 — Construct checked subtrees during checking
+
+**Files:** `TypeInference.hs`, `TypeInference/{State,Result,Analyzed,Scope,Pattern,Traversal,Instantiation,Evidence}.hs`, `AST.hs`, `SemanticFacts.hs`, `ModuleAnalysis.hs`; tests `Modules/ModulePipelineContractSpec.hs`, `Semantics/{BindingSignatureCoherenceSpec,AdtPatternTypeSpec,PatternCoverageSpec}.hs`.
+
+- [ ] Change the expression-checking result to return the checked/draft subtree together with its type and state. Pattern/statement results likewise own their semantic payload. Keep draft types private to inference.
+- [ ] Migrate literals/references/applications first, then lambdas/pattern cases, then declarations/blocks/recursive groups. Temporary compatibility attachment is allowed only for unmigrated constructors and is removed before task completion.
+- [ ] Record binder targets from resolution, normalized declarations from T07, and checked instantiation/evidence decisions directly in the returned nodes. Freeze each definition's generalized scheme at its current definition-site boundary; do not recompute every scheme from a later global environment.
+- [ ] Finalize the tree after solving by applying substitutions/defaulting and verifying required facts. Keep numeric literal ranges, operand typing, evidence, and explicit quantified argument order. Finalization must not rebuild lexical environments.
+- [ ] Keep semantic decision-making in the original checking traversal: finalization applies accepted decisions and does not infer expressions again, allocate fresh solver variables, or select different evidence.
+- [ ] Remove the six-map output protocol and invariant branches that exist only to join independently produced entries. Keep private solver tables and any recursive-group work table with a single local owner.
+- [ ] Replace map-shape tests with completeness, identity, and semantic-output boundary tests. Preserve failure behavior: malformed internal input fails at the boundary rather than becoming an apparently analyzed program.
+- [ ] Run module-pipeline, binding-signature, ADT/pattern, pattern-coverage, primitive-semantics, and generated-invariants suites. Compare sequential polymorphism, preview bursts, and wide constructor cases.
+- [ ] Commit constructor-family migrations, then remove the old attachment implementation. Update Cabal exports only when a module disappears.
+
+**Deletion criterion:** No later traversal joins six maps to reconstruct expression/statement/pattern meaning. A remaining finalizer only solves/substitutes already-owned facts and validates their invariants.
+
+## T11a — Execute analyzed instantiation and representation facts directly
+
+**Files:** `SemanticFacts.hs`, `AST.hs`, `TypeInference/{Analyzed,Instantiation}.hs`, `Runtime/{Engine,Semantics,Types}.hs`; tests `Modules/ModulePipelineContractSpec.hs`, `Semantics/PrimitiveSemantics/`, `Semantics/BindingSignature/`, `Runtime/Observation/`.
+
+- [ ] Record the approved narrow amendment of RFC 0016's runtime-plan retention decision through the repository's RFC process. Preserve its backend-removal and hosted-frontend boundaries. If that change is not approved, retain `RuntimePlan` and mark the removal work deferred; the other ownership tasks remain valid.
+- [ ] Represent checked explicit instantiation with its target kind and ordered arguments, including qualified methods that have no ordinary lexical binder. Consolidate the existing instantiation metadata instead of adding an equivalent second record.
+- [ ] Apply literal specialization in literal evaluation and explicit type arguments in type-application evaluation. Use checked facts rather than reparsing the authored type syntax.
+- [ ] Apply checked result representation/defaulting at the existing return boundary. Preserve closure annotations, partial application, higher-order result hints, and profile-frame close order.
+- [ ] Remove construction/storage/interpretation of `RuntimePlan` and `RuntimeObligation` once all four operations have direct consumers. Evidence handling may initially retain current filtering semantics until T11b.
+- [ ] Remove shape-based runtime-hint prediction in inference only where the checked facts now give the same decision. Do not delete still-needed polymorphic/defaulting rules on the assumption that all types are closed.
+- [ ] Run primitive, binding-signature, runtime, ADT runtime, module-pipeline, and runtime-observation suites. Cover empty collections, polymorphic numeric results, imported constructors, and staged function type applications.
+- [ ] Commit direct fact consumption and plan removal.
+
+**Deletion criterion:** Analyzed nodes carry semantic decisions once; no stored sequence restates them. Runtime return handling retains the semantics that need to occur on return, without invoking a derived node-wide mini-program.
+
+## T11b — Use selected method identity for concrete evidence
+
+**Files:** `Runtime/{Engine,Semantics,Types}.hs`, `TypeInference/{Capabilities,Evidence,Instantiation}.hs`, `ModuleInterface.hs`; tests `Modules/Loader/CapabilitiesTests.hs`, `Modules/Loader/AliasClassTests.hs`, `Semantics/BindingSignature/ConstraintsTests.hs`, `Semantics/PrimitiveSemantics/`.
+
+- [ ] Index runtime implementation methods by the already-published `ImplId`/`MethodId`. For statically selected evidence, resolve that method directly instead of filtering a string-keyed candidate set and repeating identity normalization.
+- [ ] Preserve captured arguments and type annotations around partial methods. Validate the evidence target/type consistency at the analyzed/runtime boundary.
+- [ ] Retain the candidate-selection path for calls whose implementation is genuinely unresolved until runtime. Preserve candidate order, structural/nominal distinctions, and generated equality semantics.
+- [ ] Remove concrete-evidence canonicalization and redundant scans after all concrete callers use stable IDs. Keep runtime representations and matching required for dynamic calls.
+- [ ] Run capability/alias, binding-signature, primitive, module-pipeline, and runtime suites; compare capability-candidate-width benchmarks.
+- [ ] Commit separately from T11a so regressions in dispatch can be isolated.
+
+**Deletion criterion:** Known method evidence is executable identity, not a filter hint requiring the runtime to rediscover the same method. No claim is made that all runtime dispatch disappears.
+
+## T11c — Normalize operator syntax where it removes duplicated handling
+
+**Files:** `AST.hs`, `ModuleResolver/Names.hs`, `TypeInference/{Operator,Traversal}.hs`, `Runtime/{Engine,Semantics}.hs`, `SemanticFacts.hs`; tests `Semantics/CoreNormalizationSpec.hs`, `Parser/{OperatorFixitySpec,OperatorSectionSpec}.hs`, `Semantics/PrimitiveSemantics/EqualityOperator.hs`, `Modules/Loader/OperatorsTests.hs`.
+
+- [ ] Normalize sections/operator values to resolved callable references and applications/lambdas once binding identity is known, within resolution before its final scope facts are published. Preserve generated binder freshness and source spans. Keep the parser's canonical `Lowered` representation unchanged so hosted structural parity remains meaningful.
+- [ ] Lower binary surface forms only where equivalent application semantics preserve short-circuiting, laziness, declared operator behavior, and operand promotion. Retain a dedicated checked primitive operation when evaluation semantics require it.
+- [ ] Preserve the inference-selected operand typing/operation fact on the canonical operation. Equivalent aliases must still produce the same numeric decision.
+- [ ] Delete downstream source-form branches that are now unreachable. Do not add a second full executable tree just to avoid phase-specific constructors.
+- [ ] Run normalization, operator parser/fixity/sections, primitive, loader, purity, and module-pipeline suites. Check diagnostics at the authored operator location.
+- [ ] Commit one operator family at a time if necessary; report any justified retained operation explicitly.
+
+**Deletion criterion:** A normalized operator form has one downstream semantic implementation. Syntax retained because it represents distinct execution behavior is not a failed refactor.
+
+## T12 — Share the module execution traversal
+
+**Files:** `ModuleRuntime.hs`, `Runtime.hs`, `Runtime/HostEvaluation.hs`, `RuntimeHost.hs`; tests `Modules/ModulePipelineContractSpec.hs`, `Modules/PreludeLoadingSpec.hs`, `Runtime/OutcomeTests.hs`, `test/Jazz/CLI/CLISpec.hs`.
+
+- [ ] Extract one dependency-order program traversal that chooses entry/dependency mode, prepares imported environments, evaluates modules, publishes exports, and accumulates the terminal result.
+- [ ] Parameterize it only by the existing evaluation/host capability needed by pure and host callers. Keep the shared expression machine. Avoid a generic compiler-pass or plugin interface.
+- [ ] Route pure calls through `Identity` or an equivalent specialization; host calls through the existing runtime host evaluation context. Preserve one host/cache/observation lifetime across a program.
+- [ ] Delete the duplicate module fold and duplicated prelude/module export assembly. Keep thin public convenience wrappers.
+- [ ] Run module-pipeline, prelude, loader, runtime-observation, and CLI suites. Verify dependency expressions stay skipped, host functions exported by dependencies use the same host, and exit still finalizes reports.
+- [ ] Commit the shared program traversal.
+
+**Deletion criterion:** Pure and host program APIs differ at the capability boundary, not in dependency walking/export publication rules.
+
+## T13 — Consolidate scope execution, then choose cell storage from measurements
+
+**Files:** `Runtime/{Engine,ScopePlan,Types,Request,HostEvaluation}.hs`, `ModuleRuntime.hs`; tests `Semantics/{RuntimeSemanticsSpec,RecursiveBindingsSpec,PuritySemanticsSpec}.hs`, `Runtime/Observation/{StatisticsTests,ProfileTests}.hs`, `Modules/ModulePipelineContractSpec.hs`; existing runtime/scale benchmark cases.
+
+- [ ] Make one scope traversal consume T05's resolved groups/IDs and preserve sequential expression execution, definition-site environments, recursive initialization, and lazy forcing.
+- [ ] Initially preserve the current lazy pure cells and explicit host deferred cells as small storage operations under that traversal. This isolates lexical-rule consolidation from a storage/performance change.
+- [ ] Remove host-to-pure request partitioning once one traversal can execute host-free and host-capable statements. Observation hooks must observe this traversal rather than select a second lexical algorithm.
+- [ ] Prototype one explicit memoized cell representation with unevaluated/evaluating/evaluated/failed states, source-unit-qualified IDs, and evaluation-instance identity. Distinct closure invocations must not share a cache entry accidentally. Preserve blackhole diagnostics and no duplicate host effects on force.
+- [ ] Compare against T01 on host-free opaque environments, recursion/rebinding/alias cases, tail recursion, deep lambdas, lists, and observed/unobserved workloads. Check time and maximum residency/allocations where the configured profiling build supports them.
+- [ ] If unified explicit cells pass semantics and the performance gate, remove the old pure cell representation. If they regress materially and the regression cannot be eliminated locally, retain two small storage strategies under the **one** scope algorithm and record the measured reason. Do not retain two scope interpreters.
+- [ ] Run runtime, recursion, purity, ADT runtime, module-pipeline, runtime-observation, profiling, and CLI suites. Assert identical program results/host traces across observation modes and coherent profile finalization for value, error, and exit.
+- [ ] Commit shared traversal separately from any accepted storage replacement.
+
+**Performance gate:** Reject a repeatable regression above 10% on a relevant matched workload's median time or peak residency after repeated runs, or any worse asymptotic trend, unless the user explicitly accepts the measured tradeoff. The percentage is a proposed engineering gate, not a measured current result. Investigate noisy results rather than making a decision from one run.
+
+**Deletion criterion:** One owner for lexical scope execution and recursion/capture rules. A proven storage optimization can remain; duplicated rules and observation-dependent request ping-pong cannot.
+
+## T14 — Remove obsolete adapters and make phase ownership navigable
+
+**Files:** `Driver.hs`, `ModuleGraph.hs`, `ModuleCompiler.hs`, `ModuleAnalysis.hs`, `ModuleRuntime.hs`, `TypeInference/{Result,State,Analyzed}.hs`, `Runtime/{Request,Outcome,Observation}.hs`, `src/Jazz/CLI/Main.hs`, `jazz.cabal`; affected tests and the compiler stage documentation.
+
+- [ ] Move analyzed-program diagnostic queries out of `ModuleCompiler` into the analyzed graph/artifact owner. Remove the runtime's import of the compiler coordinator.
+- [ ] Keep artifact-local diagnostics and an ordered failure-capable compilation result. Deduplicate projection/assembly code where present; do not lose diagnostics because a failed module has no analyzed artifact.
+- [ ] Route convenience Driver entrypoints through the unified program path and existing common result assembler. Remove obsolete internal option combinations and positional parameters. Keep cheap public adapters that real callers use.
+- [ ] Retain runtime control, outcome, observation report, and run-status roles. Remove only adapters with no caller or now-identical internal assembly, preserving compile-not-run, valueless success, explicit exit, and runtime failure.
+- [ ] Remove dead exports, compatibility records, old attachment entrypoints, identity rebase helpers, and obsolete source-shape branches. Check consumers in tests, CLI, and benchmarks before deletion.
+- [ ] Update module comments and compiler-stage documentation around ownership and flow. Split a central file only if it separates an actual transformation; do not replace one hub with many pass-through modules.
+- [ ] Run final gates below, review the full diff for semantic changes and stale compatibility paths, and record actual source/file/line changes and benchmark comparisons.
+- [ ] Commit closeout. Only mark the architecture milestone complete if every accepted finding has either met its deletion criterion or has an explicit measured/semantic retention decision.
+
+**Deletion criterion:** The compiler's main path is visible from program construction through resolution, checking, and execution; each old recovery protocol has been removed or narrowly justified. No permanent alternate pipeline was added.
+
+## Preservation matrix and test ownership
+
+| Contract                                                                                | Existing suites/files to extend only when needed                                                                                          | Main tasks         |
+| --------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- | ------------------ |
+| Shadowing, name/binder identity, explicit type application                              | `name-semantics-spec`, `module-pipeline-contract-spec`, `binding-signature-coherence-spec`                                                | T04–T05, T10–T11   |
+| Recursive aliases, interleaved SCCs, rebinding, pattern scope                           | `recursive-bindings-spec`, `binding-signature-coherence-spec`, `runtime-semantics-spec`                                                   | T04–T05, T09, T13  |
+| Polymorphism, ordered quantification, definition-site schemes                           | `binding-signature-coherence-spec`, `module-pipeline-contract-spec`                                                                       | T07–T11            |
+| Numeric literal ranges/defaulting, promotions, empty collections                        | `primitive-semantics-spec`, `module-pipeline-contract-spec`                                                                               | T07, T10–T11       |
+| ADTs, generic constructor fields, coverage, guarded patterns                            | `adt-pattern-type-spec`, `adt-pattern-runtime-spec`, `pattern-semantics-spec`, `pattern-coverage-spec`                                    | T05, T07–T10, T13  |
+| Import aliases, class qualification, namespace selection, private/transitive visibility | `loader-spec`, `module-resolution-spec`, `module-exports-spec`, `module-pipeline-contract-spec`                                           | T02, T07–T08, T11b |
+| Prelude ownership, standalone parity, dependency expression suppression                 | `prelude-loading-spec`, `loader-spec`, `module-pipeline-contract-spec`, `cli-spec`                                                        | T06, T08, T12      |
+| Accepted/invalid grammar and exact source ranges                                        | Parser suites, `source-ranges-spec`, `structured-error-diagnostics-spec`, canonical/parser parity suites                                  | T02–T03, T11c      |
+| Host trace, force caching, purity, tail behavior                                        | `runtime-semantics-spec`, `purity-semantics-spec`, `module-pipeline-contract-spec`, `cli-spec`                                            | T11–T13            |
+| Exit/failure/value/no execution and profile finalization                                | `runtime-observation-spec`, `profiling-spec`, `module-pipeline-contract-spec`, `cli-spec`                                                 | T11–T14            |
+| Warning policy and diagnostic ordering/related spans                                    | `warning-config-spec`, `rebinding-warning-spec`, `structured-error-diagnostics-spec`                                                      | T02, T06, T09, T14 |
+| Existing hosted compatibility contracts                                                 | `canonical-lexer-comparison-spec`, `canonical-parser-comparison-spec`, `canonical-core-comparison-spec`, existing bootstrap/parity suites | T03, T10, T14      |
+
+Preserve semantic observation contracts and output schema. Internal work counters may legitimately change when execution machinery changes; compare their definitions and update expected counts only with an explanation tied to real changed work. Do not require an old implementation's transition count if that would prevent eliminating redundant transitions. Program output, host calls, termination, and valid profile nesting remain invariant.
+
+## Commands and completion gates
+
+Use the repository's existing development shell:
+
+```sh
+nix --extra-experimental-features 'nix-command flakes' develop
+cabal build all
+cabal test all --test-show-details=failures
+```
+
+Focused example, replacing the suite names with those listed for the current task:
+
+```sh
+cabal test module-pipeline-contract-spec recursive-bindings-spec binding-signature-coherence-spec runtime-observation-spec --test-show-details=direct
+```
+
+The harness runs named cases within each suite; do not invent a per-test filter it does not implement. Run relevant suites once after a meaningful change; broaden at milestone boundaries or when a failure warrants it.
+
+Benchmark smoke and recorded results use the existing command parser in `benchmark/Jazz/Benchmark/Stages.hs`:
+
+```sh
+cabal bench jazz-bench --benchmark-options='--jazz-smoke'
+cabal bench jazz-bench --benchmark-options='--environment-label architecture-baseline --result-root /private/tmp/jazz-architecture-bench'
+```
+
+Use `--jazz-case` or `--jazz-scale-case` with exact identifiers selected from the current registry for focused runs. Capture comparable baseline/candidate runs on the same host, optimization settings, and input sizes. Smoke proves execution, not performance. Use the existing profiling project configuration when collecting RTS allocation/residency; do not claim those measurements from semantic runtime counters.
+
+Before each milestone commit:
+
+- [ ] Required focused tests pass; failures are explained rather than skipped.
+- [ ] Changed Haskell files pass `scripts/check-haskell-format.sh` and the repository lint checks used by CI.
+- [ ] `git diff --check` passes.
+- [ ] The task's old mechanism is removed, or the task is explicitly incomplete.
+- [ ] New nominal IDs preserve diagnostic spelling and source-unit ownership.
+- [ ] No temporary adapter has become an untracked permanent compatibility API.
+
+Final closeout additionally runs the full default test suite, the enabled parser-scale suites applicable to parser changes, benchmark smoke, changed-path documentation checks, and the repository's current CI checks. Inspect current CI configuration at execution time for exact flags; this plan does not invent a second quality pipeline.
+
+## Rejected work and decisions that need separate scope
+
+| Recommendation                                                                        | Disposition                                                                                                                |
+| ------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
+| Remove `CoreProgram`'s module index                                                   | Rejected; order and lookup have different uses, guarded by one constructor.                                                |
+| Replace the split module body to save repeated `EBlock` reconstruction                | Rejected; construction shares the statement list and is constant-time.                                                     |
+| Delete all runtime outcomes/observation carriers                                      | Rejected; they encode different states/lifetimes.                                                                          |
+| Delete analyzed facts because runtime currently ignores them                          | Rejected as a blanket rule; preserve meaningful checked-analysis contracts.                                                |
+| Replace `ExpressionType` and `AnalyzedType` dialects                                  | No such conversion problem exists between those identical synonyms. Normalize actual authored/semantic boundaries in T07.  |
+| Add serialized interfaces, caching, a backend-neutral IR, or a generic pass framework | Deferred until a real consumer exists; not required for this remediation.                                                  |
+| Remove recursive previews, forbid rebinding, restrict callable aliases                | Separate language decisions; current semantics remain.                                                                     |
+| Simplify pipe/signature/qualified-name grammar                                        | Separate language decision; T03 preserves grammar.                                                                         |
+| Remove all dynamic capability dispatch or numeric runtime annotations                 | Not justified; only concrete decisions proven available statically move to direct execution.                               |
+| Remove `RuntimePlan` despite the current retained-architecture decision               | T11a is a proposed amendment to RFC 0016, not already-authorized cleanup. Plan approval must explicitly cover this change. |
+| Guarantee 3,000–7,000 fewer lines or a 5,000-line target                              | Rejected as unsupported. Report actual net changes and eliminated ownership protocols.                                     |
+| Port these architecture changes into new hosted compiler capabilities                 | Outside scope; preserve current compatibility tests, do not resume deferred bootstrap work.                                |
+
+## Validation performed while writing this plan
+
+The audit findings were checked inline against current code; no subagents were used. Four pinned official comparator source snapshots were independently inspected and counted. Source files are unchanged from the baseline.
+
+Nine existing compiler suites passed under GHC 9.14.1:
+
+- `module-pipeline-contract-spec`
+- `recursive-bindings-spec`
+- `runtime-observation-spec`
+- `binding-signature-coherence-spec`
+- `loader-spec`
+- `prelude-loading-spec`
+- `core-normalization-spec`
+- `source-ranges-spec`
+- `structured-error-diagnostics-spec`
+
+These checks validate current behavior and the proposed preservation constraints. They do not constitute implementation verification, a full-suite run, or a benchmark of the proposed architecture. Runtime storage consolidation remains a measured implementation decision in T13.
+
+Documentation verification at plan completion checks local evidence targets/line bounds, all A/B/C ledger entries, every task reference, whitespace, and repository documentation/plan governance checks. Results are reported with the delivery commit.
