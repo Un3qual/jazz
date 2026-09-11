@@ -1,5 +1,5 @@
 ---
-id: JN-COMPILER-PROGRAM-TRAVERSAL-001
+id: JN-COMPILER-SCOPE-TRAVERSAL-001
 status: ready
 priority: P1
 size: L
@@ -7,14 +7,14 @@ kind: impl
 autonomous_ready: yes
 depends_on: []
 last_verified: 2026-09-11
-plan_section: "T12 — Share the module execution traversal"
+plan_section: "T13 — Consolidate scope execution, then choose cell storage from measurements"
 target_paths:
   - src/Jazz/Compiler/ModuleRuntime.hs
   - src/Jazz/Compiler/Runtime/Engine.hs
 verification:
-  - cabal test module-pipeline-contract-spec prelude-loading-spec module-loader-spec cli-spec --jobs=4
+  - cabal test runtime-semantics-spec recursive-bindings-spec purity-semantics-spec adt-pattern-runtime-spec module-pipeline-contract-spec cli-spec --test-options=--skip-performance --jobs=4
   - bash scripts/check-execution-queue.sh
-deliverable: Share dependency-order execution and prelude publication across pure and host program APIs.
+deliverable: Consolidate lexical scope execution while retaining the existing pure and deferred cell storage strategies.
 supersedes: []
 ---
 
@@ -30,7 +30,7 @@ supersedes: []
 
 **Spec:** [Validated audit findings](2026-09-10-compiler-architecture-validation.md), together with the target contracts and preservation rules below. The report preserves the disposition of all three input audits. The two Luna drafts were withdrawn after validation; their rejected or qualified recommendations are not implementation guidance.
 
-**Status:** Execution requested on 2026-09-11. T12 is the active bounded milestone in the execution queue. Execute the remaining tasks inline in dependency order; promote the next milestone when its prerequisites pass.
+**Status:** Execution requested on 2026-09-11. T13 is the active bounded milestone in the execution queue. Execute the remaining tasks inline in dependency order; promote the next milestone when its prerequisites pass.
 
 **Existing architecture decision:** [RFC 0016](../../rfcs/accepted/0016-optional-backend-removal.md) explicitly says to keep “attached analysis facts, and runtime plans.” Direct construction still retains attached facts, but T11a proposes changing the retained runtime-plan contract. Approval of this plan should therefore include that specific architectural decision and a narrow amendment through the repository's RFC process before removal. This is a dependency of T11a, not a reason to block unrelated tasks or ask for another confirmation while preparing this plan. If runtime plans are to remain, retain the small sequence and pursue direct identity/ownership improvements around it; do not claim its deletion completed.
 
@@ -351,12 +351,12 @@ The table is a dependency order, not a request for parallel agents. Work inline.
 
 **Files:** `src/Jazz/Compiler/ModuleRuntime.hs`, `src/Jazz/Compiler/Runtime.hs`, `src/Jazz/Compiler/Runtime/HostEvaluation.hs`, `src/Jazz/Compiler/RuntimeHost.hs`; tests `test/Jazz/Compiler/Modules/ModulePipelineContractSpec.hs`, `test/Jazz/Compiler/Modules/PreludeLoadingSpec.hs`, `test/Jazz/Compiler/Runtime/OutcomeTests.hs`, `test/Jazz/CLI/CLISpec.hs`.
 
-- [ ] Extract one dependency-order program traversal that chooses entry/dependency mode, prepares imported environments, evaluates modules, publishes exports, and accumulates the terminal result.
-- [ ] Parameterize it only by the existing evaluation/host capability needed by pure and host callers. Keep the shared expression machine. Avoid a generic compiler-pass or plugin interface.
-- [ ] Route pure calls through `Identity` or an equivalent specialization; host calls through the existing runtime host evaluation context. Preserve one host/cache/observation lifetime across a program.
-- [ ] Delete the duplicate module fold and duplicated prelude/module export assembly. Keep thin public convenience wrappers.
-- [ ] Run module-pipeline, prelude, loader, runtime-observation, and CLI suites. Verify dependency expressions stay skipped, host functions exported by dependencies use the same host, and exit still finalizes reports.
-- [ ] Commit the shared program traversal.
+- [x] Extract one dependency-order program traversal that chooses entry/dependency mode, prepares imported environments, evaluates modules, publishes exports, and accumulates the terminal result.
+- [x] Parameterize it only by the existing evaluation/host capability needed by pure and host callers. Keep the shared expression machine. Avoid a generic compiler-pass or plugin interface.
+- [x] Route pure calls through `Identity` or an equivalent specialization; host calls through the existing runtime host evaluation context. Preserve one host/cache/observation lifetime across a program.
+- [x] Delete the duplicate module fold and duplicated prelude/module export assembly. Keep thin public convenience wrappers.
+- [x] Run module-pipeline, prelude, loader, runtime-observation, and CLI suites. Verify dependency expressions stay skipped, host functions exported by dependencies use the same host, and exit still finalizes reports.
+- [x] Commit the shared program traversal.
 
 **Deletion criterion:** Pure and host program APIs differ at the capability boundary, not in dependency walking/export publication rules.
 
@@ -701,3 +701,8 @@ Documentation verification at plan completion checks local evidence targets/line
 - Resolution now turns operator values into callable references and declared binary/section forms into applications and fresh capturing lambdas before lexical facts are published. Generated nodes retain source spans; authored operator spelling preserves missing-binding diagnostics. Canonical Lowered parser output is unchanged.
 - Removed the declared binary/section checker and runtime implementations, including the dedicated declared-right-section value. Primitive binary operations and sections remain because their short-circuiting, eager capture, and numeric promotion semantics differ from ordinary application.
 - Normalization, primitive, runtime correctness, loader, module pipeline, purity, binding/signature, name, operator parser/fixity/section, source-range, canonical-core comparison, and structured diagnostic checks pass. Final deletion checks: `/private/tmp/jazz-t11c-single-operator-execution.log`; parser compatibility: `/private/tmp/jazz-t11c-parser-compatibility.log`. Observation, profiling, and benchmark-stage fixtures compile only in `/private/tmp/jazz-t11c-api-build.log`. No benchmark or performance tests ran. Ormolu, HLint, and whitespace checks pass. T11c is complete; T12 is active.
+
+### T12 shared program traversal
+
+- Pure and host APIs now specialize one monadic program traversal. Prelude environment publication, dependency order, entry/dependency mode, imports, exports, and terminal value assembly each have one implementation. Public wrappers retain the existing host/cache/observation lifetime.
+- Module pipeline, prelude, loader, and CLI correctness suites pass in `/private/tmp/jazz-t12-program-traversal.log`, including host functions exported from dependencies, skipped dependency expressions, and CLI exit behavior. Ormolu, HLint, and whitespace checks pass. Observation/profiling execution and all benchmarks remain deferred. T12 is complete; T13 is active.
