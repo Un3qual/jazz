@@ -49,6 +49,7 @@ import Jazz.Compiler.Driver
   )
 import Jazz.Compiler.ModuleExports (exportInventory)
 import Jazz.Compiler.ModuleResolver (resolveStandaloneExprNames)
+import Jazz.Compiler.Parser.Lower (reindexLoweredExpr)
 import Jazz.Compiler.TypeRepresentation (SignatureType (..))
 import Jazz.Compiler.WarningConfig
   ( WarningSettings,
@@ -440,7 +441,7 @@ analyzeRebindingWarnings settings expression = do
 
 resolveForAnalyzer :: Expr 'Lowered -> IO (Expr 'Resolved)
 resolveForAnalyzer expression =
-  case resolveStandaloneExprNames (exportInventory []) expression of
+  case resolveStandaloneExprNames (exportInventory []) (reindexLoweredExpr expression) of
     Left diagnostics -> failTest ("fixture resolution failed: " <> Text.pack (show diagnostics))
     Right resolved -> pure resolved
 

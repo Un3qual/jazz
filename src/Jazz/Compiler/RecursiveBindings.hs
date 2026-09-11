@@ -1,4 +1,5 @@
 {-# LANGUAGE ConstraintKinds #-}
+{-# LANGUAGE DataKinds #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TypeFamilies #-}
@@ -31,6 +32,7 @@ module Jazz.Compiler.RecursiveBindings
     preparedRecursiveScopeStatements,
     recursiveScopeBindingNames,
     recursiveScopeGroups,
+    resolvedExpressionReferences,
   )
 where
 
@@ -49,11 +51,15 @@ import Data.Text (Text)
 import Jazz.Compiler.AST
   ( CaseArm (..),
     CoreNameAt,
+    CoreNode (..),
+    CorePhase (Resolved),
     CoreUserNameAt,
     Expr (..),
+    ImplMethod (..),
     Statement (..),
   )
-import Jazz.Compiler.Name (Name, operatorBindingName)
+import Jazz.Compiler.CoreIdentity (CoreBinderId, ResolvedNodeFacts (..), ResolvedReference (..))
+import Jazz.Compiler.Name (Name, ResolvedName, operatorBindingName)
 import Jazz.Compiler.Parser.Operator
   ( isBuiltinOperatorSymbol,
   )
@@ -70,6 +76,36 @@ import Jazz.Compiler.StableSet
     stableSetOrderedList,
     stableSetSingleton,
   )
+
+-- | Declaration targets already selected by resolution. Nested declarations
+-- need no name-based shadowing here: their IDs cannot select an outer binder.
+resolvedExpressionReferences :: Expr 'Resolved -> Map CoreBinderId ResolvedName
+resolvedExpressionReferences expression = case expression of
+  EVar node name -> reference node name
+  EOperatorValue node symbol -> reference node (operatorBindingName symbol)
+  ELambda _ _ body -> recur body
+  EList _ elements -> foldMap recur elements
+  ETuple _ elements -> foldMap recur elements
+  EApply _ function argument -> recur function <> recur argument
+  ETypeApplication _ function _ _ -> recur function
+  EIf _ condition yes no -> foldMap recur [condition, yes, no]
+  EPatternCase _ scrutinee arms -> recur scrutinee <> foldMap armReferences arms
+  EBinary node symbol left right -> reference node (operatorBindingName symbol) <> recur left <> recur right
+  ESectionLeft node left symbol -> reference node (operatorBindingName symbol) <> recur left
+  ESectionRight node symbol right -> reference node (operatorBindingName symbol) <> recur right
+  EBlock _ statements -> foldMap statementReferences statements
+  ELit {} -> Map.empty
+  where
+    recur = resolvedExpressionReferences
+    reference node name = case resolvedNodeReference (coreNodeFacts node) of
+      Just (LexicalReference binder) -> Map.singleton binder name
+      _ -> Map.empty
+    armReferences (CaseArm _ _ guard body) = foldMap recur guard <> recur body
+    statementReferences statement = case statement of
+      SLet _ _ value -> recur value
+      SExpr _ value -> recur value
+      SImpl _ _ _ methods -> foldMap (\(ImplMethod _ _ body) -> recur body) methods
+      _ -> Map.empty
 
 collectBindingNames :: [(Int, Statement phase)] -> Map Int (CoreNameAt phase)
 collectBindingNames =

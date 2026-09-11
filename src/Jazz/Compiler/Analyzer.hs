@@ -461,7 +461,6 @@ collectScopeDiagnosticsWithPreparedScope (PreparedAnalysisScope statements rawRe
       collectUnusedBindingWarnings
         settings
         hiddenStatementIndices
-        recursiveGroupsByStatement
         indexedStatements
 
     -- Diagnostics use source-ordered builders for O(1) append.
