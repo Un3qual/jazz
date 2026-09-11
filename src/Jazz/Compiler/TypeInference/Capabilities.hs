@@ -74,7 +74,6 @@ import Jazz.Compiler.AST
     CoreSort (StatementSort),
     Expr (..),
     ImplMethod (..),
-    SignaturePayload,
     SignatureType,
     Statement (..),
   )
@@ -86,7 +85,6 @@ import Jazz.Compiler.CapabilityFacts
   ( ConcreteImplFact (..),
     concreteImplFactCapability,
     constraintSignatureAliasVariants,
-    constraintSignatureTypeVariableNamesInOrder,
     constraintSignatureTypesCompatible,
     normalizeConstraintSignatureName,
     qualifiedMethodKey,
@@ -164,6 +162,7 @@ import Jazz.Compiler.TypeInference.State
     inferInferredClassConstraintCount,
     inferInferredClassConstraints,
     inferModuleCapabilityFacts,
+    inferStatementFactSeeds,
     modifyDeclarationState,
     modifyInferenceOutput,
     modifyModuleInferenceState,
@@ -203,8 +202,6 @@ import Jazz.Compiler.TypeInference.Types
   )
 import Jazz.Compiler.TypeRepresentation
   ( NumericType (..),
-    pattern ConstrainedSignature,
-    pattern SignatureType,
     pattern TypeApplication,
     pattern TypeFunction,
     pattern TypeInt,
@@ -212,7 +209,6 @@ import Jazz.Compiler.TypeRepresentation
     pattern TypeName,
     pattern TypeNumeric,
     pattern TypeTuple,
-    pattern UnsupportedSignature,
   )
 
 capabilityFactsFromState :: InferState -> ScopeCapabilityFacts
@@ -1419,39 +1415,31 @@ constraintSignatureBlockRuntimeHint state env initialLocalHints statements =
       constraintSignatureExpressionRuntimeHintWithLocalHints state env localHints expr
     go localHints pendingHints (statement : rest) =
       case statement of
-        SSignature _ name signaturePayload ->
-          let nameText = identifierText name
+        SSignature node name _ ->
+          let key = typeEnvReferenceKey (coreNodeFacts node) name
               nextPendingHints =
-                case signaturePayloadRuntimeHint signaturePayload of
-                  Just runtimeHint -> Map.insert nameText runtimeHint pendingHints
-                  Nothing -> Map.delete nameText pendingHints
+                case checkedSignatureRuntimeHint (coreNodeId node) of
+                  Just runtimeHint -> Map.insert key runtimeHint pendingHints
+                  Nothing -> Map.delete key pendingHints
            in go localHints nextPendingHints rest
         SLet node name valueExpr ->
-          let nameText = identifierText name
+          let key = typeEnvBindingKey (coreNodeFacts node) name
               bindingHint =
-                Map.lookup nameText pendingHints
+                Map.lookup key pendingHints
                   <|> constraintSignatureExpressionRuntimeHintWithLocalHints state env localHints valueExpr
               nextLocalHints =
                 case bindingHint of
                   Just runtimeHint -> Map.insert (typeEnvBindingKey (coreNodeFacts node) name) runtimeHint localHints
                   Nothing -> localHints
-           in go nextLocalHints (Map.delete nameText pendingHints) rest
+           in go nextLocalHints (Map.delete key pendingHints) rest
         _ ->
           go localHints pendingHints rest
 
-signaturePayloadRuntimeHint :: SignaturePayload 'Resolved -> Maybe (SignatureType 'Resolved)
-signaturePayloadRuntimeHint signaturePayload =
-  case signaturePayload of
-    SignatureType signatureType
-      | null (constraintSignatureTypeVariableNamesInOrder signatureType) -> Just signatureType
-    SignatureType {} -> Nothing
-    ConstrainedSignature _ signatureType
-      | null (constraintSignatureTypeVariableNamesInOrder signatureType) ->
-          Just signatureType
-    ConstrainedSignature _ signatureType ->
-      Signature.constraintSignatureTypeToExpressionType signatureType >>= Signature.expressionTypeToConcreteSignature
-    UnsupportedSignature {} ->
-      Nothing
+    checkedSignatureRuntimeHint nodeId = do
+      (bindings, _) <- Map.lookup nodeId (inferStatementFactSeeds state)
+      case bindings of
+        [(_, binding)] -> typeBindingRuntimeHint state binding
+        _ -> Nothing
 
 typeBindingRuntimeHint :: InferState -> TypeBinding -> Maybe (SignatureType 'Resolved)
 typeBindingRuntimeHint state binding =
