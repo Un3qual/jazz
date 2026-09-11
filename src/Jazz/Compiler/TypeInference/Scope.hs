@@ -78,7 +78,6 @@ import Jazz.Compiler.RecursiveBindings
     freeVarsExprWithBound,
     inferSelfRecursiveBindings,
     inferSelfReferencedBindings,
-    prepareRecursiveScope,
     preparedRecursiveScopeFactsForOuterBindings,
     preparedRecursiveScopeStatements,
     recursiveScopeBindingNames,
@@ -321,15 +320,15 @@ publishVisibleTypes env state =
         (inferModule state) {inferenceVisibleTypes = env}
     }
 
-inferScopeTypeWithMode :: InferExprWithModeFn -> InferenceMode -> TypeEnv -> InferState -> [Statement 'Resolved] -> (Maybe ExpressionType, InferState)
-inferScopeTypeWithMode inferExpression mode initialEnv initialState statements =
+inferScopeTypeWithMode :: InferExprWithModeFn -> InferenceMode -> TypeEnv -> InferState -> PreparedRecursiveScope 'Resolved -> (Maybe ExpressionType, InferState)
+inferScopeTypeWithMode inferExpression mode initialEnv initialState preparedScope =
   let (inferredResult, finalState, _) =
         inferScopeTypeWithModeAndForwardBindings
           inferExpression
           mode
           initialEnv
           initialState
-          statements
+          preparedScope
    in (inferredResult, finalState)
 
 inferScopeTypeWithModeAndForwardBindings ::
@@ -337,9 +336,9 @@ inferScopeTypeWithModeAndForwardBindings ::
   InferenceMode ->
   TypeEnv ->
   InferState ->
-  [Statement 'Resolved] ->
+  PreparedRecursiveScope 'Resolved ->
   (Maybe ExpressionType, InferState, Map Int (ResolvedName, SourceSpan))
-inferScopeTypeWithModeAndForwardBindings inferExpression mode initialEnv initialState statements =
+inferScopeTypeWithModeAndForwardBindings inferExpression mode initialEnv initialState preparedScope =
   inferScopeTypeInternal
     ScopeInferenceRequest
       { scopeForwardSignedFunctionsPolicy = PermitForwardSignedFunctions,
@@ -347,7 +346,7 @@ inferScopeTypeWithModeAndForwardBindings inferExpression mode initialEnv initial
         scopeInferenceMode = mode,
         scopeInitialEnv = initialEnv,
         scopeInitialState = initialState,
-        scopePreparedInference = prepareInferenceScope initialEnv statements
+        scopePreparedInference = preparedInferenceScope (inferenceOuterBindingNames initialEnv) preparedScope
       }
 
 inferScopeTypeWithModeAndForwardBindingsUsingPreparedScope ::
@@ -370,8 +369,8 @@ inferScopeTypeWithModeAndForwardBindingsUsingPreparedScope preparedScope inferEx
               scopePreparedInference = inferenceScope
             }
 
-inferNestedScopeTypeWithMode :: InferExprWithModeFn -> InferenceMode -> TypeEnv -> InferState -> [Statement 'Resolved] -> (Maybe ExpressionType, InferState)
-inferNestedScopeTypeWithMode inferExpression mode initialEnv initialState statements =
+inferNestedScopeTypeWithMode :: InferExprWithModeFn -> InferenceMode -> TypeEnv -> InferState -> PreparedRecursiveScope 'Resolved -> (Maybe ExpressionType, InferState)
+inferNestedScopeTypeWithMode inferExpression mode initialEnv initialState preparedScope =
   let (inferredResult, finalState, _) =
         inferScopeTypeInternal
           ScopeInferenceRequest
@@ -380,28 +379,20 @@ inferNestedScopeTypeWithMode inferExpression mode initialEnv initialState statem
               scopeInferenceMode = mode,
               scopeInitialEnv = initialEnv,
               scopeInitialState = initialState,
-              scopePreparedInference = prepareInferenceScope initialEnv statements
+              scopePreparedInference = preparedInferenceScope (inferenceOuterBindingNames initialEnv) preparedScope
             }
    in (inferredResult, finalState)
 
-inferScopeType :: InferExprWithModeFn -> TypeEnv -> InferState -> [Statement 'Resolved] -> (Maybe ExpressionType, InferState)
-inferScopeType inferExpression initialEnv initialState statements =
+inferScopeType :: InferExprWithModeFn -> TypeEnv -> InferState -> PreparedRecursiveScope 'Resolved -> (Maybe ExpressionType, InferState)
+inferScopeType inferExpression initialEnv initialState preparedScope =
   let (inferredResult, finalState) =
         inferNestedScopeTypeWithMode
           inferExpression
           InferenceOnly
           initialEnv
           initialState
-          statements
+          preparedScope
    in (inferredResult, finalState)
-
-prepareInferenceScope :: TypeEnv -> [Statement 'Resolved] -> PreparedInferenceScope
-prepareInferenceScope initialEnv statements =
-  preparedInferenceScope
-    outerBindingNames
-    (prepareRecursiveScope outerBindingNames statements)
-  where
-    outerBindingNames = inferenceOuterBindingNames initialEnv
 
 inferenceOuterBindingNames :: TypeEnv -> Set ResolvedName
 inferenceOuterBindingNames initialEnv =

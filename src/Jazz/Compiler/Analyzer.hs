@@ -90,7 +90,7 @@ import Jazz.Compiler.Purity
   )
 import Jazz.Compiler.RecursiveBindings
   ( PreparedRecursiveScope,
-    prepareRecursiveScope,
+    prepareResolvedScope,
     preparedRecursiveScopeFactsForOuterBindings,
     preparedRecursiveScopeStatements,
     recursiveScopeGroups,
@@ -177,8 +177,8 @@ analyzeProgramWithInputs inputs hiddenStatementIndices expr =
   where
     collectedDiagnostics =
       case expr of
-        EBlock _ statements ->
-          collectScopeDiagnostics hiddenStatementIndices settings importedBindings forwardBindings importedClasses topLevelContext statements
+        EBlock node statements ->
+          collectScopeDiagnostics hiddenStatementIndices settings importedBindings forwardBindings importedClasses topLevelContext (prepareResolvedScope node statements)
         _ ->
           collectExprDiagnostics settings importedBindings importedClasses topLevelContext expr
     settings = analysisWarningSettings inputs
@@ -390,7 +390,7 @@ collectExprDiagnostics settings visibleBindings visibleClassNames context expr =
       collectExprDiagnostics settings visibleBindings visibleClassNames context leftExpr
     ESectionRight _ _ rightExpr ->
       collectExprDiagnostics settings visibleBindings visibleClassNames context rightExpr
-    EBlock _ statements -> collectScopeDiagnostics Set.empty settings visibleBindings Map.empty visibleClassNames context statements
+    EBlock node statements -> collectScopeDiagnostics Set.empty settings visibleBindings Map.empty visibleClassNames context (prepareResolvedScope node statements)
 
 collectExprListDiagnostics ::
   WarningSettings ->
@@ -413,16 +413,13 @@ collectScopeDiagnostics ::
   Map Int (ResolvedName, VisibleBinding) ->
   Set Text ->
   AnalysisContext ->
-  [Statement 'Resolved] ->
+  PreparedRecursiveScope 'Resolved ->
   CollectedDiagnostics
-collectScopeDiagnostics hiddenStatementIndices settings outerScope forwardBindings outerClassNames context statements =
+collectScopeDiagnostics hiddenStatementIndices settings outerScope forwardBindings outerClassNames context preparedScope =
   collectScopeDiagnosticsWithPreparedScope
     ( preparedAnalysisScope
         outerBindingNames
-        ( prepareRecursiveScope
-            outerBindingNames
-            statements
-        )
+        preparedScope
     )
     hiddenStatementIndices
     settings

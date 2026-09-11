@@ -590,8 +590,8 @@ inferExprTypeWithMode ::
   (Maybe ExpressionType, InferState)
 inferExprTypeWithMode allowForwardSignedFunctions mode env state expr =
   case expr of
-    EBlock _ statements ->
-      uncurry recordBlockResult (inferBlock mode statements)
+    EBlock node statements ->
+      uncurry recordBlockResult (inferBlock mode node statements)
     _ -> inferExprTypeDetailedWithMode mode env state expr
   where
     recordBlockResult result inferredState =
@@ -602,13 +602,13 @@ inferExprTypeWithMode allowForwardSignedFunctions mode env state expr =
           result
       )
 
-    inferBlock blockMode statements =
+    inferBlock blockMode node statements =
       (if allowForwardSignedFunctions then inferScopeTypeWithMode else inferNestedScopeTypeWithMode)
         (inferExprTypeWithMode False)
         blockMode
         env
         state
-        statements
+        (prepareResolvedScope node statements)
 
 -- | Infer expression types and record the semantic facts consumed by analysis.
 inferExprTypeDetailedWithMode ::
@@ -671,7 +671,7 @@ inferExprTypeDetailedRaw env state expr =
        in (expressionType, finalState)
     EList _ elements -> inferListElements state elements
     ETuple _ elements -> inferTupleElements state elements
-    EBlock _ statements -> inferNestedScopeTypeWithMode (inferExprTypeWithMode False) InferConcreteFunctions env state statements
+    EBlock node statements -> inferNestedScopeTypeWithMode (inferExprTypeWithMode False) InferConcreteFunctions env state (prepareResolvedScope node statements)
     EVar node name ->
       let (expressionType, finalState) = inferVariableType (coreNodeId node) name state
        in (expressionType, annotateNewErrorsWithPrimarySpan (coreNodeSpan node) state finalState)

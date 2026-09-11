@@ -24,7 +24,9 @@ import Jazz.Compiler.Name
     resolvedLocalName,
   )
 import Jazz.Compiler.RecursiveBindings
-  ( prepareRecursiveScope,
+  ( PreparedRecursiveScope,
+    prepareRecursiveScope,
+    prepareResolvedScope,
   )
 import Jazz.Compiler.SemanticFacts (StatementDeclarationFact (SignatureDeclaration))
 import Jazz.Compiler.Semantics.BindingSignature.Shared (resolvedProgram)
@@ -436,7 +438,7 @@ testProductionScopeElaboratesSignatureOnce = do
         InferConcreteFunctions
         Map.empty
         initialInferState
-        (programStatements (resolvedProgram "identity :: a -> a.\nidentity = \\(item) -> item."))
+        (programScope (resolvedProgram "identity :: a -> a.\nidentity = \\(item) -> item."))
 
     syntheticProductionInfer :: InferExprWithModeFn
     syntheticProductionInfer mode env state expression =
@@ -470,7 +472,7 @@ testPreparedInferenceScopeRederivesForOuterBindings = do
         InferenceOnly
         Map.empty
         initialInferState
-        statements
+        (programScope (resolvedProgram "self = self."))
     (_, preparedState, _) =
       TypeInferenceScope.inferScopeTypeWithModeAndForwardBindingsUsingPreparedScope
         (prepareRecursiveScope (Set.singleton (valueName "self")) statements)
@@ -510,7 +512,7 @@ testRecursivePreviewSolverStateIsTransactional =
         syntheticPreviewInfer
         Map.empty
         initialInferState
-        (programStatements (resolvedProgram "left = right.\nearly = probe.\nright = left."))
+        (programScope (resolvedProgram "left = right.\nearly = probe.\nright = left."))
 
     syntheticPreviewInfer :: InferExprWithModeFn
     syntheticPreviewInfer mode _ state expression =
@@ -553,7 +555,7 @@ testRecursivePreviewRefreshesAfterSolverChange =
         syntheticPreviewInfer
         (Map.singleton (valueName "shared") (PlainTypeBinding (SemanticVariable sharedTypeVar)))
         initialInferState
-        (programStatements (resolvedProgram "left = right.\nadvance = advanceSolver.\nprobe = probeLeft.\nright = left shared."))
+        (programScope (resolvedProgram "left = right.\nadvance = advanceSolver.\nprobe = probeLeft.\nright = left shared."))
 
     syntheticPreviewInfer :: InferExprWithModeFn
     syntheticPreviewInfer mode env state expression =
@@ -628,7 +630,7 @@ assertRecursivePreviewRefreshesAfterConstraintChange label addConstraint hasCons
         syntheticPreviewInfer
         (Map.singleton (valueName "shared") (PlainTypeBinding (SemanticVariable sharedTypeVar)))
         initialInferState
-        (programStatements (resolvedProgram "left = right.\nadvance = advanceConstraint.\nprobe = probeLeft.\nright = left constraintSensitive."))
+        (programScope (resolvedProgram "left = right.\nadvance = advanceConstraint.\nprobe = probeLeft.\nright = left constraintSensitive."))
 
     syntheticPreviewInfer :: InferExprWithModeFn
     syntheticPreviewInfer mode env state expression =
@@ -684,12 +686,16 @@ testRecursivePreviewReuseAtSameFrontier =
         allocatingInfer
         Map.empty
         initialInferState
-        (programStatements (resolvedProgram "left = right.\nearlyOne = probe.\nearlyTwo = probe.\nearlyThree = probe.\nright = left."))
+        (programScope (resolvedProgram "left = right.\nearlyOne = probe.\nearlyTwo = probe.\nearlyThree = probe.\nright = left."))
 
     allocatingInfer :: InferExprWithModeFn
     allocatingInfer mode _ state _ =
       let (_, nextState) = freshTypeVar state
        in inferenceOnlyResult mode (Just SemanticBool) nextState
+
+programScope :: Expr 'Resolved -> PreparedRecursiveScope 'Resolved
+programScope (EBlock node statements) = prepareResolvedScope node statements
+programScope expression = error ("expected resolved block, got " <> show expression)
 
 programStatements :: Expr 'Resolved -> [Statement 'Resolved]
 programStatements (EBlock _ statements) = statements
