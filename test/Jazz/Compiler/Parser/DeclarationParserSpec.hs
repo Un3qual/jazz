@@ -40,10 +40,9 @@ import Jazz.Compiler.Parser.Lexer (Token (..))
 import Jazz.Compiler.Parser.TestSupport
   ( lexSource,
   )
-import Jazz.Compiler.Parser.TokenParser (runTokenParserPrefix)
+import Jazz.Compiler.Parser.TokenParser (failParserFailure, peekToken, runTokenParserPrefix, runTokenStreamParserPrefixDetailed)
 import Jazz.Compiler.Parser.TokenStream
   ( tokenStreamFromList,
-    tokenStreamToList,
   )
 import Jazz.Compiler.TypeRepresentation (SignatureType (..))
 import Jazz.TestHarness
@@ -218,24 +217,15 @@ testCapabilityCallbackDiagnostic = do
   let tokenStream = tokenStreamFromList tokens
       expectedFailure = parserFailure (ExpectedSyntax "callback expression" ParserEndOfInput)
       unexpectedCursorFailure = parserFailure (ExpectedSyntax "expression callback at 'item'" ParserEndOfInput)
-      parseImplExpression expressionTokens =
-        case map tokenLexeme (tokenStreamToList expressionTokens) of
-          ["item", ".", "}", "."] -> Left expectedFailure
-          _ -> Left unexpectedCursorFailure
-  assertEqual
-    "capability callback failure"
-    (Left expectedFailure)
-    ( Declaration.parseCapabilityDeclarationTokensDetailed
-        (const (Left expectedFailure))
-        tokenStream
-    )
-  assertEqual
-    "capability callback cursor consumption"
-    (Left expectedFailure)
-    ( Declaration.parseCapabilityDeclarationTokensDetailed
-        parseImplExpression
-        tokenStream
-    )
+      parseImplExpression = do
+        next <- peekToken
+        failParserFailure $ case tokenLexeme <$> next of
+          Just "item" -> expectedFailure
+          _ -> unexpectedCursorFailure
+      parseCapability parser =
+        runTokenStreamParserPrefixDetailed "capability declaration" (Declaration.parseCapabilityDeclarationParser parser) tokenStream
+  assertEqual "capability callback failure" (Left expectedFailure) (parseCapability (failParserFailure expectedFailure))
+  assertEqual "capability callback cursor consumption" (Left expectedFailure) (parseCapability parseImplExpression)
 
 testAcceptsModuleBodyImport :: IO ()
 testAcceptsModuleBodyImport =

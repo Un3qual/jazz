@@ -4,8 +4,7 @@
 
 -- | Shared token boundaries and name predicates for declaration grammars.
 module Jazz.Compiler.Parser.DeclarationTokens
-  ( collectUntilDot,
-    collectUntilDotParser,
+  ( collectUntilDotParser,
     looksLikeOperatorDeclaration,
     looksLikeReservedAbstractionDeclaration,
     looksLikeAbstractionDeclaration,
@@ -43,17 +42,13 @@ import Jazz.Compiler.Parser.Lexer
     TokenKind (..),
     isImmediatelyAfter,
   )
-import Jazz.Compiler.Parser.TokenParser (Parser, failParserFailure, parseAnyToken, runTokenStreamParserPrefixDetailed)
+import Jazz.Compiler.Parser.TokenParser (Parser, failParserFailure, parseAnyToken)
 import Jazz.Compiler.Parser.TokenStream
   ( TokenStream,
     pattern EmptyTokens,
     pattern (:<),
   )
 import qualified Text.Megaparsec as MP
-
--- Temporary prefix adapter for capability declarations during their migration.
-collectUntilDot :: TokenStream -> Either ParserFailure ([Token], TokenStream)
-collectUntilDot = runTokenStreamParserPrefixDetailed "capability signature boundary" collectUntilDotParser
 
 collectUntilDotParser :: Parser [Token]
 collectUntilDotParser = go 0 []

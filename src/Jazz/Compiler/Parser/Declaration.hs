@@ -6,7 +6,7 @@
 module Jazz.Compiler.Parser.Declaration
   ( collectImportAliasesUntilBrace,
     collectImportAliasesUntilEnd,
-    parseCapabilityDeclarationTokensDetailed,
+    parseCapabilityDeclarationParser,
     parseDataStatementParser,
     parseStatementParser,
   )
@@ -39,7 +39,7 @@ import Jazz.Compiler.Parser.AST
   )
 import Jazz.Compiler.Parser.CapabilityDeclaration
   ( looksLikeSupportedCapabilityDeclaration,
-    parseCapabilityDeclarationTokensDetailed,
+    parseCapabilityDeclarationParser,
     rejectReservedAbstractionSyntax,
   )
 import Jazz.Compiler.Parser.Context
@@ -441,8 +441,7 @@ parseStatement expression context = do
     abstractionToken@Token {tokenKind = TIdentifier name} :< rest
       | isDeclarationContext statementContext,
         looksLikeSupportedCapabilityDeclaration name rest ->
-          -- Temporary adapter for the capability declaration family only.
-          pure <$> parseOwnedPrefix (parseCapabilityDeclarationTokensDetailed (runTokenStreamParserPrefixDetailed "impl expression" expression))
+          pure <$> parseCapabilityDeclarationParser expression
       | isDeclarationContext statementContext,
         looksLikeReservedAbstractionDeclaration name rest ->
           liftOwnedResult (rejectReservedAbstractionSyntax abstractionToken)
