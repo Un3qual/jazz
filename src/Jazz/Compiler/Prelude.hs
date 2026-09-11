@@ -5,7 +5,6 @@
 module Jazz.Compiler.Prelude
   ( PreparedPrelude (..),
     ResolvedPrelude (..),
-    preparedPreludeExpr,
     preparePrelude,
     resolvedExplicitPrelude,
   )
@@ -17,7 +16,6 @@ import Data.Text (Text)
 import Jazz.Compiler.AST
   ( CorePhase (..),
     DataConstructor (..),
-    Expr (..),
     Statement (..),
   )
 import Jazz.Compiler.BundledPrelude (bundledPreludeIdentity)
@@ -67,9 +65,6 @@ data PreparedPrelude = PreparedPrelude
     preparedPreludeVisibleExports :: ModuleExportInventory
   }
   deriving (Eq, Show)
-
-preparedPreludeExpr :: PreparedPrelude -> Maybe (Expr 'Lowered)
-preparedPreludeExpr = fmap coreModuleExpr . preludeModule . preparedPreludeArtifact
 
 preparePrelude :: ResolvedPrelude -> Either Diagnostic PreparedPrelude
 preparePrelude resolvedPrelude =

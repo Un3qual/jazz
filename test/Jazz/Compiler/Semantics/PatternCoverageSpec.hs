@@ -688,6 +688,7 @@ hiddenConstructorInputs :: InferenceInputs
 hiddenConstructorInputs =
   InferenceInputs
     { inferenceWarningSettings = defaultWarningSettings,
+      inferenceExternalUses = Set.empty,
       inferenceImportedTypes =
         fixtureTypes $
           Map.fromList

@@ -57,6 +57,8 @@ import Jazz.Compiler.Driver
     runOutput,
     runRuntimeErrors,
     runRuntimeValue,
+    runSourceWithPrelude,
+    runSourceWithPreludeAndHost,
   )
 import Jazz.Compiler.ModuleAnalysis
   ( analyzeModule,
@@ -212,6 +214,7 @@ main = runTestSuite "ModulePipelineContract" tests
 tests :: [NamedTest]
 tests =
   [ ("standalone source and prelude keep separate graph identities", testStandaloneProgramOwnership),
+    ("standalone prelude expressions retain effects and terminal values", testStandalonePreludeExecution),
     ("single-module analysis consumes complete imported interfaces", testSingleModuleAnalysis),
     ("runtime consumes analyzed declarations after source types are erased", testRuntimeUsesAnalyzedDeclarations),
     ("operation facts retain the numeric rule decision across equivalent aliases", testBinaryOperandAliasSelection),
@@ -270,6 +273,24 @@ testStandaloneProgramOwnership = do
       runtime <- either (fail . show) pure (evaluateAnalyzedProgram analyzed)
       assertEqual "standalone program result" (Just "Token") (renderRuntimeValue <$> runtimeProgramOutput runtime)
     other -> fail ("standalone graph analysis failed: " <> show other)
+
+testStandalonePreludeExecution :: IO ()
+testStandalonePreludeExecution = do
+  calls <- newIORef []
+  result <-
+    runSourceWithPreludeAndHost
+      (recordingHost calls)
+      defaultWarningSettings
+      (Just "__kernel_writeStdoutRaw! \"prelude\".")
+      "__kernel_writeStdoutRaw! \"source\". 7."
+  assertEqual "prelude/source compilation" [] (runCompileErrors result)
+  assertEqual "prelude/source execution" [] (runRuntimeErrors result)
+  assertEqual "prelude then source effects" ["prelude", "source"] =<< readIORef calls
+  assertEqual "source terminal value" (Just "7") (runOutput result)
+  emptyResult <- runSourceWithPrelude defaultWarningSettings (Just "42.") ""
+  assertEqual "empty source retains prelude terminal value" (Just "42") (runOutput emptyResult)
+  bindingResult <- runSourceWithPrelude defaultWarningSettings (Just "42.") "value = 1."
+  assertEqual "source declaration clears prelude terminal value" Nothing (runOutput bindingResult)
 
 testSingleModuleAnalysis :: IO ()
 testSingleModuleAnalysis = do

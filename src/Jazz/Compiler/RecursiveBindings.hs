@@ -106,9 +106,11 @@ resolvedExpressionReferences expression = case expression of
 -- | Name resolution has chosen namespaces and nonlocal targets. This pass owns
 -- ordered local visibility, recursive groups, and the references selecting each
 -- declaration. Later phases consume the published product unchanged.
-resolveLexicalScopes :: Set ResolvedName -> Expr 'Resolved -> Expr 'Resolved
-resolveLexicalScopes externalNames = expression Map.empty
+resolveLexicalScopes :: Map ResolvedName ResolvedReference -> Set ResolvedName -> Expr 'Resolved -> Expr 'Resolved
+resolveLexicalScopes externalReferences externalNames = expression (Map.mapMaybe lexicalBinder externalReferences)
   where
+    lexicalBinder (LexicalReference binder) = Just binder
+    lexicalBinder _ = Nothing
     expression bound expr = case expr of
       ELit {} -> expr
       EVar node name -> EVar (reference bound name node) name

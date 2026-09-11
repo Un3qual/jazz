@@ -116,7 +116,7 @@ resolveExprNames ::
   ResolutionContext ->
   Expr 'Lowered ->
   Either (NonEmpty Diagnostic) (Expr 'Resolved)
-resolveExprNames context rootExpression = Right (publishResolvedCaptures (resolveLexicalScopes externalNames (resolveExpr (resolutionSourceOwner context) Map.empty rootExpression)))
+resolveExprNames context rootExpression = Right (publishResolvedCaptures (resolveLexicalScopes (resolutionExternalReferences context) externalNames (resolveExpr (resolutionSourceOwner context) Map.empty rootExpression)))
   where
     ambientExports = resolutionAmbientExports context
     localInventory = resolutionLocalInventory context

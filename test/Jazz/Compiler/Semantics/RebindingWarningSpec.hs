@@ -105,6 +105,7 @@ tests =
     ("unused-binding suppresses constructor-rebinding duplicate when W0001 also emits", testUnusedBindingSuppressesConstructorRebindingSiteDuplicate),
     ("unused-binding promotion reports compile errors", testPromotedUnusedBindingReportsCompileErrors),
     ("bundled default prelude aliases do not trigger same-scope rebinding", testBundledPreludeAliasShadowingNoWarning),
+    ("source references count as uses of explicit prelude bindings", testExplicitPreludeExternalUses),
     ("explicit prelude text matching bundled source still emits rebinding warnings", testExplicitPreludeMatchingBundledSourceEmitsWarning),
     ("driver keeps warning-only success diagnostics", testDriverKeepsWarningOnlySuccessDiagnosticOnly),
     ("driver stores native compile failures in one diagnostic stream", testDriverStoresNativeCompileFailure),
@@ -343,6 +344,14 @@ testBundledPreludeAliasShadowingNoWarning = do
   result <- compileSource settings "map = (+ 1). map 2."
   assertEqual "compile errors" [] (compileErrors result)
   assertEqual "warning count" 0 (length (compileWarnings result))
+
+testExplicitPreludeExternalUses :: IO ()
+testExplicitPreludeExternalUses = do
+  settings <- unusedBindingPromotedSettings
+  used <- compileSourceWithPrelude settings (Just "identity = \\(x) -> x.") "identity 1."
+  assertEqual "used prelude binding" [] (compileErrors used)
+  unused <- compileSourceWithPrelude settings (Just "identity = \\(x) -> x.") "1."
+  assertEqual "unused prelude binding retains promoted warning" 1 (length (compileErrors unused))
 
 testExplicitPreludeMatchingBundledSourceEmitsWarning :: IO ()
 testExplicitPreludeMatchingBundledSourceEmitsWarning = do

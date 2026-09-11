@@ -22,11 +22,6 @@ import Jazz.Compiler.ModuleExports (exportInventory)
 import Jazz.Compiler.ModuleResolver (resolveStandaloneExprNames)
 import Jazz.Compiler.Parser (parseSurfaceProgram)
 import Jazz.Compiler.Parser.Lower (lowerSurfaceExpr)
-import Jazz.Compiler.SourceProgram
-  ( parseAndLowerStandaloneSource,
-    prependLoweredStatements,
-    scopeStatements,
-  )
 import Jazz.Compiler.TypeInference
   ( inferExpressionDefault,
   )
@@ -46,7 +41,6 @@ tests =
   [ ("if remains the canonical boolean conditional", testIfRemainsCanonicalIf),
     ("dollar lowers directly to application", testDollarLowersToApplication),
     ("lowering assigns deterministic pre-order node identities", testDeterministicNodeIdentities),
-    ("prelude composition preserves one pre-order identity space", testComposedNodeIdentities),
     ("lowering preserves a complete span on every canonical node", testCompleteCanonicalSpans)
   ]
 
@@ -74,18 +68,6 @@ testDeterministicNodeIdentities =
     assertEqual "repeat lowering" firstIds secondIds
     assertEqual "strict source pre-order" [CoreNodeId 0 .. CoreNodeId (length firstIds - 1)] firstIds
     assertEqual "no duplicate IDs" (length firstIds) (length (nub firstIds))
-
-testComposedNodeIdentities :: IO ()
-testComposedNodeIdentities =
-  assertRight "lower prelude" (parseAndLowerStandaloneSource "identity = \\(x) -> x.") $ \loweredPrelude ->
-    assertRight "lower source" (parseAndLowerStandaloneSource "result = identity 1.") $ \loweredSource -> do
-      let combined = prependLoweredStatements (scopeStatements loweredPrelude) loweredSource
-          combinedIds = canonicalNodeIds combined
-      assertEqual
-        "composed strict source pre-order"
-        [CoreNodeId 0 .. CoreNodeId (length combinedIds - 1)]
-        combinedIds
-      assertEqual "composed IDs are unique" (length combinedIds) (length (nub combinedIds))
 
 testCompleteCanonicalSpans :: IO ()
 testCompleteCanonicalSpans =

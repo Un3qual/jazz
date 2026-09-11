@@ -18,6 +18,7 @@ module Jazz.Compiler.Runtime
     runtimeExplicitResultHintsInOrder,
     ScopeResult (..),
     evaluateModuleScope,
+    evaluateModuleScopePure,
     evaluateRuntimeExprWithSourceUnitStatements,
     evaluateRuntimeExpr,
     evaluateRuntimeExprObserved,
@@ -48,6 +49,7 @@ import Jazz.Compiler.ModuleIdentity (ModulePath, preludeModulePath)
 import Jazz.Compiler.RecursiveBindings (prepareAnalyzedScope)
 import Jazz.Compiler.Runtime.Engine
   ( evaluateRuntimeExpressionObserved,
+    evaluateRuntimeScopePureRequest,
     evaluateRuntimeScopeWithHostRequest,
     evaluateRuntimeScopeWithRequiredHostRequest,
     renderRuntimeValue,
@@ -158,6 +160,21 @@ evaluateRuntimeExprWithSourceUnitStatements sourceUnitStatementIndices expr =
             expr
         )
     )
+
+-- | The program coordinator uses this only after proving that all artifacts
+-- are host-free, including every dependency supplying the initial environment.
+evaluateModuleScopePure ::
+  Maybe SourceUnitOwner -> ModuleEvaluationMode -> RuntimeEnv -> Expr 'Analyzed -> Either Diagnostic ScopeResult
+evaluateModuleScopePure owner mode env expression =
+  evaluateRuntimeScopePureRequest
+    RuntimeScopeRequest
+      { runtimeScopeSourceUnitStatementIndices = Set.empty,
+        runtimeScopePreludeModulePath = preludeModulePath,
+        runtimeScopeCurrentModulePath = owner,
+        runtimeScopeEvaluationMode = mode,
+        runtimeScopeInitialEnvironment = env,
+        runtimeScope = prepareAnalyzedScope expression
+      }
 
 evaluateModuleScope ::
   Maybe SourceUnitOwner ->

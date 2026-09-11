@@ -151,6 +151,7 @@ moduleInferenceInputs :: CompileInputs -> ModulePath -> ImportedInterface -> Inf
 moduleInferenceInputs inputs modulePath importedInterface =
   InferenceInputs
     { inferenceWarningSettings = compileInputWarningSettings inputs,
+      inferenceExternalUses = compileInputExternalUses inputs,
       inferenceImportedTypes = importedTypes importedInterface,
       inferenceImportedDataTypes = importedDataTypes importedInterface,
       inferenceImportedConstructorWitnessNames = importedConstructorWitnessNames importedInterface,

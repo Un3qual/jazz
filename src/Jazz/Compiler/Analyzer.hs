@@ -52,6 +52,7 @@ import Jazz.Compiler.CapabilityFacts
     renderConcreteImplFact,
     splitQualifiedMethodKey,
   )
+import Jazz.Compiler.CoreIdentity (CoreBinderId)
 import Jazz.Compiler.DiagnosticCatalog
   ( ErrorCode (..),
     WarningCategory (..),
@@ -112,6 +113,7 @@ data AnalysisBinding = AnalysisBinding
 
 data AnalysisInputs = AnalysisInputs
   { analysisWarningSettings :: WarningSettings,
+    analysisExternalUses :: Set CoreBinderId,
     analysisImportedValues :: Map ResolvedName AnalysisBinding,
     analysisForwardFunctions :: Map Int (ResolvedName, AnalysisBinding),
     analysisImportedClasses :: Set ResolvedName,
@@ -157,6 +159,7 @@ analyzeProgramWithHiddenStatements hiddenStatementIndices settings expr =
   analyzeProgramWithInputs
     AnalysisInputs
       { analysisWarningSettings = settings,
+        analysisExternalUses = Set.empty,
         analysisImportedValues = Map.empty,
         analysisForwardFunctions = Map.empty,
         analysisImportedClasses = Set.empty,
@@ -173,7 +176,7 @@ analyzeProgramWithInputs inputs hiddenStatementIndices expr =
     collectedDiagnostics =
       case expr of
         EBlock node statements ->
-          collectScopeDiagnostics hiddenStatementIndices settings importedBindings forwardBindings importedClasses topLevelContext (prepareResolvedScope node statements)
+          collectScopeDiagnostics (analysisExternalUses inputs) hiddenStatementIndices settings importedBindings forwardBindings importedClasses topLevelContext (prepareResolvedScope node statements)
         _ ->
           collectExprDiagnostics settings importedBindings importedClasses topLevelContext expr
     settings = analysisWarningSettings inputs
@@ -193,6 +196,7 @@ analyzeProgramWithInputsAndPreparedScope inputs hiddenStatementIndices expr prep
       collectedDiagnostics =
         collectScopeDiagnosticsWithPreparedScope
           analysisScope
+          (analysisExternalUses inputs)
           hiddenStatementIndices
           (analysisWarningSettings inputs)
           (analysisVisibleBindings inputs)
@@ -378,7 +382,7 @@ collectExprDiagnostics settings visibleBindings visibleClassNames context expr =
       collectExprDiagnostics settings visibleBindings visibleClassNames context leftExpr
     ESectionRight _ _ rightExpr ->
       collectExprDiagnostics settings visibleBindings visibleClassNames context rightExpr
-    EBlock node statements -> collectScopeDiagnostics Set.empty settings visibleBindings Map.empty visibleClassNames context (prepareResolvedScope node statements)
+    EBlock node statements -> collectScopeDiagnostics Set.empty Set.empty settings visibleBindings Map.empty visibleClassNames context (prepareResolvedScope node statements)
 
 collectExprListDiagnostics ::
   WarningSettings ->
@@ -395,6 +399,7 @@ collectExprListDiagnostics settings visibleBindings visibleClassNames context el
 -- | Walk a block scope in declaration order, enforcing signature adjacency,
 -- rebinding policy, and recursive-peer visibility at the same time.
 collectScopeDiagnostics ::
+  Set CoreBinderId ->
   Set Int ->
   WarningSettings ->
   Map ResolvedName VisibleBinding ->
@@ -403,9 +408,10 @@ collectScopeDiagnostics ::
   AnalysisContext ->
   PreparedRecursiveScope 'Resolved ->
   CollectedDiagnostics
-collectScopeDiagnostics hiddenStatementIndices settings outerScope forwardBindings outerClassNames context preparedScope =
+collectScopeDiagnostics externalUses hiddenStatementIndices settings outerScope forwardBindings outerClassNames context preparedScope =
   collectScopeDiagnosticsWithPreparedScope
     (preparedAnalysisScope preparedScope)
+    externalUses
     hiddenStatementIndices
     settings
     outerScope
@@ -415,6 +421,7 @@ collectScopeDiagnostics hiddenStatementIndices settings outerScope forwardBindin
 
 collectScopeDiagnosticsWithPreparedScope ::
   PreparedAnalysisScope ->
+  Set CoreBinderId ->
   Set Int ->
   WarningSettings ->
   Map ResolvedName VisibleBinding ->
@@ -422,7 +429,7 @@ collectScopeDiagnosticsWithPreparedScope ::
   Set Text ->
   AnalysisContext ->
   CollectedDiagnostics
-collectScopeDiagnosticsWithPreparedScope (PreparedAnalysisScope statements rawRecursiveGroupsByStatement) hiddenStatementIndices settings outerScope forwardBindings outerClassNames context =
+collectScopeDiagnosticsWithPreparedScope (PreparedAnalysisScope statements rawRecursiveGroupsByStatement) externalUses hiddenStatementIndices settings outerScope forwardBindings outerClassNames context =
   flushPendingSignature finalPendingSignature finalDiagnostics
   where
     indexedStatements = zip [0 ..] statements
@@ -438,6 +445,7 @@ collectScopeDiagnosticsWithPreparedScope (PreparedAnalysisScope statements rawRe
       collectUnusedBindingWarnings
         settings
         hiddenStatementIndices
+        externalUses
         indexedStatements
 
     -- Diagnostics use source-ordered builders for O(1) append.

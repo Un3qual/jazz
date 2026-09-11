@@ -182,6 +182,7 @@ import Jazz.Compiler.WarningConfig
 
 data InferenceInputs = InferenceInputs
   { inferenceWarningSettings :: WarningSettings,
+    inferenceExternalUses :: Set CoreBinderId,
     inferenceImportedTypes :: TypeEnv,
     inferenceImportedDataTypes :: Map Text DataTypeBinding,
     inferenceImportedConstructorWitnessNames :: Map ResolvedName UnresolvedName,
@@ -464,6 +465,7 @@ emptyInferenceInputs :: WarningSettings -> InferenceInputs
 emptyInferenceInputs settings =
   InferenceInputs
     { inferenceWarningSettings = settings,
+      inferenceExternalUses = Set.empty,
       inferenceImportedTypes = Map.empty,
       inferenceImportedDataTypes = Map.empty,
       inferenceImportedConstructorWitnessNames = Map.empty,
@@ -476,6 +478,7 @@ analysisInputsForInference :: InferenceInputs -> Map Int (ResolvedName, Analysis
 analysisInputsForInference inputs forwardValues =
   AnalysisInputs
     { analysisWarningSettings = inferenceWarningSettings inputs,
+      analysisExternalUses = inferenceExternalUses inputs,
       analysisImportedValues =
         Map.mapKeys typeEnvName (Map.map (const (AnalysisBinding Nothing True)) (inferenceImportedTypes inputs)),
       analysisForwardFunctions = forwardValues,

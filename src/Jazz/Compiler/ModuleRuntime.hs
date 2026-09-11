@@ -81,7 +81,7 @@ import Jazz.Compiler.Runtime
     RuntimeHostEvaluationT,
     RuntimeValue,
     ScopeResult (..),
-    evaluateModuleScope,
+    evaluateModuleScopePure,
     evaluateModuleScopeWithRequiredEvaluationHostControl,
     runRuntimeHostEvaluation,
     runRuntimeHostEvaluationWithObservation,
@@ -104,6 +104,7 @@ import Jazz.Compiler.RuntimeHost
     disabledRuntimeHost,
   )
 import Jazz.Compiler.SemanticFacts (ExpressionFacts (expressionResolution))
+import Jazz.Compiler.SourceProgram (isStandaloneSourceModule)
 import Jazz.Compiler.SourceUnitOwnership (SourceUnitOwner (..))
 
 -- | Runtime-facing exports keep capability methods structurally distinct from
@@ -154,8 +155,8 @@ evaluateAnalyzedProgramObserved observationRequest analyzedProgram =
 
 evaluateAnalyzedProgramPureUnchecked :: CoreProgram 'Analyzed -> Either Diagnostic RuntimeProgram
 evaluateAnalyzedProgramPureUnchecked analyzedProgram = do
-  ambientEnv <- evaluatePrelude (coreProgramPrelude analyzedProgram)
-  evaluateModules ambientEnv emptyRuntimeModuleAccumulator Nothing (NonEmpty.toList (coreProgramModules analyzedProgram))
+  (ambientEnv, preludeValue) <- evaluatePrelude (preludeEvaluationMode analyzedProgram) (coreProgramPrelude analyzedProgram)
+  evaluateModules ambientEnv emptyRuntimeModuleAccumulator preludeValue (NonEmpty.toList (coreProgramModules analyzedProgram))
   where
     entryPath = coreProgramEntry analyzedProgram
 
@@ -168,7 +169,7 @@ evaluateAnalyzedProgramPureUnchecked analyzedProgram = do
           let preparedModule =
                 prepareModuleEvaluation entryPath analyzedProgram ambientEnv runtimeModules analyzedModule
           scopeResult <-
-            evaluateModuleScope
+            evaluateModuleScopePure
               (Just (resolvedNodeOwner (expressionResolution (coreNodeFacts (ModuleGraph.coreModuleBodyNode analyzedModule)))))
               (preparedModuleEvaluationMode preparedModule)
               (preparedModuleImportedEnvironment preparedModule)
@@ -177,15 +178,15 @@ evaluateAnalyzedProgramPureUnchecked analyzedProgram = do
                 completeModuleEvaluation preparedModule analyzedModule scopeResult runtimeModules output
           evaluateModules ambientEnv nextRuntimeModules nextOutput rest
 
-evaluatePrelude :: PreludeArtifact 'Analyzed -> Either Diagnostic RuntimeEnv
-evaluatePrelude analyzedPrelude =
+evaluatePrelude :: ModuleEvaluationMode -> PreludeArtifact 'Analyzed -> Either Diagnostic (RuntimeEnv, Maybe RuntimeValue)
+evaluatePrelude mode analyzedPrelude =
   case preludeModule analyzedPrelude of
-    Nothing -> Right Map.empty
+    Nothing -> Right (Map.empty, Nothing)
     Just analyzedModule -> do
       scopeResult <-
-        evaluateModuleScope
+        evaluateModuleScopePure
           (Just (PreludeSourceUnit (coreModulePath analyzedModule)))
-          EvaluateDependencyModule
+          mode
           Map.empty
           (coreModuleExpr analyzedModule)
       pure
@@ -193,7 +194,8 @@ evaluatePrelude analyzedPrelude =
             AmbientPrelude
             (moduleExportInventory analyzedModule)
             (coreModuleInterface analyzedModule)
-            (scopeResultEnvironment scopeResult)
+            (scopeResultEnvironment scopeResult),
+          scopeResultValue scopeResult
         )
 
 evaluateAnalyzedProgramWithHostObserved ::
@@ -248,13 +250,14 @@ evaluateAnalyzedProgramWithEvaluationHostUnchecked ::
   RuntimeHostEvaluationT m (Either RuntimeControl RuntimeProgram)
 evaluateAnalyzedProgramWithEvaluationHostUnchecked evaluationHost analyzedProgram =
   runExceptT $ do
-    ambientEnv <-
+    (ambientEnv, preludeValue) <-
       ExceptT
         ( evaluatePreludeWithEvaluationHost
             evaluationHost
+            (preludeEvaluationMode analyzedProgram)
             (coreProgramPrelude analyzedProgram)
         )
-    evaluateModules ambientEnv emptyRuntimeModuleAccumulator Nothing (NonEmpty.toList (coreProgramModules analyzedProgram))
+    evaluateModules ambientEnv emptyRuntimeModuleAccumulator preludeValue (NonEmpty.toList (coreProgramModules analyzedProgram))
   where
     entryPath = coreProgramEntry analyzedProgram
 
@@ -312,6 +315,7 @@ completeModuleEvaluation ::
 completeModuleEvaluation preparedModule analyzedModule scopeResult runtimeModules output =
   ( accumulateRuntimeModule (preparedModulePath preparedModule) runtimeModule runtimeModules,
     case preparedModuleEvaluationMode preparedModule of
+      EvaluateEntryModule | null (ModuleGraph.coreModuleStatements analyzedModule) -> output
       EvaluateEntryModule -> scopeResultValue scopeResult
       EvaluateDependencyModule -> output
   )
@@ -327,6 +331,12 @@ completeModuleEvaluation preparedModule analyzedModule scopeResult runtimeModule
               (scopeResultEnvironment scopeResult)
         }
 
+preludeEvaluationMode :: CoreProgram 'Analyzed -> ModuleEvaluationMode
+preludeEvaluationMode program =
+  if any isStandaloneSourceModule (coreProgramModules program)
+    then EvaluateEntryModule
+    else EvaluateDependencyModule
+
 analyzedProgramRequiresHost :: CoreProgram 'Analyzed -> Bool
 analyzedProgramRequiresHost analyzedProgram =
   maybe False (runtimeExprRequiresHost . coreModuleExpr) (preludeModule (coreProgramPrelude analyzedProgram))
@@ -335,27 +345,30 @@ analyzedProgramRequiresHost analyzedProgram =
 evaluatePreludeWithEvaluationHost ::
   (Monad m) =>
   RuntimeHost (RuntimeHostEvaluationT m) ->
+  ModuleEvaluationMode ->
   PreludeArtifact 'Analyzed ->
-  RuntimeHostEvaluationT m (Either RuntimeControl RuntimeEnv)
-evaluatePreludeWithEvaluationHost host analyzedPrelude =
+  RuntimeHostEvaluationT m (Either RuntimeControl (RuntimeEnv, Maybe RuntimeValue))
+evaluatePreludeWithEvaluationHost host mode analyzedPrelude =
   case preludeModule analyzedPrelude of
-    Nothing -> pure (Right Map.empty)
+    Nothing -> pure (Right (Map.empty, Nothing))
     Just analyzedModule -> do
       scopeResult <-
         evaluateModuleScopeWithRequiredEvaluationHostControl
           host
           (Just (PreludeSourceUnit (coreModulePath analyzedModule)))
-          EvaluateDependencyModule
+          mode
           Map.empty
           (coreModuleExpr analyzedModule)
       pure $
         fmap
           ( \result ->
-              publishEnvironment
-                AmbientPrelude
-                (moduleExportInventory analyzedModule)
-                (coreModuleInterface analyzedModule)
-                (scopeResultEnvironment result)
+              ( publishEnvironment
+                  AmbientPrelude
+                  (moduleExportInventory analyzedModule)
+                  (coreModuleInterface analyzedModule)
+                  (scopeResultEnvironment result),
+                scopeResultValue result
+              )
           )
           scopeResult
 

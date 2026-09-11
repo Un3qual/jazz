@@ -7,7 +7,7 @@ module Jazz.Compiler.SourceProgram
   ( parseAndLowerStandaloneSource,
     parseSurfaceWithErrorCode,
     standaloneSourceModule,
-    prependLoweredStatements,
+    isStandaloneSourceModule,
     scopeStatements,
   )
 where
@@ -32,7 +32,7 @@ import Jazz.Compiler.Diagnostics
     setDiagnosticErrorCode,
   )
 import Jazz.Compiler.ModuleGraph (CoreModule (..), DeclaredModuleFacts (..))
-import Jazz.Compiler.ModuleIdentity (mkModulePath, mkSourceFile, moduleIdentity, standaloneModulePath)
+import Jazz.Compiler.ModuleIdentity (mkModulePath, mkSourceFile, moduleIdentity, moduleIdentitySource, standaloneModulePath)
 import Jazz.Compiler.Name (mkIdentifier)
 import Jazz.Compiler.Parser
   ( parseSurfaceProgram,
@@ -57,7 +57,7 @@ standaloneSourceModule expression =
   case reindexLoweredExpr block of
     EBlock node statements ->
       CoreModule
-        { coreModuleIdentity = moduleIdentity nominalPath (mkSourceFile "<standalone>"),
+        { coreModuleIdentity = moduleIdentity nominalPath (mkSourceFile standaloneSourcePath),
           coreModuleBodyNode = node,
           coreModuleImports = [],
           coreModuleStatements = statements,
@@ -79,16 +79,13 @@ standaloneSourceModule expression =
             Just path <- [NonEmpty.nonEmpty segments]
           ]
 
--- | Prepend already-lowered declarations and then allocate one identity space
--- for the composed source unit. Parsed programs are blocks; retaining the
--- non-block case makes the helper total without manufacturing a synthetic
--- statement that would duplicate the expression's node identity.
-prependLoweredStatements :: [Statement 'Lowered] -> Expr 'Lowered -> Expr 'Lowered
-prependLoweredStatements prefix expression =
-  reindexLoweredExpr $
-    case expression of
-      EBlock node statements -> EBlock node (prefix <> statements)
-      _ -> expression
+-- The synthetic source identity marks an in-memory entry artifact; a named
+-- module loaded from a file has its actual source identity instead.
+isStandaloneSourceModule :: CoreModule phase -> Bool
+isStandaloneSourceModule = (== mkSourceFile standaloneSourcePath) . moduleIdentitySource . coreModuleIdentity
+
+standaloneSourcePath :: FilePath
+standaloneSourcePath = "<standalone>"
 
 scopeStatements :: Expr phase -> [Statement phase]
 scopeStatements expr =

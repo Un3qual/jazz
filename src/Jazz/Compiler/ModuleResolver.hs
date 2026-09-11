@@ -277,7 +277,11 @@ resolveStandaloneProgram prelude ambientExports expression = do
     ambientReferences =
       maybe
         Map.empty
-        (resolvedPublicReferences AmbientPrelude ambientExports . ModuleGraph.coreModuleStatements)
+        ( \preludeModule ->
+            Map.union
+              (resolvedPublicReferences AmbientPrelude ambientExports (ModuleGraph.coreModuleStatements preludeModule))
+              (resolvedPublicReferences CurrentModule ambientExports (ModuleGraph.coreModuleStatements preludeModule))
+        )
         (ModuleGraph.preludeModule prelude)
 
 resolveStateWithLookupAndVisibleSymbols ::

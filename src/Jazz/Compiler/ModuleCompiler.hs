@@ -12,13 +12,17 @@ where
 
 import Control.Monad (foldM)
 import Data.Foldable (toList)
+import Data.List (partition)
 import qualified Data.List.NonEmpty as NonEmpty
 import qualified Data.Map.Strict as Map
+import Data.Maybe (isJust)
 import qualified Data.Sequence as Seq
 import qualified Data.Set as Set
-import Jazz.Compiler.AST (CoreNode (coreNodeFacts), CorePhase (..))
-import Jazz.Compiler.CoreIdentity (ResolvedNodeFacts (resolvedNodeOwner))
-import Jazz.Compiler.Diagnostics (Diagnostic, isErrorDiagnostic)
+import Jazz.Compiler.AST (CoreNode (coreNodeFacts, coreNodeSpan), CorePhase (..), DataConstructor (..), Statement (..))
+import Jazz.Compiler.Analyzer.UnusedBindings (referencedScopeBindingIds)
+import Jazz.Compiler.CoreIdentity (ResolvedNodeFacts (..), ResolvedReference (..))
+import Jazz.Compiler.DiagnosticCatalog (WarningCategory (SameScopeRebinding))
+import Jazz.Compiler.Diagnostics (Diagnostic, diagnosticWarningCategory, isErrorDiagnostic, mkSameScopeRebindingWarning, promoteDiagnostic, sortWarnings)
 import Jazz.Compiler.ModuleAnalysis
   ( ImportedInterface,
     analyzeModule,
@@ -40,8 +44,10 @@ import Jazz.Compiler.ModuleGraph
 import qualified Jazz.Compiler.ModuleGraph as ModuleGraph
 import Jazz.Compiler.ModuleIdentity (SourceUnitOwner (..))
 import Jazz.Compiler.ModuleInterface (CompileInputs (..))
-import Jazz.Compiler.Name (ResolvedNameOrigin (AmbientPrelude))
+import Jazz.Compiler.Name (ResolvedNameOrigin (AmbientPrelude), identifierText)
+import Jazz.Compiler.SourceProgram (isStandaloneSourceModule)
 import Jazz.Compiler.TypeInference.Result (InferenceResult (..))
+import Jazz.Compiler.WarningConfig (isWarningEnabled, isWarningError)
 
 analyzedProgramDiagnostics :: CoreProgram 'Analyzed -> [Diagnostic]
 analyzedProgramDiagnostics program =
@@ -57,7 +63,7 @@ analyzeProgram :: CompileInputs -> CoreProgram 'Resolved -> IO ([Diagnostic], Ma
 analyzeProgram inputs resolvedProgram =
   {-# SCC "jazz-stage:runtime-preparation" #-}
   do
-    (preludeDiagnostics, maybePrelude, ambientInterface) <- analyzePrelude inputs (coreProgramPrelude resolvedProgram)
+    (preludeDiagnostics, maybePrelude, ambientInterface) <- analyzePrelude (inputs {compileInputExternalUses = sourcePreludeUses}) (coreProgramPrelude resolvedProgram)
     (maybeModules, _, moduleDiagnostics) <-
       if any isErrorDiagnostic preludeDiagnostics
         then pure (Seq.empty, Map.empty, Seq.empty)
@@ -76,6 +82,7 @@ analyzeProgram inputs resolvedProgram =
             Right analyzed -> pure (diagnostics, Just analyzed)
         _ -> fail "successful analyzed program lost a prelude or module artifact"
   where
+    sourcePreludeUses = Set.unions [referencedScopeBindingIds (ModuleGraph.coreModuleStatements source) | source <- NonEmpty.toList (coreProgramModules resolvedProgram), isStandaloneSourceModule source]
     analyzeDependency _ accumulated@(_, dependenciesByPath, _) resolvedModule
       | any ((`Map.notMember` dependenciesByPath) . ModuleGraph.importedModule) (coreModuleImports resolvedModule) =
           pure accumulated
@@ -92,16 +99,50 @@ analyzeProgram inputs resolvedProgram =
           owner = const (resolvedNodeOwner (coreNodeFacts (ModuleGraph.coreModuleBodyNode resolvedModule)))
       (inference, maybeAnalyzedModule) <-
         analyzeModule inputs owner Set.empty importedInterface resolvedModule
-      let dependency =
+      let sourceDiagnostics = addPreludeRebindingWarnings resolvedModule (inferredDiagnostics inference)
+          withDiagnostics analyzed = analyzed {ModuleGraph.coreModuleFacts = (coreModuleFacts analyzed) {ModuleGraph.analyzedModuleDiagnostics = sourceDiagnostics}}
+          dependency =
             ( ModuleGraph.resolvedModuleExports (coreModuleFacts resolvedModule),
               inferredModuleInterface inference,
               moduleEvidenceCandidates owner resolvedModule
             )
       pure
-        ( modules Seq.|> maybeAnalyzedModule,
+        ( modules Seq.|> fmap withDiagnostics maybeAnalyzedModule,
           maybe dependenciesByPath (\_ -> Map.insert modulePath dependency dependenciesByPath) maybeAnalyzedModule,
-          diagnostics <> Seq.fromList (inferredDiagnostics inference)
+          diagnostics <> Seq.fromList sourceDiagnostics
         )
+
+    -- Explicit source preludes previously shared the root lexical scope. Their
+    -- declaration identities retain that warning relationship across artifacts.
+    addPreludeRebindingWarnings :: ModuleGraph.CoreModule 'Resolved -> [Diagnostic] -> [Diagnostic]
+    addPreludeRebindingWarnings resolvedModule diagnostics
+      | not (isStandaloneSourceModule resolvedModule)
+          || not (Set.null (compileInputPreludeHiddenStatementIndices inputs))
+          || not (isWarningEnabled settings SameScopeRebinding) =
+          diagnostics
+      | otherwise = map promoteWarning (sortWarnings (warnings <> extraWarnings)) <> errors
+      where
+        settings = compileInputWarningSettings inputs
+        (warnings, errors) = partition (isJust . diagnosticWarningCategory) diagnostics
+        promoteWarning warning = case diagnosticWarningCategory warning of
+          Just category | isWarningError settings category -> promoteDiagnostic warning
+          _ -> warning
+        extraWarnings =
+          [ mkSameScopeRebindingWarning (identifierText name) (coreNodeSpan node) previousSpan
+          | SLet node name _ <- ModuleGraph.coreModuleStatements resolvedModule,
+            Just (LexicalReference previous) <- [resolvedNodeShadowedReference (coreNodeFacts node)],
+            Just previousSpan <- [Map.lookup previous preludeBindingSpans]
+          ]
+    preludeBindingSpans =
+      Map.fromList
+        [ (binder, coreNodeSpan node)
+        | prelude <- maybe [] (pure . ModuleGraph.coreModuleStatements) (ModuleGraph.preludeModule (coreProgramPrelude resolvedProgram)),
+          node <- concatMap declarationNodes prelude,
+          Just binder <- [resolvedNodeBinder (coreNodeFacts node)]
+        ]
+    declarationNodes (SLet node _ _) = [node]
+    declarationNodes (SData _ _ _ constructors) = [node | DataConstructor node _ _ <- constructors]
+    declarationNodes _ = []
 
 analyzePrelude :: CompileInputs -> PreludeArtifact 'Resolved -> IO ([Diagnostic], Maybe (PreludeArtifact 'Analyzed), ImportedInterface)
 analyzePrelude inputs prelude =

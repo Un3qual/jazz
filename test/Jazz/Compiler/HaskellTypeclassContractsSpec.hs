@@ -328,6 +328,7 @@ assertImportedConstraintFactAccepted label sourceArgument importedArgument = do
     inferenceInputs factArgument =
       InferenceInputs
         { inferenceWarningSettings = defaultWarningSettings,
+          inferenceExternalUses = Set.empty,
           inferenceImportedTypes = Map.empty,
           inferenceImportedDataTypes =
             Map.fromList
@@ -345,7 +346,7 @@ assertImportedConstraintFactAccepted label sourceArgument importedArgument = do
         }
 
     constrainedProgram constraintArgument =
-      publishResolvedCaptures . resolveLexicalScopes Set.empty $
+      publishResolvedCaptures . resolveLexicalScopes Map.empty Set.empty $
         EBlock
           (fixtureExpressionNode 0)
           [ SSignature

@@ -53,7 +53,7 @@ resolveRuntimeFixtureWith owner external fixture =
   runIdentity (traverseFixture restoreExpression restorePattern restoreStatement resolved)
   where
     (bare, (_, expressions, patterns, statements)) = runState (traverseFixture allocateExpression allocatePattern allocateStatement fixture) (0, Map.empty, Map.empty, Map.empty)
-    resolved = publishResolvedCaptures (resolveLexicalScopes (Map.keysSet external) bare)
+    resolved = publishResolvedCaptures (resolveLexicalScopes external (Map.keysSet external) bare)
     nodeFacts index binder target =
       (emptyResolvedNodeFacts owner)
         { resolvedNodeBinder = if binder then Just (CoreBinderId (owner, index)) else Nothing,
