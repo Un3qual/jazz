@@ -35,7 +35,7 @@ import Jazz.Compiler.AST
 import Jazz.Compiler.BuiltinCatalog
   ( BuiltinSymbol (BuiltinToInt8),
   )
-import Jazz.Compiler.CoreIdentity (ResolvedNodeFacts (..), ResolvedReference (..), emptyResolvedNodeFacts)
+import Jazz.Compiler.CoreIdentity (ResolvedNodeFacts (..), ResolvedReference (..), emptyResolvedNodeFacts, resolvedImportTarget)
 import Jazz.Compiler.Diagnostics (Diagnostic, SourceSpan (..), isErrorDiagnostic)
 import Jazz.Compiler.Diagnostics.Render
   ( renderDiagnostic,
@@ -98,6 +98,7 @@ import Jazz.Compiler.ModuleIdentity
     mkModulePath,
     mkSourceFile,
     moduleIdentity,
+    modulePathTextSegments,
     preludeModulePath,
     standaloneModulePath,
   )
@@ -538,7 +539,9 @@ assertAnalyzedProgramFacts resolvedProgram analyzedProgram = do
       case moduleImportNode importDecl of
         CoreNode _ _ facts ->
           case statementDeclarationFact facts of
-            ImportDeclaration _ -> pure ()
+            ImportDeclaration target -> do
+              assertEqual "import target identity" (importedModule importDecl) target
+              assertEqual "import target survives checking" target (resolvedImportTarget (statementResolution facts))
             declarationFact -> fail ("unexpected analyzed import declaration fact: " <> show declarationFact)
 
 testAnalyzedMethodParameterIdentity :: IO ()
@@ -1095,8 +1098,12 @@ assertStatementFacts statement = do
             ImplementationDeclaration factName [_] -> assertEqual "implementation declaration identity" name factName
             other -> fail ("missing analyzed implementation target: " <> show other)
           mapM_ assertImplMethodFacts methods
-        SModule _ path -> assertEqual "module declaration fact" (ModuleDeclaration path) (statementDeclarationFact facts)
-        SImport _ path _ _ -> assertEqual "import declaration fact" (ImportDeclaration path) (statementDeclarationFact facts)
+        SModule _ path -> case statementDeclarationFact facts of
+          ModuleDeclaration target -> assertEqual "module declaration fact" path (NonEmpty.toList (modulePathTextSegments target))
+          _ -> fail "missing module declaration fact"
+        SImport _ path _ _ -> case statementDeclarationFact facts of
+          ImportDeclaration target -> assertEqual "import declaration fact" path (NonEmpty.toList (modulePathTextSegments target))
+          _ -> fail "missing import declaration fact"
         SExpr _ value -> assertEqual "expression declaration fact" ExpressionDeclaration (statementDeclarationFact facts) >> assertExprFacts value
   case statement of
     SLet _ _ value -> assertExprFacts value

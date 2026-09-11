@@ -30,7 +30,7 @@ import Data.Text (Text)
 import Jazz.Compiler.AST
   ( CaseArm (..),
     ClassMethodSignature (..),
-    CoreNode (coreNodeSpan),
+    CoreNode (coreNodeFacts, coreNodeSpan),
     CorePhase (..),
     DataConstructor (..),
     Expr (..),
@@ -51,7 +51,7 @@ import Jazz.Compiler.CapabilityFacts
     renderConcreteImplFact,
     splitQualifiedMethodKey,
   )
-import Jazz.Compiler.CoreIdentity (CoreBinderId)
+import Jazz.Compiler.CoreIdentity (CoreBinderId, resolvedImportTarget, resolvedNodeOwner)
 import Jazz.Compiler.DiagnosticCatalog
   ( ErrorCode (..),
     WarningCategory (..),
@@ -72,6 +72,7 @@ import Jazz.Compiler.Diagnostics
     setDiagnosticSubject,
     sortWarnings,
   )
+import Jazz.Compiler.ModuleIdentity (ModulePath, sourceUnitOwnerModulePath)
 import Jazz.Compiler.Name
   ( ResolvedName,
     identifierPurity,
@@ -116,7 +117,7 @@ data AnalysisInputs = AnalysisInputs
     analysisImportedValues :: Map ResolvedName AnalysisBinding,
     analysisForwardFunctions :: Map Int (ResolvedName, AnalysisBinding),
     analysisImportedClasses :: Set ResolvedName,
-    analysisModulePath :: Maybe [Text]
+    analysisModulePath :: Maybe ModulePath
   }
   deriving (Eq, Show)
 
@@ -476,12 +477,12 @@ collectScopeDiagnosticsWithPreparedScope (PreparedAnalysisScope statements rawRe
                 Nothing,
                 diagnosticsWithPending
               )
-        SImport _ modulePath maybeAlias maybeSymbolNames ->
+        SImport node _ maybeAlias maybeSymbolNames ->
           let diagnosticsWithPending = flushPendingSignature pendingSignature diagnostics
               nextImportedClassNames =
                 Set.union
                   importedClassNames
-                  (visibleImportedClassNames modulePath maybeAlias maybeSymbolNames)
+                  (visibleImportedClassNames (resolvedImportTarget (coreNodeFacts node)) maybeAlias maybeSymbolNames)
            in ( scopeBindings,
                 classDeclarations,
                 nextImportedClassNames,
@@ -672,14 +673,14 @@ collectScopeDiagnosticsWithPreparedScope (PreparedAnalysisScope statements rawRe
               statementIndex < firstModuleStatementIndex
             ]
 
-    collectModuleClassDeclarations :: [(Int, Statement 'Resolved)] -> Map [Text] (Map Text SourceSpan)
+    collectModuleClassDeclarations :: [(Int, Statement 'Resolved)] -> Map ModulePath (Map Text SourceSpan)
     collectModuleClassDeclarations =
       snd . foldl' collectModuleClassDeclaration (Nothing, Map.empty)
       where
         collectModuleClassDeclaration (currentModulePath, declarationsByPath) (_, statement) =
           case statement of
-            SModule _ modulePath ->
-              (Just modulePath, declarationsByPath)
+            SModule node _ ->
+              (Just (sourceUnitOwnerModulePath (resolvedNodeOwner (coreNodeFacts node))), declarationsByPath)
             SClass classNode className _ _ ->
               case currentModulePath of
                 Just modulePath ->
@@ -695,7 +696,7 @@ collectScopeDiagnosticsWithPreparedScope (PreparedAnalysisScope statements rawRe
             _ ->
               (currentModulePath, declarationsByPath)
 
-    visibleImportedClassNames :: [Text] -> Maybe Text -> Maybe [Text] -> Set Text
+    visibleImportedClassNames :: ModulePath -> Maybe Text -> Maybe [Text] -> Set Text
     visibleImportedClassNames modulePath maybeAlias maybeSymbolNames =
       case Map.lookup modulePath moduleClassDeclarationsByPath of
         Nothing -> Set.empty

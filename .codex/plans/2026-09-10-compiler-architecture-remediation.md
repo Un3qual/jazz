@@ -1,5 +1,5 @@
 ---
-id: JN-COMPILER-SEMANTIC-DECLARATIONS-001
+id: JN-COMPILER-SEMANTIC-INTERFACES-001
 status: ready
 priority: P1
 size: L
@@ -7,14 +7,14 @@ kind: impl
 autonomous_ready: yes
 depends_on: []
 last_verified: 2026-09-11
-plan_section: "T07 — Normalize declaration semantics once"
+plan_section: "T08 — Publish complete semantic module interfaces"
 target_paths:
-  - src/Jazz/Compiler/TypeInference/Types.hs
-  - src/Jazz/Compiler/TypeInference/Signature.hs
+  - src/Jazz/Compiler/ModuleInterface.hs
+  - src/Jazz/Compiler/ModuleAnalysis.hs
 verification:
-  - cabal test binding-signature-coherence-spec adt-pattern-type-spec loader-spec signature-rendering-spec primitive-semantics-spec module-pipeline-contract-spec --test-show-details=failures --jobs=4
+  - cabal test module-pipeline-contract-spec module-exports-spec module-resolution-spec loader-spec prelude-loading-spec binding-signature-coherence-spec --test-show-details=failures --jobs=4
   - bash scripts/check-execution-queue.sh
-deliverable: Normalize semantic declarations and close exported schemes over module-stable identities.
+deliverable: Publish complete semantic interfaces with explicit public visibility and validated import views.
 supersedes: []
 ---
 
@@ -30,7 +30,7 @@ supersedes: []
 
 **Spec:** [Validated audit findings](2026-09-10-compiler-architecture-validation.md), together with the target contracts and preservation rules below. The report preserves the disposition of all three input audits. The two Luna drafts were withdrawn after validation; their rejected or qualified recommendations are not implementation guidance.
 
-**Status:** Execution requested on 2026-09-11. T07 is the active bounded milestone in the execution queue. Execute the remaining tasks inline in dependency order; promote the next milestone when its prerequisites pass.
+**Status:** Execution requested on 2026-09-11. T08 is the active bounded milestone in the execution queue. Execute the remaining tasks inline in dependency order; promote the next milestone when its prerequisites pass.
 
 **Existing architecture decision:** [RFC 0016](../../rfcs/accepted/0016-optional-backend-removal.md) explicitly says to keep “attached analysis facts, and runtime plans.” Direct construction still retains attached facts, but T11a proposes changing the retained runtime-plan contract. Approval of this plan should therefore include that specific architectural decision and a narrow amendment through the repository's RFC process before removal. This is a dependency of T11a, not a reason to block unrelated tasks or ask for another confirmation while preparing this plan. If runtime plans are to remain, retain the small sequence and pursue direct identity/ownership improvements around it; do not claim its deletion completed.
 
@@ -251,13 +251,13 @@ The table is a dependency order, not a request for parallel agents. Work inline.
 **Files:** New `src/Jazz/Compiler/SemanticDeclarations.hs`; `src/Jazz/Compiler/TypeRepresentation.hs`, `src/Jazz/Compiler/TypeInference/{Types,Signature,Capabilities,ImplChecking,Analyzed}.hs`, `src/Jazz/Compiler/CapabilityFacts.hs`, `src/Jazz/Compiler/ModuleInterface.hs`, `src/Jazz/Compiler/Runtime/{Semantics,Types}.hs`; tests `test/Jazz/Compiler/Semantics/BindingSignature/`, `test/Jazz/Compiler/Semantics/AdtPatternTypeSpec.hs`, `test/Jazz/Compiler/Diagnostics/SignatureRenderingSpec.hs`, `test/Jazz/Compiler/Modules/Loader/CapabilitiesTests.hs`.
 
 - [x] Move interface-consumable schemes, constructor templates, class method types, and implementation descriptions into an inference-independent semantic owner. Reuse `SemanticType`; do not add a second semantic type algebra or replace identical type aliases just to reduce names.
-- [ ] Convert authored signatures once after name resolution with an explicit binder environment, preserving quantified-variable order, class-parameter identity, numeric constraints, and source locations for failures.
+- [x] Convert authored signatures once after name resolution with an explicit binder environment, preserving quantified-variable order, class-parameter identity, numeric constraints, and source locations for failures.
 - [x] Close exported schemes over their ordered quantifiers. An imported scheme must not contain a free solver allocation identity belonging to the exporting checker's private state; instantiate its bound parameters into the importing solver when used.
-- [ ] Separate unsupported authored syntax from successfully checked declarations. Preserve current diagnostics/recovery; successful semantic consumers must not reinterpret an `UnsupportedSignature` token payload.
-- [ ] Replace signature-rendered identity/equality and ad hoc textual class/type keys where semantic identity is required. Use nominal module/source identity throughout; render text at diagnostics/file boundaries.
-- [ ] Migrate analyzed declaration projection and imported declaration handling to the normalized types. Runtime uses existing analyzed declaration facts rather than recovering types from source signatures.
-- [ ] Run binding-signature, ADT type/pattern, capability loader, signature-rendering, primitive-semantics, and module-pipeline suites.
-- [ ] Commit one declaration family at a time; remove old converters when all family consumers migrate.
+- [x] Separate unsupported authored syntax from successfully checked declarations. Preserve current diagnostics/recovery; successful semantic consumers must not reinterpret an `UnsupportedSignature` token payload.
+- [x] Replace signature-rendered identity/equality and ad hoc textual class/type keys where semantic identity is required. Use nominal module/source identity throughout; render text at diagnostics/file boundaries.
+- [x] Migrate analyzed declaration projection and imported declaration handling to the normalized types. Runtime uses existing analyzed declaration facts rather than recovering types from source signatures.
+- [x] Run binding-signature, ADT type/pattern, capability loader, signature-rendering, primitive-semantics, and module-pipeline suites.
+- [x] Commit one declaration family at a time; remove old converters when all family consumers migrate.
 
 **Deletion criterion:** A valid signature/constructor/class/implementation declaration is interpreted semantically once. Different renderers or inference-variable instantiation are allowed; repeated parsing of authored syntax for semantic decisions is not.
 
@@ -597,7 +597,7 @@ Documentation verification at plan completion checks local evidence targets/line
 - Final focused correctness verification: prelude, module pipeline, rebinding, structured diagnostics, and binding/signature coherence pass. Earlier T06 runs also passed loader, CLI, name semantics, and runtime correctness with performance disabled. All test targets compile, including compile-only observation/profiling/harness compatibility updates. No performance tests ran. Final logs: `/private/tmp/jazz-architecture-t06-diagnostic-order-prelude.log`, `/private/tmp/jazz-architecture-t06-diagnostic-phases-pipeline.log`, `/private/tmp/jazz-architecture-t06-diagnostic-phases.log` (three suites pass; the two build-only import/name warnings were fixed and verified in the final reruns). HLint and diff whitespace checks pass.
 
 
-### T07 — normalized declarations (in progress, 2026-09-11)
+### T07 — normalized declarations (complete, 2026-09-11)
 
 - Constructor family: `SemanticDeclarations` owns validated constructor templates and the generic signature-to-semantic-type conversion. Fields retain `SemanticType` with declaration-bound parameters, never an exporting solver variable. Constructor use, pattern checking, coverage, equality support, and interface transport substitute those templates without reinterpreting authored signatures. Deleted the monomorphic/parameter/structured field variants and their separate conversion paths. Capability exact-evidence checking temporarily projects the instantiated semantic field into its existing constraint representation; T07's capability-family migration owns that remaining adapter.
 - Existing module-pipeline coverage now asserts the normalized generic field parameter and retains cross-module execution checks. Seven declaration/module correctness suites pass; runtime and pattern coverage also pass with `--skip-performance`. Profiling fixtures compile without execution. Logs: `/private/tmp/jazz-architecture-t07-constructors.log`, `/private/tmp/jazz-architecture-t07-constructor-runtime.log`, `/private/tmp/jazz-architecture-t07-constructor-runtime-final.log`, `/private/tmp/jazz-architecture-t07-constructor-fixtures-build.log`. No benchmark or performance tests ran.
@@ -632,3 +632,6 @@ Documentation verification at plan completion checks local evidence targets/line
 - Scope preparation now retains the checked class methods and closed implementation targets for the real declaration traversal. Constructor preparation publishes arity only; constructor fields are normalized once during their checking step. Removed the second class/implementation conversion and preparation's duplicate field conversion.
 - Capability checking now uses closed semantic types throughout candidate matching, literal-range selection, deferred constraints, constructor evidence, and checked binding hints. Only diagnostic rendering projects a signature view. Deleted unused signature compatibility/alias enumeration helpers and retained nominal target assertions against semantic facts. Numeric alias compatibility remains a direct semantic comparison, with exact candidate preference unchanged.
 - Binding/signature, ADT typing, loader, primitive, module pipeline, Haskell semantic contracts, signature rendering, and runtime correctness pass. Runtime explicitly uses `--skip-performance`. Logs: `/private/tmp/jazz-t07-prepared-declarations.log`, `/private/tmp/jazz-t07-semantic-constraints.log`, `/private/tmp/jazz-t07-semantic-constraints-final.log`. Ormolu, HLint, and whitespace checks pass. No benchmark/performance tests ran. Nominal module-path state remains before closing T07.
+
+- Final T07 identity slice: inference/module capability state uses `ModulePath`; resolved import nodes publish their target once, and analyzed module/import declaration facts retain it. The analyzer's inline module visibility table uses the same nominal paths. Removed typed module boundary conversion to text segments. Extended the existing import boundary assertion to check the retained target against the module artifact.
+- Module pipeline, module resolution, loader, prelude, binding/signature coherence, runtime correctness, ADT typing, primitive semantics, signature rendering, and Haskell semantic contracts pass (`/private/tmp/jazz-t07-module-paths.log`, `/private/tmp/jazz-t07-final-correctness.log`). Runtime explicitly skips performance cases. Ormolu, HLint, queue, and whitespace checks pass. No benchmark/performance tests ran. T07 is complete; T08 is the active interface-publication milestone. Diagnostic-only signature inspection remains for existing error precedence; successful declaration consumers use normalized semantic types.

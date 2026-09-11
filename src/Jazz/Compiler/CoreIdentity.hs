@@ -21,6 +21,7 @@ module Jazz.Compiler.CoreIdentity
     emptyResolvedNodeFacts,
     resolvedBinderReference,
     resolvedValueReference,
+    resolvedImportTarget,
   )
 where
 
@@ -29,7 +30,7 @@ import Data.Map.Strict (Map)
 import Data.Set (Set)
 import Data.Text (Text)
 import GHC.Generics (Generic)
-import Jazz.Compiler.ModuleIdentity (SourceUnitOwner)
+import Jazz.Compiler.ModuleIdentity (ModulePath, SourceUnitOwner)
 import Jazz.Compiler.Name (Identifier, ResolvedName, identifierText)
 
 newtype CoreNodeId = CoreNodeId Int
@@ -82,6 +83,7 @@ data ResolvedNodeFacts = ResolvedNodeFacts
     resolvedNodeBinder :: Maybe CoreBinderId,
     resolvedNodeShadowedReference :: Maybe ResolvedReference,
     resolvedNodeReference :: Maybe ResolvedReference,
+    resolvedNodeImportTarget :: Maybe ModulePath,
     resolvedNodeScope :: Maybe ResolvedScopeFacts,
     resolvedNodeCaptures :: [(ResolvedReference, ResolvedName)]
   }
@@ -89,7 +91,7 @@ data ResolvedNodeFacts = ResolvedNodeFacts
   deriving anyclass (NFData)
 
 emptyResolvedNodeFacts :: SourceUnitOwner -> ResolvedNodeFacts
-emptyResolvedNodeFacts owner = ResolvedNodeFacts owner Nothing Nothing Nothing Nothing []
+emptyResolvedNodeFacts owner = ResolvedNodeFacts owner Nothing Nothing Nothing Nothing Nothing []
 
 resolvedBinderReference :: ResolvedNodeFacts -> ResolvedReference
 resolvedBinderReference facts = case resolvedNodeBinder facts of
@@ -100,6 +102,11 @@ resolvedValueReference :: ResolvedNodeFacts -> ResolvedReference
 resolvedValueReference facts = case resolvedNodeReference facts of
   Just reference -> reference
   Nothing -> error "value use has no resolved reference"
+
+resolvedImportTarget :: ResolvedNodeFacts -> ModulePath
+resolvedImportTarget facts = case resolvedNodeImportTarget facts of
+  Just target -> target
+  Nothing -> error "import has no resolved module target"
 
 -- | Lexical facts for the exact, source-ordered statements of a resolved block.
 -- Statement indices are local views; binding identities remain source-owned.

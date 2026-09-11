@@ -62,9 +62,9 @@ import Data.Sequence (Seq)
 import qualified Data.Sequence as Seq
 import Data.Set (Set)
 import qualified Data.Set as Set
-import Data.Text (Text)
 import Jazz.Compiler.CoreIdentity (CapabilityMethodKey)
 import Jazz.Compiler.Diagnostics (Diagnostic)
+import Jazz.Compiler.ModuleIdentity (ModulePath)
 import Jazz.Compiler.Name (ResolvedName, UnresolvedName)
 import Jazz.Compiler.PatternCoverage (PatternCoverageSite)
 import Jazz.Compiler.SemanticDeclarations (ConcreteImplFact, DeclarationVariable)
@@ -112,9 +112,9 @@ data DeclarationState = DeclarationState
   deriving (Eq, Show)
 
 data ModuleInferenceState = ModuleInferenceState
-  { inferenceModulePath :: Maybe [Text],
+  { inferenceModulePath :: Maybe ModulePath,
     inferenceLocalCapabilities :: ScopeCapabilityFacts,
-    inferenceModuleCapabilities :: Map [Text] ScopeCapabilityFacts,
+    inferenceModuleCapabilities :: Map ModulePath ScopeCapabilityFacts,
     inferenceDeclarationParameters :: Map InferenceVariable DeclarationVariable,
     inferenceConstructorWitnessNames :: Map ResolvedName UnresolvedName,
     inferenceVisibleTypes :: TypeEnv
@@ -269,13 +269,13 @@ inferClassMethodSignatures = declarationClassMethodSignatures . inferDeclaration
 inferConcreteImplMethods :: InferState -> Map CapabilityMethodKey [ImplMethodType]
 inferConcreteImplMethods = declarationConcreteImplMethods . inferDeclarations
 
-inferCurrentModulePath :: InferState -> Maybe [Text]
+inferCurrentModulePath :: InferState -> Maybe ModulePath
 inferCurrentModulePath = inferenceModulePath . inferModule
 
 inferCurrentModuleLocalCapabilityFacts :: InferState -> ScopeCapabilityFacts
 inferCurrentModuleLocalCapabilityFacts = inferenceLocalCapabilities . inferModule
 
-inferModuleCapabilityFacts :: InferState -> Map [Text] ScopeCapabilityFacts
+inferModuleCapabilityFacts :: InferState -> Map ModulePath ScopeCapabilityFacts
 inferModuleCapabilityFacts = inferenceModuleCapabilities . inferModule
 
 inferConstructorWitnessNames :: InferState -> Map ResolvedName UnresolvedName

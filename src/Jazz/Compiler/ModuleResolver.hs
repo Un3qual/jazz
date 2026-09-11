@@ -69,11 +69,12 @@ import GHC.Generics
   ( Generic,
   )
 import Jazz.Compiler.AST
-  ( CorePhase (..),
+  ( CoreNode (coreNodeFacts),
+    CorePhase (..),
     Expr (..),
     Statement (..),
   )
-import Jazz.Compiler.CoreIdentity (ResolvedReference)
+import Jazz.Compiler.CoreIdentity (ResolvedNodeFacts (..), ResolvedReference)
 import Jazz.Compiler.DiagnosticCatalog
   ( ErrorCode (..),
   )
@@ -407,7 +408,9 @@ resolveImportExposure owner coreImport = do
   resolvedExposure <- exposure
   pure
     ModuleGraph.ModuleImport
-      { ModuleGraph.moduleImportNode = resolveNode owner (ModuleGraph.moduleImportNode coreImport),
+      { ModuleGraph.moduleImportNode =
+          let node = resolveNode owner (ModuleGraph.moduleImportNode coreImport)
+           in node {coreNodeFacts = (coreNodeFacts node) {resolvedNodeImportTarget = Just (ModuleGraph.importedModule coreImport)}},
         ModuleGraph.importedModule = ModuleGraph.importedModule coreImport,
         ModuleGraph.importExposure = resolvedExposure
       }

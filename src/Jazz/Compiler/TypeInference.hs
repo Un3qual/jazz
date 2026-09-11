@@ -66,6 +66,7 @@ import Jazz.Compiler.FractionalLiteral
     fractionalLiteralExceedsMagnitude,
     fractionalLiteralIntegralValue,
   )
+import Jazz.Compiler.ModuleIdentity (ModulePath)
 import Jazz.Compiler.ModuleInterface
   ( ModuleInterface (..),
     ModuleValueBinding (..),
@@ -191,7 +192,7 @@ data InferenceInputs = InferenceInputs
     inferenceImportedConstructorWitnessNames :: Map ResolvedName UnresolvedName,
     inferenceImportedCapabilities :: ScopeCapabilityFacts,
     inferenceImportedClassNames :: Set Text,
-    inferenceCurrentModulePath :: Maybe [Text]
+    inferenceCurrentModulePath :: Maybe ModulePath
   }
 
 data InferenceRequest = InferenceRequest

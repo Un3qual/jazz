@@ -50,7 +50,6 @@ import qualified Jazz.Compiler.ModuleGraph as ModuleGraph
 import Jazz.Compiler.ModuleIdentity
   ( ModulePath,
     SourceUnitOwner (..),
-    modulePathTextSegments,
     moduleQualifierIdentifier,
     renderModulePath,
   )
@@ -101,7 +100,7 @@ analyzeModule inputs owner hideRootBindings importedInterface resolvedModule = d
   (inference, attachment) <-
     analyzeExpressionWithInputs
       (moduleStatementFactSeeds resolvedModule)
-      ((moduleInferenceInputs inputs modulePath importedInterface) {inferenceCurrentModulePath = case owner modulePath of StandaloneSourceUnit _ -> Nothing; _ -> Just (modulePathTexts modulePath)})
+      ((moduleInferenceInputs inputs modulePath importedInterface) {inferenceCurrentModulePath = case owner modulePath of StandaloneSourceUnit _ -> Nothing; _ -> Just modulePath})
       hideRootBindings
       (coreModuleExpr resolvedModule)
   maybeAnalyzedExpression <- checkedAttachment modulePath attachment
@@ -132,8 +131,7 @@ moduleStatementFactSeeds = map importSeed . coreModuleImports
   where
     importSeed importDecl =
       ( ModuleGraph.moduleImportNode importDecl,
-        ImportDeclaration
-          (NonEmpty.toList (modulePathTextSegments (ModuleGraph.importedModule importDecl)))
+        ImportDeclaration (ModuleGraph.importedModule importDecl)
       )
 
 moduleInferenceInputs :: CompileInputs -> ModulePath -> ImportedInterface -> InferenceInputs
@@ -146,7 +144,7 @@ moduleInferenceInputs inputs modulePath importedInterface =
       inferenceImportedConstructorWitnessNames = importedConstructorWitnessNames importedInterface,
       inferenceImportedCapabilities = importedCapabilities importedInterface,
       inferenceImportedClassNames = importedClassNames importedInterface,
-      inferenceCurrentModulePath = Just (modulePathTexts modulePath)
+      inferenceCurrentModulePath = Just modulePath
     }
 
 analyzedModuleFromExpression :: CoreModule 'Resolved -> InferenceResult -> Map CoreNodeId StatementFacts -> Expr 'Analyzed -> Either SemanticFactInvariantFailure (CoreModule 'Analyzed)
@@ -344,9 +342,6 @@ importSelectedInterface origin maybeAlias maybeSymbols publicInventory moduleInt
 
 moduleOrigin :: ModulePath -> ResolvedNameOrigin
 moduleOrigin = ImportedModule
-
-modulePathTexts :: ModulePath -> [Text]
-modulePathTexts = NonEmpty.toList . modulePathTextSegments
 
 factUsesClass :: Set.Set Text -> ConcreteImplFact -> Bool
 factUsesClass classNames fact = Set.member (renderCapabilityId (concreteImplFactCapability fact)) classNames

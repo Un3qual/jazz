@@ -58,13 +58,14 @@ import Jazz.Compiler.CapabilityFacts
   ( constraintSignatureTypeVariableNamesInOrder,
     signaturePayloadConstraintType,
   )
-import Jazz.Compiler.CoreIdentity (CoreBinderId, ResolvedNodeFacts (..), ResolvedReference (..), ResolvedScopeFacts (..), renderCapabilityId, resolvedValueReference)
+import Jazz.Compiler.CoreIdentity (CoreBinderId, ResolvedNodeFacts (..), ResolvedReference (..), ResolvedScopeFacts (..), renderCapabilityId, resolvedImportTarget, resolvedValueReference)
 import Jazz.Compiler.Diagnostics
   ( Diagnostic,
     DiagnosticContext (CheckingBinding),
     SourceSpan,
     setDiagnosticPrimarySpan,
   )
+import Jazz.Compiler.ModuleIdentity (sourceUnitOwnerModulePath)
 import Jazz.Compiler.Name
   ( ResolvedName,
     identifierText,
@@ -526,8 +527,8 @@ inferScopeTypeInternal
             [ (coreNodeId methodNode, bindingFor methodNode methodName, ValueDeclaration methodName)
             | ImplMethod methodNode methodName _ <- methods
             ]
-          SModule node modulePath -> [(coreNodeId node, [], ModuleDeclaration modulePath)]
-          SImport node modulePath _ _ -> [(coreNodeId node, [], ImportDeclaration modulePath)]
+          SModule node _ -> [(coreNodeId node, [], ModuleDeclaration (sourceUnitOwnerModulePath (resolvedNodeOwner (coreNodeFacts node))))]
+          SImport node _ _ _ -> [(coreNodeId node, [], ImportDeclaration (resolvedImportTarget (coreNodeFacts node)))]
           SExpr node _ -> [(coreNodeId node, [], ExpressionDeclaration)]
         where
           bindingFor node name = bindingAt (LexicalReference <$> resolvedNodeBinder (coreNodeFacts node)) name
@@ -681,7 +682,7 @@ inferScopeTypeInternal
                 state = scopeWalkInferState walkState
                 stateForSource = state
              in case statement of
-                  SModule _ modulePath ->
+                  SModule moduleNode _ ->
                     go
                       walkState
                         { scopeWalkRecursiveGroupPreviewCache = Map.empty,
@@ -689,10 +690,10 @@ inferScopeTypeInternal
                             recordStatementSemanticFacts
                               env
                               statement
-                              (enterModuleCapabilityScope moduleBaselineFacts modulePath state)
+                              (enterModuleCapabilityScope moduleBaselineFacts (sourceUnitOwnerModulePath (resolvedNodeOwner (coreNodeFacts moduleNode))) state)
                         }
                       rest
-                  SImport _ modulePath maybeAlias maybeSymbolNames ->
+                  SImport importNode _ maybeAlias maybeSymbolNames ->
                     go
                       walkState
                         { scopeWalkRecursiveGroupPreviewCache = Map.empty,
@@ -700,7 +701,7 @@ inferScopeTypeInternal
                             recordStatementSemanticFacts
                               env
                               statement
-                              (importModuleCapabilityFacts modulePath maybeAlias maybeSymbolNames state)
+                              (importModuleCapabilityFacts (resolvedImportTarget (coreNodeFacts importNode)) maybeAlias maybeSymbolNames state)
                         }
                       rest
                   SClass _ capabilityName parameters _ ->
@@ -1653,23 +1654,23 @@ prepareScope forwardSignedFunctionsPolicy mode indexedStatements initialState =
       (bindingSeeds, signatures, forwardFunctions, declarations, pendingSignature, moduleBaselineFacts, state)
       (statementIndex, statement) =
         case statement of
-          SModule _ modulePath ->
+          SModule moduleNode _ ->
             ( bindingSeeds,
               signatures,
               forwardFunctions,
               declarations,
               Nothing,
               moduleBaselineFacts,
-              enterModuleCapabilityScope moduleBaselineFacts modulePath state
+              enterModuleCapabilityScope moduleBaselineFacts (sourceUnitOwnerModulePath (resolvedNodeOwner (coreNodeFacts moduleNode))) state
             )
-          SImport _ modulePath maybeAlias maybeSymbolNames ->
+          SImport importNode _ maybeAlias maybeSymbolNames ->
             ( bindingSeeds,
               signatures,
               forwardFunctions,
               declarations,
               Nothing,
               moduleBaselineFacts,
-              importModuleCapabilityFacts modulePath maybeAlias maybeSymbolNames state
+              importModuleCapabilityFacts (resolvedImportTarget (coreNodeFacts importNode)) maybeAlias maybeSymbolNames state
             )
           SClass _ capabilityName parameters methods ->
             let checked = checkClassMethods state capabilityName parameters methods

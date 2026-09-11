@@ -42,6 +42,7 @@ import Data.Sequence (Seq)
 import Data.Text (Text)
 import GHC.Generics (Generic)
 import Jazz.Compiler.CoreIdentity (CapabilityId (..), CapabilityMethodKey, CoreBinderId (..), CoreNodeId (..), ImplId (..), MethodId (..), ResolvedNodeFacts)
+import Jazz.Compiler.ModuleIdentity (ModulePath)
 import Jazz.Compiler.Name (Identifier, ResolvedName)
 import Jazz.Compiler.TypeRepresentation
   ( InferenceVariable,
@@ -156,8 +157,8 @@ data StatementDeclarationFact
   | CapabilityDeclaration ResolvedName [ResolvedName]
   | MethodDeclaration ResolvedName AnalyzedMethodSignature
   | ImplementationDeclaration ResolvedName [AnalyzedType]
-  | ModuleDeclaration [Text]
-  | ImportDeclaration [Text]
+  | ModuleDeclaration ModulePath
+  | ImportDeclaration ModulePath
   | ExpressionDeclaration
   deriving stock (Eq, Generic, Show)
   deriving anyclass (NFData)

@@ -89,6 +89,7 @@ import Jazz.Compiler.Diagnostics
     SourceSpan,
     setDiagnosticPrimarySpan,
   )
+import Jazz.Compiler.ModuleIdentity (ModulePath)
 import Jazz.Compiler.Name
   ( Name (..),
     ResolvedName,
@@ -327,7 +328,7 @@ flushCurrentModuleCapabilityFacts state =
         state
     Nothing -> state
 
-enterModuleCapabilityScope :: ScopeCapabilityFacts -> [Text] -> InferState -> InferState
+enterModuleCapabilityScope :: ScopeCapabilityFacts -> ModulePath -> InferState -> InferState
 enterModuleCapabilityScope baselineFacts modulePath state =
   modifyModuleInferenceState
     ( \moduleState ->
@@ -338,7 +339,7 @@ enterModuleCapabilityScope baselineFacts modulePath state =
     )
     (applyCapabilityFacts baselineFacts (flushCurrentModuleCapabilityFacts state))
 
-importModuleCapabilityFacts :: [Text] -> Maybe Text -> Maybe [Text] -> InferState -> InferState
+importModuleCapabilityFacts :: ModulePath -> Maybe Text -> Maybe [Text] -> InferState -> InferState
 importModuleCapabilityFacts modulePath maybeAlias maybeSymbolNames state =
   applyCapabilityFacts
     ( capabilityFactsFromState state

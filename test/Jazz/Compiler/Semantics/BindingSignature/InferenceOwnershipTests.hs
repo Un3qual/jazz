@@ -8,6 +8,7 @@ module Jazz.Compiler.Semantics.BindingSignature.InferenceOwnershipTests
   )
 where
 
+import Data.List.NonEmpty (NonEmpty (..))
 import qualified Data.Map.Strict as Map
 import qualified Data.Sequence as Seq
 import qualified Data.Set as Set
@@ -19,6 +20,7 @@ import Jazz.Compiler.AST
     Statement (..),
   )
 import Jazz.Compiler.CoreIdentity (CapabilityId (..), ResolvedReference (UnresolvedReference))
+import Jazz.Compiler.ModuleIdentity (mkModulePath)
 import Jazz.Compiler.Name
   ( NameNamespace (CapabilityNamespace, TypeNamespace, ValueNamespace),
     ResolvedName,
@@ -178,14 +180,14 @@ testDuplicateConstraintsReportFirstRepeatedName =
 testStateRecordModifiers :: IO ()
 testStateRecordModifiers = do
   assertEqual "declaration update" (Map.singleton (CapabilityId (capabilityName "Eq")) 1) (inferClassFacts updatedState)
-  assertEqual "module update" (Just ["App", "Main"]) (inferCurrentModulePath updatedState)
+  assertEqual "module update" (Just (mkModulePath (mkIdentifier "App" :| [mkIdentifier "Main"]))) (inferCurrentModulePath updatedState)
   assertEqual "output update" 3 (inferErrorCount updatedState)
   where
     updatedState =
       modifyInferenceOutput
         (\output -> output {outputErrorCount = 3})
         ( modifyModuleInferenceState
-            (\moduleState -> moduleState {inferenceModulePath = Just ["App", "Main"]})
+            (\moduleState -> moduleState {inferenceModulePath = Just (mkModulePath (mkIdentifier "App" :| [mkIdentifier "Main"]))})
             ( modifyDeclarationState
                 (\declarations -> declarations {declarationClassFacts = Map.singleton (CapabilityId (capabilityName "Eq")) 1})
                 initialInferState
