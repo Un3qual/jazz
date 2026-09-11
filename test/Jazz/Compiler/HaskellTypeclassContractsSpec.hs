@@ -6,6 +6,7 @@ module Main (main) where
 import Data.Bifunctor (bimap)
 import Data.List.NonEmpty (NonEmpty (..))
 import qualified Data.Map.Strict as Map
+import Data.Maybe (fromMaybe)
 import qualified Data.Set as Set
 import Data.Text (Text)
 import qualified Data.Text as Text
@@ -17,7 +18,9 @@ import Jazz.Compiler.AST
   )
 import qualified Jazz.Compiler.AST as AST
 import Jazz.Compiler.CapabilityFacts
-  ( ConcreteImplFact (ConcreteImplFact),
+  ( ConcreteImplFact,
+    concreteImplFact,
+    constraintSignatureTypesCompatible,
   )
 import Jazz.Compiler.CoreIdentity (CapabilityId (..), CoreBinderId (..), CoreNodeId (..), ImplId (..), MethodId (..), ResolvedNodeFacts (..), emptyResolvedNodeFacts)
 import Jazz.Compiler.Diagnostics
@@ -30,11 +33,12 @@ import Jazz.Compiler.ModuleExports
     exportInventory,
     exportInventoryEntries,
   )
-import Jazz.Compiler.ModuleIdentity (SourceUnitOwner (StandaloneSourceUnit), mkModulePath, standaloneModulePath)
+import Jazz.Compiler.ModuleIdentity (SourceUnitOwner (NamedSourceUnit, StandaloneSourceUnit), mkModulePath, standaloneModulePath)
 import Jazz.Compiler.Name
   ( NameNamespace (CapabilityNamespace, TypeNamespace, ValueNamespace),
     ResolvedName,
     mkIdentifier,
+    resolveDeclarationOwner,
     resolvedImportedName,
     resolvedLocalName,
   )
@@ -89,7 +93,7 @@ tests =
     ("stable set deletion and difference preserve retained order", testStableSetRemoval),
     ("stable sets form their intended left-biased monoid", testStableSetMonoid),
     ("scope capability facts preserve collision order", testScopeCapabilityFacts),
-    ("concrete implementation facts use rendered identity", testConcreteImplFactsUseRenderedIdentity),
+    ("concrete implementation facts use nominal identity", testConcreteImplFactsUseNominalIdentity),
     ("inference accepts imported TypeName facts for source-origin constraints", testInferenceAcceptsImportedTypeNameFact),
     ("inference accepts imported TypeApplication facts for source-origin constraints", testInferenceAcceptsImportedTypeApplicationFact),
     ("signature types traverse constructor names and variables exactly once", testSignatureTypeBitraversal),
@@ -273,35 +277,44 @@ testScopeCapabilityFacts = do
           scopeConcreteImplMethods =
             Map.singleton "Comparable" [fixtureImplMethod TypeRepresentation.SemanticBool],
           scopeGeneratedEqualityClassFacts = Set.singleton "Eq",
-          scopeConcreteImplFacts = Set.singleton (ConcreteImplFact (localCapabilityName "Comparable") TypeInt)
+          scopeConcreteImplFacts = Set.singleton (fixtureConcreteImplFact (localCapabilityName "Comparable") TypeInt)
         }
 
-testConcreteImplFactsUseRenderedIdentity :: IO ()
-testConcreteImplFactsUseRenderedIdentity = do
-  assertEqual "rendered capability facts compare equal" True (sourceFact == importedFact)
-  assertEqual "rendered capability facts share set membership" True (Set.member sourceFact (Set.singleton importedFact))
+testConcreteImplFactsUseNominalIdentity :: IO ()
+testConcreteImplFactsUseNominalIdentity = do
+  assertEqual "defining and imported capability facts compare equal" True (sourceFact == importedFact)
+  assertEqual "defining and imported capability facts share set membership" True (Set.member sourceFact (Set.singleton importedFact))
+  assertEqual "rendered spelling cannot substitute for nominal identity" False (fixtureConcreteImplFact (localCapabilityName "Lib::Marked::Marked!") TypeInt == importedFact)
   assertEqual "nested TypeName origins share set membership" True (Set.member sourceTypeNameFact (Set.singleton importedTypeNameFact))
   assertEqual "nested TypeApplication origins share set membership" True (Set.member sourceTypeApplicationFact (Set.singleton importedTypeApplicationFact))
   assertEqual
-    "legacy rendered argument collisions remain equal"
+    "target matching preserves primitive aliases"
     True
-    ( ConcreteImplFact (localCapabilityName "Marked") TypeInt
-        == ConcreteImplFact (localCapabilityName "Marked") (TypeName (localTypeName "Int"))
+    (constraintSignatureTypesCompatible (TypeName (localTypeName "Int")) (TypeName (localTypeName "Int64")))
+  assertEqual
+    "target matching distinguishes nominal owners with the same spelling"
+    False
+    (constraintSignatureTypesCompatible (TypeName (definedTypeName "Tagged")) (TypeName (localTypeName "Tagged")))
+  assertEqual
+    "primitive spelling aliases normalize to the same fact"
+    True
+    ( fixtureConcreteImplFact (localCapabilityName "Marked") TypeInt
+        == fixtureConcreteImplFact (localCapabilityName "Marked") (TypeName (localTypeName "Int"))
     )
   where
-    sourceFact = ConcreteImplFact (localCapabilityName "Lib::Marked::Marked!") TypeInt
+    sourceFact = fixtureConcreteImplFact (resolveDeclarationOwner (NamedSourceUnit (mkModulePath (mkIdentifier "Lib" :| [mkIdentifier "Marked"]))) (localCapabilityName "Marked!")) TypeInt
     importedFact =
-      ConcreteImplFact
+      fixtureConcreteImplFact
         (resolvedImportedName (mkModulePath (mkIdentifier "Lib" :| [mkIdentifier "Marked"])) CapabilityNamespace (mkIdentifier "Marked!"))
         TypeInt
-    sourceTypeNameFact = ConcreteImplFact (localCapabilityName "Marked") (TypeName (localTypeName "Lib::Types::Tagged"))
-    importedTypeNameFact = ConcreteImplFact (localCapabilityName "Marked") (TypeName (importedTypeName "Tagged"))
+    sourceTypeNameFact = fixtureConcreteImplFact (localCapabilityName "Marked") (TypeName (definedTypeName "Tagged"))
+    importedTypeNameFact = fixtureConcreteImplFact (localCapabilityName "Marked") (TypeName (importedTypeName "Tagged"))
     sourceTypeApplicationFact =
-      ConcreteImplFact
+      fixtureConcreteImplFact
         (localCapabilityName "Marked")
-        (TypeApplication (localTypeName "Lib::Types::Box") [TypeName (localTypeName "Lib::Types::Tagged")])
+        (TypeApplication (definedTypeName "Box") [TypeName (definedTypeName "Tagged")])
     importedTypeApplicationFact =
-      ConcreteImplFact
+      fixtureConcreteImplFact
         (localCapabilityName "Marked")
         (TypeApplication (importedTypeName "Box") [TypeName (importedTypeName "Tagged")])
 
@@ -309,14 +322,14 @@ testInferenceAcceptsImportedTypeNameFact :: IO ()
 testInferenceAcceptsImportedTypeNameFact =
   assertImportedConstraintFactAccepted
     "TypeName imported fact"
-    (TypeName (localTypeName "Lib::Types::Tagged"))
+    (TypeName (definedTypeName "Tagged"))
     (TypeName (importedTypeName "Tagged"))
 
 testInferenceAcceptsImportedTypeApplicationFact :: IO ()
 testInferenceAcceptsImportedTypeApplicationFact =
   assertImportedConstraintFactAccepted
     "TypeApplication imported fact"
-    (TypeApplication (localTypeName "Lib::Types::Box") [TypeName (localTypeName "Lib::Types::Tagged")])
+    (TypeApplication (definedTypeName "Box") [TypeName (definedTypeName "Tagged")])
     (TypeApplication (importedTypeName "Box") [TypeName (importedTypeName "Tagged")])
 
 assertImportedConstraintFactAccepted :: Text -> AST.SignatureType 'AST.Resolved -> AST.SignatureType 'AST.Resolved -> IO ()
@@ -340,7 +353,7 @@ assertImportedConstraintFactAccepted label sourceArgument importedArgument = do
           inferenceImportedCapabilities =
             emptyScopeCapabilityFacts
               { scopeClassFacts = Map.singleton "Marked" 1,
-                scopeConcreteImplFacts = Set.singleton (ConcreteImplFact (localCapabilityName "Marked") factArgument)
+                scopeConcreteImplFacts = Set.singleton (fixtureConcreteImplFact (localCapabilityName "Marked") factArgument)
               },
           inferenceImportedClassNames = Set.singleton "Marked",
           inferenceCurrentModulePath = Nothing
@@ -379,6 +392,12 @@ localTypeName = resolvedLocalName TypeNamespace . mkIdentifier
 
 localCapabilityName :: Text -> ResolvedName
 localCapabilityName = resolvedLocalName CapabilityNamespace . mkIdentifier
+
+fixtureConcreteImplFact :: ResolvedName -> AST.SignatureType 'AST.Resolved -> ConcreteImplFact
+fixtureConcreteImplFact capability target = fromMaybe (error "invalid concrete fact fixture") (concreteImplFact capability [target])
+
+definedTypeName :: Text -> ResolvedName
+definedTypeName = resolveDeclarationOwner (NamedSourceUnit (mkModulePath (mkIdentifier "Lib" :| [mkIdentifier "Types"]))) . localTypeName
 
 importedTypeName :: Text -> ResolvedName
 importedTypeName name =

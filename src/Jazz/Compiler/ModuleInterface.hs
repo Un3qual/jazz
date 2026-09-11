@@ -23,7 +23,6 @@ import Data.Set (Set)
 import qualified Data.Set as Set
 import Data.Text (Text)
 import GHC.Generics (Generic)
-import Jazz.Compiler.CapabilityFacts (ConcreteImplFact)
 import Jazz.Compiler.CoreIdentity (CoreBinderId)
 import Jazz.Compiler.ModuleExports
   ( ModuleExport (..),
@@ -33,6 +32,7 @@ import Jazz.Compiler.ModuleExports
 import Jazz.Compiler.Name (NameNamespace (..), ResolvedName, renderName)
 import Jazz.Compiler.SemanticDeclarations
   ( ClassMethodType,
+    ConcreteImplFact,
     DataTypeBinding,
     DeclarationVariable,
     ImplMethodType,

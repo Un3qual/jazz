@@ -8,6 +8,8 @@
 module Jazz.Compiler.SemanticDeclarations
   ( ClassMethodType (..),
     ConstructorArgumentType (..),
+    ConcreteImplFact (..),
+    concreteSignatureType,
     DataTypeBinding (..),
     ImplMethodType (..),
     SignatureTypeFailure (..),
@@ -46,15 +48,19 @@ import Data.Text (Text)
 import Data.Void (Void, absurd)
 import GHC.Generics (Generic)
 import Jazz.Compiler.BuiltinCatalog (BuiltinSymbol, numericTypeFromName)
-import Jazz.Compiler.CapabilityFacts (ConcreteImplFact, identifierLooksLikeTypeVariable)
 import Jazz.Compiler.CoreIdentity (CapabilityId, CoreBinderId, MethodId)
-import Jazz.Compiler.Name (ResolvedName, identifierText)
+import Jazz.Compiler.Name (ResolvedName, identifierLooksLikeTypeVariable, identifierText)
 import Jazz.Compiler.StableSet (StableSet, stableSetFromPreferred, stableSetMembershipSet, stableSetOrderedList)
 import Jazz.Compiler.TypeRepresentation (SemanticType (..), SignatureType (..), semanticTypeToSignature, substituteSemanticVariables)
 
 -- | A checked method type with its class parameter explicitly bound.
 data ClassMethodType = ClassMethodType Text (SemanticType ResolvedName Text)
   deriving stock (Eq, Generic, Show)
+  deriving anyclass (NFData)
+
+-- | A checked implementation target with nominal capability/type identity.
+data ConcreteImplFact = ConcreteImplFact ResolvedName (SemanticType ResolvedName Void)
+  deriving stock (Eq, Generic, Ord, Show)
   deriving anyclass (NFData)
 
 -- | The declaration selected by method checking also owns its evidence identity.
@@ -94,7 +100,27 @@ normalizeSignatureType ::
   Map Text (SemanticType ResolvedName variable) ->
   SignatureType ResolvedName ResolvedName ->
   Either SignatureTypeFailure (SemanticType ResolvedName variable)
-normalizeSignatureType dataTypes variables signatureType =
+normalizeSignatureType dataTypes = normalizeSignatureTypeWith checkNamed
+  where
+    checkNamed name argumentCount = case Map.lookup name dataTypes of
+      Nothing -> Left (UnknownNamedType name)
+      Just (DataTypeBinding parameters _)
+        | length parameters /= argumentCount -> Left (NamedTypeArityMismatch name (length parameters) argumentCount)
+        | otherwise -> Right ()
+
+-- Declaration diagnostics compare concrete targets before data-type arity
+-- checking. The checker itself supplies that validation to the same converter.
+concreteSignatureType :: SignatureType ResolvedName ResolvedName -> Maybe (SemanticType ResolvedName Void)
+concreteSignatureType signature = do
+  target <- either (const Nothing) Just (normalizeSignatureTypeWith concreteName Map.empty signature)
+  if concreteImplementationType target then Just target else Nothing
+  where
+    concreteName name _
+      | identifierLooksLikeTypeVariable name = Left (UnboundSignatureTypeVariable name)
+      | otherwise = Right ()
+
+normalizeSignatureTypeWith :: (ResolvedName -> Int -> Either SignatureTypeFailure ()) -> Map Text (SemanticType ResolvedName variable) -> SignatureType ResolvedName ResolvedName -> Either SignatureTypeFailure (SemanticType ResolvedName variable)
+normalizeSignatureTypeWith checkNamed variables signatureType =
   case signatureType of
     TypeInt -> Right SemanticInt
     TypeFloat -> Right SemanticFloat
@@ -122,7 +148,7 @@ normalizeSignatureType dataTypes variables signatureType =
     TypeFunction argumentType resultType ->
       SemanticFunction <$> convert argumentType <*> convert resultType
   where
-    convert = normalizeSignatureType dataTypes variables
+    convert = normalizeSignatureTypeWith checkNamed variables
 
     builtinOrVariableType name =
       case identifierText name of
@@ -135,14 +161,9 @@ normalizeSignatureType dataTypes variables signatureType =
           (SemanticNumeric <$> numericTypeFromName typeName)
             <|> Map.lookup typeName variables
 
-    namedType name arguments =
-      case Map.lookup name dataTypes of
-        Nothing -> Left (UnknownNamedType name)
-        Just (DataTypeBinding parameters _)
-          | length parameters /= length arguments ->
-              Left (NamedTypeArityMismatch name (length parameters) (length arguments))
-          | otherwise ->
-              SemanticData name <$> traverse convert arguments
+    namedType name arguments = do
+      checkNamed name (length arguments)
+      SemanticData name <$> traverse convert arguments
 
 semanticFunctionArguments :: SemanticType name variable -> ([SemanticType name variable], SemanticType name variable)
 semanticFunctionArguments (SemanticFunction argument result) =

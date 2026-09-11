@@ -12,6 +12,7 @@
 module Jazz.Compiler.Name
   ( Identifier,
     IdentifierLike (..),
+    identifierLooksLikeTypeVariable,
     isIdentifierContinuationCharacter,
     isIdentifierStartCharacter,
     mkIdentifier,
@@ -48,7 +49,7 @@ module Jazz.Compiler.Name
 where
 
 import Control.DeepSeq (NFData)
-import Data.Char (ord, toUpper)
+import Data.Char (isLower, ord, toUpper)
 import Data.String (IsString (..))
 import Data.Text (Text)
 import qualified Data.Text as Text
@@ -285,3 +286,15 @@ namePurity name =
     UserName user -> userNamePurity user
     BuiltinName identifier -> identifierPurity identifier
     GeneratedName _ -> Pure
+
+identifierLooksLikeTypeVariable :: ResolvedName -> Bool
+identifierLooksLikeTypeVariable name =
+  case Text.uncons (terminalIdentifierText name) of
+    Just (firstChar, _) -> isLower firstChar
+    Nothing -> False
+  where
+    terminalIdentifierText candidate =
+      case candidate of
+        UserName (ResolvedUserName _ _ identifier) -> identifierText identifier
+        BuiltinName identifier -> identifierText identifier
+        GeneratedName {} -> ""

@@ -1,7 +1,4 @@
 {-# LANGUAGE DataKinds #-}
-{-# LANGUAGE DeriveAnyClass #-}
-{-# LANGUAGE DeriveGeneric #-}
-{-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE ExplicitNamespaces #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE PatternSynonyms #-}
@@ -25,25 +22,23 @@ module Jazz.Compiler.CapabilityFacts
   )
 where
 
-import Control.DeepSeq (NFData)
-import Data.Char (isLower)
 import qualified Data.Set as Set
 import Data.Text (Text)
 import qualified Data.Text as Text
-import GHC.Generics (Generic)
 import qualified Jazz.Compiler.AST as AST
 import Jazz.Compiler.BuiltinCatalog
   ( numericTypeFromName,
     renderNumericTypeName,
   )
 import Jazz.Compiler.Name
-  ( IdentifierLike (identifierText),
-    Name (..),
+  ( Name (..),
     ResolvedName,
     ResolvedUserName (..),
+    identifierLooksLikeTypeVariable,
     mkIdentifier,
     renderName,
   )
+import Jazz.Compiler.SemanticDeclarations (ConcreteImplFact (..), concreteSignatureType, implementationTargetSignature)
 import Jazz.Compiler.SignatureRendering
   ( renderSignatureType,
   )
@@ -80,36 +75,15 @@ type SignatureToken = AST.SignatureToken 'AST.Resolved
 
 type SignatureType = AST.SignatureType 'AST.Resolved
 
-data ConcreteImplFact = ConcreteImplFact ResolvedName SignatureType
-  deriving stock (Generic, Show)
-  deriving anyclass (NFData)
-
--- | Concrete facts preserve the legacy text-key collision semantics: the
--- capability and complete argument compare by rendered identity, rather than
--- the implementation-specific 'ResolvedName' origins used to construct them. Keeping
--- the rendered argument also retains legacy collisions such as 'TypeInt' and
--- @TypeName "Int"@.
-instance Eq ConcreteImplFact where
-  leftFact == rightFact = concreteImplFactIdentity leftFact == concreteImplFactIdentity rightFact
-
-instance Ord ConcreteImplFact where
-  compare leftFact rightFact = compare (concreteImplFactIdentity leftFact) (concreteImplFactIdentity rightFact)
-
-concreteImplFactIdentity :: ConcreteImplFact -> (Text, Text)
-concreteImplFactIdentity (ConcreteImplFact capabilityName argument) =
-  (renderName capabilityName, renderSignatureType argument)
-
 concreteImplFact :: ResolvedName -> [SignatureType] -> Maybe ConcreteImplFact
 concreteImplFact capabilityName arguments =
   case arguments of
-    [argument]
-      | concreteConstraintArgument argument ->
-          Just (ConcreteImplFact capabilityName argument)
+    [argument] -> ConcreteImplFact capabilityName <$> concreteSignatureType argument
     _ -> Nothing
 
 renderConcreteImplFact :: ConcreteImplFact -> Text
 renderConcreteImplFact (ConcreteImplFact capabilityName argument) =
-  renderName capabilityName <> "(" <> renderSignatureType argument <> ")"
+  renderName capabilityName <> "(" <> renderSignatureType (implementationTargetSignature argument) <> ")"
 
 concreteImplFactClassName :: ConcreteImplFact -> Text
 concreteImplFactClassName (ConcreteImplFact capabilityName _) = renderName capabilityName
@@ -245,13 +219,13 @@ constraintSignatureTypesCompatible leftType rightType =
     (TypeName name, TypeChar) -> renderName name == "Char"
     (TypeText, TypeName name) -> renderName name == "Text"
     (TypeName name, TypeText) -> renderName name == "Text"
-    (TypeVariable leftName, TypeVariable rightName) -> renderName leftName == renderName rightName
+    (TypeVariable leftName, TypeVariable rightName) -> leftName == rightName
     (TypeName leftName, TypeName rightName) ->
-      normalizeConstraintSignatureName (renderName leftName)
-        == normalizeConstraintSignatureName (renderName rightName)
+      case (numericTypeFromName (normalizeConstraintSignatureName (renderName leftName)), numericTypeFromName (normalizeConstraintSignatureName (renderName rightName))) of
+        (Just leftNumeric, Just rightNumeric) -> leftNumeric == rightNumeric
+        _ -> False
     (TypeApplication leftName leftArguments, TypeApplication rightName rightArguments)
-      | normalizeConstraintSignatureName (renderName leftName)
-          == normalizeConstraintSignatureName (renderName rightName),
+      | leftName == rightName,
         length leftArguments == length rightArguments ->
           and (zipWith constraintSignatureTypesCompatible leftArguments rightArguments)
     (TypeList leftElementType, TypeList rightElementType) ->
@@ -311,18 +285,6 @@ renameResolved replacement name =
       UserName (ResolvedUserName origin namespace (mkIdentifier replacement))
     BuiltinName _ -> BuiltinName (mkIdentifier replacement)
     GeneratedName {} -> name
-
-identifierLooksLikeTypeVariable :: ResolvedName -> Bool
-identifierLooksLikeTypeVariable name =
-  case Text.uncons (terminalIdentifierText name) of
-    Just (firstChar, _) -> isLower firstChar
-    Nothing -> False
-  where
-    terminalIdentifierText candidate =
-      case candidate of
-        UserName (ResolvedUserName _ _ identifier) -> identifierText identifier
-        BuiltinName identifier -> identifierText identifier
-        GeneratedName {} -> ""
 
 constraintSignatureTypeVariableNamesInOrder :: SignatureType -> [Text]
 constraintSignatureTypeVariableNamesInOrder =

@@ -10,7 +10,6 @@ module Jazz.Compiler.ModuleAnalysis
   )
 where
 
-import Data.Bifunctor (bimap)
 import Data.List (union)
 import qualified Data.List.NonEmpty as NonEmpty
 import Data.Map.Strict (Map)
@@ -23,7 +22,6 @@ import Jazz.Compiler.AST
     CorePhase (..),
     CoreSort (StatementSort),
     Expr (EBlock),
-    SignatureType,
     expressionNode,
     statementNode,
   )
@@ -463,13 +461,7 @@ rebaseConcreteImplFact ::
 rebaseConcreteImplFact origin dataTypeNames classNames (ConcreteImplFact capabilityName argument) =
   ConcreteImplFact
     (rebaseKnownName origin CapabilityNamespace classNames capabilityName)
-    (rebaseSignatureTypeNames origin dataTypeNames argument)
-
-rebaseSignatureTypeNames :: ResolvedNameOrigin -> Set.Set Text -> SignatureType 'Resolved -> SignatureType 'Resolved
-rebaseSignatureTypeNames origin dataTypeNames =
-  bimap rebaseTypeName rebaseTypeName
-  where
-    rebaseTypeName = rebaseKnownName origin TypeNamespace dataTypeNames
+    (rebaseExpressionType origin dataTypeNames argument)
 
 rebaseKnownName :: ResolvedNameOrigin -> NameNamespace -> Set.Set Text -> ResolvedName -> ResolvedName
 rebaseKnownName origin namespace knownNames name =

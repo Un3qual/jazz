@@ -85,14 +85,12 @@ import Jazz.Compiler.BuiltinCatalog
   )
 import Jazz.Compiler.CapabilityFacts
   ( ConcreteImplFact (..),
-    concreteImplFact,
     concreteImplFactClassName,
     constraintSignatureAliasVariants,
     constraintSignatureTypeVariableNamesInOrder,
     constraintSignatureTypesCompatible,
     normalizeConstraintSignatureName,
     qualifiedMethodKey,
-    renderConcreteImplFact,
     splitQualifiedMethodKey,
   )
 import Jazz.Compiler.CoreIdentity (ImplId (..), MethodId (..), ResolvedNodeFacts (..), ResolvedReference (..))
@@ -102,13 +100,10 @@ import Jazz.Compiler.Diagnostics
     setDiagnosticPrimarySpan,
   )
 import Jazz.Compiler.Name
-  ( NameNamespace (CapabilityNamespace),
-    ResolvedName,
+  ( ResolvedName,
     identifierText,
-    mkIdentifier,
-    resolvedLocalName,
   )
-import Jazz.Compiler.SemanticDeclarations (concreteImplementationType, implementationTargetSignature, semanticFunctionArguments)
+import Jazz.Compiler.SemanticDeclarations (concreteImplementationType, concreteSignatureType, implementationTargetSignature, semanticFunctionArguments)
 import Jazz.Compiler.SemanticFacts (StatementDeclarationFact (ImplementationDeclaration))
 import Jazz.Compiler.SignatureRendering
   ( renderSignatureType,
@@ -429,9 +424,9 @@ registerImplementation node capabilityName targets methods =
   recordStatementFactSeed (coreNodeId node) ([], ImplementationDeclaration capabilityName (map (fmap absurd) targets)) . modifyCapabilityFacts seed
   where
     seed facts = seedImplMethodFacts node capabilityName targets methods $
-      case concreteImplFact capabilityName (map implementationTargetSignature targets) of
-        Just implFact -> facts {scopeConcreteImplFacts = Set.insert implFact (scopeConcreteImplFacts facts)}
-        Nothing -> facts
+      case targets of
+        [target] | concreteImplementationType target -> facts {scopeConcreteImplFacts = Set.insert (ConcreteImplFact capabilityName target) (scopeConcreteImplFacts facts)}
+        _ -> facts
 
 seedImplMethodFacts ::
   CoreNode 'Resolved 'StatementSort ->
@@ -822,7 +817,7 @@ resolveDeferredExplicitConstraint state deferredConstraint =
                             && length (methodBodyHints methodKey) > 1
                             && not (uniqueExactRuntimeCandidateHint state unresolvedArgumentType (methodBodyHints methodKey))
                         renderedImplFactKey =
-                          renderConcreteImplFact (concreteImplFactForRenderedName constraintName firstArgumentHint)
+                          constraintName <> "(" <> renderSignatureType firstArgumentHint <> ")"
                      in case maybeMethodKey of
                           Nothing
                             | not (null implFactHints) ->
@@ -911,10 +906,8 @@ dedupeSignatureTypes =
   where
     go _ [] = []
     go seen (signatureType : rest)
-      | Set.member rendered seen = go seen rest
-      | otherwise = signatureType : go (Set.insert rendered seen) rest
-      where
-        rendered = renderSignatureType signatureType
+      | Set.member signatureType seen = go seen rest
+      | otherwise = signatureType : go (Set.insert signatureType seen) rest
 
 constraintSignatureTypeMatchesExpressionType :: InferState -> SignatureType 'Resolved -> ExpressionType -> Bool
 constraintSignatureTypeMatchesExpressionType state signatureType expressionType =
@@ -961,15 +954,12 @@ concreteImplFactExists constraintName argumentHint facts =
 
 concreteImplFactExistsExactly :: Text -> SignatureType 'Resolved -> ScopeCapabilityFacts -> Bool
 concreteImplFactExistsExactly constraintName argumentHint facts =
-  any matches (scopeConcreteImplFacts facts)
+  case concreteSignatureType argumentHint of
+    Nothing -> False
+    Just target -> any (matches target) (scopeConcreteImplFacts facts)
   where
-    matches (ConcreteImplFact capabilityName candidateHint) =
-      identifierText capabilityName == constraintName
-        && candidateHint == argumentHint
-
-concreteImplFactForRenderedName :: Text -> SignatureType 'Resolved -> ConcreteImplFact
-concreteImplFactForRenderedName constraintName argumentHint =
-  ConcreteImplFact (resolvedLocalName CapabilityNamespace (mkIdentifier constraintName)) argumentHint
+    matches target (ConcreteImplFact capabilityName candidateTarget) =
+      identifierText capabilityName == constraintName && candidateTarget == target
 
 concreteImplMethodBodyExists :: Text -> SignatureType 'Resolved -> ScopeCapabilityFacts -> Bool
 concreteImplMethodBodyExists methodKey argumentHint facts =

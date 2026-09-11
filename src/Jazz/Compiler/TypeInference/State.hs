@@ -63,11 +63,10 @@ import qualified Data.Sequence as Seq
 import Data.Set (Set)
 import qualified Data.Set as Set
 import Data.Text (Text)
-import Jazz.Compiler.CapabilityFacts (ConcreteImplFact)
 import Jazz.Compiler.Diagnostics (Diagnostic)
 import Jazz.Compiler.Name (ResolvedName, UnresolvedName)
 import Jazz.Compiler.PatternCoverage (PatternCoverageSite)
-import Jazz.Compiler.SemanticDeclarations (DeclarationVariable)
+import Jazz.Compiler.SemanticDeclarations (ConcreteImplFact, DeclarationVariable)
 import Jazz.Compiler.SemanticFacts
   ( BinaryOperation,
     CapabilityId,
