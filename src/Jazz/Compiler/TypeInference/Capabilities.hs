@@ -45,7 +45,6 @@ where
 import Control.Applicative
   ( (<|>),
   )
-import Data.Bifunctor (first)
 import Data.Foldable
   ( toList,
   )
@@ -120,7 +119,7 @@ import Jazz.Compiler.TypeInference.Diagnostics
     mkTypeSchemeNumericConstraintError,
     mkTypeSchemeStrictEqualityConstraintError,
   )
-import Jazz.Compiler.TypeInference.Draft (checkedExprType)
+import Jazz.Compiler.TypeInference.Draft (CheckedExpr, checkedExprType)
 import Jazz.Compiler.TypeInference.Environment
   ( TypeEnvFreeVariables,
     deleteTypeEnvFreeVariables,
@@ -452,11 +451,11 @@ inferQualifiedMethodApplicationWithResults ::
   CoreNodeId ->
   CapabilityMethodKey ->
   [Expr 'Resolved] ->
-  (Maybe ExpressionType, InferState, [Maybe ExpressionType])
+  (Maybe ExpressionType, InferState, [CheckedExpr])
 inferQualifiedMethodApplicationWithResults inferExpression env state nodeId methodKey argumentExprs =
   let (reversedResults, stateAfterArguments) = foldl' step ([], state) argumentExprs
       results = reverse reversedResults
-   in case sequenceA results of
+   in case traverse checkedExprType results of
         Nothing -> (Nothing, stateAfterArguments, results)
         Just typedArgumentTypes ->
           let (expressionType, finalState) =
@@ -470,7 +469,7 @@ inferQualifiedMethodApplicationWithResults inferExpression env state nodeId meth
   where
     step (resultsAcc, stateAcc) argumentExpr =
       let (result, stateAfterArgument) =
-            first checkedExprType (inferExpression env stateAcc argumentExpr)
+            inferExpression env stateAcc argumentExpr
        in (result : resultsAcc, stateAfterArgument)
 
 addUnpreservedInferredMethodConstraintErrors ::

@@ -626,6 +626,9 @@ testCheckedSubtreeOwnership = do
   mapM_
     (assertOwned inputs)
     [ "(\\(x) -> x) (1 + 2)",
+      "(+) 1 1.5",
+      "($) (1 +) 1.5",
+      "($) (+ 1.5) 1",
       "case (1, [2]) { | (item, [other]) | (other, [item]) if item > 0 -> item + other | _ -> 0 }"
     ]
   where

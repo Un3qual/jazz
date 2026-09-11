@@ -8,6 +8,7 @@ module Jazz.Compiler.TypeInference.Draft
     attachmentResult,
     Draft (..),
     finalizeDraft,
+    rejectedDraft,
     CheckedExpr (..),
   )
 where
@@ -47,6 +48,9 @@ instance Applicative Draft where
 
 finalizeDraft :: InferState -> Draft value -> Either (NonEmpty SemanticFactInvariantFailure) value
 finalizeDraft solved (Draft draft) = attachmentResult (draft solved)
+
+rejectedDraft :: SemanticFactInvariantFailure -> Draft value
+rejectedDraft failure = Draft (const (AttachmentFailed failure Seq.empty))
 
 data CheckedExpr = CheckedExpr
   { checkedExprType :: Maybe ExpressionType,
