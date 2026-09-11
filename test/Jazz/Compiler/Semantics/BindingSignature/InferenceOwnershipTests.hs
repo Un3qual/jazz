@@ -20,6 +20,8 @@ import Jazz.Compiler.AST
     Statement (..),
   )
 import Jazz.Compiler.CoreIdentity (CapabilityId (..), ResolvedReference (UnresolvedReference))
+import Jazz.Compiler.DiagnosticCatalog (ErrorCode (E2009))
+import Jazz.Compiler.Diagnostics (DiagnosticOrigin (CompilationOrigin), mkErrorDiagnostic)
 import Jazz.Compiler.ModuleIdentity (mkModulePath)
 import Jazz.Compiler.Name
   ( NameNamespace (CapabilityNamespace, TypeNamespace, ValueNamespace),
@@ -36,6 +38,7 @@ import Jazz.Compiler.Semantics.BindingSignature.Shared (resolvedProgram)
 import Jazz.Compiler.TypeInference.Capabilities
   ( typeSchemeReferencedCapabilityFacts,
   )
+import Jazz.Compiler.TypeInference.Diagnostics (addTypeError)
 import Jazz.Compiler.TypeInference.ImplChecking (checkImplMethodBodies)
 import Jazz.Compiler.TypeInference.Operator
   ( builtinSectionOperatorSymbol,
@@ -146,6 +149,7 @@ inferenceOwnershipTests =
     ("failed signature payload normalization rolls back state", testFailedSignaturePayloadNormalizationRollsBackState),
     ("production scope elaborates each signature once in source order", testProductionScopeElaboratesSignatureOnce),
     ("recursive previews do not expose speculative solver state to intervening bindings", testRecursivePreviewSolverStateIsTransactional),
+    ("failed recursive previews retain allocations without leaking diagnostics", testFailedRecursivePreviewRetainsAllocation),
     ("recursive previews refresh after semantic solver changes", testRecursivePreviewRefreshesAfterSolverChange),
     ("recursive previews refresh after numeric-constraint changes", testRecursivePreviewRefreshesAfterNumericConstraintChange),
     ("recursive previews refresh after strict-equality-constraint changes", testRecursivePreviewRefreshesAfterStrictEqualityConstraintChange),
@@ -499,6 +503,25 @@ testRecursivePreviewSolverStateIsTransactional =
         _ -> inferenceOnlyResult mode (Just SemanticBool) state
 
     previewSentinel = 1000000
+
+testFailedRecursivePreviewRetainsAllocation :: IO ()
+testFailedRecursivePreviewRetainsAllocation = do
+  assertEqual "only the real body failure is reported" 1 (inferErrorCount finalState)
+  assertEqual "three binding seeds plus separate preview and real allocations" 5 (inferNextTypeVar finalState)
+  where
+    (_, finalState) =
+      TypeInferenceScope.inferScopeType
+        failingInfer
+        Map.empty
+        initialInferState
+        (programScope (resolvedProgram "left = right. early = probe. right = left."))
+    failingInfer :: InferExprWithModeFn
+    failingInfer mode _ state expression = case expression of
+      EVar _ name
+        | name == valueName "left" ->
+            let (_, allocated) = freshTypeVar state
+             in inferenceOnlyResult mode (Just SemanticBool) (addTypeError allocated (mkErrorDiagnostic E2009 CompilationOrigin "body failure"))
+      _ -> inferenceOnlyResult mode (Just SemanticBool) state
 
 testRecursivePreviewRefreshesAfterSolverChange :: IO ()
 testRecursivePreviewRefreshesAfterSolverChange =

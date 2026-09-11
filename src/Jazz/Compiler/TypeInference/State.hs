@@ -40,6 +40,8 @@ module Jazz.Compiler.TypeInference.State
     inferSubst,
     inferVisibleTypes,
     initialInferState,
+    previewInference,
+    rejectPatternAttempt,
     modifyDeclarationState,
     modifyInferenceOutput,
     modifyModuleInferenceState,
@@ -413,3 +415,23 @@ recordPatternCoverageSite site =
           { outputPatternCoverageSites = outputPatternCoverageSites output Seq.|> site
           }
     )
+
+-- | Return temporary semantic state separately from the continuing traversal.
+-- Neither successful nor failed speculation may reuse its allocated IDs. A
+-- successful preview can expose solved types, but never its node output or
+-- outstanding constraints to a real definition-site generalization.
+previewInference :: (InferState -> InferState) -> InferState -> (Maybe InferState, InferState)
+previewInference check original =
+  ( if inferErrorCount temporary == inferErrorCount original
+      then Just temporary {inferOutput = inferOutput original}
+      else Nothing,
+    original {inferSolver = (inferSolver original) {solverNextTypeVar = max (inferNextTypeVar original) (inferNextTypeVar temporary)}}
+  )
+  where
+    temporary = check original
+
+-- | Rejected patterns contribute diagnostics in source order, but their
+-- bindings, solved types, coverage sites and node facts are not accepted.
+rejectPatternAttempt :: InferState -> InferState -> InferState
+rejectPatternAttempt stable failed =
+  stable {inferOutput = (inferOutput stable) {outputErrorsRev = inferErrorsRev failed, outputErrorCount = inferErrorCount failed}}

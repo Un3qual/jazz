@@ -151,7 +151,6 @@ import Jazz.Compiler.TypeInference.State
     SolverState (..),
     inferDataTypes,
     inferErrorCount,
-    inferErrorsRev,
     inferExpressionFactTypes,
     inferInferredClassConstraintCount,
     inferInferredClassConstraints,
@@ -160,6 +159,7 @@ import Jazz.Compiler.TypeInference.State
     inferStrictEqualityVars,
     modifyDeclarationState,
     modifyInferenceOutput,
+    previewInference,
     recordExpressionFactType,
     recordStatementFactSeed,
   )
@@ -1306,9 +1306,9 @@ inferScopeTypeInternal
                                     )
                           _ ->
                             case previewRecursiveGroupState envAcc stateAcc statementIndex groupMembers of
-                              Nothing ->
-                                (envAcc, freeVariablesAcc, stateAcc, cacheAcc)
-                              Just previewState ->
+                              (Nothing, nextState) ->
+                                (envAcc, freeVariablesAcc, nextState, cacheAcc)
+                              (Just previewState, nextState) ->
                                 let groupBindingNames =
                                       Set.fromList
                                         [ bindingName
@@ -1350,7 +1350,6 @@ inferScopeTypeInternal
                                           recursiveGroupPreviewStrictEqualityVars =
                                             Set.intersection (inferStrictEqualityVars stateAcc) previewDependencyVariables
                                         }
-                                    nextState = rollbackPreviewState stateAcc previewState
                                  in (nextEnv, nextFreeVariables, nextState, Map.insert previewKey cachedPreview cacheAcc)
               _ ->
                 (envAcc, freeVariablesAcc, stateAcc, cacheAcc)
@@ -1448,12 +1447,9 @@ inferScopeTypeInternal
                 statementIndex < bindingIndex && bindingIndex < memberIndex && Set.notMember bindingIndex groupMemberSet
               Nothing -> False
 
-      previewRecursiveGroupState :: TypeEnv -> InferState -> Int -> [Int] -> Maybe InferState
+      previewRecursiveGroupState :: TypeEnv -> InferState -> Int -> [Int] -> (Maybe InferState, InferState)
       previewRecursiveGroupState currentEnv state statementIndex groupMembers =
-        let previewState = foldl' previewMember state (filter (> statementIndex) groupMembers)
-         in if previewIntroducedDiagnostics state previewState
-              then Nothing
-              else Just (discardPreviewOutput state previewState)
+        previewInference (\initial -> foldl' previewMember initial (filter (> statementIndex) groupMembers)) state
         where
           previewMember stateAcc memberIndex =
             case Map.lookup memberIndex statementsByIndex of
@@ -1495,33 +1491,6 @@ inferScopeTypeInternal
                               )
                       _ -> stateAfterValue
               _ -> stateAcc
-
-          discardPreviewOutput originalState previewState =
-            modifyInferenceOutput
-              ( \output ->
-                  output
-                    { outputErrorsRev = inferErrorsRev originalState,
-                      outputDeferredConstraints = outputDeferredConstraints (inferOutput originalState),
-                      outputInferredConstraints = inferInferredClassConstraints originalState,
-                      outputInferredConstraintCount = inferInferredClassConstraintCount originalState
-                    }
-              )
-              previewState
-
-          previewIntroducedDiagnostics originalState previewState =
-            length (inferErrorsRev previewState) /= length (inferErrorsRev originalState)
-
-      -- Preview inference is a transaction: its resolved types may be used to
-      -- expose a temporary scheme, but none of its semantic state belongs to
-      -- the real traversal. Keep only the allocation watermark so type-variable
-      -- identifiers embedded in that temporary scheme cannot be reused.
-      rollbackPreviewState originalState previewState =
-        originalState
-          { inferSolver =
-              (inferSolver originalState)
-                { solverNextTypeVar = solverNextTypeVar (inferSolver previewState)
-                }
-          }
 
       shouldSeedSelfRecursiveFunction :: Int -> TypeEnvKey -> TypeEnv -> Bool
       shouldSeedSelfRecursiveFunction statementIndex bindingName visibleEnv =

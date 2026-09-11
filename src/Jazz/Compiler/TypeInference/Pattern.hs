@@ -45,13 +45,11 @@ import Jazz.Compiler.TypeInference.Solver
     unifyTypes,
   )
 import Jazz.Compiler.TypeInference.State
-  ( InferState (..),
-    InferenceOutput (..),
+  ( InferState,
     inferErrorCount,
-    inferErrorsRev,
-    modifyInferenceOutput,
     recordExpressionFactType,
     recordPatternFactSeed,
+    rejectPatternAttempt,
   )
 import Jazz.Compiler.TypeInference.Traversal (InferExprWithModeFn, InferenceMode)
 import Jazz.Compiler.TypeInference.Types
@@ -202,7 +200,7 @@ rejectDuplicatePatternBinders pattern typing stableState checkedState =
       let stateWithDuplicateErrors =
             foldl' addDuplicateError checkedState duplicateNames
        in ( typing {patternSkipsBranchType = True},
-            rollbackSkippedPatternState stableState stateWithDuplicateErrors
+            rejectPatternAttempt stableState stateWithDuplicateErrors
           )
   where
     addDuplicateError stateAcc duplicateName =
@@ -355,7 +353,7 @@ inferOrPatternType env scrutineeType alternatives initialState =
       let (firstTyping, stateAfterFirst) =
             inferOrPatternAlternative firstAlternative initialState
        in if patternSkipsBranchType firstTyping
-            then (firstTyping, rollbackSkippedPatternState initialState stateAfterFirst)
+            then (firstTyping, rejectPatternAttempt initialState stateAfterFirst)
             else
               let expectedBinderNames = patternBindingNames (patternBindings firstTyping)
                in inferRemainingAlternatives
@@ -385,14 +383,14 @@ inferOrPatternType env scrutineeType alternatives initialState =
           let (alternativeTyping, stateAfterAlternative) =
                 inferOrPatternAlternative alternativePattern stateAcc
            in if patternSkipsBranchType alternativeTyping
-                then (alternativeTyping, rollbackSkippedPatternState initialState stateAfterAlternative)
+                then (alternativeTyping, rejectPatternAttempt initialState stateAfterAlternative)
                 else
                   let alternativeBindings = patternBindings alternativeTyping
                       alternativeBinderNames = patternBindingNames alternativeBindings
                    in if alternativeBinderNames /= expectedBinderNames
                         then
                           ( skipBranchPatternTyping,
-                            rollbackSkippedPatternState
+                            rejectPatternAttempt
                               initialState
                               ( addTypeError
                                   stateAfterAlternative
@@ -401,7 +399,7 @@ inferOrPatternType env scrutineeType alternatives initialState =
                           )
                         else case unifyOrPatternBinders bindingsAcc alternativeBindings stateAfterAlternative of
                           Left failedState ->
-                            (skipBranchPatternTyping, rollbackSkippedPatternState initialState failedState)
+                            (skipBranchPatternTyping, rejectPatternAttempt initialState failedState)
                           Right (mergedBindings, stateAfterBinders) ->
                             inferRemainingAlternatives
                               expectedBinderNames
@@ -520,7 +518,7 @@ inferConstructorArgumentPatterns env argumentTypes patterns initialState =
                 inferPatternType env argumentType pattern stateAcc
               mergedTyping = typing <> typingAcc
            in if patternSkipsBranchType mergedTyping
-                then (mergedTyping, rollbackSkippedPatternState initialState stateAfterPattern)
+                then (mergedTyping, rejectPatternAttempt initialState stateAfterPattern)
                 else go mergedTyping stateAfterPattern rest
 
 inferListPatternType ::
@@ -542,7 +540,7 @@ inferListPatternType env scrutineeType patterns state =
                   (diagnosticType stateWithElementType scrutineeType)
               )
    in if hasNewPatternError stateWithElementType stateAfterListCheck
-        then (skipBranchPatternTyping, rollbackSkippedPatternState state stateAfterListCheck)
+        then (skipBranchPatternTyping, rejectPatternAttempt state stateAfterListCheck)
         else
           inferListElementPatterns
             env
@@ -567,7 +565,7 @@ inferListElementPatterns env elementType patterns initialState =
                 inferPatternType env elementType pattern stateAcc
               mergedTyping = typing <> typingAcc
            in if patternSkipsBranchType mergedTyping
-                then (mergedTyping, rollbackSkippedPatternState initialState stateAfterPattern)
+                then (mergedTyping, rejectPatternAttempt initialState stateAfterPattern)
                 else go mergedTyping stateAfterPattern rest
 
 inferConsListPatternType ::
@@ -590,7 +588,7 @@ inferConsListPatternType env scrutineeType headPattern tailPattern state =
                   (diagnosticType stateWithElementType scrutineeType)
               )
    in if hasNewPatternError stateWithElementType stateAfterListCheck
-        then (skipBranchPatternTyping, rollbackSkippedPatternState state stateAfterListCheck)
+        then (skipBranchPatternTyping, rejectPatternAttempt state stateAfterListCheck)
         else
           inferConsListSubpatterns
             env
@@ -610,14 +608,14 @@ inferConsListSubpatterns env elementType headPattern tailPattern initialState =
   let (headTyping, stateAfterHeadPattern) =
         inferPatternType env elementType headPattern initialState
    in if patternSkipsBranchType headTyping
-        then (headTyping, rollbackSkippedPatternState initialState stateAfterHeadPattern)
+        then (headTyping, rejectPatternAttempt initialState stateAfterHeadPattern)
         else
           let tailListType = SemanticList (resolveType stateAfterHeadPattern elementType)
               (tailTyping, stateAfterTailPattern) =
                 inferPatternType env tailListType tailPattern stateAfterHeadPattern
               mergedTyping = tailTyping <> headTyping
            in if patternSkipsBranchType mergedTyping
-                then (mergedTyping, rollbackSkippedPatternState initialState stateAfterTailPattern)
+                then (mergedTyping, rejectPatternAttempt initialState stateAfterTailPattern)
                 else (mergedTyping, stateAfterTailPattern)
 
 inferTuplePatternType ::
@@ -649,24 +647,13 @@ inferTuplePatternType env scrutineeType patterns state =
                   stateWithElementTypes
                   (mkTuplePatternTypeMismatchError (diagnosticType stateWithElementTypes resolvedScrutineeType))
        in if hasNewPatternError stateWithElementTypes stateAfterTupleCheck
-            then (skipBranchPatternTyping, rollbackSkippedPatternState state stateAfterTupleCheck)
+            then (skipBranchPatternTyping, rejectPatternAttempt state stateAfterTupleCheck)
             else
               inferConstructorArgumentPatterns
                 env
                 (map (resolveType stateAfterTupleCheck) elementTypes)
                 patterns
                 stateAfterTupleCheck
-
-rollbackSkippedPatternState :: InferState -> InferState -> InferState
-rollbackSkippedPatternState stableState failedState =
-  modifyInferenceOutput
-    ( \output ->
-        output
-          { outputErrorsRev = inferErrorsRev failedState,
-            outputErrorCount = inferErrorCount failedState
-          }
-    )
-    stableState
 
 hasNewPatternError :: InferState -> InferState -> Bool
 hasNewPatternError previousState nextState =
