@@ -1,5 +1,5 @@
 ---
-id: JN-COMPILER-METHOD-IDENTITY-001
+id: JN-COMPILER-OPERATOR-NORMALIZATION-001
 status: ready
 priority: P1
 size: L
@@ -7,14 +7,14 @@ kind: impl
 autonomous_ready: yes
 depends_on: []
 last_verified: 2026-09-11
-plan_section: "T11b — Use selected method identity for concrete evidence"
+plan_section: "T11c — Normalize operator syntax where it removes duplicated handling"
 target_paths:
-  - src/Jazz/Compiler/Runtime/Types.hs
+  - src/Jazz/Compiler/ModuleResolver/Names.hs
   - src/Jazz/Compiler/Runtime/Engine.hs
 verification:
   - cabal test primitive-semantics-spec binding-signature-coherence-spec runtime-semantics-spec adt-pattern-runtime-spec module-pipeline-contract-spec --test-options=--skip-performance --jobs=4
   - bash scripts/check-execution-queue.sh
-deliverable: Index implementation methods by MethodId and execute selected evidence directly while retaining dynamic dispatch.
+deliverable: Normalize equivalent operator forms during resolution and remove their duplicate downstream implementations.
 supersedes: []
 ---
 
@@ -30,7 +30,7 @@ supersedes: []
 
 **Spec:** [Validated audit findings](2026-09-10-compiler-architecture-validation.md), together with the target contracts and preservation rules below. The report preserves the disposition of all three input audits. The two Luna drafts were withdrawn after validation; their rejected or qualified recommendations are not implementation guidance.
 
-**Status:** Execution requested on 2026-09-11. T11b is the active bounded milestone in the execution queue. Execute the remaining tasks inline in dependency order; promote the next milestone when its prerequisites pass.
+**Status:** Execution requested on 2026-09-11. T11c is the active bounded milestone in the execution queue. Execute the remaining tasks inline in dependency order; promote the next milestone when its prerequisites pass.
 
 **Existing architecture decision:** [RFC 0016](../../rfcs/accepted/0016-optional-backend-removal.md) explicitly says to keep “attached analysis facts, and runtime plans.” Direct construction still retains attached facts, but T11a proposes changing the retained runtime-plan contract. Approval of this plan should therefore include that specific architectural decision and a narrow amendment through the repository's RFC process before removal. This is a dependency of T11a, not a reason to block unrelated tasks or ask for another confirmation while preparing this plan. If runtime plans are to remain, retain the small sequence and pursue direct identity/ownership improvements around it; do not claim its deletion completed.
 
@@ -325,12 +325,12 @@ The table is a dependency order, not a request for parallel agents. Work inline.
 
 **Files:** `src/Jazz/Compiler/Runtime/{Engine,Semantics,Types}.hs`, `src/Jazz/Compiler/TypeInference/{Capabilities,Evidence,Instantiation}.hs`, `src/Jazz/Compiler/ModuleInterface.hs`; tests `test/Jazz/Compiler/Modules/Loader/CapabilitiesTests.hs`, `test/Jazz/Compiler/Modules/Loader/AliasClassTests.hs`, `test/Jazz/Compiler/Semantics/BindingSignature/ConstraintsTests.hs`, `test/Jazz/Compiler/Semantics/PrimitiveSemantics/`.
 
-- [ ] Index runtime implementation methods by the already-published `ImplId`/`MethodId`. For statically selected evidence, resolve that method directly instead of filtering a string-keyed candidate set and repeating identity normalization.
-- [ ] Preserve captured arguments and type annotations around partial methods. Validate the evidence target/type consistency at the analyzed/runtime boundary.
-- [ ] Retain the candidate-selection path for calls whose implementation is genuinely unresolved until runtime. Preserve candidate order, structural/nominal distinctions, and generated equality semantics.
-- [ ] Remove concrete-evidence canonicalization and redundant scans after all concrete callers use stable IDs. Keep runtime representations and matching required for dynamic calls.
-- [ ] Run capability/alias, binding-signature, primitive, module-pipeline, and runtime suites; compare capability-candidate-width benchmarks.
-- [ ] Commit separately from T11a so regressions in dispatch can be isolated.
+- [x] Index runtime implementation methods by the already-published `ImplId`/`MethodId`. For statically selected evidence, resolve that method directly instead of filtering a string-keyed candidate set and repeating identity normalization.
+- [x] Preserve captured arguments and type annotations around partial methods. Validate the evidence target/type consistency at the analyzed/runtime boundary.
+- [x] Retain the candidate-selection path for calls whose implementation is genuinely unresolved until runtime. Preserve candidate order, structural/nominal distinctions, and generated equality semantics.
+- [x] Remove concrete-evidence canonicalization and redundant scans after all concrete callers use stable IDs. Keep runtime representations and matching required for dynamic calls.
+- [x] Run capability/alias, binding-signature, primitive, module-pipeline, and runtime suites; compare capability-candidate-width benchmarks.
+- [x] Commit separately from T11a so regressions in dispatch can be isolated.
 
 **Deletion criterion:** Known method evidence is executable identity, not a filter hint requiring the runtime to rediscover the same method. No claim is made that all runtime dispatch disappears.
 
@@ -689,3 +689,9 @@ Documentation verification at plan completion checks local evidence targets/line
 - Closed result representation is a semantic field with its own definition-site policy: generalized definitions can suppress a representation that a concrete use would enforce. Existing return controls preserve function/partial-call annotations, integer defaults, higher-order result hints, and profile-frame closure.
 - Retained the checker's polymorphic/defaulting and structural exact-match rules: method selection runs before all variables are solved, and those rules distinguish literal defaults, empty collections, and partial-call evidence. They no longer inspect runtime plans or reconstruct authored declarations.
 - Primitive, binding/signature, runtime correctness, ADT runtime, loader, and module-pipeline suites pass in `/private/tmp/jazz-t11a-final-correctness.log`. Runtime performance cases are skipped. Observation, profiling, and benchmark-stage API consumers compile only in `/private/tmp/jazz-t11a-api-build.log`; none execute. Ormolu, HLint, and whitespace checks pass. T11a is complete; T11b is active.
+
+### T11b concrete method identity
+
+- Runtime method candidates now retain an ordered dynamic sequence and a `MethodId` index. Checked evidence selects an indexed method once; a selected method bypasses both argument-based and type-hint candidate filtering. Captured arguments and surrounding annotations are preserved.
+- Removed concrete-evidence canonicalization and candidate scans. Selection validates method/implementation agreement, nominal capability identity, and compatible target representation. A new malformed-evidence boundary test demonstrated the prior acceptance of a mismatched target and now rejects it.
+- Runtime correctness, module pipeline, primitives, binding/signature coherence, and loader suites pass in `/private/tmp/jazz-t11b-method-identity.log`. The valid red boundary run is recorded in `/private/tmp/jazz-t11b-evidence-boundary-red.log`. Runtime performance cases are skipped; candidate-width measurements remain waived. Ormolu, HLint, and whitespace checks pass. T11b is complete; T11c is active.

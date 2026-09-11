@@ -45,6 +45,7 @@ import Jazz.Compiler.ModuleResolver (resolveStandaloneExprNames)
 import Jazz.Compiler.Name (mkIdentifier, qualifiedName)
 import Jazz.Compiler.Runtime
   ( RuntimeValue (..),
+    evaluateRuntimeExpr,
     renderRuntimeValue,
     runtimeValueExactlyMatchesConstraint,
   )
@@ -90,6 +91,7 @@ capabilityTests =
     ("scope with only capability declarations has no runtime output", testCapabilityDeclarationOnlyScopeHasNoOutput),
     ("capability declarations are inert at runtime", testCapabilityDeclarationsRuntimeInert),
     ("qualified method candidates carry compiler-owned runtime evidence", testQualifiedMethodCandidateCarriesRuntimeEvidence),
+    ("selected method evidence rejects a mismatched target type", testSelectedMethodRejectsMismatchedEvidence),
     ("qualified method application preserves argument order", testQualifiedMethodApplicationPreservesArgumentOrder),
     ("qualified method dispatch executes selected impl body", testQualifiedMethodDispatchExecutesImplBody),
     ("let-bound qualified method dispatch executes selected impl body", testLetBoundQualifiedMethodDispatchExecutesImplBody),
@@ -210,6 +212,19 @@ testCapabilityDeclarationsRuntimeInert = do
   assertEqual "compile errors" [] (runCompileErrors result)
   assertEqual "runtime errors" [] (runRuntimeErrors result)
   assertEqual "capability declarations do not affect runtime output" (Just "1") (runOutput result)
+
+testSelectedMethodRejectsMismatchedEvidence :: IO ()
+testSelectedMethodRejectsMismatchedEvidence = do
+  (_, analyzed) <- analyzeRuntimeFacts "class RuntimeDefault(a) { defaultValue :: a. }. impl RuntimeDefault(Int) { defaultValue = 41. }. (RuntimeDefault::defaultValue @Int)."
+  case analyzed of
+    EBlock root statements -> case reverse statements of
+      SExpr statement (ETypeApplication node function spanValue argument) : prefix -> do
+        let facts = coreNodeFacts node
+            mismatched = node {coreNodeFacts = facts {expressionEvidence = [evidence {evidenceType = SemanticBool} | evidence <- expressionEvidence facts]}}
+            expression = EBlock root (reverse prefix <> [SExpr statement (ETypeApplication mismatched function spanValue argument)])
+        assertRuntimeErrorContains "mismatched selected evidence" "inconsistent selected method evidence" (evaluateRuntimeExpr expression)
+      _ -> failTest "expected terminal explicit method instantiation"
+    _ -> failTest "expected analyzed block"
 
 testQualifiedMethodCandidateCarriesRuntimeEvidence :: IO ()
 testQualifiedMethodCandidateCarriesRuntimeEvidence =
@@ -2029,7 +2044,7 @@ analyzeRuntimeFacts source = do
       Left failures ->
         failTest ("analyzed runtime-facts attachment failed: " <> Text.pack (show failures))
       Right Nothing ->
-        failTest "analyzed runtime-facts attachment produced no expression"
+        failTest ("analyzed runtime-facts attachment produced no expression: " <> Text.unlines (map renderDiagnostic (inferredDiagnostics inference)))
       Right (Just analyzed) -> pure analyzed
   pure (inference, analyzedExpression)
 

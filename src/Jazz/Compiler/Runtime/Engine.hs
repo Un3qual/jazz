@@ -181,6 +181,7 @@ import Jazz.Compiler.Runtime.Semantics
     runtimeDiagnostic,
     runtimeFunctionArguments,
     runtimeQualifiedMethodIsFullyApplied,
+    runtimeTypesCompatible,
     runtimeValueExactlyMatchesConstraint,
     substituteRuntimeVariable,
     untypedIntMetadata,
@@ -206,11 +207,11 @@ import Jazz.Compiler.Runtime.Types
     constructorApplicationIsSaturated,
     emptyRuntimeAppliedArguments,
     emptyRuntimeMethodCandidates,
-    filterRuntimeMethodCandidates,
     foldRuntimeExplicitResultHints,
     runtimeAppliedArgumentsInOrder,
     runtimeConstructorName,
     runtimeMethodCandidatesInOrder,
+    selectRuntimeMethodCandidate,
     pattern VQualifiedMethodApplication,
   )
 import Jazz.Compiler.RuntimeHost
@@ -1980,7 +1981,7 @@ dischargeRuntimeReturnPolicy (RuntimeReturnPolicy obligations) runtimeValue =
         ApplyExplicitResultHint typeHint ->
           liftRuntimeResult (applyExplicitTypeApplicationResultHint typeHint currentValue)
         ApplySelectedEvidence evidence ->
-          pure (selectRuntimeEvidence evidence currentValue)
+          liftRuntimeResult (selectRuntimeEvidence evidence currentValue)
         AttachDefaultIntegerResult ->
           liftRuntimeResult (attachDefaultBindingIntegerTarget currentValue)
         CloseRuntimeProfileFrame -> do
@@ -2011,7 +2012,7 @@ specializeAnalyzedLiteral facts literal = case (literal, expressionSemanticType 
 prepareCheckedCallable :: Maybe SourceUnitOwner -> [SemanticInstantiation] -> [EvidenceReference] -> RuntimeValue -> Either Diagnostic RuntimeValue
 prepareCheckedCallable modulePath instantiations evidence runtimeValue = do
   instantiated <- foldM applyInstantiation runtimeValue (concatMap (NonEmpty.toList . instantiatedTypes) instantiations)
-  pure (maybe instantiated (\selected -> selectRuntimeEvidence selected instantiated) (NonEmpty.nonEmpty evidence))
+  maybe (Right instantiated) (\selected -> selectRuntimeEvidence selected instantiated) (NonEmpty.nonEmpty evidence)
   where
     applyInstantiation value semanticType
       | not (Foldable.null semanticType) = Right value
@@ -2025,37 +2026,23 @@ applyRuntimeInstantiation typeHint runtimeValue
         (fromMaybe typeHint (explicitTypeApplicationRuntimeValueHint typeHint runtimeValue))
         runtimeValue
 
-selectRuntimeEvidence :: NonEmpty.NonEmpty EvidenceReference -> RuntimeValue -> RuntimeValue
+selectRuntimeEvidence :: NonEmpty.NonEmpty EvidenceReference -> RuntimeValue -> Either Diagnostic RuntimeValue
 selectRuntimeEvidence evidenceReferences runtimeValue =
   case runtimeValue of
-    VAnnotated annotation innerValue ->
-      VAnnotated annotation (selectRuntimeEvidence evidenceReferences innerValue)
+    VAnnotated annotation innerValue -> VAnnotated annotation <$> selectRuntimeEvidence evidenceReferences innerValue
     VQualifiedMethodApplication methodKey classParameter methodSignature candidates capturedArgs ->
-      VQualifiedMethodApplication
-        methodKey
-        classParameter
-        methodSignature
-        (filterRuntimeMethodCandidates selected candidates)
-        capturedArgs
-    _ -> runtimeValue
-  where
-    selected (RuntimeMethodCandidate runtimeEvidenceValue _) =
-      any (runtimeEvidenceMatches runtimeEvidenceValue) evidenceReferences
-
-runtimeEvidenceMatches :: EvidenceReference -> EvidenceReference -> Bool
-runtimeEvidenceMatches candidate reference =
-  canonicalCapability (evidenceImplementation candidate) (evidenceCapability candidate)
-    == canonicalCapability (evidenceImplementation reference) (evidenceCapability reference)
-    && evidenceImplementation candidate == evidenceImplementation reference
-    && evidenceMethod candidate == evidenceMethod reference
-
--- Evidence is owned by its implementation, regardless of the module evaluating
--- the reference. This also gives standalone references the same qualification
--- as their runtime candidates.
-canonicalCapability :: ImplId -> CapabilityId -> CapabilityId
-canonicalCapability (ImplId (owner, _)) (CapabilityId capabilityName) =
-  CapabilityId
-    (runtimeDefinitionNameIn CapabilityNamespace (Just owner) capabilityName)
+      case evidenceReferences of
+        reference NonEmpty.:| []
+          | Just method@(MethodId (implementation, _)) <- evidenceMethod reference,
+            implementation == evidenceImplementation reference,
+            Just selected <- selectRuntimeMethodCandidate method candidates,
+            [RuntimeMethodCandidate candidate _] <- runtimeMethodCandidatesInOrder selected,
+            evidenceCapability candidate == evidenceCapability reference,
+            evidenceImplementation candidate == implementation,
+            runtimeTypesCompatible (evidenceType candidate) (evidenceType reference) ->
+              Right (VQualifiedMethodApplication methodKey classParameter methodSignature selected capturedArgs)
+        _ -> Left (runtimeDiagnostic E3026 ("inconsistent selected method evidence for '" <> methodKey <> "'"))
+    _ -> Right runtimeValue
 
 runtimeEvidence ::
   Maybe SourceUnitOwner ->

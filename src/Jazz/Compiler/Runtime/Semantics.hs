@@ -127,6 +127,7 @@ import Jazz.Compiler.Runtime.Types
     runtimeConstructorTypeName,
     runtimeConstructorTypeParameters,
     runtimeMethodCandidatesInOrder,
+    runtimeMethodIsSelected,
     pattern VQualifiedMethodApplication,
   )
 import Jazz.Compiler.SemanticFacts (AnalyzedType, EvidenceReference (evidenceType), PatternFacts (patternResolution))
@@ -1183,6 +1184,7 @@ preferredRuntimeMethodCandidates ::
   RuntimeAppliedArguments ->
   RuntimeMethodCandidates ->
   RuntimeMethodCandidates
+preferredRuntimeMethodCandidates _ _ _ candidates | runtimeMethodIsSelected candidates = candidates
 preferredRuntimeMethodCandidates classParameter methodSignature arguments candidates =
   case runtimeMethodCandidatesInOrder exactMatchingCandidates of
     [] -> matchingCandidates
@@ -1205,6 +1207,7 @@ preferredRuntimeMethodCandidatesForTypeHint ::
   RuntimeAppliedArguments ->
   RuntimeMethodCandidates ->
   RuntimeMethodCandidates
+preferredRuntimeMethodCandidatesForTypeHint _ _ _ _ candidates | runtimeMethodIsSelected candidates = candidates
 preferredRuntimeMethodCandidatesForTypeHint typeHint classParameter methodSignature arguments candidates =
   case runtimeMethodCandidatesInOrder exactMatchingCandidates of
     [] -> compatibleCandidates
