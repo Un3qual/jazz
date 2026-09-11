@@ -1,7 +1,6 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE ExplicitNamespaces #-}
 {-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE PatternSynonyms #-}
 
 module Jazz.Compiler.TypeInference.Capabilities
   ( TypeEnvFreeVariables,
@@ -74,19 +73,14 @@ import Jazz.Compiler.AST
     CoreSort (StatementSort),
     Expr (..),
     ImplMethod (..),
-    SignatureType,
     Statement (..),
   )
 import Jazz.Compiler.BuiltinCatalog
-  ( numericTypeFromName,
-    numericTypeIsIntegral,
+  ( numericTypeIsIntegral,
   )
 import Jazz.Compiler.CapabilityFacts
   ( ConcreteImplFact (..),
     concreteImplFactCapability,
-    constraintSignatureAliasVariants,
-    constraintSignatureTypesCompatible,
-    normalizeConstraintSignatureName,
     qualifiedMethodKey,
   )
 import Jazz.Compiler.CoreIdentity (CapabilityId (..), CapabilityMethodKey, ImplId (..), MethodId (..), ResolvedNodeFacts (..), ResolvedReference (..), capabilityMethodKeyFromReference, renderCapabilityId)
@@ -102,7 +96,7 @@ import Jazz.Compiler.Name
     ResolvedUserName (..),
     identifierText,
   )
-import Jazz.Compiler.SemanticDeclarations (concreteImplementationType, concreteSignatureType, implementationTargetSignature, semanticFunctionArguments)
+import Jazz.Compiler.SemanticDeclarations (concreteImplementationType, implementationTargetSignature, semanticFunctionArguments)
 import Jazz.Compiler.SemanticFacts (StatementDeclarationFact (ImplementationDeclaration))
 import Jazz.Compiler.SignatureRendering
   ( renderSignatureType,
@@ -132,7 +126,6 @@ import Jazz.Compiler.TypeInference.Environment
     resolveTypeEnvFreeVariables,
     typeEnvFreeVariables,
   )
-import qualified Jazz.Compiler.TypeInference.Signature as Signature
 import Jazz.Compiler.TypeInference.Solver
   ( addStrictEqualityTypeVarConstraint,
     constrainNumericOperatorType,
@@ -200,16 +193,7 @@ import Jazz.Compiler.TypeInference.Types
     typeEnvBindingKey,
     typeEnvReferenceKey,
   )
-import Jazz.Compiler.TypeRepresentation
-  ( NumericType (..),
-    pattern TypeApplication,
-    pattern TypeFunction,
-    pattern TypeInt,
-    pattern TypeList,
-    pattern TypeName,
-    pattern TypeNumeric,
-    pattern TypeTuple,
-  )
+import Jazz.Compiler.TypeRepresentation (NumericType (..))
 
 capabilityFactsFromState :: InferState -> ScopeCapabilityFacts
 capabilityFactsFromState state =
@@ -598,7 +582,7 @@ inferredConstraintTargetConcrete :: InferState -> ExpressionType -> Bool
 inferredConstraintTargetConcrete state argumentType =
   let resolvedArgumentType = defaultLiteralTypes state (resolveType state argumentType)
    in Set.null (freeTypeVariables resolvedArgumentType)
-        && case Signature.expressionTypeToConcreteSignature resolvedArgumentType of
+        && case closedConstraintType resolvedArgumentType of
           Just _ -> True
           Nothing -> False
 
@@ -636,19 +620,19 @@ concreteInferredMethodConstraintHasUniqueCandidate facts state constraintName me
   where
     satisfyingMethodHints =
       [ argumentHint
-      | argumentHint <- inferredConstraintCandidateSignatures facts state (Just methodKey) argumentType,
+      | argumentHint <- inferredConstraintCandidateTypes facts state (Just methodKey) argumentType,
         concreteImplFactExists constraintName argumentHint facts,
         concreteImplMethodBodyExists methodKey argumentHint facts
       ]
 
-uniqueExactRuntimeCandidateHint :: InferState -> ExpressionType -> [SignatureType 'Resolved] -> Bool
+uniqueExactRuntimeCandidateHint :: InferState -> ExpressionType -> [SemanticType ResolvedName Void] -> Bool
 uniqueExactRuntimeCandidateHint state argumentType candidateHints =
   case [ candidateHint
        | candidateHint <- candidateHints,
-         constraintSignatureTypeExactlyMatchesExpressionType state candidateHint argumentType
+         constraintTypeExactlyMatchesExpressionType state candidateHint argumentType
        ] of
     [candidateHint] ->
-      not (constraintSignatureTypeContainsList candidateHint)
+      not (constraintTypeContainsList candidateHint)
     _ -> False
 
 resolveTypeSchemeConstraint :: InferState -> TypeSchemeConstraint -> TypeSchemeConstraint
@@ -789,7 +773,7 @@ resolveDeferredExplicitConstraint state deferredConstraint =
             | classArity /= 1 ->
                 addTypeError state (mkExplicitConstraintArityError constraintName classArity)
             | otherwise ->
-                case uncons (constraintCandidateSignaturesForDeferred facts state inferredConstraint constraintName maybeMethodKey unresolvedArgumentType) of
+                case uncons (constraintCandidateTypesForDeferred facts state inferredConstraint constraintName maybeMethodKey unresolvedArgumentType) of
                   Nothing ->
                     addTypeError state (mkAmbiguousDeferredConstraintError inferredConstraint constraintName resolvedArgumentType)
                   Just (firstArgumentHint, remainingArgumentHints) ->
@@ -808,7 +792,7 @@ resolveDeferredExplicitConstraint state deferredConstraint =
                             && length (methodBodyHints methodKey) > 1
                             && not (uniqueExactRuntimeCandidateHint state unresolvedArgumentType (methodBodyHints methodKey))
                         renderedImplFactKey =
-                          renderCapabilityId constraintName <> "(" <> renderSignatureType firstArgumentHint <> ")"
+                          renderCapabilityId constraintName <> "(" <> renderSignatureType (implementationTargetSignature firstArgumentHint) <> ")"
                      in case maybeMethodKey of
                           Nothing
                             | not (null implFactHints) ->
@@ -851,34 +835,34 @@ expressionTypeContainsUncommittedIntegerLiteral state expressionType
             || expressionTypeContainsUncommittedIntegerLiteral state resultType
         _ -> False
 
-constraintCandidateSignaturesForDeferred ::
+constraintCandidateTypesForDeferred ::
   ScopeCapabilityFacts ->
   InferState ->
   Bool ->
   CapabilityId ->
   Maybe CapabilityMethodKey ->
   ExpressionType ->
-  [SignatureType 'Resolved]
-constraintCandidateSignaturesForDeferred facts state inferredConstraint _ maybeMethodKey argumentType
+  [SemanticType ResolvedName Void]
+constraintCandidateTypesForDeferred facts state inferredConstraint _ maybeMethodKey argumentType
   | inferredConstraint =
-      inferredConstraintCandidateSignatures facts state maybeMethodKey argumentType
+      inferredConstraintCandidateTypes facts state maybeMethodKey argumentType
   | otherwise =
-      case Signature.expressionTypeToConcreteSignature (defaultLiteralTypes state argumentType) of
+      case closedConstraintType (defaultLiteralTypes state argumentType) of
         Just argumentHint -> [argumentHint]
         Nothing -> []
 
-constraintImplFactExistsForDeferred :: ScopeCapabilityFacts -> Bool -> CapabilityId -> SignatureType 'Resolved -> Bool
+constraintImplFactExistsForDeferred :: ScopeCapabilityFacts -> Bool -> CapabilityId -> SemanticType ResolvedName Void -> Bool
 constraintImplFactExistsForDeferred facts inferredConstraint constraintName argumentHint =
   if inferredConstraint
     then concreteImplFactExists constraintName argumentHint facts
     else concreteImplFactExistsExactly constraintName argumentHint facts
 
-inferredConstraintCandidateSignatures :: ScopeCapabilityFacts -> InferState -> Maybe CapabilityMethodKey -> ExpressionType -> [SignatureType 'Resolved]
-inferredConstraintCandidateSignatures facts state maybeMethodKey argumentType =
-  dedupeSignatureTypes (defaultHint ++ methodCandidateHints)
+inferredConstraintCandidateTypes :: ScopeCapabilityFacts -> InferState -> Maybe CapabilityMethodKey -> ExpressionType -> [SemanticType ResolvedName Void]
+inferredConstraintCandidateTypes facts state maybeMethodKey argumentType =
+  dedupeConstraintTypes (defaultHint ++ methodCandidateHints)
   where
     defaultHint =
-      case Signature.expressionTypeToConcreteSignature (defaultLiteralTypes state argumentType) of
+      case closedConstraintType (defaultLiteralTypes state argumentType) of
         Just argumentHint -> [argumentHint]
         Nothing -> []
 
@@ -886,13 +870,13 @@ inferredConstraintCandidateSignatures facts state maybeMethodKey argumentType =
       case maybeMethodKey of
         Nothing -> []
         Just methodKey ->
-          [ implementationTargetSignature implTarget
+          [ implTarget
           | ImplMethodType implTarget _ _ <- Map.findWithDefault [] methodKey (scopeConcreteImplMethods facts),
-            constraintSignatureTypeMatchesExpressionType state (implementationTargetSignature implTarget) argumentType
+            constraintTypeMatchesExpressionType state implTarget argumentType
           ]
 
-dedupeSignatureTypes :: [SignatureType 'Resolved] -> [SignatureType 'Resolved]
-dedupeSignatureTypes =
+dedupeConstraintTypes :: [SemanticType ResolvedName Void] -> [SemanticType ResolvedName Void]
+dedupeConstraintTypes =
   go Set.empty
   where
     go _ [] = []
@@ -900,62 +884,43 @@ dedupeSignatureTypes =
       | Set.member signatureType seen = go seen rest
       | otherwise = signatureType : go (Set.insert signatureType seen) rest
 
-constraintSignatureTypeMatchesExpressionType :: InferState -> SignatureType 'Resolved -> ExpressionType -> Bool
-constraintSignatureTypeMatchesExpressionType state signatureType expressionType =
+constraintTypeMatchesExpressionType :: InferState -> SemanticType ResolvedName Void -> ExpressionType -> Bool
+constraintTypeMatchesExpressionType state signatureType expressionType =
   case (signatureType, integerLiteralRangeFor state expressionType, resolveType state expressionType) of
-    (TypeInt, Just literalRange, _) ->
+    (SemanticInt, Just literalRange, _) ->
       integerLiteralRangeFitsNumericType literalRange NumericInt64
-    (TypeNumeric numericType, Just literalRange, _) ->
+    (SemanticNumeric numericType, Just literalRange, _) ->
       numericTypeIsIntegral numericType
         && integerLiteralRangeFitsNumericType literalRange numericType
-    (TypeName signatureName, Just literalRange, _) ->
-      case numericTypeFromConstraintSignatureName (identifierText signatureName) of
-        Just numericType ->
-          numericTypeIsIntegral numericType
-            && integerLiteralRangeFitsNumericType literalRange numericType
-        Nothing ->
-          False
-    (TypeList signatureElementType, _, SemanticList elementType) ->
-      constraintSignatureTypeMatchesExpressionType state signatureElementType elementType
-    (TypeTuple signatureElementTypes, _, SemanticTuple elementTypes)
+    (SemanticList signatureElementType, _, SemanticList elementType) ->
+      constraintTypeMatchesExpressionType state signatureElementType elementType
+    (SemanticTuple signatureElementTypes, _, SemanticTuple elementTypes)
       | length signatureElementTypes == length elementTypes ->
-          and (zipWith (constraintSignatureTypeMatchesExpressionType state) signatureElementTypes elementTypes)
-    (TypeApplication signatureName signatureArguments, _, SemanticData typeName typeArguments)
-      | normalizeConstraintSignatureName (identifierText signatureName)
-          == normalizeConstraintSignatureName (identifierText typeName),
+          and (zipWith (constraintTypeMatchesExpressionType state) signatureElementTypes elementTypes)
+    (SemanticData signatureName signatureArguments, _, SemanticData typeName typeArguments)
+      | signatureName == typeName,
         length signatureArguments == length typeArguments ->
-          and (zipWith (constraintSignatureTypeMatchesExpressionType state) signatureArguments typeArguments)
-    (TypeFunction signatureArgument signatureResult, _, SemanticFunction argumentType resultType) ->
-      constraintSignatureTypeMatchesExpressionType state signatureArgument argumentType
-        && constraintSignatureTypeMatchesExpressionType state signatureResult resultType
+          and (zipWith (constraintTypeMatchesExpressionType state) signatureArguments typeArguments)
+    (SemanticFunction signatureArgument signatureResult, _, SemanticFunction argumentType resultType) ->
+      constraintTypeMatchesExpressionType state signatureArgument argumentType
+        && constraintTypeMatchesExpressionType state signatureResult resultType
     _ ->
-      case Signature.expressionTypeToConcreteSignature (defaultLiteralTypes state (resolveType state expressionType)) of
-        Just argumentHint -> constraintSignatureTypesCompatible signatureType argumentHint
+      case closedConstraintType (defaultLiteralTypes state (resolveType state expressionType)) of
+        Just argumentHint -> constraintTypesCompatible signatureType argumentHint
         Nothing -> False
 
-numericTypeFromConstraintSignatureName :: Text -> Maybe NumericType
-numericTypeFromConstraintSignatureName =
-  numericTypeFromName . normalizeConstraintSignatureName
+concreteImplFactExists :: CapabilityId -> SemanticType ResolvedName Void -> ScopeCapabilityFacts -> Bool
+concreteImplFactExists constraintName target facts =
+  any (\(ConcreteImplFact capability candidate) -> capability == constraintName && constraintTypesCompatible candidate target) (scopeConcreteImplFacts facts)
 
-concreteImplFactExists :: CapabilityId -> SignatureType 'Resolved -> ScopeCapabilityFacts -> Bool
-concreteImplFactExists constraintName argumentHint facts =
-  any
-    (\candidateHint -> concreteImplFactExistsExactly constraintName candidateHint facts)
-    (constraintSignatureAliasVariants argumentHint)
+concreteImplFactExistsExactly :: CapabilityId -> SemanticType ResolvedName Void -> ScopeCapabilityFacts -> Bool
+concreteImplFactExistsExactly constraintName target facts =
+  Set.member (ConcreteImplFact constraintName target) (scopeConcreteImplFacts facts)
 
-concreteImplFactExistsExactly :: CapabilityId -> SignatureType 'Resolved -> ScopeCapabilityFacts -> Bool
-concreteImplFactExistsExactly constraintName argumentHint facts =
-  case concreteSignatureType argumentHint of
-    Nothing -> False
-    Just target -> any (matches target) (scopeConcreteImplFacts facts)
-  where
-    matches target (ConcreteImplFact capabilityName candidateTarget) =
-      capabilityName == constraintName && candidateTarget == target
-
-concreteImplMethodBodyExists :: CapabilityMethodKey -> SignatureType 'Resolved -> ScopeCapabilityFacts -> Bool
+concreteImplMethodBodyExists :: CapabilityMethodKey -> SemanticType ResolvedName Void -> ScopeCapabilityFacts -> Bool
 concreteImplMethodBodyExists methodKey argumentHint facts =
   any
-    (\(ImplMethodType implTarget _ _) -> constraintSignatureTypesCompatible (implementationTargetSignature implTarget) argumentHint)
+    (\(ImplMethodType implTarget _ _) -> constraintTypesCompatible implTarget argumentHint)
     (Map.findWithDefault [] methodKey (scopeConcreteImplMethods facts))
 
 inferredEqualityConstraintCanUseStructuralRuntimeEquality :: InferState -> ScopeCapabilityFacts -> Maybe CapabilityMethodKey -> CapabilityId -> ExpressionType -> Bool
@@ -1288,24 +1253,24 @@ qualifiedMethodCandidateExactlyMatchesArguments state env (ClassMethodType class
   where
     exactCandidateArgumentMatches targetArgumentPosition candidateType (argumentExpr, expressionType) =
       not targetArgumentPosition
-        || case Signature.expressionTypeToConcreteSignature candidateType of
+        || case closedConstraintType candidateType of
           Nothing -> False
           Just signatureType -> case scalarApplicationRuntimeHint state env expressionType argumentExpr of
             Just runtimeHint -> runtimeHint == signatureType
             Nothing ->
               resolveType state candidateType == defaultLiteralTypes state (resolveType state expressionType)
-                && constraintSignatureExpressionHasExactEvidence state env signatureType argumentExpr
+                && constraintExpressionHasExactEvidence state env signatureType argumentExpr
 
-scalarApplicationRuntimeHint :: InferState -> TypeEnv -> ExpressionType -> Expr 'Resolved -> Maybe (SignatureType 'Resolved)
+scalarApplicationRuntimeHint :: InferState -> TypeEnv -> ExpressionType -> Expr 'Resolved -> Maybe (SemanticType ResolvedName Void)
 scalarApplicationRuntimeHint state env expressionType argumentExpr =
   case argumentExpr of
     EApply {} ->
-      constraintSignatureExpressionRuntimeHint state env argumentExpr
+      constraintExpressionRuntimeHint state env argumentExpr
         <|> inferredScalarHint
     _ -> Nothing
   where
     inferredScalarHint =
-      Signature.expressionTypeToConcreteSignature
+      closedConstraintType
         =<< if integerLiteralRangeFor state resolvedType /= Nothing
           then Just (SemanticNumeric NumericInt64)
           else case resolvedType of
@@ -1318,101 +1283,102 @@ scalarApplicationRuntimeHint state env expressionType argumentExpr =
             _ -> Nothing
     resolvedType = resolveType state expressionType
 
-constraintSignatureExpressionHasExactEvidence :: InferState -> TypeEnv -> SignatureType 'Resolved -> Expr 'Resolved -> Bool
-constraintSignatureExpressionHasExactEvidence state env signatureType argumentExpr =
+constraintExpressionHasExactEvidence :: InferState -> TypeEnv -> SemanticType ResolvedName Void -> Expr 'Resolved -> Bool
+constraintExpressionHasExactEvidence state env signatureType argumentExpr =
   case (signatureType, argumentExpr) of
-    (TypeList elementType, EList _ elements) ->
+    (SemanticList elementType, EList _ elements) ->
       not (null elements)
-        && all (constraintSignatureExpressionHasExactEvidence state env elementType) elements
-    (TypeTuple elementTypes, ETuple _ elements)
+        && all (constraintExpressionHasExactEvidence state env elementType) elements
+    (SemanticTuple elementTypes, ETuple _ elements)
       | length elementTypes == length elements ->
-          and (zipWith (constraintSignatureExpressionHasExactEvidence state env) elementTypes elements)
-    (TypeApplication typeName typeArguments, EApply {}) ->
-      constructorApplicationExpressionHasExactEvidence state env typeName typeArguments argumentExpr
-        || constraintSignatureExpressionRuntimeHintMatches state env signatureType argumentExpr
-    (TypeFunction {}, _) ->
-      constraintSignatureExpressionRuntimeHintMatches state env signatureType argumentExpr
+          and (zipWith (constraintExpressionHasExactEvidence state env) elementTypes elements)
+    (SemanticData typeName typeArguments, EApply {})
+      | not (null typeArguments) ->
+          constructorApplicationExpressionHasExactEvidence state env typeName typeArguments argumentExpr
+            || constraintExpressionRuntimeHintMatches state env signatureType argumentExpr
+    (SemanticFunction {}, _) ->
+      constraintExpressionRuntimeHintMatches state env signatureType argumentExpr
     (_, EVar {})
-      | constraintSignatureTypeContainsList signatureType ->
-          constraintSignatureExpressionRuntimeHintMatches state env signatureType argumentExpr
+      | constraintTypeContainsList signatureType ->
+          constraintExpressionRuntimeHintMatches state env signatureType argumentExpr
     (_, EApply {})
-      | constraintSignatureTypeContainsList signatureType ->
-          constraintSignatureExpressionRuntimeHintMatches state env signatureType argumentExpr
+      | constraintTypeContainsList signatureType ->
+          constraintExpressionRuntimeHintMatches state env signatureType argumentExpr
     (_, EIf {}) ->
-      constraintSignatureExpressionRuntimeHintMatches state env signatureType argumentExpr
+      constraintExpressionRuntimeHintMatches state env signatureType argumentExpr
     (_, EPatternCase {}) ->
-      constraintSignatureExpressionRuntimeHintMatches state env signatureType argumentExpr
+      constraintExpressionRuntimeHintMatches state env signatureType argumentExpr
     (_, EBlock {})
-      | constraintSignatureTypeContainsList signatureType ->
-          constraintSignatureExpressionRuntimeHintMatches state env signatureType argumentExpr
+      | constraintTypeContainsList signatureType ->
+          constraintExpressionRuntimeHintMatches state env signatureType argumentExpr
     _ -> True
 
-constraintSignatureExpressionRuntimeHintMatches :: InferState -> TypeEnv -> SignatureType 'Resolved -> Expr 'Resolved -> Bool
-constraintSignatureExpressionRuntimeHintMatches state env signatureType argumentExpr =
-  case constraintSignatureExpressionRuntimeHint state env argumentExpr of
+constraintExpressionRuntimeHintMatches :: InferState -> TypeEnv -> SemanticType ResolvedName Void -> Expr 'Resolved -> Bool
+constraintExpressionRuntimeHintMatches state env signatureType argumentExpr =
+  case constraintExpressionRuntimeHint state env argumentExpr of
     Just runtimeHint -> runtimeHint == signatureType
     Nothing -> False
 
-constraintSignatureExpressionRuntimeHint :: InferState -> TypeEnv -> Expr 'Resolved -> Maybe (SignatureType 'Resolved)
-constraintSignatureExpressionRuntimeHint state env argumentExpr =
-  constraintSignatureExpressionRuntimeHintWithLocalHints state env Map.empty argumentExpr
+constraintExpressionRuntimeHint :: InferState -> TypeEnv -> Expr 'Resolved -> Maybe (SemanticType ResolvedName Void)
+constraintExpressionRuntimeHint state env argumentExpr =
+  constraintExpressionRuntimeHintWithLocalHints state env Map.empty argumentExpr
 
-constraintSignatureExpressionRuntimeHintWithLocalHints ::
+constraintExpressionRuntimeHintWithLocalHints ::
   InferState ->
   TypeEnv ->
-  Map TypeEnvKey (SignatureType 'Resolved) ->
+  Map TypeEnvKey (SemanticType ResolvedName Void) ->
   Expr 'Resolved ->
-  Maybe (SignatureType 'Resolved)
-constraintSignatureExpressionRuntimeHintWithLocalHints state env localHints argumentExpr =
+  Maybe (SemanticType ResolvedName Void)
+constraintExpressionRuntimeHintWithLocalHints state env localHints argumentExpr =
   case argumentExpr of
     EVar node referencedName ->
       Map.lookup (typeEnvReferenceKey (coreNodeFacts node) referencedName) localHints
         <|> (Map.lookup (typeEnvReferenceKey (coreNodeFacts node) referencedName) env >>= typeBindingRuntimeHint state)
     EApply _ (EApply _ dollarExpr functionExpr) _
       | builtinDollarOperatorExpr env dollarExpr ->
-          case constraintSignatureExpressionRuntimeHintWithLocalHints state env localHints functionExpr of
-            Just (TypeFunction _ resultType) -> Just resultType
+          case constraintExpressionRuntimeHintWithLocalHints state env localHints functionExpr of
+            Just (SemanticFunction _ resultType) -> Just resultType
             _ -> Nothing
     EApply _ functionExpr _ ->
-      case constraintSignatureExpressionRuntimeHintWithLocalHints state env localHints functionExpr of
-        Just (TypeFunction _ resultType) -> Just resultType
+      case constraintExpressionRuntimeHintWithLocalHints state env localHints functionExpr of
+        Just (SemanticFunction _ resultType) -> Just resultType
         _ -> Nothing
     EIf _ _ thenExpr elseExpr ->
-      commonConstraintSignatureExpressionRuntimeHint state env localHints [thenExpr, elseExpr]
+      commonConstraintExpressionRuntimeHint state env localHints [thenExpr, elseExpr]
     EPatternCase _ _ caseArms ->
-      commonConstraintSignatureExpressionRuntimeHint state env localHints [bodyExpr | CaseArm _ _ _ bodyExpr <- caseArms]
+      commonConstraintExpressionRuntimeHint state env localHints [bodyExpr | CaseArm _ _ _ bodyExpr <- caseArms]
     EBlock _ statements ->
-      constraintSignatureBlockRuntimeHint state env localHints statements
+      constraintBlockRuntimeHint state env localHints statements
     _ -> Nothing
 
-commonConstraintSignatureExpressionRuntimeHint ::
+commonConstraintExpressionRuntimeHint ::
   InferState ->
   TypeEnv ->
-  Map TypeEnvKey (SignatureType 'Resolved) ->
+  Map TypeEnvKey (SemanticType ResolvedName Void) ->
   [Expr 'Resolved] ->
-  Maybe (SignatureType 'Resolved)
-commonConstraintSignatureExpressionRuntimeHint _ _ _ [] = Nothing
-commonConstraintSignatureExpressionRuntimeHint state env localHints (firstExpr : restExprs) = do
-  firstHint <- constraintSignatureExpressionRuntimeHintWithLocalHints state env localHints firstExpr
+  Maybe (SemanticType ResolvedName Void)
+commonConstraintExpressionRuntimeHint _ _ _ [] = Nothing
+commonConstraintExpressionRuntimeHint state env localHints (firstExpr : restExprs) = do
+  firstHint <- constraintExpressionRuntimeHintWithLocalHints state env localHints firstExpr
   if all
-    (\expr -> constraintSignatureExpressionRuntimeHintWithLocalHints state env localHints expr == Just firstHint)
+    (\expr -> constraintExpressionRuntimeHintWithLocalHints state env localHints expr == Just firstHint)
     restExprs
     then Just firstHint
     else Nothing
 
-constraintSignatureBlockRuntimeHint ::
+constraintBlockRuntimeHint ::
   InferState ->
   TypeEnv ->
-  Map TypeEnvKey (SignatureType 'Resolved) ->
+  Map TypeEnvKey (SemanticType ResolvedName Void) ->
   [Statement 'Resolved] ->
-  Maybe (SignatureType 'Resolved)
-constraintSignatureBlockRuntimeHint state env initialLocalHints statements =
+  Maybe (SemanticType ResolvedName Void)
+constraintBlockRuntimeHint state env initialLocalHints statements =
   go initialLocalHints Map.empty statements
   where
     go _ _ [] =
       Nothing
     go localHints _ [SExpr _ expr] =
-      constraintSignatureExpressionRuntimeHintWithLocalHints state env localHints expr
+      constraintExpressionRuntimeHintWithLocalHints state env localHints expr
     go localHints pendingHints (statement : rest) =
       case statement of
         SSignature node name _ ->
@@ -1426,7 +1392,7 @@ constraintSignatureBlockRuntimeHint state env initialLocalHints statements =
           let key = typeEnvBindingKey (coreNodeFacts node) name
               bindingHint =
                 Map.lookup key pendingHints
-                  <|> constraintSignatureExpressionRuntimeHintWithLocalHints state env localHints valueExpr
+                  <|> constraintExpressionRuntimeHintWithLocalHints state env localHints valueExpr
               nextLocalHints =
                 case bindingHint of
                   Just runtimeHint -> Map.insert (typeEnvBindingKey (coreNodeFacts node) name) runtimeHint localHints
@@ -1441,34 +1407,33 @@ constraintSignatureBlockRuntimeHint state env initialLocalHints statements =
         [(_, binding)] -> typeBindingRuntimeHint state binding
         _ -> Nothing
 
-typeBindingRuntimeHint :: InferState -> TypeBinding -> Maybe (SignatureType 'Resolved)
+typeBindingRuntimeHint :: InferState -> TypeBinding -> Maybe (SemanticType ResolvedName Void)
 typeBindingRuntimeHint state binding =
   case binding of
     PlainTypeBinding bindingType ->
-      Signature.expressionTypeToConcreteSignature (defaultLiteralTypes state bindingType)
+      closedConstraintType (defaultLiteralTypes state bindingType)
     SchemeTypeBinding typeScheme
       | Set.null (quantifiedVariablesMembershipSet (schemeQuantifiedVariables typeScheme)) ->
-          Signature.expressionTypeToConcreteSignature (defaultLiteralTypes state (schemeResultType typeScheme))
+          closedConstraintType (defaultLiteralTypes state (schemeResultType typeScheme))
     OperatorAliasSchemeTypeBinding _ typeScheme
       | Set.null (quantifiedVariablesMembershipSet (schemeQuantifiedVariables typeScheme)) ->
-          Signature.expressionTypeToConcreteSignature (defaultLiteralTypes state (schemeResultType typeScheme))
+          closedConstraintType (defaultLiteralTypes state (schemeResultType typeScheme))
     _ -> Nothing
 
-constraintSignatureTypeContainsList :: SignatureType 'Resolved -> Bool
-constraintSignatureTypeContainsList signatureType =
+constraintTypeContainsList :: SemanticType ResolvedName Void -> Bool
+constraintTypeContainsList signatureType =
   case signatureType of
-    TypeList {} -> True
-    TypeTuple elementTypes ->
-      any constraintSignatureTypeContainsList elementTypes
-    TypeApplication _ typeArguments ->
-      any constraintSignatureTypeContainsList typeArguments
-    TypeFunction argumentType resultType ->
-      constraintSignatureTypeContainsList argumentType
-        || constraintSignatureTypeContainsList resultType
-    TypeName {} -> False
+    SemanticList {} -> True
+    SemanticTuple elementTypes ->
+      any constraintTypeContainsList elementTypes
+    SemanticData _ typeArguments ->
+      any constraintTypeContainsList typeArguments
+    SemanticFunction argumentType resultType ->
+      constraintTypeContainsList argumentType
+        || constraintTypeContainsList resultType
     _ -> False
 
-constructorApplicationExpressionHasExactEvidence :: InferState -> TypeEnv -> ResolvedName -> [SignatureType 'Resolved] -> Expr 'Resolved -> Bool
+constructorApplicationExpressionHasExactEvidence :: InferState -> TypeEnv -> ResolvedName -> [SemanticType ResolvedName Void] -> Expr 'Resolved -> Bool
 constructorApplicationExpressionHasExactEvidence state env typeName typeArguments argumentExpr =
   case constructorExpressionSpine argumentExpr of
     Just (constructorName, constructorArgumentExprs) ->
@@ -1501,22 +1466,33 @@ constructorExpressionSpine expr =
         _ ->
           Nothing
 
-constructorArgumentExpressionHasExactEvidence :: InferState -> TypeEnv -> Map Text (SignatureType 'Resolved) -> ConstructorArgumentType -> Expr 'Resolved -> Bool
+constructorArgumentExpressionHasExactEvidence :: InferState -> TypeEnv -> Map Text (SemanticType ResolvedName Void) -> ConstructorArgumentType -> Expr 'Resolved -> Bool
 constructorArgumentExpressionHasExactEvidence state env typeParameterBindings constructorArgument argumentExpr =
   case constructorArgument of
     ConstructorArgumentType fieldType ->
-      case traverse (Signature.constraintSignatureTypeToExpressionTypeWithState state Map.empty) typeParameterBindings >>= \parameters -> instantiateDeclarationType parameters fieldType >>= Signature.expressionTypeToConcreteSignature of
-        Just concreteField -> constraintSignatureExpressionHasExactEvidence state env concreteField argumentExpr
+      case instantiateDeclarationType typeParameterBindings fieldType of
+        Just concreteField -> constraintExpressionHasExactEvidence state env concreteField argumentExpr
         Nothing -> True
     ConstructorArgumentFresh -> True
 
-constraintSignatureTypeExactlyMatchesExpressionType :: InferState -> SignatureType 'Resolved -> ExpressionType -> Bool
-constraintSignatureTypeExactlyMatchesExpressionType state signatureType expressionType =
-  case Signature.constraintSignatureTypeToExpressionTypeWithState state Map.empty signatureType of
-    Just signatureExpressionType ->
-      resolveType state signatureExpressionType == defaultLiteralTypes state (resolveType state expressionType)
-    Nothing ->
-      False
+constraintTypeExactlyMatchesExpressionType :: InferState -> SemanticType ResolvedName Void -> ExpressionType -> Bool
+constraintTypeExactlyMatchesExpressionType state target expressionType =
+  fmap absurd target == defaultLiteralTypes state (resolveType state expressionType)
+
+closedConstraintType :: ExpressionType -> Maybe (SemanticType ResolvedName Void)
+closedConstraintType = traverse (const Nothing)
+
+constraintTypesCompatible :: SemanticType ResolvedName Void -> SemanticType ResolvedName Void -> Bool
+constraintTypesCompatible left right = normalize left == normalize right
+  where
+    normalize target = case target of
+      SemanticInt -> SemanticNumeric NumericInt64
+      SemanticFloat -> SemanticNumeric NumericFloat64
+      SemanticList element -> SemanticList (normalize element)
+      SemanticTuple elements -> SemanticTuple (map normalize elements)
+      SemanticData name arguments -> SemanticData name (map normalize arguments)
+      SemanticFunction argument result -> SemanticFunction (normalize argument) (normalize result)
+      _ -> target
 
 applyQualifiedMethodCandidate ::
   CapabilityMethodKey ->

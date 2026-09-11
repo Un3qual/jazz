@@ -18,7 +18,6 @@ module Jazz.Compiler.TypeInference.Scope
 where
 
 import Data.Bifunctor (first)
-import Data.Either (fromRight)
 import Data.List
   ( uncons,
     unsnoc,
@@ -42,6 +41,7 @@ import Jazz.Compiler.AST
   ( ClassMethodSignature (..),
     CoreNode (coreNodeFacts, coreNodeId, coreNodeSpan),
     CorePhase (..),
+    CoreSort (StatementSort),
     DataConstructor (..),
     Expr (..),
     ImplMethod (..),
@@ -276,12 +276,10 @@ checkImplementationTargets :: InferState -> SourceSpan -> [SignatureType 'Resolv
 checkImplementationTargets state implSpan =
   traverse (first (mkInvalidImplTargetError implSpan) . normalizeSignatureType (inferDataTypes state) Map.empty)
 
-checkClassDeclaration :: InferState -> ResolvedName -> [ResolvedName] -> [ClassMethodSignature 'Resolved] -> Either Diagnostic InferState
-checkClassDeclaration state capabilityName parameters methods = do
-  checkedMethods <- traverse checkMethod methods
-  let unaryMethods = if length parameters == 1 then [(name, methodType) | (_, name, methodType) <- checkedMethods] else []
-      registered = registerClassCapabilityFacts capabilityName (length parameters) unaryMethods state
-  pure (foldl' recordMethod registered checkedMethods)
+type CheckedClassMethod = (CoreNode 'Resolved 'StatementSort, ResolvedName, ClassMethodType)
+
+checkClassMethods :: InferState -> ResolvedName -> [ResolvedName] -> [ClassMethodSignature 'Resolved] -> Either Diagnostic [CheckedClassMethod]
+checkClassMethods state capabilityName parameters = traverse checkMethod
   where
     parameterNames = map identifierText parameters
     variables = Map.fromList [(parameter, SemanticVariable parameter) | parameter <- parameterNames]
@@ -305,6 +303,14 @@ checkClassDeclaration state capabilityName parameters methods = do
                 SignatureType signature -> normalize signature
                 ConstrainedSignature [] signature -> normalize signature
                 _ -> Left invalid
+
+registerClassDeclaration :: InferState -> ResolvedName -> [ResolvedName] -> [CheckedClassMethod] -> InferState
+registerClassDeclaration state capabilityName parameters checkedMethods =
+  foldl' recordMethod registered checkedMethods
+  where
+    unaryMethods = if length parameters == 1 then [(name, methodType) | (_, name, methodType) <- checkedMethods] else []
+    registered = registerClassCapabilityFacts capabilityName (length parameters) unaryMethods state
+
     recordMethod current (node, methodName, methodType)
       | length parameters /= 1 = current
       | otherwise = case projectAnalyzedMethodSignature current (identifierText methodName) methodType of
@@ -647,7 +653,7 @@ inferScopeTypeInternal
       predeclaredDataTypes =
         predeclareScopeDataTypes indexedStatements initialState
       scopePreparation =
-        prepareScope scopeForwardSignedFunctionsPolicy mode predeclaredDataTypes indexedStatements initialState
+        prepareScope scopeForwardSignedFunctionsPolicy mode indexedStatements initialState
       bindingSeedsByStatement = preparedBindingSeeds scopePreparation
       preparedSignaturesByStatement = preparedSignatures scopePreparation
       forwardFunctionBindings = preparedForwardFunctions scopePreparation
@@ -697,8 +703,11 @@ inferScopeTypeInternal
                               (importModuleCapabilityFacts modulePath maybeAlias maybeSymbolNames state)
                         }
                       rest
-                  SClass _ capabilityName parameters methods ->
-                    let nextState = either (addTypeError stateForSource) id (checkClassDeclaration stateForSource capabilityName parameters methods)
+                  SClass _ capabilityName parameters _ ->
+                    let nextState = case preparedDeclarations scopePreparation Map.! statementIndex of
+                          Left diagnostic -> addTypeError stateForSource diagnostic
+                          Right (PreparedClassMethods methods) -> registerClassDeclaration stateForSource capabilityName parameters methods
+                          _ -> error "class declaration has incompatible preparation"
                         nextModuleBaselineFacts =
                           updateRootModuleBaselineFacts moduleBaselineFacts state nextState
                         (scopeResultType, resultState) =
@@ -711,8 +720,11 @@ inferScopeTypeInternal
                               }
                             rest
                      in (scopeResultType, resultState)
-                  SImpl implNode capabilityName arguments methods ->
-                    let checkedTargets = checkImplementationTargets stateForSource (coreNodeSpan implNode) arguments
+                  SImpl implNode capabilityName _ methods ->
+                    let checkedTargets = case preparedDeclarations scopePreparation Map.! statementIndex of
+                          Left diagnostic -> Left diagnostic
+                          Right (PreparedImplementationTargets targets) -> Right targets
+                          _ -> error "implementation has incompatible preparation"
                         (nextState, _) =
                           case checkedTargets of
                             Left diagnostic -> (addTypeError stateForSource diagnostic, [])
@@ -1592,25 +1604,30 @@ type RecursiveGroupPreviewCache = Map (Int, Int) RecursiveGroupPreview
 data PreparedSignature
   = PreparedSignature (Maybe PendingSignatureType) Bool
 
+data PreparedDeclaration
+  = PreparedClassMethods [CheckedClassMethod]
+  | PreparedImplementationTargets [SemanticType ResolvedName Void]
+
 data ScopePreparation = ScopePreparation
   { preparedBindingSeeds :: Map Int ExpressionType,
     preparedSignatures :: Map Int PreparedSignature,
     preparedForwardFunctions :: Map Int ExpressionType,
+    preparedDeclarations :: Map Int (Either Diagnostic PreparedDeclaration),
     preparedScopeState :: InferState
   }
 
 prepareScope ::
   ForwardSignedFunctionsPolicy ->
   InferenceMode ->
-  Map ResolvedName DataTypeBinding ->
   [(Int, Statement 'Resolved)] ->
   InferState ->
   ScopePreparation
-prepareScope forwardSignedFunctionsPolicy mode predeclaredDataTypes indexedStatements initialState =
-  let (bindingSeeds, signatures, forwardFunctions, _, _, finalPreparationState) =
+prepareScope forwardSignedFunctionsPolicy mode indexedStatements initialState =
+  let (bindingSeeds, signatures, forwardFunctions, declarations, _, _, finalPreparationState) =
         foldl'
           step
           ( Map.empty,
+            Map.empty,
             Map.empty,
             Map.empty,
             Nothing,
@@ -1622,6 +1639,7 @@ prepareScope forwardSignedFunctionsPolicy mode predeclaredDataTypes indexedState
         { preparedBindingSeeds = bindingSeeds,
           preparedSignatures = signatures,
           preparedForwardFunctions = forwardFunctions,
+          preparedDeclarations = declarations,
           preparedScopeState =
             initialState
               { inferSolver =
@@ -1632,13 +1650,14 @@ prepareScope forwardSignedFunctionsPolicy mode predeclaredDataTypes indexedState
         }
   where
     step
-      (bindingSeeds, signatures, forwardFunctions, pendingSignature, moduleBaselineFacts, state)
+      (bindingSeeds, signatures, forwardFunctions, declarations, pendingSignature, moduleBaselineFacts, state)
       (statementIndex, statement) =
         case statement of
           SModule _ modulePath ->
             ( bindingSeeds,
               signatures,
               forwardFunctions,
+              declarations,
               Nothing,
               moduleBaselineFacts,
               enterModuleCapabilityScope moduleBaselineFacts modulePath state
@@ -1647,44 +1666,41 @@ prepareScope forwardSignedFunctionsPolicy mode predeclaredDataTypes indexedState
             ( bindingSeeds,
               signatures,
               forwardFunctions,
+              declarations,
               Nothing,
               moduleBaselineFacts,
               importModuleCapabilityFacts modulePath maybeAlias maybeSymbolNames state
             )
           SClass _ capabilityName parameters methods ->
-            let nextState = fromRight state (checkClassDeclaration state capabilityName parameters methods)
+            let checked = checkClassMethods state capabilityName parameters methods
+                nextState = either (const state) (registerClassDeclaration state capabilityName parameters) checked
              in ( bindingSeeds,
                   signatures,
                   forwardFunctions,
+                  Map.insert statementIndex (PreparedClassMethods <$> checked) declarations,
                   Nothing,
                   updateRootModuleBaselineFacts moduleBaselineFacts state nextState,
                   nextState
                 )
           SImpl implNode capabilityName arguments methods ->
-            let nextState =
-                  case checkImplementationTargets state (coreNodeSpan implNode) arguments of
-                    Left _ -> state
-                    Right targets -> registerImplementation implNode capabilityName targets methods state
+            let checked = checkImplementationTargets state (coreNodeSpan implNode) arguments
+                nextState = either (const state) (\targets -> registerImplementation implNode capabilityName targets methods state) checked
              in ( bindingSeeds,
                   signatures,
                   forwardFunctions,
+                  Map.insert statementIndex (PreparedImplementationTargets <$> checked) declarations,
                   Nothing,
                   updateRootModuleBaselineFacts moduleBaselineFacts state nextState,
                   nextState
                 )
-          SData dataNode typeName typeParameters constructors ->
-            let (_, nextState) =
-                  registerDataConstructors
-                    predeclaredDataTypes
-                    (coreNodeSpan dataNode)
-                    typeName
-                    typeParameters
-                    constructors
-                    Map.empty
-                    state
+          SData _ typeName typeParameters _ ->
+            -- Forward signature checking only needs nominal type arity. Fields
+            -- are normalized by the declaration's real checking step.
+            let nextState = modifyDeclarationState (\current -> current {declarationDataTypes = Map.insertWith (\_ existing -> existing) typeName (DataTypeBinding typeParameters []) (inferDataTypes state)}) state
              in ( bindingSeeds,
                   signatures,
                   forwardFunctions,
+                  declarations,
                   Nothing,
                   moduleBaselineFacts,
                   nextState
@@ -1714,6 +1730,7 @@ prepareScope forwardSignedFunctionsPolicy mode predeclaredDataTypes indexedState
              in ( bindingSeeds,
                   Map.insert statementIndex preparedSignature signatures,
                   forwardFunctions,
+                  declarations,
                   Just preparedSignature,
                   moduleBaselineFacts,
                   restoreCapabilityFacts state stateAfterSignature
@@ -1736,6 +1753,7 @@ prepareScope forwardSignedFunctionsPolicy mode predeclaredDataTypes indexedState
              in ( Map.insert statementIndex bindingSeed bindingSeeds,
                   signatures,
                   nextForwardFunctions,
+                  declarations,
                   Nothing,
                   moduleBaselineFacts,
                   nextState
@@ -1744,6 +1762,7 @@ prepareScope forwardSignedFunctionsPolicy mode predeclaredDataTypes indexedState
             ( bindingSeeds,
               signatures,
               forwardFunctions,
+              declarations,
               Nothing,
               moduleBaselineFacts,
               state

@@ -20,7 +20,6 @@ import qualified Jazz.Compiler.AST as AST
 import Jazz.Compiler.CapabilityFacts
   ( ConcreteImplFact,
     concreteImplFact,
-    constraintSignatureTypesCompatible,
   )
 import Jazz.Compiler.CoreIdentity (CapabilityId (..), CoreBinderId (..), CoreNodeId (..), ImplId (..), MethodId (..), ResolvedNodeFacts (..), emptyResolvedNodeFacts)
 import Jazz.Compiler.Diagnostics
@@ -290,13 +289,9 @@ testConcreteImplFactsUseNominalIdentity = do
   assertEqual "nested TypeName origins share set membership" True (Set.member sourceTypeNameFact (Set.singleton importedTypeNameFact))
   assertEqual "nested TypeApplication origins share set membership" True (Set.member sourceTypeApplicationFact (Set.singleton importedTypeApplicationFact))
   assertEqual
-    "target matching preserves primitive aliases"
-    True
-    (constraintSignatureTypesCompatible (TypeName (localTypeName "Int")) (TypeName (localTypeName "Int64")))
-  assertEqual
-    "target matching distinguishes nominal owners with the same spelling"
+    "target facts distinguish nominal owners with the same spelling"
     False
-    (constraintSignatureTypesCompatible (TypeName (definedTypeName "Tagged")) (TypeName (localTypeName "Tagged")))
+    (sourceTypeNameFact == fixtureConcreteImplFact (localCapabilityName "Marked") (TypeName (localTypeName "Tagged")))
   assertEqual
     "primitive spelling aliases normalize to the same fact"
     True
