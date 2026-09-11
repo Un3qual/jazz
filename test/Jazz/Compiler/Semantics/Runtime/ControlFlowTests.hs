@@ -20,13 +20,11 @@ import Jazz.Compiler.Driver
     runSource,
     withAnalyzedAttachment,
   )
-import Jazz.Compiler.Runtime
-  ( evaluateRuntimeExpr,
-  )
 import Jazz.Compiler.SemanticFacts
   ( CoreNodeId (..),
     SemanticFactInvariantFailure (MissingExpressionFacts),
   )
+import Jazz.Compiler.Semantics.Runtime.ResolvedFixture
 import Jazz.Compiler.Semantics.Runtime.Shared
 import Jazz.Compiler.WarningConfig
   ( defaultWarningSettings,
@@ -140,7 +138,7 @@ testFunctionPatternGuardUsesPriorRebinding = do
 
 testPatternCaseNoMatchRuntimeError :: IO ()
 testPatternCaseNoMatchRuntimeError = do
-  let result = evaluateRuntimeExpr patternCaseNoMatchExpr
+  let result = evaluateFixture patternCaseNoMatchExpr
   assertLeftDiagnosticCodeAndContains
     "pattern-case no-match runtime code"
     "E3022"

@@ -332,6 +332,7 @@ test-suite runtime-observation-spec
       Jazz.Compiler.Runtime.Observation.ProfileTests
       Jazz.Compiler.Runtime.Observation.StatisticsTests
       Jazz.Compiler.Semantics.Runtime.Fixtures
+      Jazz.Compiler.Semantics.Runtime.ResolvedFixture
   build-depends:
       aeson >= 2.2 && < 2.3
 
@@ -784,6 +785,7 @@ test-suite builtin-catalog-spec
   main-is: Jazz/Compiler/Semantics/BuiltinCatalogSpec.hs
   other-modules:
       Jazz.Compiler.Semantics.Runtime.Fixtures
+      Jazz.Compiler.Semantics.Runtime.ResolvedFixture
       Jazz.Repository.Root
       Jazz.Repository.SourceLayout
       Jazz.TestSource
@@ -851,6 +853,7 @@ test-suite runtime-semantics-spec
       Jazz.Compiler.Semantics.Runtime.CapabilitiesTests
       Jazz.Compiler.Semantics.Runtime.ControlFlowTests
       Jazz.Compiler.Semantics.Runtime.Fixtures
+      Jazz.Compiler.Semantics.Runtime.ResolvedFixture
       Jazz.Compiler.Semantics.Runtime.HostIOTests
       Jazz.Compiler.Semantics.Runtime.NumericTests
       Jazz.Compiler.Semantics.Runtime.RecursionTests

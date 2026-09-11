@@ -12,6 +12,7 @@ module Jazz.Compiler.Runtime.Semantics
     runtimeDiagnostic,
     runtimeDefinitionName,
     runtimeDefinitionNameIn,
+    runtimeMethodReference,
     qualifyRuntimeType,
     literalRuntimeValue,
     runtimeValueMatchesLiteral,
@@ -66,6 +67,7 @@ import Data.Text (Text)
 import qualified Data.Text as Text
 import Jazz.Compiler.AST
   ( CaseArm (..),
+    CoreNode (coreNodeFacts),
     CorePhase (..),
     Expr,
     Literal (..),
@@ -78,6 +80,7 @@ import Jazz.Compiler.BuiltinCatalog
     numericTypeIntegerBounds,
     renderNumericTypeName,
   )
+import Jazz.Compiler.CoreIdentity (CapabilityId (..), ResolvedReference (..), resolvedBinderReference)
 import Jazz.Compiler.DiagnosticCatalog
   ( ErrorCode (..),
   )
@@ -98,6 +101,7 @@ import Jazz.Compiler.Name
     ResolvedNameOrigin (..),
     ResolvedUserName (..),
     identifierText,
+    mkIdentifier,
   )
 import Jazz.Compiler.Runtime.Types
   ( RuntimeAnnotation (..),
@@ -127,7 +131,7 @@ import Jazz.Compiler.Runtime.Types
     runtimeMethodCandidatesInOrder,
     pattern VQualifiedMethodApplication,
   )
-import Jazz.Compiler.SemanticFacts (AnalyzedType, EvidenceReference (evidenceType))
+import Jazz.Compiler.SemanticFacts (AnalyzedType, EvidenceReference (evidenceType), PatternFacts (patternResolution))
 import Jazz.Compiler.SourceUnitOwnership (SourceUnitOwner (..), sourceUnitOwnerOrigin)
 import Jazz.Compiler.TypeRepresentation
   ( InferenceVariable,
@@ -215,6 +219,10 @@ runtimeDefinitionNameIn namespace maybeOwner name =
     (Just (PreludeSourceUnit _), UserName (ResolvedUserName CurrentModule _ identifier)) ->
       UserName (ResolvedUserName AmbientPrelude namespace identifier)
     _ -> runtimeDefinitionName maybeOwner name
+
+runtimeMethodReference :: Maybe SourceUnitOwner -> ResolvedName -> ResolvedName -> ResolvedReference
+runtimeMethodReference owner capability method =
+  CapabilityMethodReference (CapabilityId (runtimeDefinitionNameIn CapabilityNamespace owner capability)) (mkIdentifier (identifierText method))
 
 qualifyRuntimeType :: Maybe SourceUnitOwner -> AnalyzedType -> AnalyzedType
 qualifyRuntimeType modulePath = bimap (runtimeDefinitionNameIn TypeNamespace modulePath) id
@@ -425,9 +433,9 @@ matchPattern :: Maybe SourceUnitOwner -> RuntimeValue -> Pattern 'Analyzed -> Ma
 matchPattern currentModulePath scrutineeValue casePattern =
   case casePattern of
     PWildcard _ -> Just Map.empty
-    PVariable _ name ->
+    PVariable node _ ->
       Just
-        (Map.singleton name (Right scrutineeValue))
+        (Map.singleton (resolvedBinderReference (patternResolution (coreNodeFacts node))) (Right scrutineeValue))
     PLiteral _ literal
       | runtimeValueMatchesLiteral scrutineeValue literal ->
           Just Map.empty
@@ -460,9 +468,9 @@ matchPattern currentModulePath scrutineeValue casePattern =
           | length elements == length patterns ->
               matchPatternList currentModulePath elements patterns
         _ -> Nothing
-    PAs _ name nestedPattern -> do
+    PAs node _ nestedPattern -> do
       patternBindings <- matchPattern currentModulePath scrutineeValue nestedPattern
-      Just (Map.insert name (Right scrutineeValue) patternBindings)
+      Just (Map.insert (resolvedBinderReference (patternResolution (coreNodeFacts node))) (Right scrutineeValue) patternBindings)
     POr _ alternatives ->
       matchFirstAlternative currentModulePath scrutineeValue alternatives
 

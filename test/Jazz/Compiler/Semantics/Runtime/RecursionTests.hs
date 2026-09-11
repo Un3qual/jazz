@@ -51,8 +51,6 @@ import Jazz.Compiler.Name
 import Jazz.Compiler.RecursiveBindings (prepareAnalyzedScope)
 import Jazz.Compiler.Runtime
   ( RuntimeValue (..),
-    evaluateRuntimeExpr,
-    evaluateRuntimeExprWithHost,
     renderRuntimeValue,
     runtimeExplicitResultHintsInOrder,
     runtimeValueExactlyMatchesConstraint,
@@ -70,6 +68,7 @@ import Jazz.Compiler.RuntimeHost
     RuntimeHostExit (..),
   )
 import Jazz.Compiler.Semantics.Runtime.Fixtures
+import Jazz.Compiler.Semantics.Runtime.ResolvedFixture
 import Jazz.Compiler.SourceProgram
   ( parseAndLowerStandaloneSource,
   )
@@ -202,7 +201,7 @@ testExplicitlyHintedTailRecursionPreservesResultObligations = do
               (SourceSpan 3 1)
               (expressionApply (expressionVariable "collect") (expressionLiteral (LInt (fromIntegral recursionDepth))))
           ]
-  case evaluateRuntimeExpr expression of
+  case evaluateFixture expression of
     Right (Just runtimeValue) ->
       assertEqual
         "repeated explicit tail hints in outermost-to-innermost order"
@@ -317,7 +316,7 @@ explicitlyHintedCallable recursionDepth =
 
 requireRuntimeValue :: Text -> Expr 'Analyzed -> IO RuntimeValue
 requireRuntimeValue label expression =
-  case evaluateRuntimeExpr expression of
+  case evaluateFixture expression of
     Left diagnostic ->
       failTest (label <> " failed: " <> renderDiagnostic diagnostic)
     Right Nothing ->
@@ -366,8 +365,8 @@ testPureAndHostDiagnosticsMatch =
   mapM_ assertParity diagnosticParityExpressions
   where
     assertParity expression =
-      case ( evaluateRuntimeExpr expression,
-             runIdentity (evaluateRuntimeExprWithHost diagnosticParityHost expression)
+      case ( evaluateFixture expression,
+             runIdentity (evaluateFixtureWithHost diagnosticParityHost expression)
            ) of
         (Left pureDiagnostic, Left hostDiagnostic) ->
           assertEqual
@@ -496,7 +495,7 @@ testPatternCaseBinderDoesNotGainRecursiveFunctionVisibility = do
           preludeModulePath
           Set.empty
           Nothing
-          (prepareAnalyzedScope (expressionBlock witnessStatements))
+          (prepareAnalyzedScope (resolveRuntimeFixture (expressionBlock witnessStatements)))
   assertEqual "pattern-binder witness is not a runtime recursive group" False (scopePlanIsRecursiveBinding plan 0)
   assertEqual "pattern-binder witness gets no recursive function visibility" False (scopePlanIsSelfRecursiveFunction plan 0)
   result <- runSource defaultWarningSettings witnessSource
@@ -531,7 +530,7 @@ testPreludeScopePlanUsesNonemptyModulePath = do
           preludeModulePath
           (Set.singleton 0)
           Nothing
-          (prepareAnalyzedScope (expressionBlock [statementLet "preludeValue" (SourceSpan 1 1) (expressionLiteral (LInt 1))]))
+          (prepareAnalyzedScope (resolveRuntimeFixture (expressionBlock [statementLet "preludeValue" (SourceSpan 1 1) (expressionLiteral (LInt 1))])))
   assertEqual
     "prelude statement path"
     (Just (InjectedPreludeSourceUnit preludeModulePath Nothing))

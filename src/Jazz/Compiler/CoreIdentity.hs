@@ -14,6 +14,8 @@ module Jazz.Compiler.CoreIdentity
     ResolvedNodeFacts (..),
     ResolvedScopeFacts (..),
     emptyResolvedNodeFacts,
+    resolvedBinderReference,
+    resolvedValueReference,
   )
 where
 
@@ -69,6 +71,16 @@ data ResolvedNodeFacts = ResolvedNodeFacts
 
 emptyResolvedNodeFacts :: SourceUnitOwner -> ResolvedNodeFacts
 emptyResolvedNodeFacts owner = ResolvedNodeFacts owner Nothing Nothing Nothing []
+
+resolvedBinderReference :: ResolvedNodeFacts -> ResolvedReference
+resolvedBinderReference facts = case resolvedNodeBinder facts of
+  Just binder -> LexicalReference binder
+  Nothing -> error "declaration has no resolved binder identity"
+
+resolvedValueReference :: ResolvedNodeFacts -> ResolvedReference
+resolvedValueReference facts = case resolvedNodeReference facts of
+  Just reference -> reference
+  Nothing -> error "value use has no resolved reference"
 
 -- | Lexical facts for the exact, source-ordered statements of a resolved block.
 -- Statement indices are local views; binding identities remain source-owned.

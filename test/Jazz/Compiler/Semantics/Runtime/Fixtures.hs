@@ -45,7 +45,6 @@ where
 import qualified Data.List.NonEmpty as NonEmpty
 import qualified Data.Map.Strict as Map
 import qualified Data.Sequence as Seq
-import qualified Data.Set as Set
 import Data.Text (Text)
 import qualified Data.Text as Text
 import Jazz.Compiler.AST
@@ -65,7 +64,7 @@ import Jazz.Compiler.AST
     Statement (..),
   )
 import Jazz.Compiler.CapabilityFacts (signaturePayloadConstraintType)
-import Jazz.Compiler.CoreIdentity (ResolvedNodeFacts (..), ResolvedReference (..), ResolvedScopeFacts (..), emptyResolvedNodeFacts)
+import Jazz.Compiler.CoreIdentity (emptyResolvedNodeFacts)
 import Jazz.Compiler.Diagnostics (SourceSpan (..))
 import Jazz.Compiler.ModuleIdentity (SourceUnitOwner (StandaloneSourceUnit), standaloneModulePath)
 import Jazz.Compiler.Name
@@ -81,7 +80,6 @@ import Jazz.Compiler.Name
     qualifiedMemberName,
     resolvedAmbientName,
   )
-import Jazz.Compiler.RecursiveBindings (buildRecursiveScopeFacts, closureCaptureCandidatesWithBound, exprContainsFunctionBranch, inferSelfRecursiveBindings, inferSelfReferencedBindings, recursiveScopeBindingNames, recursiveScopeGroups)
 import Jazz.Compiler.SemanticFacts
   ( AnalyzedMethodSignature (..),
     AnalyzedScheme (..),
@@ -102,7 +100,7 @@ import qualified Jazz.Compiler.TypeRepresentation as TypeRepresentation
 expressionNode :: CoreNode 'Analyzed 'ExpressionSort
 expressionNode =
   CoreNode
-    (CoreNodeId 0)
+    (CoreNodeId (-1))
     (SourceSpan 1 1)
     ( ExpressionFacts
         (emptyResolvedNodeFacts (StandaloneSourceUnit standaloneModulePath))
@@ -117,7 +115,7 @@ expressionNode =
 patternNode :: CoreNode 'Analyzed 'PatternSort
 patternNode =
   CoreNode
-    (CoreNodeId 0)
+    (CoreNodeId (-1))
     (SourceSpan 1 1)
     (PatternFacts (emptyResolvedNodeFacts (StandaloneSourceUnit standaloneModulePath)) Map.empty PatternHasNoConstructor RefutablePattern)
 
@@ -196,11 +194,7 @@ mapExpressionNode update expression =
     EBlock node statements -> EBlock (update node) statements
 
 expressionLambda :: UnresolvedName -> Expr 'Analyzed -> Expr 'Analyzed
-expressionLambda name body = ELambda node (valueName name) body
-  where
-    captures = Set.toList (closureCaptureCandidatesWithBound (Set.singleton (valueName name)) body)
-    facts = coreNodeFacts expressionNode
-    node = expressionNode {coreNodeFacts = facts {expressionResolution = (expressionResolution facts) {resolvedNodeCaptures = [(UnresolvedReference capture, capture) | capture <- captures]}}}
+expressionLambda name body = ELambda expressionNode (valueName name) body
 
 expressionOperatorValue :: Text -> Expr 'Analyzed
 expressionOperatorValue = EOperatorValue expressionNode
@@ -271,21 +265,7 @@ expressionSectionRight :: Text -> Expr 'Analyzed -> Expr 'Analyzed
 expressionSectionRight = ESectionRight expressionNode
 
 expressionBlock :: [Statement 'Analyzed] -> Expr 'Analyzed
-expressionBlock statements = EBlock node statements
-  where
-    indexed = zip [0 ..] statements
-    recursion = buildRecursiveScopeFacts Set.empty indexed
-    lexicalFacts =
-      ResolvedScopeFacts
-        { resolvedScopeOuterBindingNames = Set.empty,
-          resolvedScopeBindingNames = recursiveScopeBindingNames recursion,
-          resolvedScopeBinderIds = Map.empty,
-          resolvedScopeRecursiveGroups = recursiveScopeGroups recursion,
-          resolvedScopeSelfRecursiveFunctions = inferSelfRecursiveBindings Set.empty exprContainsFunctionBranch indexed,
-          resolvedScopeSelfReferences = inferSelfReferencedBindings Set.empty indexed
-        }
-    facts = coreNodeFacts expressionNode
-    node = expressionNode {coreNodeFacts = facts {expressionResolution = (expressionResolution facts) {resolvedNodeScope = Just lexicalFacts}}}
+expressionBlock = EBlock expressionNode
 
 patternWildcard :: Pattern 'Analyzed
 patternWildcard = PWildcard patternNode

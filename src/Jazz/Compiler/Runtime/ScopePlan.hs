@@ -16,6 +16,7 @@ module Jazz.Compiler.Runtime.ScopePlan
     scopePlanIsSelfRecursiveFunction,
     scopePlanBindingNameAt,
     scopePlanBindingIndex,
+    scopePlanBindingReferenceAt,
     scopePlanIsHostRecursiveBinding,
     runtimeExprRequiresHost,
     runtimeStatementRequiresHost,
@@ -34,6 +35,7 @@ import Data.Set (Set)
 import qualified Data.Set as Set
 import Jazz.Compiler.AST
   ( CaseArm (..),
+    CoreNode (coreNodeFacts),
     CorePhase (..),
     Expr (..),
     ImplMethod (..),
@@ -43,7 +45,7 @@ import Jazz.Compiler.BuiltinCatalog
   ( BuiltinSymbol (..),
     lookupKernelBuiltinSymbol,
   )
-import Jazz.Compiler.CoreIdentity (CoreBinderId, ResolvedScopeFacts (..))
+import Jazz.Compiler.CoreIdentity (CoreBinderId, ResolvedReference, ResolvedScopeFacts (..), resolvedBinderReference)
 import Jazz.Compiler.ModuleIdentity (ModulePath, mkModulePath)
 import Jazz.Compiler.Name
   ( ResolvedName,
@@ -56,6 +58,7 @@ import Jazz.Compiler.RecursiveBindings
     preparedRecursiveScopeFacts,
     preparedRecursiveScopeStatements,
   )
+import Jazz.Compiler.SemanticFacts (StatementFacts (statementResolution))
 import Jazz.Compiler.SourceUnitOwnership (SourceUnitOwner (..), sourceUnitStatementRuntimePaths)
 
 data RuntimeScopePlan = RuntimeScopePlan
@@ -229,3 +232,8 @@ scopeDefinitelyNotFunctionValue statements =
   case reverse statements of
     SExpr _ expr : _ -> exprDefinitelyNotFunctionValue expr
     _ -> False
+
+scopePlanBindingReferenceAt :: RuntimeScopePlan -> Int -> ResolvedReference
+scopePlanBindingReferenceAt plan index = case scopePlanStatementAt plan index of
+  Just (SLet node _ _) -> resolvedBinderReference (statementResolution (coreNodeFacts node))
+  _ -> error "expected a scope binding declaration"

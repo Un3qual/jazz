@@ -34,9 +34,6 @@ import Jazz.Compiler.Name
     mkIdentifier,
     operatorBindingName,
   )
-import Jazz.Compiler.Runtime
-  ( evaluateRuntimeExprObserved,
-  )
 import Jazz.Compiler.Runtime.Observation
   ( RuntimeCallableIdentity (..),
     RuntimeObservationReport (..),
@@ -76,6 +73,7 @@ import Jazz.Compiler.Semantics.Runtime.Fixtures
     statementImpl,
     statementLet,
   )
+import Jazz.Compiler.Semantics.Runtime.ResolvedFixture
 import Jazz.Compiler.TypeRepresentation
   ( NumericType (..),
     SignaturePayload (..),
@@ -210,7 +208,7 @@ testProfileDeterminism = do
 testFailureProfile :: IO ()
 testFailureProfile = do
   let observed =
-        evaluateRuntimeExprObserved
+        observeFixture
           RuntimeObservationStatisticsAndProfile
           (expressionApply (kernelBuiltin BuiltinHd) (expressionList []))
   case runtimeObservationOutcome observed of
@@ -234,7 +232,7 @@ profileFor expression = do
 
 reportFor :: RuntimeObservationRequest -> Expr 'Analyzed -> IO RuntimeObservationReport
 reportFor request expression = do
-  let observed = evaluateRuntimeExprObserved request expression
+  let observed = observeFixture request expression
   case runtimeObservationOutcome observed of
     RuntimeOutcomeCompleted _ -> pure ()
     outcome -> failTest ("expected runtime success, got " <> Text.pack (show outcome))

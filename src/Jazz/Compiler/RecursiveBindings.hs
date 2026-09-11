@@ -125,6 +125,7 @@ resolveLexicalScopes externalNames = expression Map.empty
       ESectionLeft node left symbol -> ESectionLeft (reference bound (operatorBindingName symbol) node) (expression bound left) symbol
       ESectionRight node symbol right -> ESectionRight (reference bound (operatorBindingName symbol) node) symbol (expression bound right)
       EBlock node statements -> block bound node statements
+    reference :: Map ResolvedName CoreBinderId -> ResolvedName -> CoreNode 'Resolved sort -> CoreNode 'Resolved sort
     reference bound name node = node {coreNodeFacts = facts {resolvedNodeReference = Just target}}
       where
         facts = coreNodeFacts node
@@ -132,6 +133,7 @@ resolveLexicalScopes externalNames = expression Map.empty
           Just binder -> LexicalReference binder
           Nothing -> case resolvedNodeReference facts of
             Just existing@(LexicalReference _)
+              | Set.member name externalNames -> existing
               | UserName (ResolvedUserName origin _ _) <- name, origin /= CurrentModule -> existing
               | otherwise -> UnresolvedReference name
             Just existing -> existing

@@ -44,7 +44,6 @@ import Jazz.Compiler.ModuleResolver (resolveStandaloneExprNames)
 import Jazz.Compiler.Name (mkIdentifier, qualifiedName)
 import Jazz.Compiler.Runtime
   ( RuntimeValue (..),
-    evaluateRuntimeExpr,
     renderRuntimeValue,
     runtimeValueExactlyMatchesConstraint,
   )
@@ -61,6 +60,7 @@ import Jazz.Compiler.SemanticFacts
     RuntimePlan (..),
   )
 import Jazz.Compiler.Semantics.Runtime.Fixtures
+import Jazz.Compiler.Semantics.Runtime.ResolvedFixture
 import Jazz.Compiler.Semantics.Runtime.Shared
 import Jazz.Compiler.SourceProgram (parseAndLowerStandaloneSource)
 import Jazz.Compiler.TypeInference
@@ -178,7 +178,7 @@ capabilityTests =
 
 testRuntimeFallbackRejectsQualifiedMethodStructuralEquality :: IO ()
 testRuntimeFallbackRejectsQualifiedMethodStructuralEquality = do
-  let result = evaluateRuntimeExpr qualifiedMethodStructuralEqualityExpr
+  let result = evaluateFixture qualifiedMethodStructuralEqualityExpr
   assertRuntimeErrorContains "runtime fallback qualified method structural equality" "E3007" result
   assertRuntimeErrorContains
     "runtime fallback qualified method structural equality callable text"
@@ -215,7 +215,7 @@ testCapabilityDeclarationsRuntimeInert = do
 
 testQualifiedMethodCandidateCarriesRuntimeEvidence :: IO ()
 testQualifiedMethodCandidateCarriesRuntimeEvidence =
-  case evaluateRuntimeExpr qualifiedMethodEvidenceExpr of
+  case evaluateFixture qualifiedMethodEvidenceExpr of
     Right (Just methodValue@(VQualifiedMethod _ _ _ candidates _)) -> do
       assertEqual
         "runtime candidate evidence target order"
@@ -2050,7 +2050,7 @@ analyzeRuntimePlan preludeStatementIndices source = do
 testQualifiedMethodDispatchPrefersAliasBindingOverMethodSentinelAtRuntime :: IO ()
 testQualifiedMethodDispatchPrefersAliasBindingOverMethodSentinelAtRuntime = do
   let result =
-        evaluateRuntimeExpr
+        evaluateFixture
           ( runtimeExpr
               ( expressionBlock
                   [ statementLet "Eq::helper" (SourceSpan 1 1) (expressionLambda "itemValue" (expressionLiteral (LBool True))),
@@ -2280,7 +2280,7 @@ testQualifiedMethodDispatchRejectsFullArityRuntimeAmbiguity =
   assertRuntimeErrorContains
     "fully applied ambiguous qualified method"
     "ambiguous qualified method body 'RuntimePick::choose'"
-    (evaluateRuntimeExpr ambiguousQualifiedMethodRuntimeExpr)
+    (evaluateFixture ambiguousQualifiedMethodRuntimeExpr)
 
 testQualifiedMethodDispatchExecutesLocalAdtImplBody :: IO ()
 testQualifiedMethodDispatchExecutesLocalAdtImplBody = do

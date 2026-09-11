@@ -1,5 +1,4 @@
 {-# LANGUAGE DataKinds #-}
-{-# LANGUAGE OverloadedStrings #-}
 
 -- | Evaluate a successfully analyzed program once in dependency order.
 module Jazz.Compiler.ModuleRuntime
@@ -31,6 +30,7 @@ import Jazz.Compiler.AST
   ( CorePhase (..),
   )
 import Jazz.Compiler.CapabilityFacts (splitQualifiedMethodKey)
+import Jazz.Compiler.CoreIdentity (CapabilityId (..), ResolvedReference (..))
 import Jazz.Compiler.Diagnostics
   ( Diagnostic,
   )
@@ -63,6 +63,7 @@ import qualified Jazz.Compiler.ModuleGraph as ModuleGraph
 import Jazz.Compiler.ModuleIdentity (ModulePath, modulePathTextSegments)
 import Jazz.Compiler.ModuleInterface
   ( ModuleInterface (..),
+    ModuleValueBinding (..),
   )
 import Jazz.Compiler.Name
   ( Name (..),
@@ -71,7 +72,6 @@ import Jazz.Compiler.Name
     ResolvedUserName (..),
     identifierText,
     mkIdentifier,
-    resolvedLocalName,
   )
 import Jazz.Compiler.Runtime
   ( ModuleEvaluationMode (..),
@@ -319,6 +319,7 @@ completeModuleEvaluation preparedModule analyzedModule scopeResult runtimeModule
         { runtimeModulePath = modulePathTexts (preparedModulePath preparedModule),
           runtimeModuleExports =
             publishExports
+              (ImportedModule (preparedModulePath preparedModule))
               (moduleExportInventory analyzedModule)
               (coreModuleInterface analyzedModule)
               (scopeResultEnvironment scopeResult)
@@ -367,16 +368,10 @@ importRuntimeModule analyzedProgram runtimeModules importDecl env =
             | (runtimeExport, cell) <- Map.toList (runtimeModuleExports runtimeDependency),
               runtimeExportSelected importDecl publicInventory runtimeExport
             ]
-          insertExport (runtimeExport, cell) =
-            Map.insert
-              ( UserName
-                  ( ResolvedUserName
-                      dependencyOrigin
-                      (runtimeExportNamespace runtimeExport)
-                      (mkIdentifier (runtimeExportName runtimeExport))
-                  )
-              )
-              cell
+          insertExport (runtimeExport, cell) importedEnv =
+            case exportReference dependencyOrigin (coreModuleInterface analyzedDependency) runtimeExport of
+              Just reference -> Map.insert reference cell importedEnv
+              Nothing -> importedEnv
        in foldr insertExport env selectedExports
     _ -> env
   where
@@ -417,18 +412,27 @@ modulePathTexts = NonEmpty.toList . modulePathTextSegments
 publishEnvironment :: ResolvedNameOrigin -> ModuleExportInventory -> ModuleInterface -> RuntimeEnv -> RuntimeEnv
 publishEnvironment origin publicInventory moduleInterface env =
   Map.fromList
-    [ (UserName (ResolvedUserName origin (runtimeExportNamespace runtimeExport) (mkIdentifier (runtimeExportName runtimeExport))), cell)
+    [ (reference, cell)
     | runtimeExport <- interfaceExports publicInventory moduleInterface,
-      Just cell <- [lookupExportCell runtimeExport env]
+      Just reference <- [exportReference origin moduleInterface runtimeExport],
+      Just cell <- [Map.lookup reference env]
     ]
 
-publishExports :: ModuleExportInventory -> ModuleInterface -> RuntimeEnv -> Map RuntimeExport RuntimeCell
-publishExports publicInventory moduleInterface env =
+publishExports :: ResolvedNameOrigin -> ModuleExportInventory -> ModuleInterface -> RuntimeEnv -> Map RuntimeExport RuntimeCell
+publishExports origin publicInventory moduleInterface env =
   Map.fromList
     [ (runtimeExport, cell)
     | runtimeExport <- interfaceExports publicInventory moduleInterface,
-      Just cell <- [lookupExportCell runtimeExport env]
+      Just reference <- [exportReference origin moduleInterface runtimeExport],
+      Just cell <- [Map.lookup reference env]
     ]
+
+exportReference :: ResolvedNameOrigin -> ModuleInterface -> RuntimeExport -> Maybe ResolvedReference
+exportReference origin moduleInterface runtimeExport = case runtimeExport of
+  RuntimeBindingExport export ->
+    LexicalReference . interfaceBindingId <$> Map.lookup export (interfaceValueBindings moduleInterface)
+  RuntimeCapabilityMethodExport capability method ->
+    Just (CapabilityMethodReference (CapabilityId (UserName (ResolvedUserName origin CapabilityNamespace (mkIdentifier capability)))) (mkIdentifier method))
 
 interfaceExports :: ModuleExportInventory -> ModuleInterface -> [RuntimeExport]
 interfaceExports publicInventory moduleInterface =
@@ -464,22 +468,3 @@ runtimeExportSelected importDecl publicInventory runtimeExport =
             publicInventory
         selectedClassNames =
           exportNamesInNamespace CapabilityNamespace selectedInventory
-
-runtimeExportName :: RuntimeExport -> Text
-runtimeExportName runtimeExport =
-  case runtimeExport of
-    RuntimeBindingExport moduleExport -> moduleExportName moduleExport
-    RuntimeCapabilityMethodExport className methodName -> className <> "::" <> methodName
-
-runtimeExportNamespace :: RuntimeExport -> NameNamespace
-runtimeExportNamespace runtimeExport =
-  case runtimeExport of
-    RuntimeBindingExport moduleExport -> moduleExportNamespace moduleExport
-    RuntimeCapabilityMethodExport {} -> ValueNamespace
-
--- Declarations are local even in the prelude; publication assigns their
--- externally visible origin only after looking up the declaration's cell.
-lookupExportCell :: RuntimeExport -> RuntimeEnv -> Maybe RuntimeCell
-lookupExportCell runtimeExport =
-  Map.lookup
-    (resolvedLocalName (runtimeExportNamespace runtimeExport) (mkIdentifier (runtimeExportName runtimeExport)))

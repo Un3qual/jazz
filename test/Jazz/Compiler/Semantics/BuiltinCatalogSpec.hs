@@ -47,9 +47,6 @@ import Jazz.Compiler.Name
   ( mkIdentifier,
     sourceName,
   )
-import Jazz.Compiler.Runtime
-  ( evaluateRuntimeExpr,
-  )
 import Jazz.Compiler.Semantics.Runtime.Fixtures
   ( expressionApply,
     expressionBlock,
@@ -59,6 +56,7 @@ import Jazz.Compiler.Semantics.Runtime.Fixtures
     expressionVariable,
     statementExpression,
   )
+import Jazz.Compiler.Semantics.Runtime.ResolvedFixture (evaluateFixture)
 import Jazz.Compiler.WarningConfig
   ( defaultWarningSettings,
   )
@@ -366,7 +364,7 @@ testRuntimeBuiltinOverApplicationFails =
       assertLeftDiagnosticContains
         ("over-application runtime error for " <> name)
         "E3008"
-        (evaluateRuntimeExpr expr)
+        (evaluateFixture expr)
 
 -- Apply one extra argument after a builtin is fully saturated. Runtime should
 -- reject application of the resulting non-function value.

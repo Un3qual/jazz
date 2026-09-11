@@ -32,7 +32,6 @@ import Jazz.Compiler.FractionalLiteral
 import Jazz.Compiler.Runtime
   ( RuntimeAnnotation (..),
     RuntimeValue (..),
-    evaluateRuntimeExpr,
   )
 import Jazz.Compiler.Runtime.Semantics
   ( literalRuntimeValue,
@@ -44,6 +43,7 @@ import Jazz.Compiler.Runtime.Types
     prependRuntimeExplicitResultHint,
   )
 import Jazz.Compiler.Semantics.Runtime.Fixtures
+import Jazz.Compiler.Semantics.Runtime.ResolvedFixture
 import Jazz.Compiler.Semantics.Runtime.Shared
 import Jazz.Compiler.TypeRepresentation
   ( NumericType (..),
@@ -184,7 +184,7 @@ testRuntimeValueMatchesLiteral = do
     "targeted Float32 literal matches its rounded runtime value"
     True
     (runtimeValueMatchesLiteral (literalRuntimeValue float32Literal) float32Literal)
-  case evaluateRuntimeExpr (runtimeExpr (expressionLambda "item" (expressionVariable "item"))) of
+  case evaluateFixture (runtimeExpr (expressionLambda "item" (expressionVariable "item"))) of
     Right (Just closureRuntimeValue) ->
       assertEqual
         "closure is never a literal match"
@@ -206,7 +206,7 @@ testPrivateTextTraversalRuntimeSuccess = do
 testPrivateValueRenderingRuntimeSuccess :: IO ()
 testPrivateValueRenderingRuntimeSuccess = do
   let result =
-        evaluateRuntimeExpr
+        evaluateFixture
           ( runtimeExpr
               ( expressionApply
                   (expressionVariable "__kernel_renderValue")
@@ -224,10 +224,10 @@ testPrivateValueRenderingRuntimeSuccess = do
 testRuntimeFallbackRejectsNonTextTraversalArguments :: IO ()
 testRuntimeFallbackRejectsNonTextTraversalArguments = do
   let lengthResult =
-        evaluateRuntimeExpr
+        evaluateFixture
           (runtimeExpr (expressionApply (expressionVariable "__kernel_textLength") (expressionLiteral (LInt 1))))
       unconsResult =
-        evaluateRuntimeExpr
+        evaluateFixture
           (runtimeExpr (expressionApply (expressionVariable "__kernel_textUnconsRaw") (expressionLiteral (LInt 1))))
   assertRuntimeErrorContains "runtime fallback textLength code" "E3028" lengthResult
   assertRuntimeErrorContains "runtime fallback textLength actual type" "Int" lengthResult
@@ -284,40 +284,40 @@ testCheckedScalarConversionRejectsNonScalars = do
 testRuntimeFallbackRejectsInvalidBootstrapPrimitiveArguments :: IO ()
 testRuntimeFallbackRejectsInvalidBootstrapPrimitiveArguments = do
   let prependResult =
-        evaluateRuntimeExpr
+        evaluateFixture
           (runtimeExpr (expressionApply (expressionApply (expressionVariable "__kernel_listPrependRaw") (expressionLiteral (LInt 1))) (expressionLiteral (LInt 2))))
       charToResult =
-        evaluateRuntimeExpr
+        evaluateFixture
           (runtimeExpr (expressionApply (expressionVariable "__kernel_charToUInt32") (expressionLiteral (LText "a"))))
       charFromResult =
-        evaluateRuntimeExpr
+        evaluateFixture
           (runtimeExpr (expressionApply (expressionVariable "__kernel_charFromUInt32Raw") (expressionLiteral (LInt (-1)))))
       predicateResult =
-        evaluateRuntimeExpr
+        evaluateFixture
           (runtimeExpr (expressionApply (expressionVariable "__kernel_charIsAlpha") (expressionLiteral (LText "a"))))
       caseResult =
-        evaluateRuntimeExpr
+        evaluateFixture
           (runtimeExpr (expressionApply (expressionVariable "__kernel_charToLower") (expressionLiteral (LText "a"))))
       appendResult =
-        evaluateRuntimeExpr
+        evaluateFixture
           (runtimeExpr (expressionApply (expressionApply (expressionVariable "__kernel_textAppend") (expressionLiteral (LText "a"))) (expressionLiteral (LBool True))))
       appendCharResult =
-        evaluateRuntimeExpr
+        evaluateFixture
           (runtimeExpr (expressionApply (expressionApply (expressionVariable "__kernel_textAppendChar") (expressionLiteral (LText "a"))) (expressionLiteral (LInt 1))))
       reverseResult =
-        evaluateRuntimeExpr
+        evaluateFixture
           (runtimeExpr (expressionApply (expressionVariable "__kernel_listReverseRaw") (expressionLiteral (LInt 1))))
       textFromCharsListResult =
-        evaluateRuntimeExpr
+        evaluateFixture
           (runtimeExpr (expressionApply (expressionVariable "__kernel_textFromChars") (expressionLiteral (LText "Jazz"))))
       textFromCharsElementResult =
-        evaluateRuntimeExpr
+        evaluateFixture
           (runtimeExpr (expressionApply (expressionVariable "__kernel_textFromChars") (expressionList [expressionLiteral (LInt 1)])))
       textConcatListResult =
-        evaluateRuntimeExpr
+        evaluateFixture
           (runtimeExpr (expressionApply (expressionVariable "__kernel_textConcat") (expressionLiteral (LText "Jazz"))))
       textConcatElementResult =
-        evaluateRuntimeExpr
+        evaluateFixture
           (runtimeExpr (expressionApply (expressionVariable "__kernel_textConcat") (expressionList [expressionLiteral (LInt 1)])))
   assertRuntimeErrorContains "list prepend argument" "E3032" prependResult
   assertRuntimeErrorContains "char to scalar argument" "E3033" charToResult
@@ -414,7 +414,7 @@ testBlockWrapperWithEagerStatementBeforeAliasTerminalTerminates = do
 
 testConstructorOverApplicationRuntimeError :: IO ()
 testConstructorOverApplicationRuntimeError = do
-  let result = evaluateRuntimeExpr overAppliedConstructorExpr
+  let result = evaluateFixture overAppliedConstructorExpr
   assertLeftDiagnosticCodeAndContains
     "constructor over-application runtime code"
     "E3023"
@@ -609,42 +609,42 @@ testTlEmptyListRuntimeError = do
 
 testRuntimeHelperRejectsCanonicalAlias :: IO ()
 testRuntimeHelperRejectsCanonicalAlias = do
-  let result = evaluateRuntimeExpr (runtimeExpr (expressionVariable "map"))
+  let result = evaluateFixture (runtimeExpr (expressionVariable "map"))
   assertRuntimeErrorContains "runtime helper canonical alias rejected" "E3002" result
 
 testRuntimeFallbackRejectsHdNonList :: IO ()
 testRuntimeFallbackRejectsHdNonList = do
-  let result = evaluateRuntimeExpr (runtimeExpr (expressionApply (expressionVariable "__kernel_hd") (expressionLiteral (LInt 1))))
+  let result = evaluateFixture (runtimeExpr (expressionApply (expressionVariable "__kernel_hd") (expressionLiteral (LInt 1))))
   assertRuntimeErrorContains "runtime fallback hd non-list" "E3011" result
 
 testRuntimeFallbackRejectsTlNonList :: IO ()
 testRuntimeFallbackRejectsTlNonList = do
-  let result = evaluateRuntimeExpr (runtimeExpr (expressionApply (expressionVariable "__kernel_tl") (expressionLiteral (LInt 1))))
+  let result = evaluateFixture (runtimeExpr (expressionApply (expressionVariable "__kernel_tl") (expressionLiteral (LInt 1))))
   assertRuntimeErrorContains "runtime fallback tl non-list" "E3012" result
 
 testRuntimeFallbackRejectsMapNonFunctionMapper :: IO ()
 testRuntimeFallbackRejectsMapNonFunctionMapper = do
-  let result = evaluateRuntimeExpr (runtimeExpr (expressionApply (expressionApply (expressionVariable "__kernel_map") (expressionLiteral (LInt 1))) (expressionList [expressionLiteral (LInt 1)])))
+  let result = evaluateFixture (runtimeExpr (expressionApply (expressionApply (expressionVariable "__kernel_map") (expressionLiteral (LInt 1))) (expressionList [expressionLiteral (LInt 1)])))
   assertRuntimeErrorContains "runtime fallback map mapper" "E3015" result
 
 testRuntimeFallbackRejectsMapNonListCollection :: IO ()
 testRuntimeFallbackRejectsMapNonListCollection = do
-  let result = evaluateRuntimeExpr (runtimeExpr (expressionApply (expressionApply (expressionVariable "__kernel_map") (expressionVariable "__kernel_hd")) (expressionLiteral (LInt 1))))
+  let result = evaluateFixture (runtimeExpr (expressionApply (expressionApply (expressionVariable "__kernel_map") (expressionVariable "__kernel_hd")) (expressionLiteral (LInt 1))))
   assertRuntimeErrorContains "runtime fallback map collection" "E3013" result
 
 testRuntimeFallbackRejectsFilterNonFunctionPredicate :: IO ()
 testRuntimeFallbackRejectsFilterNonFunctionPredicate = do
-  let result = evaluateRuntimeExpr (runtimeExpr (expressionApply (expressionApply (expressionVariable "__kernel_filter") (expressionLiteral (LInt 1))) (expressionList [expressionLiteral (LInt 1)])))
+  let result = evaluateFixture (runtimeExpr (expressionApply (expressionApply (expressionVariable "__kernel_filter") (expressionLiteral (LInt 1))) (expressionList [expressionLiteral (LInt 1)])))
   assertRuntimeErrorContains "runtime fallback filter predicate" "E3017" result
 
 testRuntimeFallbackRejectsFilterNonListCollection :: IO ()
 testRuntimeFallbackRejectsFilterNonListCollection = do
-  let result = evaluateRuntimeExpr (runtimeExpr (expressionApply (expressionApply (expressionVariable "__kernel_filter") (expressionSectionLeft (expressionLiteral (LInt 1)) "<")) (expressionLiteral (LInt 1))))
+  let result = evaluateFixture (runtimeExpr (expressionApply (expressionApply (expressionVariable "__kernel_filter") (expressionSectionLeft (expressionLiteral (LInt 1)) "<")) (expressionLiteral (LInt 1))))
   assertRuntimeErrorContains "runtime fallback filter collection" "E3018" result
 
 testRuntimeFallbackRejectsFilterPredicateNonBool :: IO ()
 testRuntimeFallbackRejectsFilterPredicateNonBool = do
-  let result = evaluateRuntimeExpr (runtimeExpr (expressionApply (expressionApply (expressionVariable "__kernel_filter") (expressionSectionLeft (expressionLiteral (LInt 1)) "+")) (expressionList [expressionLiteral (LInt 1)])))
+  let result = evaluateFixture (runtimeExpr (expressionApply (expressionApply (expressionVariable "__kernel_filter") (expressionSectionLeft (expressionLiteral (LInt 1)) "+")) (expressionList [expressionLiteral (LInt 1)])))
   assertRuntimeErrorContains "runtime fallback filter predicate bool result" "E3019" result
 
 testPrintBuiltinReturnsArgument :: IO ()
@@ -704,7 +704,7 @@ testStructuralAdtEqualityRuntimeSuccess = do
 testStructuralAdtEqualitySeesThroughRuntimeTypeHints :: IO ()
 testStructuralAdtEqualitySeesThroughRuntimeTypeHints = do
   let result =
-        evaluateRuntimeExpr
+        evaluateFixture
           ( expressionBlock
               [ statementData (SourceSpan 1 1) "Tag" ["a"] [dataConstructor "Tag" []],
                 statementLet "left" (SourceSpan 2 1) (typedTag NumericUInt8),
@@ -722,7 +722,7 @@ testStructuralAdtEqualitySeesThroughRuntimeTypeHints = do
 testStructuralAdtEqualityPreservesIncompatibleRuntimeTypeHints :: IO ()
 testStructuralAdtEqualityPreservesIncompatibleRuntimeTypeHints = do
   let result =
-        evaluateRuntimeExpr
+        evaluateFixture
           ( expressionBlock
               [ statementData (SourceSpan 1 1) "Tag" ["a"] [dataConstructor "Tag" []],
                 statementLet "left" (SourceSpan 2 1) (typedTag NumericUInt8),
@@ -764,7 +764,7 @@ testRuntimeFallbackRejectsDirectCallableInequality = do
 testRuntimeFallbackRejectsFunctionStructuralEquality :: IO ()
 testRuntimeFallbackRejectsFunctionStructuralEquality = do
   let identity = expressionLambda "x" (expressionVariable "x")
-      result = evaluateRuntimeExpr (runtimeExpr (expressionBinary "==" (expressionList [identity]) (expressionList [identity])))
+      result = evaluateFixture (runtimeExpr (expressionBinary "==" (expressionList [identity]) (expressionList [identity])))
   assertRuntimeErrorContains "runtime fallback function structural equality" "E3007" result
   assertRuntimeErrorContains
     "runtime fallback function structural equality callable text"
@@ -780,7 +780,7 @@ testRuntimeFallbackRejectsDifferentLengthFunctionStructuralEquality = do
 
 testRuntimeFallbackRejectsDifferentSaturatedAdtConstructors :: IO ()
 testRuntimeFallbackRejectsDifferentSaturatedAdtConstructors = do
-  let result = evaluateRuntimeExpr differentSaturatedAdtConstructorEqualityExpr
+  let result = evaluateFixture differentSaturatedAdtConstructorEqualityExpr
   assertRuntimeErrorContains "different saturated ADT constructor equality code" "E3007" result
   assertRuntimeErrorContains
     "different saturated ADT constructor equality callable text"

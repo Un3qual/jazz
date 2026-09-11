@@ -86,6 +86,7 @@ import Jazz.Compiler.AST
     NumericType,
   )
 import Jazz.Compiler.BuiltinCatalog (BuiltinSymbol)
+import Jazz.Compiler.CoreIdentity (ResolvedReference)
 import Jazz.Compiler.Diagnostics (Diagnostic)
 import Jazz.Compiler.FractionalLiteral (FractionalLiteralSource)
 import Jazz.Compiler.Name (ResolvedName)
@@ -142,6 +143,7 @@ data RuntimeClosure = RuntimeClosure
   { runtimeClosureEnvironment :: RuntimeEnv,
     runtimeClosureEnvironmentMayReachHostCells :: Bool,
     runtimeClosureParameter :: ResolvedName,
+    runtimeClosureParameterReference :: ResolvedReference,
     runtimeClosureBody :: Expr 'Analyzed,
     runtimeClosureTypeHint :: Maybe AnalyzedType,
     runtimeClosureModulePath :: Maybe SourceUnitOwner,
@@ -387,7 +389,7 @@ instance Show RuntimeMethodCandidate where
 
 type RuntimeCell = Either Diagnostic RuntimeValue
 
-type RuntimeEnv = Map ResolvedName RuntimeCell
+type RuntimeEnv = Map ResolvedReference RuntimeCell
 
 data ScopeResult = ScopeResult
   { scopeResultEnvironment :: RuntimeEnv,

@@ -48,9 +48,9 @@ import Jazz.Compiler.FractionalLiteral
 import Jazz.Compiler.Name (UnresolvedName, qualifiedName)
 import Jazz.Compiler.Runtime
   ( RuntimeValue (..),
-    evaluateRuntimeExpr,
   )
 import Jazz.Compiler.Semantics.Runtime.Fixtures
+import Jazz.Compiler.Semantics.Runtime.ResolvedFixture
 import Jazz.Compiler.TypeRepresentation
   ( NumericType (..),
     SignaturePayload (..),
@@ -264,7 +264,7 @@ assertRuntimeBool label expected result =
 
 assertCallableRuntimeEqualityRejected :: Text -> Expr 'Analyzed -> IO ()
 assertCallableRuntimeEqualityRejected label expr = do
-  let result = evaluateRuntimeExpr (runtimeExpr expr)
+  let result = evaluateFixture (runtimeExpr expr)
   assertRuntimeErrorContains (label <> " code") "E3007" result
   assertRuntimeErrorContains
     (label <> " callable text")
