@@ -5,11 +5,13 @@
 
 -- | Validated declaration templates, independent of a checker's solver state.
 module Jazz.Compiler.SemanticDeclarations
-  ( ConstructorArgumentType (..),
+  ( ClassMethodType (..),
+    ConstructorArgumentType (..),
     DataTypeBinding (..),
     SignatureTypeFailure (..),
-    instantiateConstructorFieldType,
+    instantiateDeclarationType,
     normalizeSignatureType,
+    semanticFunctionArguments,
   )
 where
 
@@ -24,6 +26,11 @@ import Jazz.Compiler.CapabilityFacts (identifierLooksLikeTypeVariable)
 import Jazz.Compiler.Name (ResolvedName, identifierText)
 import Jazz.Compiler.TypeRepresentation (SemanticType (..), SignatureType (..), substituteSemanticVariables)
 
+-- | A checked method type with its class parameter explicitly bound.
+data ClassMethodType = ClassMethodType Text (SemanticType ResolvedName Text)
+  deriving stock (Eq, Generic, Show)
+  deriving anyclass (NFData)
+
 -- | Parameters are bound by the enclosing data declaration. Invalid fields
 -- remain only during diagnostic recovery and cannot reach successful analysis.
 data ConstructorArgumentType
@@ -36,8 +43,8 @@ data DataTypeBinding = DataTypeBinding [ResolvedName] [[ConstructorArgumentType]
   deriving stock (Eq, Generic, Show)
   deriving anyclass (NFData)
 
-instantiateConstructorFieldType :: Map Text (SemanticType ResolvedName variable) -> SemanticType ResolvedName Text -> Maybe (SemanticType ResolvedName variable)
-instantiateConstructorFieldType parameters field =
+instantiateDeclarationType :: Map Text (SemanticType ResolvedName variable) -> SemanticType ResolvedName Text -> Maybe (SemanticType ResolvedName variable)
+instantiateDeclarationType parameters field =
   substituteSemanticVariables id <$> traverse (`Map.lookup` parameters) field
 
 data SignatureTypeFailure
@@ -101,3 +108,9 @@ normalizeSignatureType dataTypes variables signatureType =
               Left (NamedTypeArityMismatch name (length parameters) (length arguments))
           | otherwise ->
               SemanticData name <$> traverse convert arguments
+
+semanticFunctionArguments :: SemanticType name variable -> ([SemanticType name variable], SemanticType name variable)
+semanticFunctionArguments (SemanticFunction argument result) =
+  let (arguments, finalResult) = semanticFunctionArguments result
+   in (argument : arguments, finalResult)
+semanticFunctionArguments result = ([], result)

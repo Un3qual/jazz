@@ -528,17 +528,17 @@ testAnalyzedMethodParameterBoundary :: IO ()
 testAnalyzedMethodParameterBoundary =
   mapM_
     checkRejected
-    [ TypeFunction foreignVariable foreignVariable,
-      TypeFunction classVariable foreignVariable
+    [ SemanticFunction foreignVariable foreignVariable,
+      SemanticFunction classVariable foreignVariable
     ]
   where
-    classVariable = TypeVariable (BuiltinName (mkIdentifier "a"))
-    foreignVariable = TypeVariable (BuiltinName (mkIdentifier "b"))
+    classVariable = SemanticVariable "a"
+    foreignVariable = SemanticVariable "b"
     checkRejected signatureType =
       assertEqual
         "an unexpected variable fails projection instead of dropping or guessing the binder"
         (Left (InvalidAnalyzedMethodSignature "Probe::bad"))
-        (projectAnalyzedMethodSignature initialInferState "Probe::bad" (ClassMethodType "a" (SignatureType signatureType)))
+        (projectAnalyzedMethodSignature initialInferState "Probe::bad" (ClassMethodType "a" signatureType))
 
 testAnalyzedFactInvariantFailures :: IO ()
 testAnalyzedFactInvariantFailures = do

@@ -28,7 +28,7 @@ module Jazz.Compiler.TypeInference.Types
     TypeSchemePrimitiveConstraint,
     SchemePrimitiveConstraint (..),
     emptyScopeCapabilityFacts,
-    instantiateConstructorFieldType,
+    instantiateDeclarationType,
     quantifiedVariablesFromPreferred,
     quantifiedVariablesMembershipSet,
     quantifiedVariablesOrderedList,
@@ -44,7 +44,6 @@ import Data.Text (Text)
 import GHC.Generics (Generic)
 import Jazz.Compiler.AST
   ( CorePhase (Resolved),
-    SignaturePayload,
     SignatureType,
   )
 import Jazz.Compiler.BuiltinCatalog
@@ -55,7 +54,7 @@ import Jazz.Compiler.CoreIdentity (ResolvedNodeFacts, ResolvedReference, resolve
 import Jazz.Compiler.Name
   ( ResolvedName,
   )
-import Jazz.Compiler.SemanticDeclarations (ConstructorArgumentType (..), DataTypeBinding (..), instantiateConstructorFieldType)
+import Jazz.Compiler.SemanticDeclarations (ClassMethodType (..), ConstructorArgumentType (..), DataTypeBinding (..), instantiateDeclarationType)
 import Jazz.Compiler.StableSet
   ( StableSet,
     stableSetFromPreferred,
@@ -154,10 +153,6 @@ typeEnvBindingKey facts = TypeEnvKey (resolvedBinderReference facts)
 
 typeEnvReferenceKey :: ResolvedNodeFacts -> ResolvedName -> TypeEnvKey
 typeEnvReferenceKey facts = TypeEnvKey (resolvedValueReference facts)
-
-data ClassMethodType = ClassMethodType Text (SignaturePayload 'Resolved)
-  deriving stock (Eq, Generic, Show)
-  deriving anyclass (NFData)
 
 newtype ImplMethodType = ImplMethodType (SignatureType 'Resolved)
   deriving stock (Eq, Generic, Show)

@@ -115,7 +115,6 @@ import Jazz.Compiler.TypeRepresentation
     pattern TypeInt,
     pattern TypeList,
     pattern TypeName,
-    pattern TypeTuple,
     pattern TypeVariable,
   )
 import Jazz.TestHarness
@@ -688,7 +687,7 @@ testOperatorRulePresenceAndSectionSupport = do
 testImplChecksPreserveRollback :: IO ()
 testImplChecksPreserveRollback = do
   let (variable, allocated) = freshTypeVar initialInferState
-      signature = ClassMethodType "a" (SignatureType (TypeTuple [TypeInt, TypeInt]))
+      signature = ClassMethodType "a" (SemanticTuple [SemanticInt, SemanticInt])
       initialState =
         modifyDeclarationState
           (\declarations -> declarations {declarationClassMethodSignatures = Map.fromList [("Probe::first", signature), ("Probe::second", signature)]})

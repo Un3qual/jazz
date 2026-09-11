@@ -17,6 +17,7 @@ module Jazz.Compiler.TypeInference.Scope
   )
 where
 
+import Data.Either (fromRight)
 import Data.List
   ( uncons,
     unsnoc,
@@ -81,6 +82,7 @@ import Jazz.Compiler.SemanticDeclarations (normalizeSignatureType)
 import Jazz.Compiler.SemanticFacts
   ( StatementDeclarationFact (..),
   )
+import Jazz.Compiler.TypeInference.Analyzed (projectAnalyzedMethodSignature)
 import Jazz.Compiler.TypeInference.Capabilities
   ( TypeEnvFreeVariables,
     addUnpreservedInferredMethodConstraintErrors,
@@ -98,6 +100,7 @@ import Jazz.Compiler.TypeInference.Capabilities
     insertTypeEnvFreeVariables,
     instantiateQualifiedMethodTypeWithExpected,
     newInferredClassConstraints,
+    registerClassCapabilityFacts,
     resolveTypeEnvFreeVariables,
     resolveTypeSchemeConstraint,
     restoreCapabilityFacts,
@@ -168,7 +171,8 @@ import Jazz.Compiler.TypeInference.TypeOps
     freeTypeVariablesInTypeSchemePrimitiveConstraints,
   )
 import Jazz.Compiler.TypeInference.Types
-  ( ConstructorArgumentType (..),
+  ( ClassMethodType (..),
+    ConstructorArgumentType (..),
     DataTypeBinding (..),
     ExpressionType,
     InferenceVariable (..),
@@ -191,6 +195,7 @@ import Jazz.Compiler.TypeInference.Types
 import Jazz.Compiler.TypeRepresentation
   ( NumericType (..),
     pattern ConstrainedSignature,
+    pattern SignatureType,
   )
 
 inferExprTypeWithExpectedMode ::
@@ -275,42 +280,40 @@ firstInvalidImplTarget state implSpan =
             Just diagnostic -> Just diagnostic
             Nothing -> go rest
 
-firstInvalidClassMethodSignature :: InferState -> ResolvedName -> [ResolvedName] -> [ClassMethodSignature 'Resolved] -> Maybe Diagnostic
-firstInvalidClassMethodSignature state capabilityName parameters =
-  go
+checkClassDeclaration :: InferState -> ResolvedName -> [ResolvedName] -> [ClassMethodSignature 'Resolved] -> Either Diagnostic InferState
+checkClassDeclaration state capabilityName parameters methods = do
+  checkedMethods <- traverse checkMethod methods
+  let unaryMethods = if length parameters == 1 then [(name, methodType) | (_, name, methodType) <- checkedMethods] else []
+      registered = registerClassCapabilityFacts capabilityName (length parameters) unaryMethods state
+  pure (foldl' recordMethod registered checkedMethods)
   where
-    classParameterNames = Set.fromList (map identifierText parameters)
-
-    go methods =
-      case methods of
-        [] -> Nothing
-        ClassMethodSignature methodNode methodName methodPayload : rest ->
-          let methodSpan = coreNodeSpan methodNode
-              methodKey = identifierText capabilityName <> "::" <> identifierText methodName
-              methodVariables =
-                maybe [] constraintSignatureTypeVariableNamesInOrder (signaturePayloadConstraintType methodPayload)
-              methodLocalVariables = filter (`Set.notMember` classParameterNames) methodVariables
-              invalidMethodSignature =
-                mkInvalidSignatureTypeError
-                  state
-                  methodKey
-                  methodSpan
-                  methodPayload
-           in case methodPayload of
-                ConstrainedSignature (_ : _) _ ->
-                  Just
-                    ( setDiagnosticPrimarySpan
-                        methodSpan
-                        (mkInvalidQualifiedMethodSignatureError methodKey methodPayload)
-                    )
-                _ ->
-                  case methodLocalVariables of
-                    variableName : _ ->
-                      Just (mkMethodLocalTypeVariableError methodKey variableName methodSpan)
-                    [] ->
-                      case Signature.signaturePayloadToSignatureType methodPayload state of
-                        (Just _, _) -> go rest
-                        (Nothing, _) -> Just invalidMethodSignature
+    parameterNames = map identifierText parameters
+    variables = Map.fromList [(parameter, SemanticVariable parameter) | parameter <- parameterNames]
+    classParameter = case parameterNames of
+      [parameter] -> parameter
+      _ -> ""
+    checkMethod (ClassMethodSignature node methodName payload) =
+      let methodSpan = coreNodeSpan node
+          methodKey = identifierText capabilityName <> "::" <> identifierText methodName
+          methodVariables = maybe [] constraintSignatureTypeVariableNamesInOrder (signaturePayloadConstraintType payload)
+          methodLocalVariables = filter (`Map.notMember` variables) methodVariables
+          invalid = mkInvalidSignatureTypeError state methodKey methodSpan payload
+          normalize signature = case normalizeSignatureType (inferDataTypes state) variables signature of
+            Right methodType -> Right (node, methodName, ClassMethodType classParameter methodType)
+            Left _ -> Left invalid
+       in case payload of
+            ConstrainedSignature (_ : _) _ -> Left (setDiagnosticPrimarySpan methodSpan (mkInvalidQualifiedMethodSignatureError methodKey payload))
+            _ -> case methodLocalVariables of
+              variable : _ -> Left (mkMethodLocalTypeVariableError methodKey variable methodSpan)
+              [] -> case payload of
+                SignatureType signature -> normalize signature
+                ConstrainedSignature [] signature -> normalize signature
+                _ -> Left invalid
+    recordMethod current (node, methodName, methodType)
+      | length parameters /= 1 = current
+      | otherwise = case projectAnalyzedMethodSignature current (identifierText methodName) methodType of
+          Right analyzed -> recordStatementFactSeed (coreNodeId node) ([], MethodDeclaration methodName analyzed) current
+          Left failure -> error ("validated class method lost its parameter: " <> show failure)
 
 publishVisibleTypes :: TypeEnv -> InferState -> InferState
 publishVisibleTypes env state =
@@ -515,11 +518,8 @@ inferScopeTypeInternal
               : [ (coreNodeId constructorNode, bindingFor constructorNode name, ValueDeclaration name)
                 | DataConstructor constructorNode name _ <- constructors
                 ]
-          SClass node capabilityName parameters methods ->
-            (coreNodeId node, [], CapabilityDeclaration capabilityName parameters)
-              : [ (coreNodeId methodNode, [], SignatureDeclaration methodName)
-                | ClassMethodSignature methodNode methodName _ <- methods
-                ]
+          SClass node capabilityName parameters _ ->
+            [(coreNodeId node, [], CapabilityDeclaration capabilityName parameters)]
           SImpl node capabilityName _ methods ->
             (coreNodeId node, [], ImplementationDeclaration capabilityName [])
               : [ (coreNodeId methodNode, bindingFor methodNode methodName, ValueDeclaration methodName)
@@ -702,17 +702,8 @@ inferScopeTypeInternal
                               (importModuleCapabilityFacts modulePath maybeAlias maybeSymbolNames state)
                         }
                       rest
-                  SClass classNode capabilityName parameters methods ->
-                    let validationState =
-                          seedStatementCapabilityFact
-                            stateForSource
-                            (SClass classNode capabilityName parameters [])
-                        maybeInvalidMethod =
-                          firstInvalidClassMethodSignature validationState capabilityName parameters methods
-                        nextState =
-                          case maybeInvalidMethod of
-                            Just diagnostic -> addTypeError stateForSource diagnostic
-                            Nothing -> seedStatementCapabilityFact stateForSource statement
+                  SClass _ capabilityName parameters methods ->
+                    let nextState = either (addTypeError stateForSource) id (checkClassDeclaration stateForSource capabilityName parameters methods)
                         nextModuleBaselineFacts =
                           updateRootModuleBaselineFacts moduleBaselineFacts state nextState
                         (scopeResultType, resultState) =
@@ -1665,15 +1656,8 @@ prepareScope forwardSignedFunctionsPolicy mode predeclaredDataTypes indexedState
               moduleBaselineFacts,
               importModuleCapabilityFacts modulePath maybeAlias maybeSymbolNames state
             )
-          SClass classNode capabilityName parameters methods ->
-            let validationState =
-                  seedStatementCapabilityFact
-                    state
-                    (SClass classNode capabilityName parameters [])
-                nextState =
-                  case firstInvalidClassMethodSignature validationState capabilityName parameters methods of
-                    Just _ -> state
-                    Nothing -> seedStatementCapabilityFact state statement
+          SClass _ capabilityName parameters methods ->
+            let nextState = fromRight state (checkClassDeclaration state capabilityName parameters methods)
              in ( bindingSeeds,
                   signatures,
                   forwardFunctions,

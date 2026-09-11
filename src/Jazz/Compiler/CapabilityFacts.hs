@@ -14,7 +14,6 @@ module Jazz.Compiler.CapabilityFacts
     concreteImplFactClassName,
     constraintSignatureAliasNames,
     constraintSignatureAliasVariants,
-    constraintSignatureTypeContainsClassParameter,
     constraintSignatureTypeVariableNamesInOrder,
     constraintSignatureTypesCompatible,
     identifierLooksLikeTypeVariable,
@@ -23,9 +22,6 @@ module Jazz.Compiler.CapabilityFacts
     renderConcreteImplFact,
     splitQualifiedMethodKey,
     signaturePayloadConstraintType,
-    substituteClassMethodSignature,
-    substituteSignatureType,
-    constraintFunctionArgumentTypes,
   )
 where
 
@@ -149,11 +145,6 @@ concreteConstraintArgument signatureType =
       False
     _ -> True
 
-substituteClassMethodSignature :: Text -> SignatureType -> SignaturePayload -> Maybe SignatureType
-substituteClassMethodSignature classParameter implTarget methodSignature =
-  substituteSignatureType classParameter implTarget
-    <$> signaturePayloadConstraintType methodSignature
-
 signaturePayloadConstraintType :: SignaturePayload -> Maybe SignatureType
 signaturePayloadConstraintType methodSignature =
   case methodSignature of
@@ -233,54 +224,6 @@ signatureTypeForName name =
         Nothing
           | identifierLooksLikeTypeVariable name -> TypeVariable name
           | otherwise -> TypeName name
-
-substituteSignatureType :: Text -> SignatureType -> SignatureType -> SignatureType
-substituteSignatureType classParameter implTarget signatureType =
-  case signatureType of
-    TypeVariable name
-      | renderName name == classParameter -> implTarget
-      | otherwise -> signatureType
-    TypeName name
-      | renderName name == classParameter -> implTarget
-      | otherwise -> signatureType
-    TypeApplication name arguments ->
-      TypeApplication name (map (substituteSignatureType classParameter implTarget) arguments)
-    TypeList innerType ->
-      TypeList (substituteSignatureType classParameter implTarget innerType)
-    TypeTuple elementTypes ->
-      TypeTuple (map (substituteSignatureType classParameter implTarget) elementTypes)
-    TypeFunction argumentType resultType ->
-      TypeFunction
-        (substituteSignatureType classParameter implTarget argumentType)
-        (substituteSignatureType classParameter implTarget resultType)
-    _ -> signatureType
-
-constraintFunctionArgumentTypes :: SignatureType -> ([SignatureType], SignatureType)
-constraintFunctionArgumentTypes signatureType =
-  case signatureType of
-    TypeFunction argumentType resultType ->
-      let (argumentTypes, finalResultType) = constraintFunctionArgumentTypes resultType
-       in (argumentType : argumentTypes, finalResultType)
-    _ ->
-      ([], signatureType)
-
-constraintSignatureTypeContainsClassParameter :: Text -> SignatureType -> Bool
-constraintSignatureTypeContainsClassParameter classParameter signatureType =
-  case signatureType of
-    TypeApplication _ arguments ->
-      any (constraintSignatureTypeContainsClassParameter classParameter) arguments
-    TypeList innerType ->
-      constraintSignatureTypeContainsClassParameter classParameter innerType
-    TypeTuple elementTypes ->
-      any (constraintSignatureTypeContainsClassParameter classParameter) elementTypes
-    TypeFunction argumentType resultType ->
-      constraintSignatureTypeContainsClassParameter classParameter argumentType
-        || constraintSignatureTypeContainsClassParameter classParameter resultType
-    TypeVariable typeName ->
-      renderName typeName == classParameter
-    TypeName typeName ->
-      renderName typeName == classParameter
-    _ -> False
 
 constraintSignatureTypesCompatible :: SignatureType -> SignatureType -> Bool
 constraintSignatureTypesCompatible leftType rightType =

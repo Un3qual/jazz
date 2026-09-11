@@ -236,7 +236,7 @@ testScopeCapabilityFacts = do
     (Map.lookup "Comparable" (scopeClassFacts combined))
   assertEqual
     "method facts remain left-biased"
-    (Just (ClassMethodType "Left" (SignatureType TypeInt)))
+    (Just (ClassMethodType "Left" TypeRepresentation.SemanticInt))
     (Map.lookup "compare" (scopeClassMethodSignatures combined))
   assertEqual
     "implementation methods preserve left-to-right order"
@@ -252,7 +252,7 @@ testScopeCapabilityFacts = do
       mempty
         { scopeClassFacts = Map.singleton "Comparable" 1,
           scopeClassMethodSignatures =
-            Map.singleton "compare" (ClassMethodType "Left" (SignatureType TypeInt)),
+            Map.singleton "compare" (ClassMethodType "Left" TypeRepresentation.SemanticInt),
           scopeConcreteImplMethods =
             Map.singleton "Comparable" [ImplMethodType TypeInt]
         }
@@ -260,7 +260,7 @@ testScopeCapabilityFacts = do
       mempty
         { scopeClassFacts = Map.singleton "Comparable" 2,
           scopeClassMethodSignatures =
-            Map.singleton "compare" (ClassMethodType "Right" (SignatureType TypeBool)),
+            Map.singleton "compare" (ClassMethodType "Right" TypeRepresentation.SemanticBool),
           scopeConcreteImplMethods =
             Map.singleton "Comparable" [ImplMethodType TypeBool]
         }
@@ -268,7 +268,7 @@ testScopeCapabilityFacts = do
       mempty
         { scopeClassFacts = Map.singleton "Comparable" 3,
           scopeClassMethodSignatures =
-            Map.singleton "compare" (ClassMethodType "Third" (SignatureType TypeInt)),
+            Map.singleton "compare" (ClassMethodType "Third" TypeRepresentation.SemanticInt),
           scopeConcreteImplMethods =
             Map.singleton "Comparable" [ImplMethodType TypeBool],
           scopeGeneratedEqualityClassFacts = Set.singleton "Eq",

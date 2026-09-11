@@ -61,7 +61,7 @@ import Jazz.Compiler.TypeInference.Types
     SemanticType (..),
     TypeBinding (..),
     TypeEnv,
-    instantiateConstructorFieldType,
+    instantiateDeclarationType,
     typeEnvReferenceKey,
   )
 
@@ -732,7 +732,7 @@ instantiateConstructorArguments typeParameterBindings argumentTypes initialState
     step (argumentTypesRev, stateAcc) argumentType =
       case argumentType of
         ConstructorArgumentType fieldType ->
-          case instantiateConstructorFieldType typeParameterBindings fieldType of
+          case instantiateDeclarationType typeParameterBindings fieldType of
             Just expressionType ->
               (resolveType stateAcc expressionType : argumentTypesRev, stateAcc)
             Nothing ->

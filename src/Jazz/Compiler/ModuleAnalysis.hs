@@ -24,7 +24,6 @@ import Jazz.Compiler.AST
     CorePhase (..),
     CoreSort (StatementSort),
     Expr (EBlock),
-    SignaturePayload,
     SignatureType,
     expressionNode,
     statementNode,
@@ -99,10 +98,9 @@ import Jazz.Compiler.TypeInference.Types
     TypeEnvKey (..),
     TypeScheme (..),
   )
-import qualified Jazz.Compiler.TypeRepresentation as TypeRepresentation
 
 -- | Analyze one resolved module against its complete imported interface. The
--- caller chooses the source owner and hidden statements (the prelude uses both),
+-- caller supplies source ownership and the bundled-prelude warning policy,
 -- while dependency availability and diagnostic accumulation belong to the driver.
 analyzeModule :: CompileInputs -> (ModulePath -> SourceUnitOwner) -> Bool -> ImportedInterface -> CoreModule 'Resolved -> IO (InferenceResult, Maybe (CoreModule 'Analyzed))
 analyzeModule inputs owner hideRootBindings importedInterface resolvedModule = do
@@ -476,8 +474,8 @@ rebaseCapabilityFacts origin dataTypeNames classNames facts =
     }
 
 rebaseClassMethod :: ResolvedNameOrigin -> Set.Set Text -> Set.Set Text -> ClassMethodType -> ClassMethodType
-rebaseClassMethod origin dataTypeNames classNames (ClassMethodType parameter payload) =
-  ClassMethodType parameter (rebaseSignaturePayload origin dataTypeNames classNames payload)
+rebaseClassMethod origin dataTypeNames _ (ClassMethodType parameter methodType) =
+  ClassMethodType parameter (rebaseExpressionType origin dataTypeNames methodType)
 
 rebaseImplMethod :: ResolvedNameOrigin -> Set.Set Text -> Set.Set Text -> ImplMethodType -> ImplMethodType
 rebaseImplMethod origin dataTypeNames _ (ImplMethodType target) =
@@ -489,23 +487,6 @@ rebaseEvidenceCandidate origin dataTypeNames classNames candidate =
     { implementationCandidateCapability = rebaseKnownName origin CapabilityNamespace classNames (implementationCandidateCapability candidate),
       implementationCandidateTarget = rebaseSignatureTypeNames origin dataTypeNames (implementationCandidateTarget candidate)
     }
-
-rebaseSignaturePayload :: ResolvedNameOrigin -> Set.Set Text -> Set.Set Text -> SignaturePayload 'Resolved -> SignaturePayload 'Resolved
-rebaseSignaturePayload origin dataTypeNames classNames payload =
-  case payload of
-    TypeRepresentation.SignatureType signatureType ->
-      TypeRepresentation.SignatureType (rebaseSignatureTypeNames origin dataTypeNames signatureType)
-    TypeRepresentation.ConstrainedSignature constraints signatureType ->
-      TypeRepresentation.ConstrainedSignature
-        [ TypeRepresentation.SignatureConstraint
-            (rebaseKnownName origin CapabilityNamespace classNames capabilityName)
-            (map (rebaseSignatureTypeNames origin dataTypeNames) arguments)
-        | TypeRepresentation.SignatureConstraint capabilityName arguments <- constraints
-        ]
-        (rebaseSignatureTypeNames origin dataTypeNames signatureType)
-    TypeRepresentation.UnsupportedSignature tokens ->
-      TypeRepresentation.UnsupportedSignature
-        (fmap (rebaseKnownName origin TypeNamespace dataTypeNames) <$> tokens)
 
 rebaseConcreteImplFact ::
   ResolvedNameOrigin ->

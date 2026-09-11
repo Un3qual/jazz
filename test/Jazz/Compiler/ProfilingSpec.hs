@@ -75,8 +75,7 @@ import Jazz.Compiler.TypeInference.Types
     TypeBinding (PlainTypeBinding),
   )
 import Jazz.Compiler.TypeRepresentation
-  ( SignaturePayload (..),
-    SignatureType (..),
+  ( SignatureType (..),
   )
 import Jazz.TestHarness
   ( NamedTest,
@@ -211,7 +210,7 @@ testDeepModuleInterfaceForcing =
           { interfaceClassMethods =
               Map.singleton
                 "method"
-                (ClassMethodType "Capability" (SignatureType (TypeList deferredSignatureType)))
+                (ClassMethodType "Capability" (SemanticList (throw (userError "nested signature type was forced"))))
           }
       ),
       ( "impl method",

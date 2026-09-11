@@ -49,7 +49,7 @@ import Jazz.Compiler.TypeInference.Types
     TypeBinding (..),
     TypeEnv,
     TypeEnvKey (..),
-    instantiateConstructorFieldType,
+    instantiateDeclarationType,
   )
 
 data PatternCoverageFailure
@@ -601,7 +601,7 @@ instantiateArgument :: Map Text ExpressionType -> ConstructorArgumentType -> Exp
 instantiateArgument typeArguments argument =
   case argument of
     ConstructorArgumentType fieldType ->
-      maybe unknownFieldType id (instantiateConstructorFieldType typeArguments fieldType)
+      maybe unknownFieldType id (instantiateDeclarationType typeArguments fieldType)
     ConstructorArgumentFresh -> unknownFieldType
 
 unknownFieldType :: ExpressionType

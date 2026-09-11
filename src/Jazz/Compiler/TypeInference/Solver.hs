@@ -51,7 +51,7 @@ import Jazz.Compiler.TypeInference.Types
     IntegerLiteralRange (..),
     NumericConstraint (..),
     SemanticType (..),
-    instantiateConstructorFieldType,
+    instantiateDeclarationType,
   )
 import Jazz.Compiler.TypeRepresentation (NumericType (..), substituteSemanticVariables)
 
@@ -407,7 +407,7 @@ dataTypeSupportsRuntimeEqualityWith seenDataTypes state typeName typeArguments =
           maybe
             False
             (supportsRuntimeEqualityTypeWith nextSeenDataTypes state)
-            (instantiateConstructorFieldType typeParameterBindings fieldType)
+            (instantiateDeclarationType typeParameterBindings fieldType)
         ConstructorArgumentFresh -> False
 
 supportsDeferredEqualityOperandType :: InferState -> ExpressionType -> Bool

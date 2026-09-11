@@ -12,7 +12,6 @@ module Jazz.Compiler.TypeInference.Analyzed
   )
 where
 
-import Data.Bifunctor (first)
 import Data.Foldable (toList)
 import qualified Data.Foldable as Foldable
 import Data.List.NonEmpty (NonEmpty)
@@ -38,7 +37,8 @@ import Jazz.Compiler.AST
     expressionNode,
   )
 import Jazz.Compiler.CoreIdentity (ResolvedNodeFacts (..), ResolvedReference (..))
-import Jazz.Compiler.Name (ResolvedName, identifierText, operatorBindingName)
+import Jazz.Compiler.Name (ResolvedName, operatorBindingName)
+import Jazz.Compiler.SemanticDeclarations (instantiateDeclarationType)
 import Jazz.Compiler.SemanticFacts
   ( AnalyzedMethodSignature (..),
     AnalyzedNumericConstraint (..),
@@ -92,7 +92,6 @@ import Jazz.Compiler.TypeInference.Types
     TypeSchemePrimitiveConstraint,
     quantifiedVariablesOrderedList,
   )
-import Jazz.Compiler.TypeRepresentation (SignaturePayload (..))
 
 data Attachment value
   = Attached value
@@ -344,7 +343,7 @@ attachStatementNode state statement =
     SLet node name value -> makeLet name <$> facts node <*> recur value
     SSignature node name signature -> SSignature <$> facts node <*> pure name <*> pure signature
     SData node name parameters constructors -> SData <$> facts node <*> pure name <*> pure parameters <*> traverse attachConstructor constructors
-    SClass node name parameters methods -> SClass <$> facts node <*> pure name <*> pure parameters <*> traverse (attachClassMethod parameters) methods
+    SClass node name parameters methods -> SClass <$> facts node <*> pure name <*> pure parameters <*> traverse attachClassMethod methods
     SImpl node name arguments methods -> SImpl <$> attachImplementationFacts name arguments node <*> pure name <*> pure arguments <*> traverse attachImplMethod methods
     SModule node path -> SModule <$> facts node <*> pure path
     SImport node path alias names -> SImport <$> facts node <*> pure path <*> pure alias <*> pure names
@@ -353,14 +352,8 @@ attachStatementNode state statement =
     recur = attachExpr state
     facts = attachStatementFacts state
     attachConstructor (DataConstructor node name arguments) = DataConstructor <$> facts node <*> pure name <*> pure arguments
-    attachClassMethod parameters (ClassMethodSignature node name signature) =
-      ClassMethodSignature <$> analyzedMethodNode <*> pure name <*> pure signature
-      where
-        analyzedMethodNode = case parameters of
-          [parameter] -> case projectAnalyzedMethodSignature state (identifierText name) (ClassMethodType (identifierText parameter) signature) of
-            Left failure -> missing failure
-            Right method -> setDeclaration (MethodDeclaration name method) <$> facts node
-          _ -> missing (InvalidAnalyzedMethodSignature (identifierText name))
+    attachClassMethod (ClassMethodSignature node name signature) =
+      ClassMethodSignature <$> facts node <*> pure name <*> pure signature
     attachImplementationFacts name arguments node =
       case traverse (Signature.signatureTypeToExpressionType state Map.empty) arguments of
         Left _ -> missing (InvalidAnalyzedImplementationTarget (coreNodeId node))
@@ -510,22 +503,9 @@ projectNumericConstraint constraint =
     IntegralLiteralNumericConstraint (IntegerLiteralRange lower upper) -> AnalyzedIntegralLiteralNumericConstraint lower upper
 
 projectAnalyzedMethodSignature :: InferState -> Text -> ClassMethodType -> Either SemanticFactInvariantFailure AnalyzedMethodSignature
-projectAnalyzedMethodSignature state methodName (ClassMethodType parameter payload) = do
-  signatureType <- case payload of
-    SignatureType value -> Right value
-    ConstrainedSignature [] value -> Right value
-    _ -> Left failure
-  -- Allocate the declared binder before conversion. The explicit environment
-  -- rejects other variables, including future unsupported method polymorphism.
-  let (parameterId, parameterType, methodState) = freshTypeVariable state
-  methodType <-
-    first
-      (const failure)
-      (Signature.signatureTypeToExpressionType methodState (Map.singleton parameter parameterType) signatureType)
-  pure
-    AnalyzedMethodSignature
-      { analyzedMethodClassParameter = parameterId,
-        analyzedMethodType = methodType
-      }
+projectAnalyzedMethodSignature state methodName (ClassMethodType parameter methodType) =
+  case instantiateDeclarationType (Map.singleton parameter parameterType) methodType of
+    Nothing -> Left (InvalidAnalyzedMethodSignature methodName)
+    Just signature -> Right (AnalyzedMethodSignature parameterId signature)
   where
-    failure = InvalidAnalyzedMethodSignature methodName
+    (parameterId, parameterType, _) = freshTypeVariable state
