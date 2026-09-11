@@ -90,7 +90,7 @@ data SignatureTypeFailure
   deriving (Eq, Show)
 
 normalizeSignatureType ::
-  Map Text DataTypeBinding ->
+  Map ResolvedName DataTypeBinding ->
   Map Text (SemanticType ResolvedName variable) ->
   SignatureType ResolvedName ResolvedName ->
   Either SignatureTypeFailure (SemanticType ResolvedName variable)
@@ -136,7 +136,7 @@ normalizeSignatureType dataTypes variables signatureType =
             <|> Map.lookup typeName variables
 
     namedType name arguments =
-      case Map.lookup (identifierText name) dataTypes of
+      case Map.lookup name dataTypes of
         Nothing -> Left (UnknownNamedType name)
         Just (DataTypeBinding parameters _)
           | length parameters /= length arguments ->

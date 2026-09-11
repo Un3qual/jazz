@@ -123,6 +123,7 @@ import Jazz.Compiler.Name
     identifierText,
     mkIdentifier,
     operatorBindingName,
+    resolvedImportedName,
   )
 import Jazz.Compiler.Runtime
   ( RuntimeCell,
@@ -1191,7 +1192,7 @@ testAnalyzedGenericConstructorFieldsRemainModuleStable = do
   case lookupCoreModule (nominalModulePath ("Lib" :| ["Box"])) analyzed of
     Nothing -> fail "missing analyzed Lib::Box module"
     Just boxModule ->
-      case Map.lookup "Box" (interfaceDataTypes (analyzedInterface boxModule)) of
+      case Map.lookup (resolvedImportedName (coreModulePath boxModule) TypeNamespace (mkIdentifier "Box")) (interfaceDataTypes (analyzedInterface boxModule)) of
         Just
           ( DataTypeBinding
               [_]

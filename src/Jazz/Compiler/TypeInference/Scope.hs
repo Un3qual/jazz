@@ -740,7 +740,7 @@ inferScopeTypeInternal
                      in (scopeResultType, resultState)
                   SData dataNode typeName typeParameters constructors ->
                     let dataTypeAlreadyDeclared =
-                          Map.member (identifierText typeName) (inferDataTypes state)
+                          Map.member typeName (inferDataTypes state)
                         (nextEnv, nextState) =
                           registerDataConstructors predeclaredDataTypes (coreNodeSpan dataNode) typeName typeParameters constructors env state
                         nextEnvFreeVariables =
@@ -1602,7 +1602,7 @@ data ScopePreparation = ScopePreparation
 prepareScope ::
   ForwardSignedFunctionsPolicy ->
   InferenceMode ->
-  Map Text DataTypeBinding ->
+  Map ResolvedName DataTypeBinding ->
   [(Int, Statement 'Resolved)] ->
   InferState ->
   ScopePreparation
@@ -1779,21 +1779,19 @@ prepareScope forwardSignedFunctionsPolicy mode predeclaredDataTypes indexedState
 predeclareScopeDataTypes ::
   [(Int, Statement 'Resolved)] ->
   InferState ->
-  Map Text DataTypeBinding
+  Map ResolvedName DataTypeBinding
 predeclareScopeDataTypes indexedStatements initialState =
   foldl' step Map.empty indexedStatements
   where
     step predeclaredDataTypes (_, statement) =
       case statement of
         SData _ typeName typeParameters _
-          | Map.notMember typeNameText (inferDataTypes initialState),
-            Map.notMember typeNameText predeclaredDataTypes ->
+          | Map.notMember typeName (inferDataTypes initialState),
+            Map.notMember typeName predeclaredDataTypes ->
               Map.insert
-                typeNameText
+                typeName
                 (DataTypeBinding typeParameters [])
                 predeclaredDataTypes
-          where
-            typeNameText = identifierText typeName
         _ -> predeclaredDataTypes
 
 recursiveBindingEnv ::
@@ -2158,9 +2156,9 @@ insertRegisteredConstructorFreeVariables env summary (DataConstructor node const
     Just binding -> insertResolvedTypeEnvFreeVariables (coreNodeFacts node) constructorName binding summary
     Nothing -> summary
 
-registerDataConstructors :: Map Text DataTypeBinding -> SourceSpan -> ResolvedName -> [ResolvedName] -> [DataConstructor 'Resolved] -> TypeEnv -> InferState -> (TypeEnv, InferState)
+registerDataConstructors :: Map ResolvedName DataTypeBinding -> SourceSpan -> ResolvedName -> [ResolvedName] -> [DataConstructor 'Resolved] -> TypeEnv -> InferState -> (TypeEnv, InferState)
 registerDataConstructors predeclaredDataTypes spanValue typeName typeParameters constructors env initialState =
-  case Map.lookup typeNameText (inferDataTypes initialState) of
+  case Map.lookup typeName (inferDataTypes initialState) of
     Just _ ->
       ( env,
         addTypeError
@@ -2180,7 +2178,7 @@ registerDataConstructors predeclaredDataTypes spanValue typeName typeParameters 
                   declarations
                     { declarationDataTypes =
                         Map.insert
-                          typeNameText
+                          typeName
                           (DataTypeBinding typeParameters (reverse constructorPayloadsRev))
                           (inferDataTypes nextState)
                     }
@@ -2197,7 +2195,7 @@ registerDataConstructors predeclaredDataTypes spanValue typeName typeParameters 
             argumentTypes : constructorPayloadsAcc
           )
 
-constructorArgumentTypes :: Map Text DataTypeBinding -> [ResolvedName] -> [SignatureType 'Resolved] -> InferState -> ([ConstructorArgumentType], InferState)
+constructorArgumentTypes :: Map ResolvedName DataTypeBinding -> [ResolvedName] -> [SignatureType 'Resolved] -> InferState -> ([ConstructorArgumentType], InferState)
 constructorArgumentTypes predeclaredDataTypes typeParameters fieldTypes initialState =
   let (argumentTypesRev, finalState) =
         foldl' collectField ([], initialState) fieldTypes

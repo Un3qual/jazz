@@ -225,7 +225,7 @@ dependencyImportInterface importDecl (publicInventory, moduleInterface) =
 
 data ImportedInterface = ImportedInterface
   { importedTypes :: Map TypeEnvKey (SemanticBinding DeclarationVariable),
-    importedDataTypes :: Map Text DataTypeBinding,
+    importedDataTypes :: Map ResolvedName DataTypeBinding,
     importedConstructorWitnessNames :: Map ResolvedName UnresolvedName,
     importedCapabilities :: ScopeCapabilityFacts,
     importedClassNames :: Set.Set Text
@@ -283,12 +283,9 @@ importSelectedInterface origin maybeAlias maybeSymbols publicInventory moduleInt
           | (export, ModuleValueBinding binder binding) <- Map.toList selectedValueTypes
           ],
       importedDataTypes =
-        Map.fromList
-          [ ( qualifiedKey origin dataTypeName,
-              rebaseDataTypeBinding origin dataTypeNames classNames dataType
-            )
-          | (dataTypeName, dataType) <- Map.toList (interfaceDataTypes moduleInterface)
-          ],
+        Map.map
+          (rebaseDataTypeBinding origin dataTypeNames classNames)
+          (interfaceDataTypes moduleInterface),
       importedConstructorWitnessNames =
         Map.fromList
           [ (importedName export, sourceConstructorName export)
@@ -317,7 +314,7 @@ importSelectedInterface origin maybeAlias maybeSymbols publicInventory moduleInt
       where
         member = mkIdentifier (moduleExportName export)
 
-    dataTypeNames = Map.keysSet (interfaceDataTypes moduleInterface)
+    dataTypeNames = Set.map identifierText (Map.keysSet (interfaceDataTypes moduleInterface))
     classNames = Map.keysSet (interfaceClassFacts moduleInterface)
     selectedInventory =
       selectExportNames

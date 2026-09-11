@@ -437,10 +437,10 @@ testTypeScopedConstructorInventory = do
     targetType = SemanticData (resolvedTypeName "Target") []
     dataTypes =
       Map.insert
-        "Target"
+        (resolvedTypeName "Target")
         (DataTypeBinding [] [[]])
         ( Map.fromList
-            [ ("Unused" <> Text.pack (show dataTypeIndex), DataTypeBinding [] [[]])
+            [ (resolvedTypeName ("Unused" <> Text.pack (show dataTypeIndex)), DataTypeBinding [] [[]])
             | dataTypeIndex <- [1 .. dataTypeCount]
             ]
         )
@@ -617,7 +617,7 @@ testImportedWitnessRendering =
     importedWitnessInventory =
       constructorInventoryFromBindingsWithWitnessNames
         (Map.singleton importedName sourceWitness)
-        (Map.singleton "Choice" (DataTypeBinding [] [[]]))
+        (Map.singleton (resolvedTypeName "Choice") (DataTypeBinding [] [[]]))
         (fixtureTypes (Map.singleton importedName (ConstructorTypeBinding (resolvedTypeName "Choice") [] [])))
 
 testStrictSourceReachability :: IO ()
@@ -696,7 +696,7 @@ hiddenConstructorInputs =
             ],
       inferenceImportedDataTypes =
         Map.singleton
-          "Maybe"
+          (resolvedTypeName "Maybe")
           ( DataTypeBinding
               [resolvedLocalName TypeNamespace (mkIdentifier "a")]
               [ [],
@@ -814,7 +814,7 @@ maybeInventory :: ConstructorInventory
 maybeInventory =
   constructorInventoryFromBindings
     ( Map.singleton
-        "Maybe"
+        (resolvedTypeName "Maybe")
         ( DataTypeBinding
             [maybeTypeParameter]
             [ [],
@@ -833,7 +833,7 @@ hiddenMaybeInventory :: ConstructorInventory
 hiddenMaybeInventory =
   constructorInventoryFromBindings
     ( Map.singleton
-        "Maybe"
+        (resolvedTypeName "Maybe")
         ( DataTypeBinding
             [maybeTypeParameter]
             [ [],

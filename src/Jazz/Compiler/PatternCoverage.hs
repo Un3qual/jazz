@@ -70,7 +70,7 @@ data PatternCoverageSite = PatternCoverageSite
 -- from that match's scrutinee.
 data ConstructorInventory = ConstructorInventory
   { constructorInventoryWitnessNames :: Map ResolvedName UnresolvedName,
-    constructorInventoryDataTypes :: Map Text DataTypeBinding,
+    constructorInventoryDataTypes :: Map ResolvedName DataTypeBinding,
     constructorInventoryEnvironment :: TypeEnv
   }
   deriving (Eq, Show)
@@ -78,7 +78,7 @@ data ConstructorInventory = ConstructorInventory
 -- | Constructor shapes reachable from one match's resolved scrutinee type.
 -- Visible shapes remain useful even when hidden constructors keep the outer
 -- domain open.
-newtype PreparedConstructorInventory = PreparedConstructorInventory (Map Text DataConstructorInventory)
+newtype PreparedConstructorInventory = PreparedConstructorInventory (Map ResolvedName DataConstructorInventory)
 
 data DataConstructorInventory = DataConstructorInventory
   { inventoryTypeParameters :: [ResolvedName],
@@ -99,7 +99,7 @@ emptyConstructorInventory :: ConstructorInventory
 emptyConstructorInventory = ConstructorInventory Map.empty Map.empty Map.empty
 
 constructorInventoryFromBindings ::
-  Map Text DataTypeBinding ->
+  Map ResolvedName DataTypeBinding ->
   TypeEnv ->
   ConstructorInventory
 constructorInventoryFromBindings =
@@ -107,7 +107,7 @@ constructorInventoryFromBindings =
 
 constructorInventoryFromBindingsWithWitnessNames ::
   Map ResolvedName UnresolvedName ->
-  Map Text DataTypeBinding ->
+  Map ResolvedName DataTypeBinding ->
   TypeEnv ->
   ConstructorInventory
 constructorInventoryFromBindingsWithWitnessNames = ConstructorInventory
@@ -133,21 +133,20 @@ prepareConstructorInventory source expressionType =
         SemanticTuple fieldTypes ->
           collectExpressionTypes (visited, collected) fieldTypes
         SemanticData typeName actualTypeArguments ->
-          let typeNameText = renderName typeName
-              alreadyVisited = Set.member typeNameText visited
-              visitedWithType = Set.insert typeNameText visited
+          let alreadyVisited = Set.member typeName visited
+              visitedWithType = Set.insert typeName visited
               (visitedAfterArguments, collectedAfterArguments) =
                 collectExpressionTypes
                   (visitedWithType, collected)
                   actualTypeArguments
            in if alreadyVisited
                 then (visitedAfterArguments, collectedAfterArguments)
-                else case Map.lookup typeNameText (constructorInventoryDataTypes source) of
+                else case Map.lookup typeName (constructorInventoryDataTypes source) of
                   Nothing -> (visitedAfterArguments, collectedAfterArguments)
                   Just dataTypeBinding ->
-                    let preparedDataInventory = dataInventory typeNameText dataTypeBinding
+                    let preparedDataInventory = dataInventory typeName dataTypeBinding
                         collectedWithType =
-                          Map.insert typeNameText preparedDataInventory collectedAfterArguments
+                          Map.insert typeName preparedDataInventory collectedAfterArguments
                         typeArguments =
                           Map.fromList
                             [ (identifierText parameter, argument)
@@ -166,7 +165,7 @@ prepareConstructorInventory source expressionType =
                           reachableFieldTypes
         _ -> (visited, collected)
 
-    dataInventory typeNameText (DataTypeBinding typeParameters declaredConstructors) =
+    dataInventory typeName (DataTypeBinding typeParameters declaredConstructors) =
       DataConstructorInventory
         { inventoryTypeParameters = typeParameters,
           inventoryConstructors = visibleConstructors,
@@ -187,7 +186,7 @@ prepareConstructorInventory source expressionType =
                   visibleConstructorArguments = argumentTypes
                 }
             | (constructorName, argumentTypes) <-
-                Map.findWithDefault [] typeNameText visibleConstructorsByType
+                Map.findWithDefault [] typeName visibleConstructorsByType
             ]
 
     (visibleConstructorsByType, localConstructorNames) =
@@ -198,7 +197,7 @@ prepareConstructorInventory source expressionType =
         ConstructorTypeBinding declaredTypeName _ argumentTypes ->
           ( Map.insertWith
               (<>)
-              (renderName declaredTypeName)
+              declaredTypeName
               [(constructorName, argumentTypes)]
               constructorsByType,
             case constructorName of
@@ -576,7 +575,7 @@ dataConstructorDomain ::
   [ExpressionType] ->
   Maybe ConstructorDomain
 dataConstructorDomain (PreparedConstructorInventory inventories) typeName actualTypeArguments = do
-  dataInventory <- Map.lookup (renderName typeName) inventories
+  dataInventory <- Map.lookup typeName inventories
   let typeArguments =
         Map.fromList
           [ (identifierText parameter, argument)

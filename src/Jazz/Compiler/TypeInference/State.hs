@@ -102,7 +102,7 @@ data SolverState = SolverState
   deriving (Eq, Show)
 
 data DeclarationState = DeclarationState
-  { declarationDataTypes :: Map Text DataTypeBinding,
+  { declarationDataTypes :: Map ResolvedName DataTypeBinding,
     declarationClassFacts :: Map Text Int,
     declarationGeneratedEqualityClassFacts :: Set Text,
     declarationConcreteImplFacts :: Set ConcreteImplFact,
@@ -251,7 +251,7 @@ inferNumericVars = solverNumericVars . inferSolver
 inferRigidTypeVars :: InferState -> Set InferenceVariable
 inferRigidTypeVars = solverRigidTypeVars . inferSolver
 
-inferDataTypes :: InferState -> Map Text DataTypeBinding
+inferDataTypes :: InferState -> Map ResolvedName DataTypeBinding
 inferDataTypes = declarationDataTypes . inferDeclarations
 
 inferClassFacts :: InferState -> Map Text Int

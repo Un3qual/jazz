@@ -187,7 +187,7 @@ data InferenceInputs = InferenceInputs
   { inferenceWarningSettings :: WarningSettings,
     inferenceExternalUses :: Set CoreBinderId,
     inferenceImportedTypes :: Map TypeEnvKey (SemanticBinding DeclarationVariable),
-    inferenceImportedDataTypes :: Map Text DataTypeBinding,
+    inferenceImportedDataTypes :: Map ResolvedName DataTypeBinding,
     inferenceImportedConstructorWitnessNames :: Map ResolvedName UnresolvedName,
     inferenceImportedCapabilities :: ScopeCapabilityFacts,
     inferenceImportedClassNames :: Set Text,
@@ -521,13 +521,13 @@ moduleInterfaceFromState inputs expr state =
         Just modulePath -> Map.findWithDefault emptyScopeCapabilityFacts modulePath (inferModuleCapabilityFacts state)
         Nothing -> capabilityFactsFromState state
 
-declaredModuleBindings :: Expr 'Resolved -> (Map ResolvedName CoreBinderId, Set Text)
+declaredModuleBindings :: Expr 'Resolved -> (Map ResolvedName CoreBinderId, Set ResolvedName)
 declaredModuleBindings expression =
   case expression of
     EBlock _ statements -> foldl' collect (Map.empty, Set.empty) statements
     _ -> (Map.empty, Set.empty)
   where
-    collect :: (Map ResolvedName CoreBinderId, Set Text) -> Statement 'Resolved -> (Map ResolvedName CoreBinderId, Set Text)
+    collect :: (Map ResolvedName CoreBinderId, Set ResolvedName) -> Statement 'Resolved -> (Map ResolvedName CoreBinderId, Set ResolvedName)
     collect (valueNames, dataTypeNames) statement =
       case statement of
         SLet node name _
@@ -538,7 +538,7 @@ declaredModuleBindings expression =
               (\names (DataConstructor node constructorName _) -> insertBinder node constructorName names)
               valueNames
               constructors,
-            Set.insert (renderName typeName) dataTypeNames
+            Set.insert typeName dataTypeNames
           )
         _ -> (valueNames, dataTypeNames)
 

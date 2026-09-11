@@ -197,7 +197,7 @@ testDeepModuleInterfaceForcing =
         emptyModuleInterface
           { interfaceDataTypes =
               Map.singleton
-                "Container"
+                (resolvedLocalName TypeNamespace (mkIdentifier "Container"))
                 (DataTypeBinding [] [[ConstructorArgumentType (SemanticList (throw (userError "nested expression type was forced")))]])
           }
       ),

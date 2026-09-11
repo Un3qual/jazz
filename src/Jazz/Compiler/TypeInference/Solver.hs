@@ -27,7 +27,6 @@ import Control.Monad (replicateM)
 import qualified Control.Monad.Trans.State.Strict as State
 import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
-import Data.Text (Text)
 import Jazz.Compiler.BuiltinCatalog
   ( numericTypeIntegerBounds,
     numericTypeIsIntegral,
@@ -365,7 +364,7 @@ integerLiteralRangeBounds (IntegerLiteralRange lower upper) = (lower, upper)
 supportsRuntimeEqualityType :: InferState -> ExpressionType -> Bool
 supportsRuntimeEqualityType state = supportsRuntimeEqualityTypeWith Set.empty state
 
-supportsRuntimeEqualityTypeWith :: Set.Set (Text, [ExpressionType]) -> InferState -> ExpressionType -> Bool
+supportsRuntimeEqualityTypeWith :: Set.Set (ResolvedName, [ExpressionType]) -> InferState -> ExpressionType -> Bool
 supportsRuntimeEqualityTypeWith seenDataTypes state expressionType
   | Just _ <- integerLiteralRangeFor state expressionType = True
   | otherwise =
@@ -382,16 +381,16 @@ supportsRuntimeEqualityTypeWith seenDataTypes state expressionType
           dataTypeSupportsRuntimeEqualityWith seenDataTypes state typeName typeArguments
         _ -> False
 
-dataTypeSupportsRuntimeEqualityWith :: Set.Set (Text, [ExpressionType]) -> InferState -> ResolvedName -> [ExpressionType] -> Bool
+dataTypeSupportsRuntimeEqualityWith :: Set.Set (ResolvedName, [ExpressionType]) -> InferState -> ResolvedName -> [ExpressionType] -> Bool
 dataTypeSupportsRuntimeEqualityWith seenDataTypes state typeName typeArguments =
   let resolvedTypeArguments = map (resolveType state) typeArguments
-      dataTypeKey = (identifierText typeName, resolvedTypeArguments)
+      dataTypeKey = (typeName, resolvedTypeArguments)
    in if Set.member dataTypeKey seenDataTypes
         then True
         else checkUnseen (Set.insert dataTypeKey seenDataTypes) resolvedTypeArguments
   where
     checkUnseen nextSeenDataTypes resolvedTypeArguments =
-      case Map.lookup (identifierText typeName) (inferDataTypes state) of
+      case Map.lookup typeName (inferDataTypes state) of
         Just (DataTypeBinding typeParameters constructors)
           | length typeParameters == length resolvedTypeArguments ->
               let typeParameterBindings =

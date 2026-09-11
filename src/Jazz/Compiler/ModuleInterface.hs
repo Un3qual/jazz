@@ -30,7 +30,7 @@ import Jazz.Compiler.ModuleExports
     ModuleExportInventory,
     exportInventory,
   )
-import Jazz.Compiler.Name (NameNamespace (..))
+import Jazz.Compiler.Name (NameNamespace (..), ResolvedName, renderName)
 import Jazz.Compiler.SemanticDeclarations
   ( ClassMethodType,
     DataTypeBinding,
@@ -61,7 +61,7 @@ data ModuleValueBinding = ModuleValueBinding
 
 data ModuleInterface = ModuleInterface
   { interfaceValueBindings :: Map ModuleExport ModuleValueBinding,
-    interfaceDataTypes :: Map Text DataTypeBinding,
+    interfaceDataTypes :: Map ResolvedName DataTypeBinding,
     interfaceClassFacts :: Map Text Int,
     interfaceGeneratedEqualityClassFacts :: Set Text,
     interfaceConcreteImplFacts :: Set ConcreteImplFact,
@@ -75,7 +75,7 @@ moduleInterfaceExportInventory :: ModuleInterface -> ModuleExportInventory
 moduleInterfaceExportInventory interface =
   exportInventory
     ( Map.keys (interfaceValueBindings interface)
-        <> [ ModuleExport TypeNamespace name
+        <> [ ModuleExport TypeNamespace (renderName name)
            | name <- Map.keys (interfaceDataTypes interface)
            ]
         <> [ ModuleExport CapabilityNamespace name

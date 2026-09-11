@@ -321,8 +321,8 @@ testInferenceAcceptsImportedTypeApplicationFact =
 
 assertImportedConstraintFactAccepted :: Text -> AST.SignatureType 'AST.Resolved -> AST.SignatureType 'AST.Resolved -> IO ()
 assertImportedConstraintFactAccepted label sourceArgument importedArgument = do
-  sourceResult <- inferExpressionWithInputs (inferenceInputs sourceArgument) (constrainedProgram sourceArgument)
-  importedResult <- inferExpressionWithInputs (inferenceInputs importedArgument) (constrainedProgram sourceArgument)
+  sourceResult <- inferExpressionWithInputs (inferenceInputs sourceArgument) (constrainedProgram importedArgument)
+  importedResult <- inferExpressionWithInputs (inferenceInputs importedArgument) (constrainedProgram importedArgument)
   assertEqual (label <> " source-origin control errors") [] (filter isErrorDiagnostic (inferredDiagnostics sourceResult))
   assertEqual (label <> " imported-origin errors") [] (filter isErrorDiagnostic (inferredDiagnostics importedResult))
   where
@@ -333,8 +333,8 @@ assertImportedConstraintFactAccepted label sourceArgument importedArgument = do
           inferenceImportedTypes = Map.empty,
           inferenceImportedDataTypes =
             Map.fromList
-              [ ("Lib::Types::Box", DataTypeBinding [localTypeName "item"] []),
-                ("Lib::Types::Tagged", DataTypeBinding [] [])
+              [ (importedTypeName "Box", DataTypeBinding [localTypeName "item"] []),
+                (importedTypeName "Tagged", DataTypeBinding [] [])
               ],
           inferenceImportedConstructorWitnessNames = Map.empty,
           inferenceImportedCapabilities =
