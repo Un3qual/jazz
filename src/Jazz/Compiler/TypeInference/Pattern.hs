@@ -10,15 +10,17 @@ module Jazz.Compiler.TypeInference.Pattern
   )
 where
 
-import Data.Bifunctor (first)
+import Data.Foldable (toList)
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
+import Data.Sequence (Seq)
+import qualified Data.Sequence as Seq
 import Data.Set (Set)
 import qualified Data.Set as Set
 import Data.Text (Text)
 import Jazz.Compiler.AST
   ( CaseArm (..),
-    CoreNode (coreNodeFacts, coreNodeId),
+    CoreNode (..),
     CorePhase (..),
     Literal (..),
     Pattern (..),
@@ -34,10 +36,12 @@ import Jazz.Compiler.SemanticFacts
   ( PatternConstructorFact (..),
     PatternFacts (..),
     PatternRefutability (..),
+    SemanticFactInvariantFailure (MissingPatternFacts),
   )
+import Jazz.Compiler.TypeInference.Analyzed (draftCaseArmNode)
 import Jazz.Compiler.TypeInference.Capabilities (defaultLiteralTypes)
 import Jazz.Compiler.TypeInference.Diagnostics
-import Jazz.Compiler.TypeInference.Draft (checkedExprType)
+import Jazz.Compiler.TypeInference.Draft (Attachment (..), Draft (..), checkedExprTree, checkedExprType)
 import Jazz.Compiler.TypeInference.Environment (insertResolvedTypeBinding)
 import Jazz.Compiler.TypeInference.Solver
   ( freshIntegerLiteralType,
@@ -72,71 +76,50 @@ inferPatternCaseType ::
   ExpressionType ->
   InferState ->
   [CaseArm 'Resolved] ->
-  (Maybe ExpressionType, InferState)
+  (Maybe ExpressionType, Draft [CaseArm 'Analyzed], InferState)
 inferPatternCaseType inferExpression env scrutineeType initialState caseArms =
-  foldl' step (Nothing, initialState) caseArms
+  let (result, reversedArms, finalState) = foldl' step (Nothing, [], initialState) caseArms
+   in (result, sequenceA (reverse reversedArms), finalState)
   where
-    step (maybeExpectedBodyType, stateAcc) (CaseArm armNode pattern guardExpr bodyExpr) =
-      let (rawPatternTyping, stateAfterPatternCheck) =
-            inferPatternType env scrutineeType pattern stateAcc
-          (patternTyping, stateAfterPattern) =
-            rejectDuplicatePatternBinders pattern rawPatternTyping stateAcc stateAfterPatternCheck
-       in if patternSkipsBranchType patternTyping
-            then
-              (maybeExpectedBodyType, stateAfterPattern)
+    step (expected, arms, prior) (CaseArm armNode pattern guardExpr bodyExpr) =
+      let (rawTyping, afterCheck) = inferPatternType env scrutineeType pattern prior
+          (typing, afterPattern) = rejectDuplicatePatternBinders pattern rawTyping prior afterCheck
+       in if patternSkipsBranchType typing
+            then (expected, rejectedArm pattern : arms, afterPattern)
             else
-              let armEnv =
-                    extendTypeEnvWithPatternBindings
-                      (patternBindings patternTyping)
-                      env
-                  stateAfterGuard =
-                    inferCaseGuardType armEnv stateAfterPattern guardExpr
-                  (bodyResult, stateAfterBody) =
-                    first checkedExprType (inferExpression armEnv stateAfterGuard bodyExpr)
-                  maybeBodyType = bodyResult
-                  stateAfterBodyFacts =
-                    maybe
-                      stateAfterBody
-                      (\bodyType -> recordExpressionFactType (coreNodeId armNode) bodyType stateAfterBody)
-                      maybeBodyType
-               in case (maybeExpectedBodyType, maybeBodyType) of
-                    (Nothing, _) ->
-                      (fmap (resolveType stateAfterBodyFacts) maybeBodyType, stateAfterBodyFacts)
-                    (expectedBodyType, Nothing) ->
-                      (expectedBodyType, stateAfterBodyFacts)
-                    (Just inferredExpectedBodyType, Just inferredBodyType) ->
-                      case unifyTypes inferredExpectedBodyType inferredBodyType stateAfterBodyFacts of
-                        Just unifiedState ->
-                          (Just (resolveType unifiedState inferredExpectedBodyType), unifiedState)
-                        Nothing ->
-                          ( Just inferredExpectedBodyType,
-                            addTypeError
-                              stateAfterBodyFacts
-                              ( mkPatternBranchTypeMismatchError
-                                  (diagnosticType stateAfterBodyFacts inferredExpectedBodyType)
-                                  (diagnosticType stateAfterBodyFacts inferredBodyType)
-                              )
-                          )
+              let armEnv = extendTypeEnvWithPatternBindings (patternBindings typing) env
+                  (guardDraft, afterGuard) = checkGuard armEnv afterPattern guardExpr
+                  (bodyCheck, afterBody) = inferExpression armEnv afterGuard bodyExpr
+                  bodyType = checkedExprType bodyCheck
+                  afterBodyFacts = maybe afterBody (\value -> recordExpressionFactType (coreNodeId armNode) value afterBody) bodyType
+                  (result, finalState) = mergeArmTypes expected bodyType afterBodyFacts
+                  arm = CaseArm <$> draftCaseArmNode afterBodyFacts bodyType armNode <*> checkedPattern typing pattern <*> guardDraft <*> checkedExprTree bodyCheck
+               in (result, arm : arms, finalState)
 
-    inferCaseGuardType armEnv stateAcc guardExpr =
-      case guardExpr of
-        Nothing -> stateAcc
-        Just conditionExpr ->
-          let (guardResult, stateAfterGuard) =
-                first checkedExprType (inferExpression armEnv stateAcc conditionExpr)
-              maybeGuardType = guardResult
-              checkedState =
-                case maybeGuardType of
-                  Just inferredGuardType ->
-                    case unifyTypes inferredGuardType SemanticBool stateAfterGuard of
-                      Just unifiedState -> unifiedState
-                      Nothing ->
-                        addTypeError
-                          stateAfterGuard
-                          (mkCaseGuardTypeError (diagnosticType stateAfterGuard inferredGuardType))
-                  Nothing ->
-                    stateAfterGuard
-           in checkedState
+    rejectedArm pattern = Draft (const (AttachmentFailed (MissingPatternFacts (coreNodeId (patternNode pattern))) Seq.empty))
+
+    mergeArmTypes expected actual state = case (expected, actual) of
+      (Nothing, _) -> (resolveType state <$> actual, state)
+      (_, Nothing) -> (expected, state)
+      (Just expectedType, Just actualType) -> case unifyTypes expectedType actualType state of
+        Just unified -> (Just (resolveType unified expectedType), unified)
+        Nothing -> (Just expectedType, addTypeError state (mkPatternBranchTypeMismatchError (diagnosticType state expectedType) (diagnosticType state actualType)))
+
+    checkGuard armEnv state guardExpr = case guardExpr of
+      Nothing -> (pure Nothing, state)
+      Just condition ->
+        let (checked, afterGuard) = inferExpression armEnv state condition
+            finalState = case checkedExprType checked of
+              Just conditionType -> case unifyTypes conditionType SemanticBool afterGuard of
+                Just unified -> unified
+                Nothing -> addTypeError afterGuard (mkCaseGuardTypeError (diagnosticType afterGuard conditionType))
+              Nothing -> afterGuard
+         in (Just <$> checkedExprTree checked, finalState)
+
+checkedPattern :: PatternTyping -> Pattern 'Resolved -> Draft (Pattern 'Analyzed)
+checkedPattern typing pattern = case toList (patternDrafts typing) of
+  [draft] -> draft
+  _ -> Draft (const (AttachmentFailed (MissingPatternFacts (coreNodeId (patternNode pattern))) Seq.empty))
 
 newtype PatternBindings = PatternBindings (Map ResolvedName (ResolvedNodeFacts, ExpressionType))
   deriving stock (Eq, Show)
@@ -171,7 +154,8 @@ extendTypeEnvWithPatternBindings (PatternBindings bindings) env =
 
 data PatternTyping = PatternTyping
   { patternBindings :: PatternBindings,
-    patternSkipsBranchType :: Bool
+    patternSkipsBranchType :: Bool,
+    patternDrafts :: Seq (Draft (Pattern 'Analyzed))
   }
 
 instance Semigroup PatternTyping where
@@ -179,14 +163,16 @@ instance Semigroup PatternTyping where
     PatternTyping
       { patternBindings = patternBindings left <> patternBindings right,
         patternSkipsBranchType =
-          patternSkipsBranchType left || patternSkipsBranchType right
+          patternSkipsBranchType left || patternSkipsBranchType right,
+        patternDrafts = patternDrafts left <> patternDrafts right
       }
 
 instance Monoid PatternTyping where
   mempty =
     PatternTyping
       { patternBindings = mempty,
-        patternSkipsBranchType = False
+        patternSkipsBranchType = False,
+        patternDrafts = Seq.empty
       }
 
 skipBranchPatternTyping :: PatternTyping
@@ -263,7 +249,30 @@ inferPatternType env scrutineeType pattern state =
             patternConstructorFact = patternConstructor pattern,
             patternRefutability = patternRefutabilityFact pattern
           }
-   in (typing, recordPatternFactSeed (coreNodeId (patternNode pattern)) facts inferredState)
+      draft = draftPattern pattern facts (reverse (toList (patternDrafts typing)))
+   in (typing {patternDrafts = Seq.singleton draft}, recordPatternFactSeed (coreNodeId (patternNode pattern)) facts inferredState)
+
+-- Each constructor consumes only the children returned by its own checks.
+-- The finalizer substitutes binding types; it does not revisit pattern typing.
+draftPattern :: Pattern 'Resolved -> PatternFacts -> [Draft (Pattern 'Analyzed)] -> Draft (Pattern 'Analyzed)
+draftPattern pattern facts children =
+  let CoreNode nodeId spanValue _ = patternNode pattern
+      node = Draft (\solved -> pure (CoreNode nodeId spanValue (facts {patternBindingTypes = Map.map (resolveType solved) (patternBindingTypes facts)})))
+      missing = Draft (const (AttachmentFailed (MissingPatternFacts nodeId) Seq.empty))
+   in case pattern of
+        PWildcard _ -> PWildcard <$> node
+        PVariable _ name -> PVariable <$> node <*> pure name
+        PLiteral _ literal -> PLiteral <$> node <*> pure literal
+        PConstructor _ name _ -> PConstructor <$> node <*> pure name <*> sequenceA children
+        PList _ _ -> PList <$> node <*> sequenceA children
+        PTuple _ _ -> PTuple <$> node <*> sequenceA children
+        POr _ _ -> POr <$> node <*> sequenceA children
+        PAs _ name _ -> case children of
+          [child] -> PAs <$> node <*> pure name <*> child
+          _ -> missing
+        PConsList {} -> case children of
+          [headPattern, tailPattern] -> PConsList <$> node <*> headPattern <*> tailPattern
+          _ -> missing
 
 inferPatternTypeRaw :: TypeEnv -> ExpressionType -> Pattern 'Resolved -> InferState -> (PatternTyping, InferState)
 inferPatternTypeRaw env scrutineeType pattern state =
@@ -360,6 +369,7 @@ inferOrPatternType env scrutineeType alternatives initialState =
                in inferRemainingAlternatives
                     expectedBinderNames
                     (patternBindings firstTyping)
+                    (patternDrafts firstTyping)
                     stateAfterFirst
                     rest
   where
@@ -372,11 +382,12 @@ inferOrPatternType env scrutineeType alternatives initialState =
             stateAcc
             stateAfterPatternCheck
 
-    inferRemainingAlternatives expectedBinderNames bindingsAcc stateAcc remainingAlternatives =
+    inferRemainingAlternatives expectedBinderNames bindingsAcc draftsAcc stateAcc remainingAlternatives =
       case remainingAlternatives of
         [] ->
           ( mempty
-              { patternBindings = resolvePatternBindings stateAcc bindingsAcc
+              { patternBindings = resolvePatternBindings stateAcc bindingsAcc,
+                patternDrafts = draftsAcc
               },
             stateAcc
           )
@@ -405,6 +416,7 @@ inferOrPatternType env scrutineeType alternatives initialState =
                             inferRemainingAlternatives
                               expectedBinderNames
                               mergedBindings
+                              (patternDrafts alternativeTyping <> draftsAcc)
                               stateAfterBinders
                               restAlternatives
 

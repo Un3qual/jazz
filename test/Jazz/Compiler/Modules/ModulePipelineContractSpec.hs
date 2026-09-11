@@ -623,15 +623,23 @@ testCheckedSubtreeOwnership = do
   expected <- either (fail . show) pure (finalizeCheckedExpression state checked)
   actual <- either (fail . show) pure (finalizeCheckedExpression erased checked)
   assertEqual "owned checked subtree survives output erasure" expected actual
-  resolved <- resolveFixtureProgram (Map.singleton "src/App/Main.jz" "module App::Main { (\\(x) -> x) (1 + 2). }")
-  let entry = NonEmpty.last (coreProgramModules resolved)
-  case coreModuleStatements entry of
-    [SExpr _ application] -> do
-      let (applicationCheck, applicationState, _) = inferExpressionWork inputs [] application
-      owned <- either (fail . show) pure (finalizeCheckedExpression applicationState applicationCheck)
-      independent <- either (fail . show) pure (finalizeCheckedExpression (applicationState {inferOutput = inferOutput initialInferState}) applicationCheck)
-      assertEqual "application retains its lambda and operand drafts" owned independent
-    statements -> fail ("unexpected application fixture: " <> show statements)
+  mapM_
+    (assertOwned inputs)
+    [ "(\\(x) -> x) (1 + 2)",
+      "case (1, [2]) { | (item, [other]) | (other, [item]) if item > 0 -> item + other | _ -> 0 }"
+    ]
+  where
+    assertOwned inputs source = do
+      resolved <- resolveFixtureProgram (Map.singleton "src/App/Main.jz" ("module App::Main { " <> source <> ". }"))
+      let entry = NonEmpty.last (coreProgramModules resolved)
+      case coreModuleStatements entry of
+        [SExpr _ expression] -> do
+          let (checked, state, _) = inferExpressionWork inputs [] expression
+          owned <- either (fail . show) pure (finalizeCheckedExpression state checked)
+          independent <- either (fail . show) pure (finalizeCheckedExpression (state {inferOutput = inferOutput initialInferState}) checked)
+          assertEqual "checker retains each child and its decisions" owned independent
+          assertExprFacts owned
+        statements -> fail ("unexpected ownership fixture: " <> show statements)
 
 testAnalyzedFactInvariantFailures :: IO ()
 testAnalyzedFactInvariantFailures = do

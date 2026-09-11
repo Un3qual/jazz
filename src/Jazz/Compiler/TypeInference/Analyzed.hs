@@ -7,6 +7,7 @@
 module Jazz.Compiler.TypeInference.Analyzed
   ( attachAnalyzedExpression,
     draftExpressionNode,
+    draftCaseArmNode,
     refineListPrependDraft,
     finalizeCheckedExpression,
     legacyExpressionDraft,
@@ -174,6 +175,11 @@ draftExpressionNode :: InferState -> Maybe ExpressionType -> Expr 'Resolved -> D
 draftExpressionNode checked result expression =
   let node = expressionNode expression
       payload = prepareExpressionNode checked (Just expression) result (coreNodeId node)
+   in payload `seq` Draft (\solved -> finalizeExpressionNode solved payload node)
+
+draftCaseArmNode :: InferState -> Maybe ExpressionType -> CoreNode 'Resolved 'ExpressionSort -> Draft (CoreNode 'Analyzed 'ExpressionSort)
+draftCaseArmNode checked result node =
+  let payload = prepareExpressionNode checked Nothing result (coreNodeId node)
    in payload `seq` Draft (\solved -> finalizeExpressionNode solved payload node)
 
 refineListPrependDraft :: InferState -> Expr 'Resolved -> ExpressionType -> Draft (Expr 'Analyzed) -> Draft (Expr 'Analyzed)

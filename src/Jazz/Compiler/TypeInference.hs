@@ -319,6 +319,24 @@ inferExprTypeDetailed env state expr = case expr of
   ETuple _ elements ->
     let (result, children, finalState) = inferTupleElements env state elements
      in finish result finalState (\node -> ETuple <$> node <*> traverse checkedExprTree children)
+  EPatternCase _ scrutinee caseArms ->
+    let (coverageOrdinal, stateWithOrdinal) = reservePatternCoverageSite state
+        (scrutineeCheck, stateAfterScrutinee) = inferExprTypeDetailed env stateWithOrdinal scrutinee
+        (scrutineeType, stateWithScrutineeType) = case checkedExprType scrutineeCheck of
+          Just inferredType -> (inferredType, stateAfterScrutinee)
+          Nothing -> freshTypeVar stateAfterScrutinee
+        (expressionType, armDrafts, inferredFinalState) = inferPatternCaseType inferExprTypeDetailed env scrutineeType stateWithScrutineeType caseArms
+        finalState =
+          recordPatternCoverageSite
+            ( PatternCoverageSite
+                { patternCoverageSiteOrdinal = coverageOrdinal,
+                  patternCoverageSiteConstructorInventory = constructorInventoryFromBindingsWithWitnessNames (inferConstructorWitnessNames inferredFinalState) (inferDataTypes inferredFinalState) env,
+                  patternCoverageSiteScrutineeType = scrutineeType,
+                  patternCoverageSiteArms = caseArms
+                }
+            )
+            inferredFinalState
+     in finish expressionType finalState (\node -> EPatternCase <$> node <*> checkedExprTree scrutineeCheck <*> armDrafts)
   EBinary _ symbol left right -> inferBinaryExpression symbol left right
   ESectionLeft _ left symbol -> inferLeftSection symbol left
   ESectionRight _ symbol right -> inferRightSection symbol right
@@ -481,24 +499,7 @@ inferExprTypeDetailedRaw env state expr =
     ETuple _ [] -> (Just (SemanticTuple []), state)
     EBinary {} -> inferExprTypeDetailedType env state expr
     EIf {} -> inferExprTypeDetailedType env state expr
-    EPatternCase _ scrutinee caseArms ->
-      let (coverageOrdinal, stateWithOrdinal) = reservePatternCoverageSite state
-          (scrutineeResult, stateAfterScrutinee) = inferExprTypeDetailedType env stateWithOrdinal scrutinee
-          (scrutineeType, stateWithScrutineeType) = case scrutineeResult of
-            Just inferredType -> (inferredType, stateAfterScrutinee)
-            Nothing -> freshTypeVar stateAfterScrutinee
-          (expressionType, inferredFinalState) = inferPatternCaseType inferExprTypeDetailed env scrutineeType stateWithScrutineeType caseArms
-          finalState =
-            recordPatternCoverageSite
-              ( PatternCoverageSite
-                  { patternCoverageSiteOrdinal = coverageOrdinal,
-                    patternCoverageSiteConstructorInventory = constructorInventoryFromBindingsWithWitnessNames (inferConstructorWitnessNames inferredFinalState) (inferDataTypes inferredFinalState) env,
-                    patternCoverageSiteScrutineeType = scrutineeType,
-                    patternCoverageSiteArms = caseArms
-                  }
-              )
-              inferredFinalState
-       in (expressionType, finalState)
+    EPatternCase {} -> inferExprTypeDetailedType env state expr
     EList {} -> inferExprTypeDetailedType env state expr
     ETuple _ (_ : _) -> inferExprTypeDetailedType env state expr
     EBlock node statements -> inferNestedScopeTypeWithMode inferExprTypeWithMode InferConcreteFunctions env state (prepareResolvedScope node statements)
