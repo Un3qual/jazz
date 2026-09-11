@@ -28,7 +28,6 @@ import Data.Maybe
   )
 import Data.Set (Set)
 import qualified Data.Set as Set
-import Data.Text (Text)
 import qualified Data.Text as Text
 import Jazz.Compiler.AST
   ( CaseArm (..),
@@ -51,7 +50,6 @@ import Jazz.Compiler.CoreIdentity
     CoreBinderId (..),
     ResolvedNodeFacts (..),
     ResolvedReference (..),
-    ResolvedScopeFacts (..),
     emptyResolvedNodeFacts,
   )
 import Jazz.Compiler.Diagnostics
@@ -81,25 +79,13 @@ import Jazz.Compiler.Name
     ResolvedUserName (..),
     SourceName (..),
     identifierText,
-    isOperatorBindingIdentifierText,
     mkIdentifier,
     operatorBindingName,
-    operatorBindingNameFromIdentifier,
     resolvedAmbientName,
     resolvedImportedName,
-    resolvedLocalName,
-    sourceName,
   )
 import Jazz.Compiler.Parser.Operator (isBuiltinOperatorSymbol)
-import Jazz.Compiler.RecursiveBindings
-  ( buildRecursiveScopeFacts,
-    exprContainsFunctionBranch,
-    inferSelfRecursiveBindings,
-    publishResolvedCaptures,
-    recursiveScopeBindingNames,
-    recursiveScopeGroups,
-    resolvedExpressionReferences,
-  )
+import Jazz.Compiler.RecursiveBindings (publishResolvedCaptures, resolveLexicalScopes)
 import Jazz.Compiler.SourceUnitOwnership (sourceUnitOwnerOrigin, sourceUnitStatementOwners)
 import Jazz.Compiler.TypeRepresentation
   ( pattern ConstrainedSignature,
@@ -128,7 +114,7 @@ resolveExprNames ::
   ResolutionContext ->
   Expr 'Lowered ->
   Either (NonEmpty Diagnostic) (Expr 'Resolved)
-resolveExprNames context rootExpression = Right (publishResolvedCaptures (resolveExpr (resolutionSourceOwner context) Map.empty rootExpression))
+resolveExprNames context rootExpression = Right (publishResolvedCaptures (resolveLexicalScopes externalNames (resolveExpr (resolutionSourceOwner context) Map.empty rootExpression)))
   where
     ambientExports = resolutionAmbientExports context
     localInventory = resolutionLocalInventory context
@@ -280,36 +266,18 @@ resolveExprNames context rootExpression = Right (publishResolvedCaptures (resolv
         ESectionRight node symbol right -> ESectionRight (resolveOperatorNode owner boundValues symbol node) symbol (resolveExpr owner boundValues right)
         EBlock node statements ->
           let resolvedStatements = resolveBlockStatements owner (if coreNodeId node == coreNodeId (expressionNode rootExpression) then resolutionStatementOwners context else Map.empty) boundValues statements
-              facts = (emptyResolvedNodeFacts owner) {resolvedNodeScope = Just (resolvedBlockFacts boundValues resolvedStatements)}
-           in EBlock ((resolveNode owner node) {coreNodeFacts = facts}) resolvedStatements
+           in EBlock (resolveNode owner node) resolvedStatements
 
-    resolvedBlockFacts :: Map Text (NameNamespace, CoreBinderId) -> [Statement 'Resolved] -> ResolvedScopeFacts
-    resolvedBlockFacts boundValues statements =
-      ResolvedScopeFacts
-        { resolvedScopeOuterBindingNames = outerNames,
-          resolvedScopeBindingNames = recursiveScopeBindingNames recursion,
-          resolvedScopeBinderIds = Map.fromList [(index, binder) | (index, SLet node _ _) <- indexed, Just binder <- [resolvedNodeBinder (coreNodeFacts node)]],
-          resolvedScopeRecursiveGroups = recursiveScopeGroups recursion,
-          resolvedScopeSelfRecursiveFunctions = inferSelfRecursiveBindings outerNames exprContainsFunctionBranch indexed,
-          resolvedScopeSelfReferences = Set.fromList [index | (index, SLet node _ rhs) <- indexed, Just binder <- [resolvedNodeBinder (coreNodeFacts node)], Map.member binder (resolvedExpressionReferences rhs)]
-        }
-      where
-        indexed = zip [0 ..] statements
-        recursion = buildRecursiveScopeFacts outerNames indexed
-        outerNames =
-          Set.unions
-            [ Set.fromList [localNameFor key namespace | (key, (namespace, _)) <- Map.toList boundValues],
-              Set.map (resolvedAmbientName ValueNamespace . mkIdentifier) ambientValues,
-              Set.map (resolvedAmbientName ConstructorNamespace . mkIdentifier) ambientConstructors,
-              importedNames ValueNamespace visibleValueOrigins,
-              importedNames ConstructorNamespace visibleConstructorOrigins,
-              Set.map (BuiltinName . mkIdentifier) kernelBuiltinNames,
-              Set.map (resolvedAmbientName ValueNamespace . mkIdentifier) kernelBuiltinNames
-            ]
-        importedNames namespace origins = Set.fromList [resolvedImportedName path namespace (mkIdentifier name) | (name, path) <- Map.toList origins]
-        localNameFor key namespace
-          | isOperatorBindingIdentifierText key = operatorBindingNameFromIdentifier (mkIdentifier key)
-          | otherwise = resolvedLocalName namespace (mkIdentifier key)
+    externalNames =
+      Set.unions
+        [ Set.map (resolvedAmbientName ValueNamespace . mkIdentifier) ambientValues,
+          Set.map (resolvedAmbientName ConstructorNamespace . mkIdentifier) ambientConstructors,
+          importedNames ValueNamespace visibleValueOrigins,
+          importedNames ConstructorNamespace visibleConstructorOrigins,
+          Set.map (BuiltinName . mkIdentifier) kernelBuiltinNames,
+          Set.map (resolvedAmbientName ValueNamespace . mkIdentifier) kernelBuiltinNames
+        ]
+    importedNames namespace origins = Set.fromList [resolvedImportedName path namespace (mkIdentifier name) | (name, path) <- Map.toList origins]
 
     resolveOperatorNode owner boundValues symbol node =
       (resolveNode owner node) {coreNodeFacts = (emptyResolvedNodeFacts owner) {resolvedNodeReference = Just target}}
@@ -353,20 +321,15 @@ resolveExprNames context rootExpression = Right (publishResolvedCaptures (resolv
       where
         indexedStatements = zip [0 ..] statements
         ownerAt index = Map.findWithDefault owner index statementOwners
-        bindingNodes = Map.fromList [(index, (name, node)) | (index, SLet node name _) <- indexedStatements]
-        outerBindingNames =
-          Set.map
-            (sourceName . mkIdentifier)
-            ( Set.unions
-                [ Map.keysSet initialBoundValues,
-                  ambientValues,
-                  ambientConstructors,
-                  Map.keysSet visibleValueOrigins,
-                  Map.keysSet visibleConstructorOrigins,
-                  kernelBuiltinNames
-                ]
-            )
-        recursiveGroupsByStatement = recursiveScopeGroups (buildRecursiveScopeFacts outerBindingNames indexedStatements)
+        -- Future local values establish their namespace here. The lexical pass
+        -- later decides whether their declaration is visible as a recursive peer.
+        firstBindings = foldr firstBinding Map.empty indexedStatements
+        firstBinding (index, SLet node name _) bindings
+          | Just key <- sourceNameText name,
+            Set.notMember key nonlocalNames =
+              insertBinding (ownerAt index) ValueNamespace name node bindings
+        firstBinding _ bindings = bindings
+        nonlocalNames = Set.unions [ambientValues, ambientConstructors, Map.keysSet visibleValueOrigins, Map.keysSet visibleConstructorOrigins, kernelBuiltinNames]
 
         resolveBlockStatement visibleBoundValues (statementIndex, statement) =
           (publish statementOwner statement visibleBoundValues, resolveStatement statementOwner definitionBindings statement)
@@ -378,18 +341,7 @@ resolveExprNames context rootExpression = Right (publishResolvedCaptures (resolv
                   Map.notMember key visibleBoundValues ->
                     insertBinding statementOwner ValueNamespace name node visibleBoundValues
               _ -> visibleBoundValues
-            definitionBindings =
-              foldl'
-                ( \bindings peerIndex -> case Map.lookup peerIndex bindingNodes of
-                    Just (name, _)
-                      | Just key <- sourceNameText name,
-                        Just (ConstructorNamespace, _) <- Map.lookup key visibleBoundValues ->
-                          bindings
-                    Just (name, node) -> insertBinding (ownerAt peerIndex) ValueNamespace name node bindings
-                    Nothing -> bindings
-                )
-                selfBindings
-                (Map.findWithDefault [] statementIndex recursiveGroupsByStatement)
+            definitionBindings = Map.union selfBindings firstBindings
 
         publish statementOwner statement bindings = case statement of
           SLet node name _ -> insertBinding statementOwner ValueNamespace name node bindings

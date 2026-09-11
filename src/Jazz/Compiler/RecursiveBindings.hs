@@ -30,6 +30,7 @@ module Jazz.Compiler.RecursiveBindings
     recursiveScopeGroups,
     resolvedExpressionReferences,
     publishResolvedCaptures,
+    resolveLexicalScopes,
   )
 where
 
@@ -37,7 +38,7 @@ import Data.Graph
   ( SCC (..),
     stronglyConnComp,
   )
-import Data.List (find)
+import Data.List (find, mapAccumL)
 import Data.Map (Map)
 import qualified Data.Map as Map
 import Data.Set (Set)
@@ -58,7 +59,7 @@ import Jazz.Compiler.AST
     Statement (..),
   )
 import Jazz.Compiler.CoreIdentity (CoreBinderId, ResolvedNodeFacts (..), ResolvedReference (..), ResolvedScopeFacts (..))
-import Jazz.Compiler.Name (Name, ResolvedName, operatorBindingName)
+import Jazz.Compiler.Name (Name (..), ResolvedName, ResolvedNameOrigin (..), ResolvedUserName (..), operatorBindingName)
 import Jazz.Compiler.Parser.Operator
   ( isBuiltinOperatorSymbol,
   )
@@ -102,6 +103,86 @@ resolvedExpressionReferences expression = case expression of
       SExpr _ value -> recur value
       SImpl _ _ _ methods -> foldMap (\(ImplMethod _ _ body) -> recur body) methods
       _ -> Map.empty
+
+-- | Name resolution has chosen namespaces and nonlocal targets. This pass owns
+-- ordered local visibility, recursive groups, and the references selecting each
+-- declaration. Later phases consume the published product unchanged.
+resolveLexicalScopes :: Set ResolvedName -> Expr 'Resolved -> Expr 'Resolved
+resolveLexicalScopes externalNames = expression Map.empty
+  where
+    expression bound expr = case expr of
+      ELit {} -> expr
+      EVar node name -> EVar (reference bound name node) name
+      EOperatorValue node symbol -> EOperatorValue (reference bound (operatorBindingName symbol) node) symbol
+      ELambda node name body -> ELambda node name (expression (insertBinder node name bound) body)
+      EList node elements -> EList node (map (expression bound) elements)
+      ETuple node elements -> ETuple node (map (expression bound) elements)
+      EApply node function argument -> EApply node (expression bound function) (expression bound argument)
+      ETypeApplication node function spanValue argument -> ETypeApplication node (expression bound function) spanValue argument
+      EIf node condition yes no -> EIf node (expression bound condition) (expression bound yes) (expression bound no)
+      EPatternCase node scrutinee arms -> EPatternCase node (expression bound scrutinee) (map (arm bound) arms)
+      EBinary node symbol left right -> EBinary (reference bound (operatorBindingName symbol) node) symbol (expression bound left) (expression bound right)
+      ESectionLeft node left symbol -> ESectionLeft (reference bound (operatorBindingName symbol) node) (expression bound left) symbol
+      ESectionRight node symbol right -> ESectionRight (reference bound (operatorBindingName symbol) node) symbol (expression bound right)
+      EBlock node statements -> block bound node statements
+    reference bound name node = node {coreNodeFacts = facts {resolvedNodeReference = Just target}}
+      where
+        facts = coreNodeFacts node
+        target = case Map.lookup name bound of
+          Just binder -> LexicalReference binder
+          Nothing -> case resolvedNodeReference facts of
+            Just existing@(LexicalReference _)
+              | UserName (ResolvedUserName origin _ _) <- name, origin /= CurrentModule -> existing
+              | otherwise -> UnresolvedReference name
+            Just existing -> existing
+            Nothing -> UnresolvedReference name
+    insertBinder node name bound = case resolvedNodeBinder (coreNodeFacts node) of
+      Just binder -> Map.insert name binder bound
+      Nothing -> bound
+    arm bound (CaseArm node pattern guard body) =
+      let visible = Map.union (patternBindings pattern) bound
+       in CaseArm node pattern (fmap (expression visible) guard) (expression visible body)
+    patternBindings pattern = case pattern of
+      PVariable node name -> insertBinder node name Map.empty
+      PAs node name nested -> insertBinder node name (patternBindings nested)
+      PConstructor _ _ nested -> Map.unions (map patternBindings nested)
+      PList _ nested -> Map.unions (map patternBindings nested)
+      PTuple _ nested -> Map.unions (map patternBindings nested)
+      PConsList _ first rest -> Map.union (patternBindings first) (patternBindings rest)
+      POr _ (first : rest) -> foldl' Map.intersection (patternBindings first) (map patternBindings rest)
+      _ -> Map.empty
+    block bound node statements = EBlock (node {coreNodeFacts = (coreNodeFacts node) {resolvedNodeScope = Just facts}}) resolvedStatements
+      where
+        indexed = zip [0 ..] statements
+        outerNames = Set.union externalNames (Map.keysSet bound)
+        recursion = buildRecursiveScopeFacts outerNames indexed
+        groups = recursiveScopeGroups recursion
+        definitions = Map.fromList [(index, (bindingNode, name)) | (index, SLet bindingNode name _) <- indexed]
+        (_, resolvedStatements) = mapAccumL statement bound indexed
+        facts =
+          ResolvedScopeFacts
+            { resolvedScopeOuterBindingNames = outerNames,
+              resolvedScopeBindingNames = recursiveScopeBindingNames recursion,
+              resolvedScopeBinderIds = Map.fromList [(index, binder) | (index, (bindingNode, _)) <- Map.toList definitions, Just binder <- [resolvedNodeBinder (coreNodeFacts bindingNode)]],
+              resolvedScopeRecursiveGroups = groups,
+              resolvedScopeSelfRecursiveFunctions = inferSelfRecursiveBindings outerNames exprContainsFunctionBranch indexed,
+              resolvedScopeSelfReferences = Set.fromList [index | (index, SLet bindingNode _ rhs) <- zip [0 ..] resolvedStatements, Just binder <- [resolvedNodeBinder (coreNodeFacts bindingNode)], Map.member binder (resolvedExpressionReferences rhs)]
+            }
+        statement visible (index, value) = case value of
+          SLet bindingNode name rhs ->
+            let selfVisible = if Map.member name visible then visible else insertBinder bindingNode name visible
+                definitionVisible = foldl' insertPeer selfVisible (Map.findWithDefault [] index groups)
+             in (insertBinder bindingNode name visible, SLet bindingNode name (expression definitionVisible rhs))
+          SExpr statementNode rhs -> (visible, SExpr statementNode (expression visible rhs))
+          SData _ _ _ constructors ->
+            (foldl' (\acc (DataConstructor constructorNode name _) -> insertBinder constructorNode name acc) visible constructors, value)
+          SImpl statementNode capability targets methods ->
+            let methodVisible = foldl' (\acc (ImplMethod methodNode name _) -> insertBinder methodNode name acc) visible methods
+             in (visible, SImpl statementNode capability targets [ImplMethod methodNode name (expression methodVisible body) | ImplMethod methodNode name body <- methods])
+          _ -> (visible, value)
+        insertPeer visible index = case Map.lookup index definitions of
+          Just (bindingNode, name) -> insertBinder bindingNode name visible
+          Nothing -> visible
 
 -- | Compute capture candidates bottom-up once, while resolution owns lexical
 -- identity. Removing declaration IDs also handles forward peers and rebinding
