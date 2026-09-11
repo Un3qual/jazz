@@ -163,14 +163,10 @@ data StatementDeclarationFact
   deriving stock (Eq, Generic, Show)
   deriving anyclass (NFData)
 
--- | Violations detected while collecting or attaching facts. These are
+-- | Violations detected while finalizing checked facts. These are
 -- compiler invariant failures, not source diagnostics.
 data SemanticFactInvariantFailure
-  = DuplicateExpressionFacts CoreNodeId
-  | DuplicateExplicitInstantiationSeed CoreNodeId
-  | DuplicatePatternFacts CoreNodeId
-  | DuplicateStatementFacts CoreNodeId
-  | MissingExpressionFacts CoreNodeId
+  = MissingExpressionFacts CoreNodeId
   | UnresolvedExpressionReference CoreNodeId ResolvedName
   | MissingExpressionEvidence CoreNodeId
   | AmbiguousExpressionEvidence CoreNodeId

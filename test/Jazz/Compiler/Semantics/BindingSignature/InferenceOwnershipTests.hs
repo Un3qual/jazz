@@ -33,7 +33,6 @@ import Jazz.Compiler.RecursiveBindings
   ( PreparedRecursiveScope,
     prepareResolvedScope,
   )
-import Jazz.Compiler.SemanticFacts (StatementDeclarationFact (SignatureDeclaration))
 import Jazz.Compiler.Semantics.BindingSignature.Shared (resolvedProgram)
 import Jazz.Compiler.TypeInference (CheckedExpr (..))
 import Jazz.Compiler.TypeInference.Capabilities
@@ -78,7 +77,6 @@ import Jazz.Compiler.TypeInference.State
     inferInferredClassConstraints,
     inferNextTypeVar,
     inferNumericVars,
-    inferStatementFactSeeds,
     inferStrictEqualityVars,
     initialInferState,
     modifyDeclarationState,
@@ -109,7 +107,6 @@ import Jazz.Compiler.TypeInference.Types
     SemanticType (..),
     TypeEnvKey (..),
     emptyScopeCapabilityFacts,
-    schemeResultType,
     typeEnvReferenceKey,
   )
 import Jazz.Compiler.TypeRepresentation
@@ -434,10 +431,6 @@ testFailedSignaturePayloadNormalizationRollsBackState =
 
 testProductionScopeElaboratesSignatureOnce :: IO ()
 testProductionScopeElaboratesSignatureOnce = do
-  assertEqual
-    "source-ordered prepared signature"
-    [SemanticFunction (SemanticVariable 0) (SemanticVariable 0)]
-    [signatureType | (bindings, SignatureDeclaration _) <- Map.elems (inferStatementFactSeeds finalState), (_, binding) <- bindings, signatureType <- case binding of PlainTypeBinding t -> [t]; SchemeTypeBinding scheme -> [schemeResultType scheme]; _ -> []]
   assertEqual "one signature allocation plus one binding seed" 2 (inferNextTypeVar finalState)
   where
     (_, finalState) =

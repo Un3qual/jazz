@@ -1,5 +1,5 @@
 ---
-id: JN-COMPILER-CHECKED-TREE-001
+id: JN-COMPILER-DIRECT-RUNTIME-001
 status: ready
 priority: P1
 size: L
@@ -7,14 +7,14 @@ kind: impl
 autonomous_ready: yes
 depends_on: []
 last_verified: 2026-09-11
-plan_section: "T10 — Construct checked subtrees during checking"
+plan_section: "T11a — Execute analyzed instantiation and representation facts directly"
 target_paths:
-  - src/Jazz/Compiler/TypeInference.hs
-  - src/Jazz/Compiler/TypeInference/Analyzed.hs
+  - src/Jazz/Compiler/SemanticFacts.hs
+  - src/Jazz/Compiler/Runtime/Engine.hs
 verification:
-  - cabal test module-pipeline-contract-spec binding-signature-coherence-spec adt-pattern-type-spec pattern-coverage-spec primitive-semantics-spec generated-invariants-spec --test-options=--skip-performance --jobs=4
+  - cabal test primitive-semantics-spec binding-signature-coherence-spec runtime-semantics-spec adt-pattern-runtime-spec module-pipeline-contract-spec --test-options=--skip-performance --jobs=4
   - bash scripts/check-execution-queue.sh
-deliverable: Return checked subtrees from inference and replace semantic map attachment with substitution-only finalization.
+deliverable: Consume checked instantiation, evidence, literal, and result facts directly and remove stored runtime plans.
 supersedes: []
 ---
 
@@ -30,7 +30,7 @@ supersedes: []
 
 **Spec:** [Validated audit findings](2026-09-10-compiler-architecture-validation.md), together with the target contracts and preservation rules below. The report preserves the disposition of all three input audits. The two Luna drafts were withdrawn after validation; their rejected or qualified recommendations are not implementation guidance.
 
-**Status:** Execution requested on 2026-09-11. T10 is the active bounded milestone in the execution queue. Execute the remaining tasks inline in dependency order; promote the next milestone when its prerequisites pass.
+**Status:** Execution requested on 2026-09-11. T11a is the active bounded milestone in the execution queue. Execute the remaining tasks inline in dependency order; promote the next milestone when its prerequisites pass.
 
 **Existing architecture decision:** [RFC 0016](../../rfcs/accepted/0016-optional-backend-removal.md) explicitly says to keep “attached analysis facts, and runtime plans.” Direct construction still retains attached facts, but T11a proposes changing the retained runtime-plan contract. Approval of this plan should therefore include that specific architectural decision and a narrow amendment through the repository's RFC process before removal. This is a dependency of T11a, not a reason to block unrelated tasks or ask for another confirmation while preparing this plan. If runtime plans are to remain, retain the small sequence and pursue direct identity/ownership improvements around it; do not claim its deletion completed.
 
@@ -294,15 +294,15 @@ The table is a dependency order, not a request for parallel agents. Work inline.
 
 **Files:** `src/Jazz/Compiler/TypeInference.hs`, `src/Jazz/Compiler/TypeInference/{State,Result,Analyzed,Scope,Pattern,Traversal,Instantiation,Evidence}.hs`, `src/Jazz/Compiler/AST.hs`, `src/Jazz/Compiler/SemanticFacts.hs`, `src/Jazz/Compiler/ModuleAnalysis.hs`; tests `test/Jazz/Compiler/Modules/ModulePipelineContractSpec.hs`, `test/Jazz/Compiler/Semantics/{BindingSignatureCoherenceSpec,AdtPatternTypeSpec,PatternCoverageSpec}.hs`.
 
-- [ ] Change the expression-checking result to return the checked/draft subtree together with its type and state. Pattern/statement results likewise own their semantic payload. Keep draft types private to inference.
-- [ ] Migrate literals/references/applications first, then lambdas/pattern cases, then declarations/blocks/recursive groups. Temporary compatibility attachment is allowed only for unmigrated constructors and is removed before task completion.
-- [ ] Record binder targets from resolution, normalized declarations from T07, and checked instantiation/evidence decisions directly in the returned nodes. Freeze each definition's generalized scheme at its current definition-site boundary; do not recompute every scheme from a later global environment.
-- [ ] Finalize the tree after solving by applying substitutions/defaulting and verifying required facts. Keep numeric literal ranges, operand typing, evidence, and explicit quantified argument order. Finalization must not rebuild lexical environments.
-- [ ] Keep semantic decision-making in the original checking traversal: finalization applies accepted decisions and does not infer expressions again, allocate fresh solver variables, or select different evidence.
-- [ ] Remove the six-map output protocol and invariant branches that exist only to join independently produced entries. Keep private solver tables and any recursive-group work table with a single local owner.
-- [ ] Replace map-shape tests with completeness, identity, and semantic-output boundary tests. Preserve failure behavior: malformed internal input fails at the boundary rather than becoming an apparently analyzed program.
-- [ ] Run module-pipeline, binding-signature, ADT/pattern, pattern-coverage, primitive-semantics, and generated-invariants suites. Compare sequential polymorphism, preview bursts, and wide constructor cases.
-- [ ] Commit constructor-family migrations, then remove the old attachment implementation. Update Cabal exports only when a module disappears.
+- [x] Change the expression-checking result to return the checked/draft subtree together with its type and state. Pattern/statement results likewise own their semantic payload. Keep draft types private to inference.
+- [x] Migrate literals/references/applications first, then lambdas/pattern cases, then declarations/blocks/recursive groups. Temporary compatibility attachment is allowed only for unmigrated constructors and is removed before task completion.
+- [x] Record binder targets from resolution, normalized declarations from T07, and checked instantiation/evidence decisions directly in the returned nodes. Freeze each definition's generalized scheme at its current definition-site boundary; do not recompute every scheme from a later global environment.
+- [x] Finalize the tree after solving by applying substitutions/defaulting and verifying required facts. Keep numeric literal ranges, operand typing, evidence, and explicit quantified argument order. Finalization must not rebuild lexical environments.
+- [x] Keep semantic decision-making in the original checking traversal: finalization applies accepted decisions and does not infer expressions again, allocate fresh solver variables, or select different evidence.
+- [x] Remove the six-map output protocol and invariant branches that exist only to join independently produced entries. Keep private solver tables and any recursive-group work table with a single local owner.
+- [x] Replace map-shape tests with completeness, identity, and semantic-output boundary tests. Preserve failure behavior: malformed internal input fails at the boundary rather than becoming an apparently analyzed program.
+- [x] Run module-pipeline, binding-signature, ADT/pattern, pattern-coverage, primitive-semantics, and generated-invariants suites. Compare sequential polymorphism, preview bursts, and wide constructor cases.
+- [x] Commit constructor-family migrations, then remove the old attachment implementation. Update Cabal exports only when a module disappears.
 
 **Deletion criterion:** No later traversal joins six maps to reconstruct expression/statement/pattern meaning. A remaining finalizer only solves/substitutes already-owned facts and validates their invariants.
 
@@ -674,3 +674,10 @@ Documentation verification at plan completion checks local evidence targets/line
 - A boundary test erases the entire inference output before finalization. It failed against the old attachment path and now passes for compound expressions, resolved lambda calls, operators, dollar-wrapped sections, and guarded alternative tuple/list patterns. Existing numeric fallback tests exposed and verified the distinction between the selected operator and its dollar wrapper.
 - Module pipeline, binding/signature, primitive, ADT typing, pattern semantics, coverage, and loader correctness pass. Logs: `/private/tmp/jazz-t10-compound-drafts.log`, `/private/tmp/jazz-t10-application-owned.log`, `/private/tmp/jazz-t10-pattern-owned.log`, `/private/tmp/jazz-t10-pattern-drafts.log`, `/private/tmp/jazz-t10-specialized-owned.log`, `/private/tmp/jazz-t10-specialized-section.log`. The earlier specialized-call log contains a section failure corrected in the last log. Coverage explicitly skips performance cases. Ormolu, HLint, and whitespace checks pass. No benchmark/performance tests ran.
 - T10 remains active: declarations, expected-type checking, blocks, and recursive groups must retain their drafts; then delete the temporary output-map writes, legacy attachment, and map-join invariant tests. The six-map removal criterion is not yet met.
+
+### T10 ownership completion
+
+- Expected-type checking, declarations, scopes, and recursive groups now retain checked children. Definition and signature schemes are captured at their existing commitment boundary, including interleaved recursive groups and alias generalization.
+- All six inference output maps and their duplicate-entry invariants are removed. Finalization only projects owned decisions with solved substitutions; it does not re-infer, rebuild environments, allocate variables, or select evidence. Capability representation selection reads the actual checked argument facts.
+- Replaced map-shape tests with malformed-node rejection, scheme/literal-range preservation, and output-erasure ownership checks spanning applications, patterns, signatures, classes, explicit instantiation, and recursive groups.
+- All nine T10 correctness suites pass in `/private/tmp/jazz-t10-final-correctness.log`: module pipeline, binding/signature, primitive, loader, ADT typing/runtime, pattern semantics/coverage, and generated invariants. Ormolu, HLint, and whitespace checks pass. Performance cases are explicitly skipped; benchmark comparisons remain waived. T10 is complete; T11a is active.

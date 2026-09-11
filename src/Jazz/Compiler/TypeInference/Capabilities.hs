@@ -98,7 +98,7 @@ import Jazz.Compiler.Name
     identifierText,
   )
 import Jazz.Compiler.SemanticDeclarations (concreteImplementationType, implementationTargetSignature, semanticFunctionArguments)
-import Jazz.Compiler.SemanticFacts (AnalyzedScheme (..), ExpressionFacts (expressionResolution), StatementDeclarationFact (ImplementationDeclaration), StatementFacts (..))
+import Jazz.Compiler.SemanticFacts (AnalyzedScheme (..), ExpressionFacts (expressionResolution), StatementFacts (..))
 import Jazz.Compiler.SignatureRendering
   ( renderSignatureType,
   )
@@ -160,7 +160,6 @@ import Jazz.Compiler.TypeInference.State
     modifyDeclarationState,
     modifyInferenceOutput,
     modifyModuleInferenceState,
-    recordStatementFactSeed,
   )
 import Jazz.Compiler.TypeInference.Traversal
   ( InferExprFn,
@@ -388,7 +387,7 @@ modifyCapabilityFacts update state =
 
 registerImplementation :: CoreNode 'Resolved 'StatementSort -> ResolvedName -> [SemanticType ResolvedName Void] -> [ImplMethod 'Resolved] -> InferState -> InferState
 registerImplementation node capabilityName targets methods =
-  recordStatementFactSeed (coreNodeId node) ([], ImplementationDeclaration capabilityName (map (fmap absurd) targets)) . modifyCapabilityFacts seed
+  modifyCapabilityFacts seed
   where
     seed facts = seedImplMethodFacts node capabilityName targets methods $
       case targets of

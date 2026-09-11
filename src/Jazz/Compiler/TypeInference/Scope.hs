@@ -17,6 +17,7 @@ module Jazz.Compiler.TypeInference.Scope
   )
 where
 
+import Control.Monad (zipWithM)
 import Data.Bifunctor (first)
 import Data.List
   ( uncons,
@@ -37,7 +38,7 @@ import qualified Data.Set as Set
 import Data.Text
   ( Text,
   )
-import Data.Void (Void)
+import Data.Void (Void, absurd)
 import Jazz.Compiler.AST
   ( ClassMethodSignature (..),
     CoreNode (coreNodeFacts, coreNodeId, coreNodeSpan),
@@ -49,6 +50,8 @@ import Jazz.Compiler.AST
     Literal (..),
     SignatureType,
     Statement (..),
+    expressionNode,
+    statementNode,
   )
 import Jazz.Compiler.BuiltinCatalog
   ( lookupKernelBuiltinSymbol,
@@ -83,9 +86,10 @@ import Jazz.Compiler.RecursiveBindings
   )
 import Jazz.Compiler.SemanticDeclarations (normalizeSignatureType)
 import Jazz.Compiler.SemanticFacts
-  ( StatementDeclarationFact (..),
+  ( SemanticFactInvariantFailure (..),
+    StatementDeclarationFact (..),
   )
-import Jazz.Compiler.TypeInference.Analyzed (ExpressionDecision (..), draftDecidedExpressionNode, draftExpressionNode, draftStatement, noExpressionDecision, projectAnalyzedMethodSignature)
+import Jazz.Compiler.TypeInference.Analyzed (ExpressionDecision (..), constrainBindingRuntimeResult, draftDecidedExpressionNode, draftExpressionNode, draftStatementNode, noExpressionDecision, projectAnalyzedMethodSignature)
 import Jazz.Compiler.TypeInference.Capabilities
   ( MethodSelection (..),
     TypeEnvFreeVariables,
@@ -129,7 +133,7 @@ import Jazz.Compiler.TypeInference.Diagnostics
     mkUnknownConstructorPayloadTypeError,
     targetedFloatLiteralDiagnostic,
   )
-import Jazz.Compiler.TypeInference.Draft (CheckedExpr (..), CheckedScope (..), Draft)
+import Jazz.Compiler.TypeInference.Draft (CheckedExpr (..), CheckedScope (..), Draft, rejectedDraft)
 import Jazz.Compiler.TypeInference.Environment (insertResolvedTypeBinding, insertResolvedTypeEnvFreeVariables)
 import Jazz.Compiler.TypeInference.ImplChecking (checkImplMethodBodies)
 import Jazz.Compiler.TypeInference.Instantiation
@@ -161,7 +165,6 @@ import Jazz.Compiler.TypeInference.State
     modifyDeclarationState,
     modifyInferenceOutput,
     previewInference,
-    recordStatementFactSeed,
   )
 import Jazz.Compiler.TypeInference.Traversal
   ( InferExprWithModeFn,
@@ -287,16 +290,9 @@ checkClassMethods state capabilityName parameters = traverse checkMethod
 
 registerClassDeclaration :: InferState -> ResolvedName -> [ResolvedName] -> [CheckedClassMethod] -> InferState
 registerClassDeclaration state capabilityName parameters checkedMethods =
-  foldl' recordMethod registered checkedMethods
+  registerClassCapabilityFacts capabilityName (length parameters) unaryMethods state
   where
     unaryMethods = if length parameters == 1 then [(name, methodType) | (_, name, methodType) <- checkedMethods] else []
-    registered = registerClassCapabilityFacts capabilityName (length parameters) unaryMethods state
-
-    recordMethod current (node, methodName, methodType)
-      | length parameters /= 1 = current
-      | otherwise = case projectAnalyzedMethodSignature (identifierText methodName) methodType of
-          Right analyzed -> recordStatementFactSeed (coreNodeId node) ([], MethodDeclaration methodName analyzed) current
-          Left failure -> error ("validated class method lost its parameter: " <> show failure)
 
 publishVisibleTypes :: TypeEnv -> InferState -> InferState
 publishVisibleTypes env state =
@@ -454,13 +450,6 @@ inferScopeTypeInternal
       initialEnv = scopeInitialEnv
       initialState = scopeInitialState
 
-      recordStatementSemanticFacts :: Maybe ExpressionType -> TypeEnv -> Statement 'Resolved -> InferState -> InferState
-      recordStatementSemanticFacts valueType visibleTypes statement state =
-        foldl'
-          (\stateAcc (nodeId, bindings, declarationFact) -> recordStatementFactSeed nodeId (bindings, declarationFact) stateAcc)
-          state
-          (statementSemanticFactSeeds (statementFactVisibleTypes state valueType visibleTypes statement) statement)
-
       statementFactVisibleTypes :: InferState -> Maybe ExpressionType -> TypeEnv -> Statement 'Resolved -> TypeEnv
       statementFactVisibleTypes state valueType visibleTypes statement =
         case statement of
@@ -494,33 +483,37 @@ inferScopeTypeInternal
                           schemeResultType = resolvedType
                         }
 
-      statementSemanticFactSeeds visibleTypes statement =
-        case statement of
-          SLet node name _ ->
-            [(coreNodeId node, bindingFor node name, ValueDeclaration name)]
-          SSignature node name _ ->
-            [(coreNodeId node, bindingAt (resolvedNodeReference (coreNodeFacts node)) name, SignatureDeclaration name)]
-          SData node typeName _ constructors ->
-            (coreNodeId node, [], DataDeclaration typeName (map constructorName constructors))
-              : [ (coreNodeId constructorNode, bindingFor constructorNode name, ValueDeclaration name)
-                | DataConstructor constructorNode name _ <- constructors
-                ]
-          SClass node capabilityName parameters _ ->
-            [(coreNodeId node, [], CapabilityDeclaration capabilityName parameters)]
-          SImpl _ _ _ methods ->
-            [ (coreNodeId methodNode, bindingFor methodNode methodName, ValueDeclaration methodName)
-            | ImplMethod methodNode methodName _ <- methods
-            ]
-          SModule node _ -> [(coreNodeId node, [], ModuleDeclaration (sourceUnitOwnerModulePath (resolvedNodeOwner (coreNodeFacts node))))]
-          SImport node _ _ _ -> [(coreNodeId node, [], ImportDeclaration (resolvedImportTarget (coreNodeFacts node)))]
-          SExpr node _ -> [(coreNodeId node, [], ExpressionDeclaration)]
+      buildStatement :: Int -> TypeEnv -> Maybe CheckedExpr -> [(Int, CheckedExpr)] -> Statement 'Resolved -> Draft (Statement 'Analyzed)
+      buildStatement index visibleTypes body methods statement = case statement of
+        SLet node name value -> makeLet name <$> facts node (bindingFor node name) (ValueDeclaration name) <*> valueDraft value body
+        SSignature node name signature -> SSignature <$> facts node (bindingAt (resolvedNodeReference (coreNodeFacts node)) name) (SignatureDeclaration name) <*> pure name <*> pure signature
+        SData node name parameters constructors -> SData <$> facts node [] (DataDeclaration name [constructorName | DataConstructor _ constructorName _ <- constructors]) <*> pure name <*> pure parameters <*> traverse constructor constructors
+        SClass node name parameters signatures ->
+          SClass <$> facts node [] (CapabilityDeclaration name parameters) <*> pure name <*> pure parameters <*> case preparedDeclarations scopePreparation Map.! index of
+            Right (PreparedClassMethods checkedMethods) -> zipWithM classMethod signatures checkedMethods
+            _ -> rejectedDraft (MissingStatementFacts (coreNodeId node))
+        SImpl node name arguments declarations -> SImpl <$> implementationNode node name <*> pure name <*> pure arguments <*> traverse implMethod (zip [0 ..] declarations)
+        SModule node path -> SModule <$> facts node [] (ModuleDeclaration (sourceUnitOwnerModulePath (resolvedNodeOwner (coreNodeFacts node)))) <*> pure path
+        SImport node path alias names -> SImport <$> facts node [] (ImportDeclaration (resolvedImportTarget (coreNodeFacts node))) <*> pure path <*> pure alias <*> pure names
+        SExpr node value -> SExpr <$> facts node [] ExpressionDeclaration <*> valueDraft value body
         where
+          facts = draftStatementNode
           bindingFor node name = bindingAt (LexicalReference <$> resolvedNodeBinder (coreNodeFacts node)) name
           bindingAt reference name = maybe [] (\binding -> [(name, binding)]) (reference >>= (\target -> Map.lookup (TypeEnvKey target name) visibleTypes))
-          constructorName (DataConstructor _ name _) = name
+          valueDraft _ (Just value) = checkedExprTree value
+          valueDraft value Nothing = rejectedDraft (MissingExpressionFacts (coreNodeId (expressionNode value)))
+          makeLet name node value = SLet node name (constrainBindingRuntimeResult (coreNodeFacts node) value)
+          constructor (DataConstructor node name arguments) = DataConstructor <$> facts node (bindingFor node name) (ValueDeclaration name) <*> pure name <*> pure arguments
+          classMethod (ClassMethodSignature node name signature) (_, _, methodType) = case projectAnalyzedMethodSignature (identifierText name) methodType of
+            Right analyzed -> ClassMethodSignature <$> facts node [] (MethodDeclaration name analyzed) <*> pure name <*> pure signature
+            Left failure -> rejectedDraft failure
+          implementationNode node name = case preparedDeclarations scopePreparation Map.! index of
+            Right (PreparedImplementationTargets targets) -> facts node [] (ImplementationDeclaration name (map (fmap absurd) targets))
+            _ -> rejectedDraft (MissingStatementFacts (coreNodeId node))
+          implMethod (methodIndex, ImplMethod node name value) = ImplMethod <$> facts node (bindingFor node name) (ValueDeclaration name) <*> pure name <*> valueDraft value (lookup methodIndex methods)
 
-      recordCommittedLetFacts pendingSignatures checkedValues statementIndex visibleTypes state =
-        (foldl' recordDefinition state committedStatementIndices, committedStatementIndices)
+      commitLetDrafts pendingSignatures checkedValues statementIndex visibleTypes state drafts =
+        (foldl' retainDefinition drafts committedStatementIndices, committedStatementIndices)
         where
           committedStatementIndices =
             case Map.lookup statementIndex recursiveGroupsByStatement of
@@ -530,7 +523,7 @@ inferScopeTypeInternal
                   statementIndex == lastMember ->
                     groupMembers
                 | otherwise -> []
-          recordDefinition stateAcc definitionIndex =
+          retainDefinition current definitionIndex =
             case Map.lookup definitionIndex statementsByIndex of
               Just definition@(SLet node name _) ->
                 let key = typeEnvBindingKey (coreNodeFacts node) name
@@ -540,25 +533,19 @@ inferScopeTypeInternal
                         Just pendingSignature ->
                           Map.insert
                             key
-                            ( generalizedExplicitSignatureBinding
-                                (freeTypeVariablesInEnv state (Map.delete key visibleTypes))
-                                state
-                                pendingSignature
-                            )
+                            (generalizedExplicitSignatureBinding (freeTypeVariablesInEnv state (Map.delete key visibleTypes)) state pendingSignature)
                             visibleTypes
-                 in recordStatementSemanticFacts
-                      (checkedExprType =<< Map.lookup definitionIndex checkedValues)
-                      definitionVisibleTypes
-                      definition
-                      (recordCommittedSignature definitionVisibleTypes stateAcc definitionIndex)
-              _ -> stateAcc
-          recordCommittedSignature definitionVisibleTypes stateAcc definitionIndex
+                    body = Map.lookup definitionIndex checkedValues
+                    factTypes = statementFactVisibleTypes state (body >>= checkedExprType) definitionVisibleTypes definition
+                    withDefinition = Map.insert definitionIndex (buildStatement definitionIndex factTypes body [] definition) current
+                 in retainSignature definitionVisibleTypes withDefinition definitionIndex
+              _ -> current
+          retainSignature definitionVisibleTypes current definitionIndex
             | Map.member definitionIndex pendingSignatures =
                 case Map.lookup (definitionIndex - 1) statementsByIndex of
-                  Just signature@SSignature {} ->
-                    recordStatementSemanticFacts Nothing definitionVisibleTypes signature stateAcc
-                  _ -> stateAcc
-            | otherwise = stateAcc
+                  Just signature@SSignature {} -> Map.insert (definitionIndex - 1) (buildStatement (definitionIndex - 1) definitionVisibleTypes Nothing [] signature) current
+                  _ -> current
+            | otherwise = current
 
       indexedStatements = zip [0 ..] statements
       recursiveGroups =
@@ -652,9 +639,9 @@ inferScopeTypeInternal
       stateAfterBindingSeeds = preparedScopeState scopePreparation
       initialModuleBaselineFacts = capabilityFactsFromState initialState
 
-      retainStatement index statement checked body methods walkState =
+      retainStatement index statement visibleTypes checked body methods walkState =
         walkState
-          { scopeWalkStatements = Map.insert index (draftStatement checked statement body methods) (scopeWalkStatements walkState),
+          { scopeWalkStatements = Map.insert index (buildStatement index visibleTypes body methods statement) (scopeWalkStatements walkState),
             scopeWalkInferState = checked
           }
 
@@ -662,7 +649,7 @@ inferScopeTypeInternal
       go walkState remainingStatements =
         case remainingStatements of
           [] ->
-            let drafts = [Map.findWithDefault (draftStatement (scopeWalkInferState walkState) statement Nothing []) index (scopeWalkStatements walkState) | (index, statement) <- indexedStatements]
+            let drafts = [Map.findWithDefault (rejectedDraft (MissingStatementFacts (coreNodeId (statementNode statement)))) index (scopeWalkStatements walkState) | (index, statement) <- indexedStatements]
              in (CheckedScope (scopeWalkLastExprType walkState) (sequenceA drafts), publishVisibleTypes (scopeWalkEnv walkState) (scopeWalkInferState walkState))
           (statementIndex, statement) : rest ->
             let env = scopeWalkEnv walkState
@@ -676,11 +663,11 @@ inferScopeTypeInternal
                 stateForSource = state
              in case statement of
                   SModule moduleNode _ ->
-                    let next = recordStatementSemanticFacts Nothing env statement (enterModuleCapabilityScope moduleBaselineFacts (sourceUnitOwnerModulePath (resolvedNodeOwner (coreNodeFacts moduleNode))) state)
-                     in go (retainStatement statementIndex statement next Nothing [] walkState {scopeWalkRecursiveGroupPreviewCache = Map.empty}) rest
+                    let next = enterModuleCapabilityScope moduleBaselineFacts (sourceUnitOwnerModulePath (resolvedNodeOwner (coreNodeFacts moduleNode))) state
+                     in go (retainStatement statementIndex statement env next Nothing [] walkState {scopeWalkRecursiveGroupPreviewCache = Map.empty}) rest
                   SImport importNode _ maybeAlias maybeSymbolNames ->
-                    let next = recordStatementSemanticFacts Nothing env statement (importModuleCapabilityFacts (resolvedImportTarget (coreNodeFacts importNode)) maybeAlias maybeSymbolNames state)
-                     in go (retainStatement statementIndex statement next Nothing [] walkState {scopeWalkRecursiveGroupPreviewCache = Map.empty}) rest
+                    let next = importModuleCapabilityFacts (resolvedImportTarget (coreNodeFacts importNode)) maybeAlias maybeSymbolNames state
+                     in go (retainStatement statementIndex statement env next Nothing [] walkState {scopeWalkRecursiveGroupPreviewCache = Map.empty}) rest
                   SClass _ capabilityName parameters _ ->
                     let nextState = case preparedDeclarations scopePreparation Map.! statementIndex of
                           Left diagnostic -> addTypeError stateForSource diagnostic
@@ -693,7 +680,8 @@ inferScopeTypeInternal
                             ( retainStatement
                                 statementIndex
                                 statement
-                                (recordStatementSemanticFacts Nothing env statement nextState)
+                                env
+                                nextState
                                 Nothing
                                 []
                                 walkState
@@ -729,7 +717,8 @@ inferScopeTypeInternal
                             ( retainStatement
                                 statementIndex
                                 statement
-                                (recordStatementSemanticFacts Nothing env statement nextState)
+                                env
+                                nextState
                                 Nothing
                                 methodChecks
                                 walkState
@@ -758,7 +747,8 @@ inferScopeTypeInternal
                             ( retainStatement
                                 statementIndex
                                 statement
-                                (recordStatementSemanticFacts Nothing nextEnv statement nextState)
+                                nextEnv
+                                nextState
                                 Nothing
                                 []
                                 walkState
@@ -788,12 +778,9 @@ inferScopeTypeInternal
                               { scopeWalkPendingSignature = nextPendingSignature,
                                 scopeWalkRecursiveGroupPreviewCache = Map.empty,
                                 scopeWalkStatements = case nextPendingSignature of
-                                  Nothing -> Map.insert statementIndex (draftStatement (recordStatementSemanticFacts Nothing env statement nextState) statement Nothing []) (scopeWalkStatements walkState)
+                                  Nothing -> Map.insert statementIndex (buildStatement statementIndex env Nothing [] statement) (scopeWalkStatements walkState)
                                   Just _ -> scopeWalkStatements walkState,
-                                scopeWalkInferState =
-                                  case nextPendingSignature of
-                                    Nothing -> recordStatementSemanticFacts Nothing env statement nextState
-                                    Just _ -> nextState
+                                scopeWalkInferState = nextState
                               }
                             rest
                      in (scopeResultType, resultState)
@@ -1007,22 +994,15 @@ inferScopeTypeInternal
                             nextEnvFreeVariablesBeforeRecursiveGroupGeneralization
                         recursiveGroupPreviewCacheAfterStatement =
                           dropAdvancedRecursiveGroupPreview statementIndex recursiveGroupPreviewCacheForStatement
-                        (stateAfterCommittedFacts, committedIndices) =
-                          recordCommittedLetFacts
+                        (committedDrafts, committedIndices) =
+                          commitLetDrafts
                             nextPendingSignaturesByStatement
                             pendingValues
                             statementIndex
                             nextEnv
                             stateAfterRecursiveGroupPrune
+                            (scopeWalkStatements walkState)
                         pendingValues = Map.insert statementIndex rawValueResult (scopeWalkPendingValues walkState)
-                        committedDrafts = foldl' retainCommitted (scopeWalkStatements walkState) committedIndices
-                        retainCommitted drafts index = case Map.lookup index statementsByIndex of
-                          Just definition ->
-                            let withDefinition = Map.insert index (draftStatement stateAfterCommittedFacts definition (Map.lookup index pendingValues) []) drafts
-                             in case Map.lookup (index - 1) statementsByIndex of
-                                  Just signature@SSignature {} | Map.member index nextPendingSignaturesByStatement -> Map.insert (index - 1) (draftStatement stateAfterCommittedFacts signature Nothing []) withDefinition
-                                  _ -> withDefinition
-                          Nothing -> drafts
                         (scopeResultType, resultState) =
                           go
                             walkState
@@ -1035,7 +1015,7 @@ inferScopeTypeInternal
                                 scopeWalkRecursiveGroupStartStates = recursiveGroupStartStatesForStatement,
                                 scopeWalkRecursiveGroupPreviewCache = recursiveGroupPreviewCacheAfterStatement,
                                 scopeWalkInferState =
-                                  annotateNewErrorsWithContext (CheckingBinding nameText) bindingSpan stateForStatement stateAfterCommittedFacts
+                                  annotateNewErrorsWithContext (CheckingBinding nameText) bindingSpan stateForStatement stateAfterRecursiveGroupPrune
                               }
                             rest
                      in (scopeResultType, resultState)
@@ -1066,16 +1046,11 @@ inferScopeTypeInternal
                         (scopeResultType, resultState) =
                           go
                             walkState
-                              { scopeWalkStatements = Map.insert statementIndex (draftStatement (recordStatementSemanticFacts Nothing envForStatement statement stateAfterDroppedInferredMethodCheck) statement (Just exprResult) []) (scopeWalkStatements walkState),
+                              { scopeWalkStatements = Map.insert statementIndex (buildStatement statementIndex envForStatement (Just exprResult) [] statement) (scopeWalkStatements walkState),
                                 scopeWalkLastExprType = exprType,
                                 scopeWalkPendingSignature = Nothing,
                                 scopeWalkRecursiveGroupPreviewCache = Map.empty,
-                                scopeWalkInferState =
-                                  recordStatementSemanticFacts
-                                    Nothing
-                                    envForStatement
-                                    statement
-                                    stateAfterDroppedInferredMethodCheck
+                                scopeWalkInferState = stateAfterDroppedInferredMethodCheck
                               }
                             rest
                      in (scopeResultType, resultState)

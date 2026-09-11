@@ -10,10 +10,10 @@ module Jazz.Compiler.TypeInference.Analyzed
     noExpressionDecision,
     draftDecidedExpressionNode,
     draftCaseArmNode,
-    draftStatement,
+    draftStatementNode,
+    constrainBindingRuntimeResult,
     refineListPrependDraft,
     finalizeCheckedExpression,
-    attachAnalyzedStatementFacts,
     projectAnalyzedMethodSignature,
   )
 where
@@ -21,22 +21,17 @@ where
 import qualified Data.Foldable as Foldable
 import Data.List.NonEmpty (NonEmpty)
 import qualified Data.List.NonEmpty as NonEmpty
-import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
 import Data.Sequence (Seq)
 import qualified Data.Sequence as Seq
 import qualified Data.Set as Set
 import Data.Text (Text)
 import Jazz.Compiler.AST
-  ( ClassMethodSignature (..),
-    CoreNode (..),
+  ( CoreNode (..),
     CorePhase (..),
     CoreSort (..),
-    DataConstructor (..),
     Expr (..),
-    ImplMethod (..),
     Literal (..),
-    Statement (..),
     expressionNode,
   )
 import Jazz.Compiler.CoreIdentity (ResolvedNodeFacts (..), ResolvedReference (..))
@@ -62,16 +57,14 @@ import Jazz.Compiler.SemanticFacts
     StatementDeclarationFact,
     StatementFacts (..),
   )
-import Jazz.Compiler.TypeInference.Draft (Attachment (..), CheckedExpr (..), Draft (..), attachmentResult)
+import Jazz.Compiler.TypeInference.Draft (Attachment (..), CheckedExpr (..), Draft (..), finalizeDraft)
 import Jazz.Compiler.TypeInference.Solver (resolveType)
 import Jazz.Compiler.TypeInference.State
   ( ExplicitInstantiationSeed (..),
     ExplicitInstantiationTarget (..),
     ExpressionEvidenceSeed (..),
     InferState,
-    inferFactInvariantFailures,
     inferNumericVars,
-    inferStatementFactSeeds,
   )
 import Jazz.Compiler.TypeInference.TypeOps (freeTypeVariables)
 import Jazz.Compiler.TypeInference.Types
@@ -97,16 +90,11 @@ data AttachedExplicitInstantiation = AttachedExplicitInstantiation
     attachedRuntimeArguments :: [NonEmpty ExpressionType]
   }
 
-recordedFailures :: InferState -> Attachment ()
-recordedFailures state = case inferFactInvariantFailures state of
-  [] -> pure ()
-  failure : failures -> AttachmentFailed failure (Seq.fromList failures)
-
 missing :: SemanticFactInvariantFailure -> Attachment value
 missing failure = AttachmentFailed failure Seq.empty
 
 finalizeCheckedExpression :: InferState -> CheckedExpr -> Either (NonEmpty SemanticFactInvariantFailure) (Expr 'Analyzed)
-finalizeCheckedExpression solved checked = attachmentResult (recordedFailures solved *> runDraft (checkedExprTree checked) solved)
+finalizeCheckedExpression solved checked = finalizeDraft solved (checkedExprTree checked)
 
 data ExpressionNodeDraft = ExpressionNodeDraft
   { draftNodeType :: !(Maybe ExpressionType),
@@ -299,26 +287,9 @@ referencedName expression =
     ETypeApplication _ function _ _ -> referencedName function
     _ -> Nothing
 
-draftStatement :: InferState -> Statement 'Resolved -> Maybe CheckedExpr -> [(Int, CheckedExpr)] -> Draft (Statement 'Analyzed)
-draftStatement checked statement body methods = case statement of
-  SLet node name value -> makeLet name <$> facts node <*> valueDraft value body
-  SSignature node name signature -> SSignature <$> facts node <*> pure name <*> pure signature
-  SData node name parameters constructors -> SData <$> facts node <*> pure name <*> pure parameters <*> traverse constructor constructors
-  SClass node name parameters signatures -> SClass <$> facts node <*> pure name <*> pure parameters <*> traverse classMethod signatures
-  SImpl node name arguments declarations -> SImpl <$> facts node <*> pure name <*> pure arguments <*> traverse implMethod (zip [0 ..] declarations)
-  SModule node path -> SModule <$> facts node <*> pure path
-  SImport node path alias names -> SImport <$> facts node <*> pure path <*> pure alias <*> pure names
-  SExpr node value -> SExpr <$> facts node <*> valueDraft value body
-  where
-    facts (CoreNode nodeId spanValue resolution) =
-      let seed = Map.lookup nodeId (inferStatementFactSeeds checked)
-       in seed `seq` Draft (\solved -> CoreNode nodeId spanValue <$> projectStatementSeed solved nodeId resolution seed)
-    valueDraft _ (Just value) = checkedExprTree value
-    valueDraft value Nothing = Draft (const (missing (MissingExpressionFacts (coreNodeId (expressionNode value)))))
-    constructor (DataConstructor node name arguments) = DataConstructor <$> facts node <*> pure name <*> pure arguments
-    classMethod (ClassMethodSignature node name signature) = ClassMethodSignature <$> facts node <*> pure name <*> pure signature
-    implMethod (index, ImplMethod node name value) = ImplMethod <$> facts node <*> pure name <*> valueDraft value (lookup index methods)
-    makeLet name node value = SLet node name (constrainBindingRuntimeResult (coreNodeFacts node) value)
+draftStatementNode :: CoreNode 'Resolved 'StatementSort -> [(ResolvedName, TypeBinding)] -> StatementDeclarationFact -> Draft (CoreNode 'Analyzed 'StatementSort)
+draftStatementNode (CoreNode nodeId spanValue resolution) bindings declaration =
+  Draft (\solved -> CoreNode nodeId spanValue <$> projectStatementBindings solved nodeId resolution bindings declaration)
 
 constrainBindingRuntimeResult :: StatementFacts -> Expr 'Analyzed -> Expr 'Analyzed
 constrainBindingRuntimeResult statementFacts =
@@ -362,30 +333,17 @@ mapExpressionFacts update expression =
   where
     mapNode (CoreNode nodeId spanValue facts) = CoreNode nodeId spanValue (update facts)
 
-attachAnalyzedStatementFacts :: InferState -> [CoreNode 'Resolved 'StatementSort] -> Either (NonEmpty SemanticFactInvariantFailure) (Map CoreNodeId StatementFacts)
-attachAnalyzedStatementFacts state nodes =
-  attachmentResult $
-    Map.fromList <$> traverse (\node -> (,) (coreNodeId node) <$> projectStatementFacts state (coreNodeId node) (coreNodeFacts node)) nodes
-
-projectStatementFacts :: InferState -> CoreNodeId -> ResolvedNodeFacts -> Attachment StatementFacts
-projectStatementFacts state nodeId resolution =
-  projectStatementSeed state nodeId resolution (Map.lookup nodeId (inferStatementFactSeeds state))
-
-projectStatementSeed :: InferState -> CoreNodeId -> ResolvedNodeFacts -> Maybe ([(ResolvedName, TypeBinding)], StatementDeclarationFact) -> Attachment StatementFacts
-projectStatementSeed state nodeId resolution seed =
-  case seed of
-    Nothing -> missing (MissingStatementFacts nodeId)
-    Just ([], declarationFact) -> pure (facts declarationFact [] Map.empty)
-    Just (bindings, declarationFact) ->
-      case resolvedNodeBinder resolution of
-        Nothing -> missing (MissingStatementBinder nodeId)
-        Just binderId ->
-          case traverse (projectTypeBinding state binderId . snd) bindings of
-            Left failure -> missing failure
-            Right projectedSchemes -> pure (facts declarationFact [binderId] (Map.fromList [(binderId, scheme) | scheme <- projectedSchemes]))
+projectStatementBindings :: InferState -> CoreNodeId -> ResolvedNodeFacts -> [(ResolvedName, TypeBinding)] -> StatementDeclarationFact -> Attachment StatementFacts
+projectStatementBindings state nodeId resolution bindings declaration =
+  case bindings of
+    [] -> pure (facts [] Map.empty)
+    _ -> case resolvedNodeBinder resolution of
+      Nothing -> missing (MissingStatementBinder nodeId)
+      Just binderId -> case traverse (projectTypeBinding state binderId . snd) bindings of
+        Left failure -> missing failure
+        Right schemes -> pure (facts [binderId] (Map.fromList [(binderId, scheme) | scheme <- schemes]))
   where
-    facts declaration binders schemes =
-      StatementFacts resolution binders schemes declaration
+    facts binders schemes = StatementFacts resolution binders schemes declaration
 
 projectTypeBinding :: InferState -> CoreBinderId -> TypeBinding -> Either SemanticFactInvariantFailure AnalyzedScheme
 projectTypeBinding state binderId@(CoreBinderId (_, nodeId)) binding =

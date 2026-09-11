@@ -170,13 +170,12 @@ import Jazz.Compiler.SemanticFacts
   )
 import Jazz.Compiler.SourceProgram (parseAndLowerStandaloneSource)
 import Jazz.Compiler.TypeInference (CheckedExpr (..), InferenceInputs (..), inferExpressionWork)
-import Jazz.Compiler.TypeInference.Analyzed (draftExpressionNode, draftStatement, finalizeCheckedExpression, projectAnalyzedMethodSignature)
+import Jazz.Compiler.TypeInference.Analyzed (draftExpressionNode, draftStatementNode, finalizeCheckedExpression, projectAnalyzedMethodSignature)
 import Jazz.Compiler.TypeInference.Result (inferredDiagnostics)
 import Jazz.Compiler.TypeInference.Solver (freshIntegerLiteralType)
 import Jazz.Compiler.TypeInference.State
   ( InferState (..),
     initialInferState,
-    recordStatementFactSeed,
   )
 import Jazz.Compiler.TypeInference.Types
   ( ClassMethodType (..),
@@ -611,7 +610,7 @@ testCheckedSubtreeOwnership = do
           (ETuple (node 3) [EList (node 4) [ELit (node 5) (LInt 1)], EBinary (node 11) "==" (ELit (node 12) (LBool True)) (ELit (node 6) (LBool True))])
           (ETuple (node 7) [EList (node 8) [ELit (node 9) (LInt 2)], ELit (node 10) (LBool False)])
       inputs = InferenceInputs Nothing defaultWarningSettings Set.empty Map.empty Map.empty Map.empty emptyScopeCapabilityFacts Set.empty Nothing
-      (checked, state, _) = inferExpressionWork inputs [] expression
+      (checked, state, _) = inferExpressionWork inputs expression
       erased = state {inferOutput = inferOutput initialInferState}
   expected <- either (fail . show) pure (finalizeCheckedExpression state checked)
   actual <- either (fail . show) pure (finalizeCheckedExpression erased checked)
@@ -641,7 +640,7 @@ testCheckedSubtreeOwnership = do
       resolved <- resolveFixtureProgram (Map.singleton "src/App/Main.jz" ("module App::Main { " <> source <> " }"))
       assertDraft inputs (coreModuleExpr (NonEmpty.last (coreProgramModules resolved)))
     assertDraft inputs expression = do
-      let (checked, state, _) = inferExpressionWork inputs [] expression
+      let (checked, state, _) = inferExpressionWork inputs expression
       owned <- either (fail . show) pure (finalizeCheckedExpression state checked)
       independent <- either (fail . show) pure (finalizeCheckedExpression (state {inferOutput = inferOutput initialInferState}) checked)
       assertEqual "checker retains each child and its decisions" owned independent
@@ -669,9 +668,9 @@ testAnalyzedFactInvariantFailures = do
       statement = SLet statementNode name expression
       block = EBlock (node 50) [statement]
       checkedValue = CheckedExpr (Just SemanticInt) (ELit <$> draftExpressionNode (Just SemanticInt) expression <*> pure (LInt 1))
-      finalizeBinding state = finalizeCheckedExpression state (CheckedExpr (Just SemanticInt) (EBlock <$> draftExpressionNode (Just SemanticInt) block <*> sequenceA [draftStatement state statement (Just checkedValue) []]))
-      aliasState = recordStatementFactSeed statementId ([(name, BuiltinAliasTypeBinding BuiltinToInt8)], ValueDeclaration name) initialInferState
-  assertEqual "an unprojected binding cannot silently lose its scheme" (Left (MissingStatementScheme statementId binder :| [])) (finalizeBinding aliasState)
+      finalizeBinding binding = finalizeCheckedExpression initialInferState (CheckedExpr (Just SemanticInt) (EBlock <$> draftExpressionNode (Just SemanticInt) block <*> sequenceA [SLet <$> draftStatementNode statementNode [(name, binding)] (ValueDeclaration name) <*> pure name <*> checkedExprTree checkedValue]))
+      aliasBinding = BuiltinAliasTypeBinding BuiltinToInt8
+  assertEqual "an unprojected binding cannot silently lose its scheme" (Left (MissingStatementScheme statementId binder :| [])) (finalizeBinding aliasBinding)
 
   let variable = InferenceVariable 0
       scheme =
@@ -682,8 +681,7 @@ testAnalyzedFactInvariantFailures = do
             schemeDefiningCapabilities = emptyScopeCapabilityFacts,
             schemeResultType = SemanticVariable variable
           }
-      rangeState = recordStatementFactSeed statementId ([(name, SchemeTypeBinding scheme)], ValueDeclaration name) initialInferState
-  case finalizeBinding rangeState of
+  case finalizeBinding (SchemeTypeBinding scheme) of
     Right (EBlock _ [SLet (CoreNode _ _ facts) _ _]) ->
       assertEqual "generalized schemes preserve integral literal ranges" True (any schemeHasLiteralRange (Map.elems (statementGeneralizedSchemes facts)))
     result -> fail ("failed to finalize literal-range scheme: " <> show result)

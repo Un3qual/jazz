@@ -92,7 +92,7 @@ import Jazz.Compiler.TypeInference
     inferenceSubjectExpr,
     moduleInterfaceFromState,
   )
-import Jazz.Compiler.TypeInference.Analyzed (attachAnalyzedStatementFacts, finalizeCheckedExpression)
+import Jazz.Compiler.TypeInference.Analyzed (finalizeCheckedExpression)
 import Jazz.Compiler.TypeInference.Diagnostics (mkNonExhaustivePatternMatchError, mkUnreachablePatternArmError)
 import Jazz.Compiler.TypeInference.Draft (CheckedExpr (..))
 import Jazz.Compiler.TypeInference.Result (InferenceResult (..), inferredDiagnostics)
@@ -341,8 +341,7 @@ methodUsesClass classNames methodKey _ =
 
 data InferenceRequest = InferenceRequest
   { requestedInferenceInputs :: InferenceInputs,
-    requestedHideRootBindings :: Bool,
-    requestedModuleStatementFacts :: [(CoreNode 'Resolved 'StatementSort, StatementDeclarationFact)]
+    requestedHideRootBindings :: Bool
   }
 
 analyzeResolvedExpression ::
@@ -359,8 +358,7 @@ analyzeResolvedExpression settings expression = do
     inferExpressionWithRequestAndState
       InferenceRequest
         { requestedInferenceInputs = emptyInferenceInputs settings,
-          requestedHideRootBindings = False,
-          requestedModuleStatementFacts = []
+          requestedHideRootBindings = False
         }
       expression
   if any isErrorDiagnostic (inferredDiagnostics inference)
@@ -377,8 +375,7 @@ inferExpressionWithInputs inputs =
   inferExpressionWithRequest
     InferenceRequest
       { requestedInferenceInputs = inputs,
-        requestedHideRootBindings = False,
-        requestedModuleStatementFacts = []
+        requestedHideRootBindings = False
       }
 
 inferExpressionWithRequest :: InferenceRequest -> Expr 'Resolved -> IO InferenceResult
@@ -391,7 +388,6 @@ inferExpressionWithRequestAndState request expr =
       (inferredResult, finalState, inferenceSubject) =
         inferExpressionWork
           inputs
-          (requestedModuleStatementFacts request)
           expr
       expression = inferenceSubjectExpr inferenceSubject
       finalizedInference = finalizeInferenceState inputs expression finalState
@@ -423,8 +419,7 @@ analyzeExpressionWithInputs moduleStatementFacts inputs hideRootBindings express
     inferExpressionWithRequestAndState
       InferenceRequest
         { requestedInferenceInputs = inputs,
-          requestedHideRootBindings = hideRootBindings,
-          requestedModuleStatementFacts = moduleStatementFacts
+          requestedHideRootBindings = hideRootBindings
         }
       expression
   if any isErrorDiagnostic (inferredDiagnostics inference)
@@ -435,7 +430,7 @@ analyzeExpressionWithInputs moduleStatementFacts inputs hideRootBindings express
           Just
             <$> ( (,)
                     <$> finalizeCheckedExpression finalState checked
-                    <*> attachAnalyzedStatementFacts finalState (map fst moduleStatementFacts)
+                    <*> pure (Map.fromList [(coreNodeId node, StatementFacts (coreNodeFacts node) [] Map.empty declaration) | (node, declaration) <- moduleStatementFacts])
                 )
         )
 
@@ -565,6 +560,5 @@ inferExpressionDefault =
   inferExpressionWithRequest
     InferenceRequest
       { requestedInferenceInputs = emptyInferenceInputs defaultWarningSettings,
-        requestedHideRootBindings = False,
-        requestedModuleStatementFacts = []
+        requestedHideRootBindings = False
       }

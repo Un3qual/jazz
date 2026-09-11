@@ -21,7 +21,6 @@ module Jazz.Compiler.TypeInference.State
     inferDeferredExplicitConstraints,
     inferErrorCount,
     inferErrorsRev,
-    inferFactInvariantFailures,
     inferGeneratedEqualityClassFacts,
     inferInferredClassConstraintCount,
     inferInferredClassConstraints,
@@ -31,7 +30,6 @@ module Jazz.Compiler.TypeInference.State
     inferPatternCoverageSites,
     inferRigidTypeVars,
     inferStrictEqualityVars,
-    inferStatementFactSeeds,
     inferSubst,
     inferVisibleTypes,
     initialInferState,
@@ -40,7 +38,6 @@ module Jazz.Compiler.TypeInference.State
     modifyDeclarationState,
     modifyInferenceOutput,
     modifyModuleInferenceState,
-    recordStatementFactSeed,
     recordPatternCoverageSite,
     reservePatternCoverageSite,
   )
@@ -62,11 +59,8 @@ import Jazz.Compiler.PatternCoverage (PatternCoverageSite)
 import Jazz.Compiler.SemanticDeclarations (ConcreteImplFact, DeclarationVariable)
 import Jazz.Compiler.SemanticFacts
   ( CapabilityId,
-    CoreNodeId,
     ImplId,
     MethodId,
-    SemanticFactInvariantFailure (..),
-    StatementDeclarationFact,
   )
 import Jazz.Compiler.TypeInference.Types
   ( ClassMethodType,
@@ -76,7 +70,6 @@ import Jazz.Compiler.TypeInference.Types
     InferenceVariable,
     NumericConstraint,
     ScopeCapabilityFacts,
-    TypeBinding,
     TypeEnv,
     TypeSchemeConstraint,
     emptyScopeCapabilityFacts,
@@ -112,9 +105,7 @@ data ModuleInferenceState = ModuleInferenceState
   deriving (Eq, Show)
 
 data InferenceOutput = InferenceOutput
-  { outputStatementFactSeeds :: Map CoreNodeId ([(ResolvedName, TypeBinding)], StatementDeclarationFact),
-    outputFactInvariantFailures :: Seq SemanticFactInvariantFailure,
-    outputDeferredConstraints :: Seq DeferredExplicitConstraint,
+  { outputDeferredConstraints :: Seq DeferredExplicitConstraint,
     outputInferredConstraints :: [TypeSchemeConstraint],
     outputInferredConstraintCount :: Int,
     outputErrorsRev :: [Diagnostic],
@@ -204,9 +195,7 @@ initialInferState =
           },
       inferOutput =
         InferenceOutput
-          { outputStatementFactSeeds = Map.empty,
-            outputFactInvariantFailures = Seq.empty,
-            outputDeferredConstraints = Seq.empty,
+          { outputDeferredConstraints = Seq.empty,
             outputInferredConstraints = [],
             outputInferredConstraintCount = 0,
             outputErrorsRev = [],
@@ -263,32 +252,6 @@ inferConstructorWitnessNames = inferenceConstructorWitnessNames . inferModule
 
 inferVisibleTypes :: InferState -> TypeEnv
 inferVisibleTypes = inferenceVisibleTypes . inferModule
-
-inferStatementFactSeeds :: InferState -> Map CoreNodeId ([(ResolvedName, TypeBinding)], StatementDeclarationFact)
-inferStatementFactSeeds = outputStatementFactSeeds . inferOutput
-
-inferFactInvariantFailures :: InferState -> [SemanticFactInvariantFailure]
-inferFactInvariantFailures = toList . outputFactInvariantFailures . inferOutput
-
-recordStatementFactSeed :: CoreNodeId -> ([(ResolvedName, TypeBinding)], StatementDeclarationFact) -> InferState -> InferState
-recordStatementFactSeed nodeId facts =
-  recordFact
-    outputStatementFactSeeds
-    (\seeds output -> output {outputStatementFactSeeds = seeds})
-    DuplicateStatementFacts
-    nodeId
-    facts
-
-recordFact :: (Ord key) => (InferenceOutput -> Map key value) -> (Map key value -> InferenceOutput -> InferenceOutput) -> (key -> SemanticFactInvariantFailure) -> key -> value -> InferState -> InferState
-recordFact project replace duplicateFailure key value =
-  modifyInferenceOutput $ \output ->
-    if Map.member key (project output)
-      then
-        output
-          { outputFactInvariantFailures =
-              outputFactInvariantFailures output Seq.|> duplicateFailure key
-          }
-      else replace (Map.insert key value (project output)) output
 
 inferDeferredExplicitConstraints :: InferState -> [DeferredExplicitConstraint]
 inferDeferredExplicitConstraints = toList . outputDeferredConstraints . inferOutput

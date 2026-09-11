@@ -20,9 +20,7 @@ import Data.Set (Set)
 import qualified Data.Set as Set
 import Data.Text (Text)
 import Jazz.Compiler.AST
-  ( CoreNode,
-    CorePhase (..),
-    CoreSort (StatementSort),
+  ( CorePhase (..),
     DataConstructor (..),
     Expr (..),
     Literal (..),
@@ -80,7 +78,6 @@ import Jazz.Compiler.SemanticDeclarations (DeclarationVariable)
 import Jazz.Compiler.SemanticFacts
   ( BinaryOperation (..),
     SemanticFactInvariantFailure (MissingExpressionFacts),
-    StatementDeclarationFact,
   )
 import Jazz.Compiler.TypeInference.Analyzed (ExpressionDecision (..), draftDecidedExpressionNode, draftExpressionNode, draftOperationNode, noExpressionDecision, refineListPrependDraft)
 import Jazz.Compiler.TypeInference.Capabilities
@@ -127,7 +124,6 @@ import Jazz.Compiler.TypeInference.State
     initialInferState,
     modifyInferenceOutput,
     recordPatternCoverageSite,
-    recordStatementFactSeed,
     reservePatternCoverageSite,
   )
 import Jazz.Compiler.TypeInference.Traversal (InferenceMode (..))
@@ -172,14 +168,9 @@ inferenceSubjectExpr subject =
     InferencePreparedScope expr preparedScope ->
       preparedRecursiveScopeStatements preparedScope `seq` expr
 
-inferExpressionWork :: InferenceInputs -> [(CoreNode 'Resolved 'StatementSort, StatementDeclarationFact)] -> Expr 'Resolved -> (CheckedExpr, InferState, InferenceSubject)
-inferExpressionWork inputs moduleStatementFacts expr =
-  let (importedEnvironment, importedState) = importBindingTypes (inferenceImportedTypes inputs) (initialStateForInference inputs)
-      initialState =
-        foldl'
-          (\state (node, declarationFact) -> recordStatementFactSeed (coreNodeId node) ([], declarationFact) state)
-          importedState
-          moduleStatementFacts
+inferExpressionWork :: InferenceInputs -> Expr 'Resolved -> (CheckedExpr, InferState, InferenceSubject)
+inferExpressionWork inputs expr =
+  let (importedEnvironment, initialState) = importBindingTypes (inferenceImportedTypes inputs) (initialStateForInference inputs)
    in case expr of
         EBlock node statements ->
           let preparedScope =
