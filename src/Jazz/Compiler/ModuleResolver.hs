@@ -116,7 +116,9 @@ import Jazz.Compiler.ModuleIdentity
   )
 import Jazz.Compiler.ModuleResolver.Imports
   ( ResolverImport,
+    ValidatedImportScope,
     declaredImportSpan,
+    emptyImportScope,
     validateImportBindings,
   )
 import Jazz.Compiler.ModuleResolver.Names
@@ -266,19 +268,20 @@ resolveStateWithLookupAndVisibleSymbols config ambientExports loadSource entryMo
               references = discoveryReferences discovery
               sortedImports = sortModulePaths (collectImportPaths imports)
           stateAfterDeps <- foldM (visitModule nextStack) state sortedImports
-          except $
-            validateImportBindings
-              sourcePath
-              modulePath
-              imports
-              (exportNamesInNamespace CapabilityNamespace (discoveryLocalInventory discovery))
-              (referenceFactUnqualified references)
-              (referenceFactQualifiedValues references)
-              (referenceFactQualifiedTypes references)
-              (referenceFactQualifiedClasses references)
-              ambientVisibleSymbols
-              ambientVisibleClassNames
-              (resolvedExportInventoriesState stateAfterDeps)
+          importScope <-
+            except $
+              validateImportBindings
+                sourcePath
+                modulePath
+                imports
+                (exportNamesInNamespace CapabilityNamespace (discoveryLocalInventory discovery))
+                (referenceFactUnqualified references)
+                (referenceFactQualifiedValues references)
+                (referenceFactQualifiedTypes references)
+                (referenceFactQualifiedClasses references)
+                ambientVisibleSymbols
+                ambientVisibleClassNames
+                (resolvedExportInventoriesState stateAfterDeps)
           resolvedModule <-
             except $
               first NonEmpty.head $
@@ -286,7 +289,7 @@ resolveStateWithLookupAndVisibleSymbols config ambientExports loadSource entryMo
                   ambientExports
                   (discoveryLocalInventory discovery)
                   (discoveryPublicInventory discovery)
-                  (resolvedExportInventoriesState stateAfterDeps)
+                  importScope
                   imports
                   coreModule
           pure
@@ -619,11 +622,11 @@ resolveCoreModuleNames ::
   ModuleExportInventory ->
   ModuleExportInventory ->
   ModuleExportInventory ->
-  Map ModulePath ModuleExportInventory ->
+  ValidatedImportScope ->
   [ModuleGraph.ModuleImport 'Lowered] ->
   ModuleGraph.CoreModule 'Lowered ->
   Either (NonEmpty Diagnostic) (ModuleGraph.CoreModule 'Resolved)
-resolveCoreModuleNames ambientExports localInventory publicInventory inventoriesByModule imports coreModule = do
+resolveCoreModuleNames ambientExports localInventory publicInventory importScope imports coreModule = do
   resolvedExpr <- resolveExprNames context (ModuleGraph.coreModuleExpr coreModule)
   resolvedImports <-
     either
@@ -656,8 +659,7 @@ resolveCoreModuleNames ambientExports localInventory publicInventory inventories
       ResolutionContext
         { resolutionAmbientExports = ambientExports,
           resolutionLocalInventory = localInventory,
-          resolutionInventoriesByModule = inventoriesByModule,
-          resolutionImports = imports
+          resolutionImportScope = importScope
         }
 
 resolvePreludeArtifact ::
@@ -672,7 +674,7 @@ resolvePreludeArtifact publicInventory artifact =
         (exportInventory [])
         publicInventory
         publicInventory
-        Map.empty
+        emptyImportScope
         (ModuleGraph.coreModuleImports loweredModule)
         loweredModule of
         Left failures -> Left (NonEmpty.head failures)

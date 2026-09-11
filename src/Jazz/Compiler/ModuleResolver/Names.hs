@@ -18,9 +18,6 @@ import Data.Bifunctor
 import Data.List.NonEmpty
   ( NonEmpty,
   )
-import Data.Map.Strict
-  ( Map,
-  )
 import qualified Data.Map.Strict as Map
 import Data.Maybe
   ( fromMaybe,
@@ -50,16 +47,14 @@ import Jazz.Compiler.ModuleExports
     exportInventory,
     exportNamesInNamespace,
     firstExportNamespace,
-    selectExportNames,
-  )
-import qualified Jazz.Compiler.ModuleGraph as ModuleGraph
-import Jazz.Compiler.ModuleIdentity
-  ( ModulePath,
   )
 import Jazz.Compiler.ModuleResolver.Imports
-  ( resolverImportAlias,
-    resolverImportModulePath,
-    resolverImportSymbols,
+  ( BindingOrigin (..),
+    ValidatedImportScope,
+    emptyImportScope,
+    importScopeAliases,
+    importScopeInventories,
+    importedNameOrigins,
   )
 import Jazz.Compiler.Name
   ( Name (..),
@@ -86,8 +81,7 @@ import Jazz.Compiler.TypeRepresentation
 data ResolutionContext = ResolutionContext
   { resolutionAmbientExports :: ModuleExportInventory,
     resolutionLocalInventory :: ModuleExportInventory,
-    resolutionInventoriesByModule :: Map ModulePath ModuleExportInventory,
-    resolutionImports :: [ModuleGraph.ModuleImport 'Lowered]
+    resolutionImportScope :: ValidatedImportScope
   }
 
 resolveNode :: CoreNode 'Lowered sort -> CoreNode 'Resolved sort
@@ -101,8 +95,8 @@ resolveExprNames context rootExpression = Right (resolveExpr Map.empty rootExpre
   where
     ambientExports = resolutionAmbientExports context
     localInventory = resolutionLocalInventory context
-    inventoriesByModule = resolutionInventoriesByModule context
-    imports = resolutionImports context
+    importScope = resolutionImportScope context
+    inventoriesByModule = importScopeInventories importScope
     ambientValues = exportNamesInNamespace ValueNamespace ambientExports
     ambientConstructors = exportNamesInNamespace ConstructorNamespace ambientExports
     ambientTypes = exportNamesInNamespace TypeNamespace ambientExports
@@ -112,56 +106,11 @@ resolveExprNames context rootExpression = Right (resolveExpr Map.empty rootExpre
     localConstructors = exportNamesInNamespace ConstructorNamespace localInventory
     localClasses = exportNamesInNamespace CapabilityNamespace localInventory
 
-    aliasPaths =
-      Map.fromList
-        [ (aliasName, resolverImportModulePath importDecl)
-        | importDecl <- imports,
-          Just aliasName <- [resolverImportAlias importDecl]
-        ]
-
-    visibleValueOrigins =
-      Map.fromList
-        [ (name, modulePath)
-        | importDecl <- imports,
-          resolverImportAlias importDecl == Nothing,
-          let modulePath = resolverImportModulePath importDecl,
-          name <- Set.toList (exportNamesInNamespace ValueNamespace (visibleDependencyInventory importDecl))
-        ]
-
-    visibleConstructorOrigins =
-      Map.fromList
-        [ (name, modulePath)
-        | importDecl <- imports,
-          resolverImportAlias importDecl == Nothing,
-          let modulePath = resolverImportModulePath importDecl,
-          name <- Set.toList (exportNamesInNamespace ConstructorNamespace (visibleDependencyInventory importDecl))
-        ]
-
-    visibleTypeOrigins =
-      Map.fromList
-        [ (name, modulePath)
-        | importDecl <- imports,
-          resolverImportAlias importDecl == Nothing,
-          let modulePath = resolverImportModulePath importDecl,
-          name <- Set.toList (exportNamesInNamespace TypeNamespace (visibleDependencyInventory importDecl))
-        ]
-
-    visibleClassOrigins =
-      Map.fromList
-        [ (name, modulePath)
-        | importDecl <- imports,
-          resolverImportAlias importDecl == Nothing,
-          let modulePath = resolverImportModulePath importDecl,
-          name <- Set.toList (exportNamesInNamespace CapabilityNamespace (visibleDependencyInventory importDecl))
-        ]
-
-    visibleDependencyInventory importDecl =
-      case Map.lookup (resolverImportModulePath importDecl) inventoriesByModule of
-        Nothing -> exportInventory []
-        Just inventory ->
-          selectExportNames
-            (resolverImportSymbols importDecl)
-            inventory
+    aliasPaths = Map.map bindingOriginModulePath (importScopeAliases importScope)
+    visibleValueOrigins = importedNameOrigins ValueNamespace importScope
+    visibleConstructorOrigins = importedNameOrigins ConstructorNamespace importScope
+    visibleTypeOrigins = importedNameOrigins TypeNamespace importScope
+    visibleClassOrigins = importedNameOrigins CapabilityNamespace importScope
 
     resolveName boundValues namespace name =
       case name of
@@ -503,8 +452,7 @@ resolveStandaloneExprNames ambientExports expression =
     ResolutionContext
       { resolutionAmbientExports = ambientExports,
         resolutionLocalInventory = standaloneLocalInventory expression,
-        resolutionInventoriesByModule = Map.empty,
-        resolutionImports = []
+        resolutionImportScope = emptyImportScope
       }
     expression
 

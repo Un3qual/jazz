@@ -8,6 +8,12 @@ module Jazz.Compiler.ModuleResolver.Imports
     resolverImportModulePath,
     resolverImportAlias,
     resolverImportSymbols,
+    ValidatedImportScope,
+    emptyImportScope,
+    importScopeAliases,
+    importScopeInventories,
+    importedNameOrigins,
+    BindingOrigin (..),
     validateImportBindings,
   )
 where
@@ -77,6 +83,21 @@ data BindingOrigin = BindingOrigin
     bindingOriginSpan :: SourceSpan
   }
 
+-- | Successful import validation is the owner of imported visibility. Resolution
+-- consumes these namespace-aware targets instead of selecting exports again.
+data ValidatedImportScope = ValidatedImportScope
+  { importScopeAliases :: Map Text BindingOrigin,
+    importScopeNames :: Map NameNamespace (Map Text BindingOrigin),
+    importScopeInventories :: Map ModulePath ModuleExportInventory
+  }
+
+emptyImportScope :: ValidatedImportScope
+emptyImportScope = ValidatedImportScope Map.empty Map.empty Map.empty
+
+importedNameOrigins :: NameNamespace -> ValidatedImportScope -> Map Text ModulePath
+importedNameOrigins namespace =
+  Map.map bindingOriginModulePath . Map.findWithDefault Map.empty namespace . importScopeNames
+
 declaredImportSpan :: ModuleGraph.ModuleImport 'Lowered -> SourceSpan
 declaredImportSpan importDecl =
   unqualifySourceSpan (coreNodeSpan (ModuleGraph.moduleImportNode importDecl))
@@ -118,11 +139,12 @@ validateImportBindings ::
   Set Text ->
   Set Text ->
   Map ModulePath ModuleExportInventory ->
-  Either Diagnostic ()
+  Either Diagnostic ValidatedImportScope
 validateImportBindings sourcePath importerPath imports localClassNames referencedNames qualifiedReferences qualifiedTypeReferences qualifiedClassReferences ambientVisibleSymbols ambientVisibleClassNames inventoriesByModule = do
-  go Map.empty Map.empty Map.empty imports
-  visibleSymbols <- collectVisibleImportSymbols imports
-  visibleClassNames <- collectVisibleImportClassNames imports
+  aliases <- go Map.empty Map.empty Map.empty imports
+  scope <- foldM collectImportScope (ValidatedImportScope aliases Map.empty inventoriesByModule) imports
+  let visibleSymbols = Set.union (visibleNames ValueNamespace scope) (visibleNames ConstructorNamespace scope)
+      visibleClassNames = visibleNames CapabilityNamespace scope
   validateQualifiedReferences (Set.unions [localClassNames, visibleClassNames, ambientVisibleClassNames])
   validateQualifiedTypeReferences
   mapM_ validateQualifiedClassReference (Map.toList qualifiedClassReferences)
@@ -134,8 +156,10 @@ validateImportBindings sourcePath importerPath imports localClassNames reference
       case findHiddenAliasImportReference visibleOrAmbientSymbols of
         Just (symbolName, importDecl, aliasName) ->
           Left (mkHiddenAliasImportSymbolError symbolName importDecl aliasName)
-        Nothing -> Right ()
+        Nothing -> Right scope
   where
+    visibleNames namespace = Map.keysSet . importedNameOrigins namespace
+
     dependencyInventory importDecl =
       Map.lookup (resolverImportModulePath importDecl) inventoriesByModule
 
@@ -165,7 +189,7 @@ validateImportBindings sourcePath importerPath imports localClassNames reference
     go seenSymbols seenTypes seenAliases remainingImports =
       case remainingImports of
         [] ->
-          Right ()
+          Right seenAliases
         importDecl : rest -> do
           seenAliasesAfterImport <- validateImportAlias seenAliases importDecl
           seenSymbolsAfterImport <- validateImportSymbols seenSymbols importDecl
@@ -495,14 +519,9 @@ validateImportBindings sourcePath importerPath imports localClassNames reference
               )
           )
 
-    -- Visible imports include all bare imports and explicit symbol-list imports;
-    -- alias-only imports intentionally expose nothing unqualified.
-    collectVisibleImportSymbols :: [ResolverImport] -> Either Diagnostic (Set Text)
-    collectVisibleImportSymbols =
-      foldM collectVisibleImportSymbol Set.empty
-
-    collectVisibleImportSymbol :: Set Text -> ResolverImport -> Either Diagnostic (Set Text)
-    collectVisibleImportSymbol visibleSymbols importDecl =
+    -- One namespace-aware selection serves reference validation and resolution.
+    -- Check every dependency, including alias-only imports, in source order.
+    collectImportScope scope importDecl =
       case dependencyInventory importDecl of
         Nothing ->
           Left
@@ -517,42 +536,11 @@ validateImportBindings sourcePath importerPath imports localClassNames reference
                 )
             )
         Just inventory ->
-          Right
-            ( Set.union
-                visibleSymbols
-                ( valueAndConstructorNames
-                    (visibleUnqualifiedInventory importDecl inventory)
-                )
-            )
-
-    collectVisibleImportClassNames :: [ResolverImport] -> Either Diagnostic (Set Text)
-    collectVisibleImportClassNames =
-      foldM collectVisibleImportClassName Set.empty
-
-    collectVisibleImportClassName :: Set Text -> ResolverImport -> Either Diagnostic (Set Text)
-    collectVisibleImportClassName visibleClassNames importDecl =
-      case dependencyInventory importDecl of
-        Nothing ->
-          Left
-            ( mkErrorDiagnostic
-                E4010
-                CompilationOrigin
-                ( "internal resolver error while validating imports for '"
-                    <> renderModulePath importerPath
-                    <> "': missing exports for module '"
-                    <> renderModulePath (resolverImportModulePath importDecl)
-                    <> "'"
-                )
-            )
-        Just inventory ->
-          Right
-            ( Set.union
-                visibleClassNames
-                ( exportNamesInNamespace
-                    CapabilityNamespace
-                    (visibleUnqualifiedInventory importDecl inventory)
-                )
-            )
+          let selected = visibleUnqualifiedInventory importDecl inventory
+              origin = BindingOrigin (resolverImportModulePath importDecl) (resolverImportSpan importDecl)
+              addNamespace current namespace =
+                Map.insertWith Map.union namespace (Map.fromSet (const origin) (exportNamesInNamespace namespace selected)) current
+           in Right scope {importScopeNames = foldl' addNamespace (importScopeNames scope) [ValueNamespace, ConstructorNamespace, TypeNamespace, CapabilityNamespace]}
 
     findHiddenExplicitImportReference :: Set Text -> Maybe (Text, ResolverImport)
     findHiddenExplicitImportReference visibleSymbols =
