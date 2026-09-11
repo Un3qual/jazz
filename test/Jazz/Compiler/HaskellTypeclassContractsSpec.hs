@@ -338,7 +338,8 @@ assertImportedConstraintFactAccepted label sourceArgument importedArgument = do
   where
     inferenceInputs factArgument =
       InferenceInputs
-        { inferenceWarningSettings = defaultWarningSettings,
+        { inferencePublicExports = Nothing,
+          inferenceWarningSettings = defaultWarningSettings,
           inferenceExternalUses = Set.empty,
           inferenceImportedTypes = Map.empty,
           inferenceImportedDataTypes =

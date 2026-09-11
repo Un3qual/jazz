@@ -100,7 +100,7 @@ analyzeModule inputs owner hideRootBindings importedInterface resolvedModule = d
   (inference, attachment) <-
     analyzeExpressionWithInputs
       (moduleStatementFactSeeds resolvedModule)
-      ((moduleInferenceInputs inputs modulePath importedInterface) {inferenceCurrentModulePath = case owner modulePath of StandaloneSourceUnit _ -> Nothing; _ -> Just modulePath})
+      ((moduleInferenceInputs inputs resolvedModule importedInterface) {inferenceCurrentModulePath = case owner modulePath of StandaloneSourceUnit _ -> Nothing; _ -> Just modulePath})
       hideRootBindings
       (coreModuleExpr resolvedModule)
   maybeAnalyzedExpression <- checkedAttachment modulePath attachment
@@ -112,6 +112,11 @@ analyzeModule inputs owner hideRootBindings importedInterface resolvedModule = d
             (analyzedModuleFromExpression resolvedModule inference moduleStatementFacts analyzedExpression)
       )
       maybeAnalyzedExpression
+  case maybeAnalyzedModule of
+    Just analyzed
+      | moduleInterfaceExportInventory (ModuleGraph.analyzedModuleInterface (coreModuleFacts analyzed)) /= ModuleGraph.resolvedModuleExports (coreModuleFacts resolvedModule) ->
+          fail ("typed module exports disagree with resolution in " <> Text.unpack (renderModulePath modulePath))
+    _ -> pure ()
   pure (inference, maybeAnalyzedModule)
 
 checkedAttachment :: ModulePath -> Either (NonEmpty.NonEmpty SemanticFactInvariantFailure) (Maybe value) -> IO (Maybe value)
@@ -134,17 +139,18 @@ moduleStatementFactSeeds = map importSeed . coreModuleImports
         ImportDeclaration (ModuleGraph.importedModule importDecl)
       )
 
-moduleInferenceInputs :: CompileInputs -> ModulePath -> ImportedInterface -> InferenceInputs
-moduleInferenceInputs inputs modulePath importedInterface =
+moduleInferenceInputs :: CompileInputs -> CoreModule 'Resolved -> ImportedInterface -> InferenceInputs
+moduleInferenceInputs inputs resolvedModule importedInterface =
   InferenceInputs
-    { inferenceWarningSettings = compileInputWarningSettings inputs,
+    { inferencePublicExports = Just (ModuleGraph.resolvedModuleExports (coreModuleFacts resolvedModule)),
+      inferenceWarningSettings = compileInputWarningSettings inputs,
       inferenceExternalUses = compileInputExternalUses inputs,
       inferenceImportedTypes = importedTypes importedInterface,
       inferenceImportedDataTypes = importedDataTypes importedInterface,
       inferenceImportedConstructorWitnessNames = importedConstructorWitnessNames importedInterface,
       inferenceImportedCapabilities = importedCapabilities importedInterface,
       inferenceImportedClassNames = importedClassNames importedInterface,
-      inferenceCurrentModulePath = Just modulePath
+      inferenceCurrentModulePath = Just (coreModulePath resolvedModule)
     }
 
 analyzedModuleFromExpression :: CoreModule 'Resolved -> InferenceResult -> Map CoreNodeId StatementFacts -> Expr 'Analyzed -> Either SemanticFactInvariantFailure (CoreModule 'Analyzed)
@@ -194,29 +200,29 @@ analyzedImport factsByNode importDecl =
                 ModuleGraph.importExposure = ModuleGraph.importExposure importDecl
               }
 
-dependencyImportInterface :: ModuleImport 'Resolved -> (ModuleExportInventory, ModuleInterface) -> ImportedInterface
-dependencyImportInterface importDecl (publicInventory, moduleInterface) =
+dependencyImportInterface :: ModuleImport 'Resolved -> ModuleInterface -> ImportedInterface
+dependencyImportInterface importDecl moduleInterface =
   case ModuleGraph.importExposure importDecl of
     ImportAllUnqualified ->
       importSelectedInterface
         (moduleOrigin (ModuleGraph.importedModule importDecl))
         Nothing
         Nothing
-        publicInventory
+        (moduleInterfaceExportInventory moduleInterface)
         moduleInterface
     ImportOnlyUnqualified symbolNames ->
       importSelectedInterface
         (moduleOrigin (ModuleGraph.importedModule importDecl))
         Nothing
         (Just (map identifierText (NonEmpty.toList symbolNames)))
-        publicInventory
+        (moduleInterfaceExportInventory moduleInterface)
         moduleInterface
     ImportQualifiedOnly qualifier ->
       importSelectedInterface
         (moduleOrigin (ModuleGraph.importedModule importDecl))
         (Just (identifierText (moduleQualifierIdentifier qualifier)))
         Nothing
-        publicInventory
+        (moduleInterfaceExportInventory moduleInterface)
         moduleInterface
 
 data ImportedInterface = ImportedInterface

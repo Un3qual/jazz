@@ -66,12 +66,14 @@ import Jazz.Compiler.FractionalLiteral
     fractionalLiteralExceedsMagnitude,
     fractionalLiteralIntegralValue,
   )
+import Jazz.Compiler.ModuleExports (ModuleExportInventory)
 import Jazz.Compiler.ModuleIdentity (ModulePath)
 import Jazz.Compiler.ModuleInterface
   ( ModuleInterface (..),
     ModuleValueBinding (..),
     emptyModuleInterface,
     moduleExportForBinding,
+    publishModuleInterface,
   )
 import Jazz.Compiler.Name
   ( Name (..),
@@ -185,7 +187,8 @@ import Jazz.Compiler.WarningConfig
   )
 
 data InferenceInputs = InferenceInputs
-  { inferenceWarningSettings :: WarningSettings,
+  { inferencePublicExports :: Maybe ModuleExportInventory,
+    inferenceWarningSettings :: WarningSettings,
     inferenceExternalUses :: Set CoreBinderId,
     inferenceImportedTypes :: Map TypeEnvKey (SemanticBinding DeclarationVariable),
     inferenceImportedDataTypes :: Map ResolvedName DataTypeBinding,
@@ -445,7 +448,8 @@ forceListWith forceValue values =
 emptyInferenceInputs :: WarningSettings -> InferenceInputs
 emptyInferenceInputs settings =
   InferenceInputs
-    { inferenceWarningSettings = settings,
+    { inferencePublicExports = Nothing,
+      inferenceWarningSettings = settings,
       inferenceExternalUses = Set.empty,
       inferenceImportedTypes = Map.empty,
       inferenceImportedDataTypes = Map.empty,
@@ -497,21 +501,22 @@ initialStateForInference inputs =
 
 moduleInterfaceFromState :: InferenceInputs -> Expr 'Resolved -> InferState -> ModuleInterface
 moduleInterfaceFromState inputs expr state =
-  emptyModuleInterface
-    { interfaceValueBindings =
-        closeModuleBindings
-          state
-          [ (moduleExportForBinding (renderName name) binding, binder, binding)
-          | (name, binder) <- Map.toList declaredValues,
-            Just binding <- [Map.lookup (TypeEnvKey (LexicalReference binder) name) (inferVisibleTypes state)]
-          ],
-      interfaceDataTypes = Map.restrictKeys (inferDataTypes state) declaredDataTypes,
-      interfaceClassFacts = scopeClassFacts localCapabilities,
-      interfaceGeneratedEqualityClassFacts = scopeGeneratedEqualityClassFacts localCapabilities,
-      interfaceConcreteImplFacts = scopeConcreteImplFacts localCapabilities,
-      interfaceClassMethods = scopeClassMethodSignatures localCapabilities,
-      interfaceConcreteImplMethods = scopeConcreteImplMethods localCapabilities
-    }
+  publishModuleInterface (inferencePublicExports inputs) (inferDataTypes state) $
+    emptyModuleInterface
+      { interfaceValueBindings =
+          closeModuleBindings
+            state
+            [ (moduleExportForBinding (renderName name) binding, binder, binding)
+            | (name, binder) <- Map.toList declaredValues,
+              Just binding <- [Map.lookup (TypeEnvKey (LexicalReference binder) name) (inferVisibleTypes state)]
+            ],
+        interfaceDataTypes = Map.restrictKeys (inferDataTypes state) declaredDataTypes,
+        interfaceClassFacts = scopeClassFacts localCapabilities,
+        interfaceGeneratedEqualityClassFacts = scopeGeneratedEqualityClassFacts localCapabilities,
+        interfaceConcreteImplFacts = scopeConcreteImplFacts localCapabilities,
+        interfaceClassMethods = scopeClassMethodSignatures localCapabilities,
+        interfaceConcreteImplMethods = scopeConcreteImplMethods localCapabilities
+      }
   where
     (declaredValues, declaredDataTypes) = declaredModuleBindings expr
     localCapabilities =

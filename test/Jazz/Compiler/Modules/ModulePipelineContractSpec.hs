@@ -233,7 +233,7 @@ tests =
     ("dependency expressions are checked but not executed", testDependencyExpressionContract),
     ("analyzed interfaces expose only declared exports", testAnalyzedInterfacesExposeOnlyDeclaredExports),
     ("runtime modules publish only declared exports", testRuntimeModulePublishesDeclaredExports),
-    ("analyzed modules retain private interfaces with public inventories", testAnalyzedModuleKeepsPrivateInterfaceWithPublicInventory),
+    ("analyzed modules retain private interfaces with public inventories", testAnalyzedModulePublishesOnlyPublicDeclarations),
     ("runtime modules publish explicit value exports only", testRuntimeModulePublishesExplicitExportsOnly),
     ("runtime modules publish methods only for public classes", testRuntimeModulePublishesPublicClassMethodsOnly),
     ("module export identities distinguish shadowed values and constructors", testModuleExportIdentityPreservesNamespaces),
@@ -303,7 +303,7 @@ testSingleModuleAnalysis = do
   (resolved, analyzed) <- analyzeFixtureProgram factCompletenessSources
   let inputs = emptyCompileInputs defaultWarningSettings
       entryPath = nominalModulePath ("App" :| ["Main"])
-      interfaces = Map.fromList [(coreModulePath checked, (analyzedModuleExports facts, analyzedModuleInterface facts)) | checked <- NonEmpty.toList (coreProgramModules analyzed), let facts = coreModuleFacts checked]
+      interfaces = Map.fromList [(coreModulePath checked, analyzedModuleInterface facts) | checked <- NonEmpty.toList (coreProgramModules analyzed), let facts = coreModuleFacts checked]
   entry <- maybe (fail "missing resolved entry") pure (lookupCoreModule entryPath resolved)
   expected <- maybe (fail "missing analyzed entry") pure (lookupCoreModule entryPath analyzed)
   imports <- traverse (dependencyInterface interfaces) (coreModuleImports entry)
@@ -1516,15 +1516,15 @@ testRuntimeModulePublishesDeclaredExports = do
             (Set.fromList [RuntimeBindingExport (ModuleExport ValueNamespace "answer")])
             (Map.keysSet (runtimeModuleExports runtimeModule))
 
-testAnalyzedModuleKeepsPrivateInterfaceWithPublicInventory :: IO ()
-testAnalyzedModuleKeepsPrivateInterfaceWithPublicInventory = do
+testAnalyzedModulePublishesOnlyPublicDeclarations :: IO ()
+testAnalyzedModulePublishesOnlyPublicDeclarations = do
   (_, analyzed) <- analyzeFixtureProgram explicitExportSources
   case lookupCoreModule (nominalModulePath ("Lib" :| ["Value"])) analyzed of
     Nothing -> fail "missing analyzed Lib::Value module"
     Just valueModule -> do
       assertEqual
-        "full analyzed interface"
-        (Set.fromList [ModuleExport ValueNamespace "answer", ModuleExport ValueNamespace "helper"])
+        "public analyzed interface"
+        (Set.singleton (ModuleExport ValueNamespace "answer"))
         (Map.keysSet (interfaceValueBindings (analyzedInterface valueModule)))
       assertEqual
         "public analyzed inventory"
@@ -1721,12 +1721,8 @@ testGroupedExportsPublishSelectedConstructor = do
     Just choiceModule ->
       do
         assertEqual
-          "full grouped analyzed interface retains private constructors"
-          ( Set.fromList
-              [ ModuleExport ConstructorNamespace "First",
-                ModuleExport ConstructorNamespace "Second"
-              ]
-          )
+          "public grouped analyzed interface"
+          (Set.singleton (ModuleExport ConstructorNamespace "First"))
           (Map.keysSet (interfaceValueBindings (analyzedInterface choiceModule)))
         assertEqual
           "grouped public inventory"

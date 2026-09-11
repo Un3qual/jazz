@@ -276,7 +276,8 @@ testInterfaceInventory =
   where
     interface =
       emptyModuleInterface
-        { interfaceValueBindings =
+        { interfacePublicExports = exportInventory [ModuleExport ValueNamespace "answer", ModuleExport CapabilityNamespace "Eq"],
+          interfaceValueBindings =
             Map.singleton
               (ModuleExport ValueNamespace "answer")
               (ModuleValueBinding (CoreBinderId (StandaloneSourceUnit standaloneModulePath, CoreNodeId 1)) (PlainTypeBinding SemanticInt)),

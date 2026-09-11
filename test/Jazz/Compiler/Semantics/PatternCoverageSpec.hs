@@ -686,7 +686,8 @@ testHiddenImportedConstructorCoverage = do
 hiddenConstructorInputs :: InferenceInputs
 hiddenConstructorInputs =
   InferenceInputs
-    { inferenceWarningSettings = defaultWarningSettings,
+    { inferencePublicExports = Nothing,
+      inferenceWarningSettings = defaultWarningSettings,
       inferenceExternalUses = Set.empty,
       inferenceImportedTypes =
         fixtureTypes $

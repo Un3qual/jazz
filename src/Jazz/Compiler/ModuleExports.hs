@@ -27,6 +27,7 @@ module Jazz.Compiler.ModuleExports
     selectModuleExportSelectors,
     selectValidatedModuleExportSelectors,
     inventoryHasExport,
+    restrictExportInventory,
     firstExportNamespace,
   )
 where
@@ -198,13 +199,13 @@ selectExportNames maybeNames inventory =
     Nothing -> inventory
     Just names ->
       let selectedNames = Set.fromList names
-       in restrictInventory
+       in restrictExportInventory
             (Set.filter ((`Set.member` selectedNames) . moduleExportName) (exportInventoryEntries inventory))
             inventory
 
 selectModuleExportSelectors :: [ModuleExportSelector] -> ModuleExportInventory -> ModuleExportInventory
 selectModuleExportSelectors selectors inventory =
-  restrictInventory
+  restrictExportInventory
     ( Set.filter
         (\export -> any (`moduleExportSelectorMatches` export) selectors)
         (exportInventoryEntries inventory)
@@ -255,8 +256,8 @@ moduleExportSelectorMatches selector export =
       Nothing -> True
       Just namespace -> namespace == moduleExportNamespace export
 
-restrictInventory :: Set ModuleExport -> ModuleExportInventory -> ModuleExportInventory
-restrictInventory selectedEntries inventory =
+restrictExportInventory :: Set ModuleExport -> ModuleExportInventory -> ModuleExportInventory
+restrictExportInventory selectedEntries inventory =
   ModuleExportInventory
     { inventoryEntries = selectedEntries,
       inventoryConstructorOwners =

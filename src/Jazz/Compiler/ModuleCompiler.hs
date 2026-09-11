@@ -104,10 +104,7 @@ analyzeProgram inputs resolvedProgram =
         analyzeModule inputs owner False importedInterface resolvedModule
       let sourceDiagnostics = addPreludeRebindingWarnings resolvedModule (inferredDiagnosticGroups inference)
           withDiagnostics analyzed = analyzed {ModuleGraph.coreModuleFacts = (coreModuleFacts analyzed) {ModuleGraph.analyzedModuleDiagnosticGroups = sourceDiagnostics}}
-          dependency =
-            ( ModuleGraph.resolvedModuleExports (coreModuleFacts resolvedModule),
-              inferredModuleInterface inference
-            )
+          dependency = inferredModuleInterface inference
       pure
         ( modules Seq.|> fmap withDiagnostics maybeAnalyzedModule,
           maybe dependenciesByPath (\_ -> Map.insert modulePath dependency dependenciesByPath) maybeAnalyzedModule,
