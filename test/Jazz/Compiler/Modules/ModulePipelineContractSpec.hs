@@ -63,7 +63,6 @@ import Jazz.Compiler.Driver
 import Jazz.Compiler.ModuleAnalysis
   ( analyzeModule,
     dependencyImportInterface,
-    moduleEvidenceCandidates,
   )
 import Jazz.Compiler.ModuleCompiler
   ( analyzeProgram,
@@ -298,9 +297,10 @@ testSingleModuleAnalysis = do
   (resolved, analyzed) <- analyzeFixtureProgram factCompletenessSources
   let inputs = emptyCompileInputs defaultWarningSettings
       entryPath = nominalModulePath ("App" :| ["Main"])
+      interfaces = Map.fromList [(coreModulePath checked, (analyzedModuleExports facts, analyzedModuleInterface facts)) | checked <- NonEmpty.toList (coreProgramModules analyzed), let facts = coreModuleFacts checked]
   entry <- maybe (fail "missing resolved entry") pure (lookupCoreModule entryPath resolved)
   expected <- maybe (fail "missing analyzed entry") pure (lookupCoreModule entryPath analyzed)
-  imports <- traverse (dependencyInterface resolved analyzed) (coreModuleImports entry)
+  imports <- traverse (dependencyInterface interfaces) (coreModuleImports entry)
   (inference, actual) <- analyzeModule inputs NamedSourceUnit False (mconcat imports) entry
   assertEqual "single-module diagnostics" [] (inferredDiagnostics inference)
   assertEqual "single-module facts, binders and evidence match program analysis" (Just expected) actual
@@ -311,17 +311,10 @@ testSingleModuleAnalysis = do
   assertEqual "failed module has no analyzed artifact" Nothing failedModule
   assertEqual "single-module diagnostic order matches program analysis" programDiagnostics (inferredDiagnostics failedInference)
   where
-    dependencyInterface resolved analyzed importDecl = do
-      let path = importedModule importDecl
-      dependency <- maybe (fail "missing resolved dependency") pure (lookupCoreModule path resolved)
-      checked <- maybe (fail "missing analyzed dependency") pure (lookupCoreModule path analyzed)
-      pure $
-        dependencyImportInterface
-          importDecl
-          ( resolvedModuleExports (coreModuleFacts dependency),
-            analyzedModuleInterface (coreModuleFacts checked),
-            moduleEvidenceCandidates dependency
-          )
+    dependencyInterface interfaces importDecl =
+      case Map.lookup (importedModule importDecl) interfaces of
+        Nothing -> fail "missing dependency interface"
+        Just interface -> pure (dependencyImportInterface importDecl interface)
 
 testBinaryOperandAliasSelection :: IO ()
 testBinaryOperandAliasSelection = do

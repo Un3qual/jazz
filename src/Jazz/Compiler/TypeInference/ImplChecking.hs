@@ -23,7 +23,6 @@ import Jazz.Compiler.TypeInference.Capabilities
   ( classMethodPayloadToExpressionType,
     defaultLiteralTypes,
     finalizeDeferredExplicitConstraintsAt,
-    qualifiedMethodSignatureType,
   )
 import Jazz.Compiler.TypeInference.Diagnostics
   ( addTypeError,
@@ -36,7 +35,6 @@ import Jazz.Compiler.TypeInference.State (InferState, inferClassMethodSignatures
 import Jazz.Compiler.TypeInference.Types
   ( ClassMethodType (..),
     ExpressionType,
-    ImplMethodType (..),
     TypeBinding (PlainTypeBinding),
     TypeEnv,
     typeEnvReferenceKey,
@@ -73,7 +71,8 @@ checkImplMethodBodies inferExpected resultType env initialState capabilityName a
           modify' (\current -> addTypeError current (mkImplMethodMissingClassMethodError methodKey methodSpan))
           pure Nothing
         Just classMethodType -> do
-          maybeExpectedType <- state (qualifiedMethodSignatureType methodKey classMethodType (ImplMethodType implTarget))
+          let ClassMethodType parameter declaredMethodType = classMethodType
+              maybeExpectedType = classMethodPayloadToExpressionType beforeSignature parameter implTarget declaredMethodType
           case maybeExpectedType of
             Nothing -> pure Nothing
             Just expectedType -> do

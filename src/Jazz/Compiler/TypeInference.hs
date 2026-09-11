@@ -111,7 +111,6 @@ import Jazz.Compiler.TypeInference.Analyzed
 import Jazz.Compiler.TypeInference.Capabilities
 import Jazz.Compiler.TypeInference.Diagnostics
 import Jazz.Compiler.TypeInference.Environment (insertResolvedTypeBinding)
-import Jazz.Compiler.TypeInference.Evidence (implementationEvidenceCandidatesInModule)
 import Jazz.Compiler.TypeInference.Operator
   ( applyOperatorAliasSchemeConstraints,
     builtinSectionOperatorSymbol,
@@ -142,7 +141,6 @@ import Jazz.Compiler.TypeInference.Solver
   )
 import Jazz.Compiler.TypeInference.State
   ( DeclarationState (..),
-    ImplementationEvidenceCandidate,
     InferState (..),
     InferenceOutput (..),
     ModuleInferenceState (..),
@@ -155,7 +153,6 @@ import Jazz.Compiler.TypeInference.State
     inferVisibleTypes,
     initialInferState,
     modifyInferenceOutput,
-    modifyModuleInferenceState,
     recordBinaryOperation,
     recordExpressionFactType,
     recordPatternCoverageSite,
@@ -197,8 +194,7 @@ data InferenceInputs = InferenceInputs
 data InferenceRequest = InferenceRequest
   { requestedInferenceInputs :: InferenceInputs,
     requestedHideRootBindings :: Bool,
-    requestedModuleStatementFacts :: [(CoreNode 'Resolved 'StatementSort, StatementDeclarationFact)],
-    requestedImplementationEvidenceCandidates :: Map Text [ImplementationEvidenceCandidate]
+    requestedModuleStatementFacts :: [(CoreNode 'Resolved 'StatementSort, StatementDeclarationFact)]
   }
 
 analyzeResolvedExpression ::
@@ -216,10 +212,7 @@ analyzeResolvedExpression settings expression = do
       InferenceRequest
         { requestedInferenceInputs = emptyInferenceInputs settings,
           requestedHideRootBindings = False,
-          requestedModuleStatementFacts = [],
-          requestedImplementationEvidenceCandidates =
-            implementationEvidenceCandidatesInModule
-              expression
+          requestedModuleStatementFacts = []
         }
       expression
   if any isErrorDiagnostic (inferredDiagnostics inference)
@@ -239,8 +232,7 @@ inferExpressionWithInputs inputs =
     InferenceRequest
       { requestedInferenceInputs = inputs,
         requestedHideRootBindings = False,
-        requestedModuleStatementFacts = [],
-        requestedImplementationEvidenceCandidates = Map.empty
+        requestedModuleStatementFacts = []
       }
 
 inferExpressionWithRequest :: InferenceRequest -> Expr 'Resolved -> IO InferenceResult
@@ -255,7 +247,6 @@ inferExpressionWithRequestAndState request expr =
           InferenceOnly
           inputs
           (requestedModuleStatementFacts request)
-          (requestedImplementationEvidenceCandidates request)
           expr
       expression = inferenceSubjectExpr inferenceSubject
       finalizedInference = finalizeInferenceState inputs expression finalState
@@ -275,7 +266,6 @@ inferExpressionWithRequestAndState request expr =
 
 analyzeExpressionWithInputs ::
   [(CoreNode 'Resolved 'StatementSort, StatementDeclarationFact)] ->
-  Map Text [ImplementationEvidenceCandidate] ->
   InferenceInputs ->
   Bool ->
   Expr 'Resolved ->
@@ -285,14 +275,13 @@ analyzeExpressionWithInputs ::
         (NonEmpty.NonEmpty SemanticFactInvariantFailure)
         (Maybe (Expr 'Analyzed, Map CoreNodeId StatementFacts))
     )
-analyzeExpressionWithInputs moduleStatementFacts evidenceCandidates inputs hideRootBindings expression = do
+analyzeExpressionWithInputs moduleStatementFacts inputs hideRootBindings expression = do
   (inference, finalState) <-
     inferExpressionWithRequestAndState
       InferenceRequest
         { requestedInferenceInputs = inputs,
           requestedHideRootBindings = hideRootBindings,
-          requestedModuleStatementFacts = moduleStatementFacts,
-          requestedImplementationEvidenceCandidates = evidenceCandidates
+          requestedModuleStatementFacts = moduleStatementFacts
         }
       expression
   if any isErrorDiagnostic (inferredDiagnostics inference)
@@ -318,15 +307,12 @@ inferenceSubjectExpr subject =
     InferencePreparedScope expr preparedScope ->
       preparedRecursiveScopeStatements preparedScope `seq` expr
 
-inferExpressionWork :: InferenceMode -> InferenceInputs -> [(CoreNode 'Resolved 'StatementSort, StatementDeclarationFact)] -> Map Text [ImplementationEvidenceCandidate] -> Expr 'Resolved -> (Maybe ExpressionType, InferState, Map Int (ResolvedName, SourceSpan), InferenceSubject)
-inferExpressionWork mode inputs moduleStatementFacts evidenceCandidates expr =
+inferExpressionWork :: InferenceMode -> InferenceInputs -> [(CoreNode 'Resolved 'StatementSort, StatementDeclarationFact)] -> Expr 'Resolved -> (Maybe ExpressionType, InferState, Map Int (ResolvedName, SourceSpan), InferenceSubject)
+inferExpressionWork mode inputs moduleStatementFacts expr =
   let initialState =
         foldl'
           (\state (node, declarationFact) -> recordStatementFactSeed (coreNodeId node) ([], declarationFact) state)
-          ( modifyModuleInferenceState
-              (\moduleState -> moduleState {inferenceImplementationEvidenceCandidates = evidenceCandidates})
-              (initialStateForInference inputs)
-          )
+          (initialStateForInference inputs)
           moduleStatementFacts
    in case expr of
         EBlock node statements ->
@@ -564,8 +550,7 @@ inferExpressionDefault =
     InferenceRequest
       { requestedInferenceInputs = emptyInferenceInputs defaultWarningSettings,
         requestedHideRootBindings = False,
-        requestedModuleStatementFacts = [],
-        requestedImplementationEvidenceCandidates = Map.empty
+        requestedModuleStatementFacts = []
       }
 
 instantiateEnvBinding :: TypeBinding -> InferState -> (Maybe ExpressionType, InferState)

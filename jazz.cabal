@@ -172,7 +172,6 @@ library jazz-internal
       Jazz.Compiler.TypeInference.DiagnosticCause
       Jazz.Compiler.TypeInference.Diagnostics
       Jazz.Compiler.TypeInference.Environment
-      Jazz.Compiler.TypeInference.Evidence
       Jazz.Compiler.TypeInference.Instantiation
       Jazz.Compiler.TypeInference.ImplChecking
       Jazz.Compiler.TypeInference.Operator

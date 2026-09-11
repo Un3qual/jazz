@@ -27,7 +27,6 @@ import Jazz.Compiler.ModuleAnalysis
     analyzeModule,
     dependencyImportInterface,
     importWholeInterface,
-    moduleEvidenceCandidates,
   )
 import Jazz.Compiler.ModuleGraph
   ( CoreProgram,
@@ -107,8 +106,7 @@ analyzeProgram inputs resolvedProgram =
           withDiagnostics analyzed = analyzed {ModuleGraph.coreModuleFacts = (coreModuleFacts analyzed) {ModuleGraph.analyzedModuleDiagnosticGroups = sourceDiagnostics}}
           dependency =
             ( ModuleGraph.resolvedModuleExports (coreModuleFacts resolvedModule),
-              inferredModuleInterface inference,
-              moduleEvidenceCandidates resolvedModule
+              inferredModuleInterface inference
             )
       pure
         ( modules Seq.|> fmap withDiagnostics maybeAnalyzedModule,
@@ -166,7 +164,6 @@ analyzePrelude inputs prelude =
           ambientInterface =
             importWholeInterface
               AmbientPrelude
-              (moduleEvidenceCandidates resolvedPreludeModule)
               (inferredModuleInterface inference)
       pure
         ( diagnostics,

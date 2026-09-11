@@ -7,7 +7,6 @@ module Jazz.Compiler.ModuleAnalysis
     analyzeModule,
     dependencyImportInterface,
     importWholeInterface,
-    moduleEvidenceCandidates,
   )
 where
 
@@ -80,11 +79,7 @@ import Jazz.Compiler.TypeInference
   ( InferenceInputs (..),
     analyzeExpressionWithInputs,
   )
-import Jazz.Compiler.TypeInference.Evidence (implementationEvidenceCandidatesInModule)
 import Jazz.Compiler.TypeInference.Result (InferenceResult (..))
-import Jazz.Compiler.TypeInference.State
-  ( ImplementationEvidenceCandidate (..),
-  )
 import Jazz.Compiler.TypeInference.Types
   ( ClassMethodType (..),
     ConstructorArgumentType (..),
@@ -108,7 +103,6 @@ analyzeModule inputs owner hideRootBindings importedInterface resolvedModule = d
   (inference, attachment) <-
     analyzeExpressionWithInputs
       (moduleStatementFactSeeds resolvedModule)
-      (Map.unionWith (<>) (moduleEvidenceCandidates resolvedModule) (importedEvidenceCandidates importedInterface))
       ((moduleInferenceInputs inputs modulePath importedInterface) {inferenceCurrentModulePath = case owner modulePath of StandaloneSourceUnit _ -> Nothing; _ -> Just (modulePathTexts modulePath)})
       hideRootBindings
       (coreModuleExpr resolvedModule)
@@ -204,11 +198,8 @@ analyzedImport factsByNode importDecl =
                 ModuleGraph.importExposure = ModuleGraph.importExposure importDecl
               }
 
-moduleEvidenceCandidates :: CoreModule 'Resolved -> Map Text [ImplementationEvidenceCandidate]
-moduleEvidenceCandidates = implementationEvidenceCandidatesInModule . coreModuleExpr
-
-dependencyImportInterface :: ModuleImport 'Resolved -> (ModuleExportInventory, ModuleInterface, Map Text [ImplementationEvidenceCandidate]) -> ImportedInterface
-dependencyImportInterface importDecl (publicInventory, moduleInterface, evidenceCandidates) =
+dependencyImportInterface :: ModuleImport 'Resolved -> (ModuleExportInventory, ModuleInterface) -> ImportedInterface
+dependencyImportInterface importDecl (publicInventory, moduleInterface) =
   case ModuleGraph.importExposure importDecl of
     ImportAllUnqualified ->
       importSelectedInterface
@@ -216,7 +207,6 @@ dependencyImportInterface importDecl (publicInventory, moduleInterface, evidence
         Nothing
         Nothing
         publicInventory
-        evidenceCandidates
         moduleInterface
     ImportOnlyUnqualified symbolNames ->
       importSelectedInterface
@@ -224,7 +214,6 @@ dependencyImportInterface importDecl (publicInventory, moduleInterface, evidence
         Nothing
         (Just (map identifierText (NonEmpty.toList symbolNames)))
         publicInventory
-        evidenceCandidates
         moduleInterface
     ImportQualifiedOnly qualifier ->
       importSelectedInterface
@@ -232,7 +221,6 @@ dependencyImportInterface importDecl (publicInventory, moduleInterface, evidence
         (Just (identifierText (moduleQualifierIdentifier qualifier)))
         Nothing
         publicInventory
-        evidenceCandidates
         moduleInterface
 
 data ImportedInterface = ImportedInterface
@@ -240,8 +228,7 @@ data ImportedInterface = ImportedInterface
     importedDataTypes :: Map Text DataTypeBinding,
     importedConstructorWitnessNames :: Map ResolvedName UnresolvedName,
     importedCapabilities :: ScopeCapabilityFacts,
-    importedClassNames :: Set.Set Text,
-    importedEvidenceCandidates :: Map Text [ImplementationEvidenceCandidate]
+    importedClassNames :: Set.Set Text
   }
 
 instance Semigroup ImportedInterface where
@@ -263,8 +250,7 @@ instance Semigroup ImportedInterface where
                       (scopeConcreteImplMethods leftFacts)
                       (scopeConcreteImplMethods rightFacts)
                 },
-        importedClassNames = Set.union (importedClassNames left) (importedClassNames right),
-        importedEvidenceCandidates = Map.unionWith union (importedEvidenceCandidates left) (importedEvidenceCandidates right)
+        importedClassNames = Set.union (importedClassNames left) (importedClassNames right)
       }
 
 instance Monoid ImportedInterface where
@@ -274,22 +260,20 @@ instance Monoid ImportedInterface where
         importedDataTypes = Map.empty,
         importedConstructorWitnessNames = Map.empty,
         importedCapabilities = mempty,
-        importedClassNames = Set.empty,
-        importedEvidenceCandidates = Map.empty
+        importedClassNames = Set.empty
       }
 
-importWholeInterface :: ResolvedNameOrigin -> Map Text [ImplementationEvidenceCandidate] -> ModuleInterface -> ImportedInterface
-importWholeInterface origin evidenceCandidates moduleInterface =
+importWholeInterface :: ResolvedNameOrigin -> ModuleInterface -> ImportedInterface
+importWholeInterface origin moduleInterface =
   importSelectedInterface
     origin
     Nothing
     Nothing
     (moduleInterfaceExportInventory moduleInterface)
-    evidenceCandidates
     moduleInterface
 
-importSelectedInterface :: ResolvedNameOrigin -> Maybe Text -> Maybe [Text] -> ModuleExportInventory -> Map Text [ImplementationEvidenceCandidate] -> ModuleInterface -> ImportedInterface
-importSelectedInterface origin maybeAlias maybeSymbols publicInventory evidenceCandidates moduleInterface =
+importSelectedInterface :: ResolvedNameOrigin -> Maybe Text -> Maybe [Text] -> ModuleExportInventory -> ModuleInterface -> ImportedInterface
+importSelectedInterface origin maybeAlias maybeSymbols publicInventory moduleInterface =
   ImportedInterface
     { importedTypes =
         Map.fromList
@@ -315,15 +299,7 @@ importSelectedInterface origin maybeAlias maybeSymbols publicInventory evidenceC
         rebaseCapabilityFacts origin dataTypeNames classNames selectedCapabilities,
       importedClassNames = case maybeAlias of
         Nothing -> selectedClassNames
-        Just _ -> Set.empty,
-      importedEvidenceCandidates =
-        Map.fromList
-          [ ( rebaseMethodKey origin classNames methodKey,
-              map (rebaseEvidenceCandidate origin dataTypeNames classNames) candidates
-            )
-          | (methodKey, candidates) <- Map.toList evidenceCandidates,
-            methodUsesClass selectedClassNames methodKey candidates
-          ]
+        Just _ -> Set.empty
     }
   where
     importedName export =
@@ -478,15 +454,8 @@ rebaseClassMethod origin dataTypeNames _ (ClassMethodType parameter methodType) 
   ClassMethodType parameter (rebaseExpressionType origin dataTypeNames methodType)
 
 rebaseImplMethod :: ResolvedNameOrigin -> Set.Set Text -> Set.Set Text -> ImplMethodType -> ImplMethodType
-rebaseImplMethod origin dataTypeNames _ (ImplMethodType target) =
-  ImplMethodType (rebaseSignatureTypeNames origin dataTypeNames target)
-
-rebaseEvidenceCandidate :: ResolvedNameOrigin -> Set.Set Text -> Set.Set Text -> ImplementationEvidenceCandidate -> ImplementationEvidenceCandidate
-rebaseEvidenceCandidate origin dataTypeNames classNames candidate =
-  candidate
-    { implementationCandidateCapability = rebaseKnownName origin CapabilityNamespace classNames (implementationCandidateCapability candidate),
-      implementationCandidateTarget = rebaseSignatureTypeNames origin dataTypeNames (implementationCandidateTarget candidate)
-    }
+rebaseImplMethod origin dataTypeNames _ method =
+  method {implMethodTarget = rebaseSignatureTypeNames origin dataTypeNames (implMethodTarget method)}
 
 rebaseConcreteImplFact ::
   ResolvedNameOrigin ->

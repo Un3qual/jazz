@@ -8,6 +8,7 @@ module Jazz.Compiler.SemanticDeclarations
   ( ClassMethodType (..),
     ConstructorArgumentType (..),
     DataTypeBinding (..),
+    ImplMethodType (..),
     SignatureTypeFailure (..),
     instantiateDeclarationType,
     normalizeSignatureType,
@@ -23,11 +24,21 @@ import Data.Text (Text)
 import GHC.Generics (Generic)
 import Jazz.Compiler.BuiltinCatalog (numericTypeFromName)
 import Jazz.Compiler.CapabilityFacts (identifierLooksLikeTypeVariable)
+import Jazz.Compiler.CoreIdentity (CapabilityId, MethodId)
 import Jazz.Compiler.Name (ResolvedName, identifierText)
 import Jazz.Compiler.TypeRepresentation (SemanticType (..), SignatureType (..), substituteSemanticVariables)
 
 -- | A checked method type with its class parameter explicitly bound.
 data ClassMethodType = ClassMethodType Text (SemanticType ResolvedName Text)
+  deriving stock (Eq, Generic, Show)
+  deriving anyclass (NFData)
+
+-- | The declaration selected by method checking also owns its evidence identity.
+data ImplMethodType = ImplMethodType
+  { implMethodTarget :: SignatureType ResolvedName ResolvedName,
+    implMethodCapability :: CapabilityId,
+    implMethodIdentity :: MethodId
+  }
   deriving stock (Eq, Generic, Show)
   deriving anyclass (NFData)
 

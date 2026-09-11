@@ -18,7 +18,7 @@ import qualified Jazz.Compiler.AST as AST
 import Jazz.Compiler.CapabilityFacts
   ( ConcreteImplFact (ConcreteImplFact),
   )
-import Jazz.Compiler.CoreIdentity (CoreBinderId (..), ResolvedNodeFacts (..), emptyResolvedNodeFacts)
+import Jazz.Compiler.CoreIdentity (CapabilityId (..), CoreBinderId (..), CoreNodeId (..), ImplId (..), MethodId (..), ResolvedNodeFacts (..), emptyResolvedNodeFacts)
 import Jazz.Compiler.Diagnostics
   ( SourceSpan (SourceSpan),
     isErrorDiagnostic,
@@ -240,11 +240,11 @@ testScopeCapabilityFacts = do
     (Map.lookup "compare" (scopeClassMethodSignatures combined))
   assertEqual
     "implementation methods preserve left-to-right order"
-    (Just [ImplMethodType TypeInt, ImplMethodType TypeBool])
+    (Just [fixtureImplMethod TypeInt, fixtureImplMethod TypeBool])
     (Map.lookup "Comparable" (scopeConcreteImplMethods combined))
   assertEqual
     "three-way implementation collisions preserve left-to-right order"
-    (Just [ImplMethodType TypeInt, ImplMethodType TypeBool, ImplMethodType TypeBool])
+    (Just [fixtureImplMethod TypeInt, fixtureImplMethod TypeBool, fixtureImplMethod TypeBool])
     (Map.lookup "Comparable" (scopeConcreteImplMethods (first <> second <> third)))
   where
     combined = first <> second
@@ -254,7 +254,7 @@ testScopeCapabilityFacts = do
           scopeClassMethodSignatures =
             Map.singleton "compare" (ClassMethodType "Left" TypeRepresentation.SemanticInt),
           scopeConcreteImplMethods =
-            Map.singleton "Comparable" [ImplMethodType TypeInt]
+            Map.singleton "Comparable" [fixtureImplMethod TypeInt]
         }
     second =
       mempty
@@ -262,7 +262,7 @@ testScopeCapabilityFacts = do
           scopeClassMethodSignatures =
             Map.singleton "compare" (ClassMethodType "Right" TypeRepresentation.SemanticBool),
           scopeConcreteImplMethods =
-            Map.singleton "Comparable" [ImplMethodType TypeBool]
+            Map.singleton "Comparable" [fixtureImplMethod TypeBool]
         }
     third =
       mempty
@@ -270,7 +270,7 @@ testScopeCapabilityFacts = do
           scopeClassMethodSignatures =
             Map.singleton "compare" (ClassMethodType "Third" TypeRepresentation.SemanticInt),
           scopeConcreteImplMethods =
-            Map.singleton "Comparable" [ImplMethodType TypeBool],
+            Map.singleton "Comparable" [fixtureImplMethod TypeBool],
           scopeGeneratedEqualityClassFacts = Set.singleton "Eq",
           scopeConcreteImplFacts = Set.singleton (ConcreteImplFact (localCapabilityName "Comparable") TypeInt)
         }
@@ -406,3 +406,6 @@ testModuleExportInventory = do
         ]
     third :: ModuleExportInventory
     third = exportInventory [ModuleExport ValueNamespace "other"]
+
+fixtureImplMethod :: AST.SignatureType 'AST.Resolved -> ImplMethodType
+fixtureImplMethod target = ImplMethodType target (CapabilityId (resolvedLocalName CapabilityNamespace (mkIdentifier "Comparable"))) (MethodId (ImplId (StandaloneSourceUnit standaloneModulePath, CoreNodeId 0), mkIdentifier "compare"))

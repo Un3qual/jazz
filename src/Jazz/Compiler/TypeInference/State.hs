@@ -1,5 +1,3 @@
-{-# LANGUAGE DataKinds #-}
-
 -- | Explicitly separated state for inference traversal and solver operations.
 module Jazz.Compiler.TypeInference.State
   ( DeclarationState (..),
@@ -7,7 +5,6 @@ module Jazz.Compiler.TypeInference.State
     ExplicitInstantiationSeed (..),
     ExplicitInstantiationTarget (..),
     ExpressionEvidenceSeed (..),
-    ImplementationEvidenceCandidate (..),
     InferState (..),
     InferenceOutput (..),
     ModuleInferenceState (..),
@@ -28,7 +25,6 @@ module Jazz.Compiler.TypeInference.State
     inferBinaryOperations,
     inferExpressionEvidenceSeeds,
     inferExplicitInstantiationSeeds,
-    inferImplementationEvidenceCandidates,
     inferFactInvariantFailures,
     inferGeneratedEqualityClassFacts,
     inferInferredClassConstraintCount,
@@ -67,7 +63,6 @@ import qualified Data.Sequence as Seq
 import Data.Set (Set)
 import qualified Data.Set as Set
 import Data.Text (Text)
-import Jazz.Compiler.AST (CorePhase (Resolved), SignatureType)
 import Jazz.Compiler.CapabilityFacts (ConcreteImplFact)
 import Jazz.Compiler.Diagnostics (Diagnostic)
 import Jazz.Compiler.Name (ResolvedName, UnresolvedName)
@@ -120,7 +115,6 @@ data ModuleInferenceState = ModuleInferenceState
     inferenceLocalCapabilities :: ScopeCapabilityFacts,
     inferenceModuleCapabilities :: Map [Text] ScopeCapabilityFacts,
     inferenceConstructorWitnessNames :: Map ResolvedName UnresolvedName,
-    inferenceImplementationEvidenceCandidates :: Map Text [ImplementationEvidenceCandidate],
     inferenceVisibleTypes :: TypeEnv
   }
   deriving (Eq, Show)
@@ -159,14 +153,6 @@ data ExplicitInstantiationTarget
 data ExplicitInstantiationSeed = ExplicitInstantiationSeed
   { explicitInstantiationSeedTarget :: ExplicitInstantiationTarget,
     explicitInstantiationSeedArguments :: NonEmpty ExpressionType
-  }
-  deriving (Eq, Show)
-
-data ImplementationEvidenceCandidate = ImplementationEvidenceCandidate
-  { implementationCandidateCapability :: ResolvedName,
-    implementationCandidateTarget :: SignatureType 'Resolved,
-    implementationCandidateId :: ImplId,
-    implementationCandidateMethodId :: MethodId
   }
   deriving (Eq, Show)
 
@@ -226,7 +212,6 @@ initialInferState =
             inferenceLocalCapabilities = emptyScopeCapabilityFacts,
             inferenceModuleCapabilities = Map.empty,
             inferenceConstructorWitnessNames = Map.empty,
-            inferenceImplementationEvidenceCandidates = Map.empty,
             inferenceVisibleTypes = Map.empty
           },
       inferOutput =
@@ -316,9 +301,6 @@ inferExpressionEvidenceSeeds = outputExpressionEvidenceSeeds . inferOutput
 
 inferExplicitInstantiationSeeds :: InferState -> Map CoreNodeId ExplicitInstantiationSeed
 inferExplicitInstantiationSeeds = outputExplicitInstantiationSeeds . inferOutput
-
-inferImplementationEvidenceCandidates :: InferState -> Map Text [ImplementationEvidenceCandidate]
-inferImplementationEvidenceCandidates = inferenceImplementationEvidenceCandidates . inferModule
 
 inferPatternFactSeeds :: InferState -> Map CoreNodeId PatternFacts
 inferPatternFactSeeds = outputPatternFactSeeds . inferOutput

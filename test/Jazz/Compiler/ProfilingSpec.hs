@@ -21,7 +21,7 @@ import Jazz.Compiler.AST
     Expr (ELit),
     Literal (LInt),
   )
-import Jazz.Compiler.CoreIdentity (CoreBinderId (..), emptyResolvedNodeFacts)
+import Jazz.Compiler.CoreIdentity (CapabilityId (..), CoreBinderId (..), ImplId (..), MethodId (..), emptyResolvedNodeFacts)
 import Jazz.Compiler.DiagnosticCatalog (ErrorCode (E1001))
 import Jazz.Compiler.Diagnostics
   ( DiagnosticOrigin (CompilationOrigin),
@@ -50,7 +50,7 @@ import Jazz.Compiler.ModuleRuntime
     RuntimeProgram (RuntimeProgram),
   )
 import Jazz.Compiler.Name
-  ( NameNamespace (ConstructorNamespace, TypeNamespace, ValueNamespace),
+  ( NameNamespace (CapabilityNamespace, ConstructorNamespace, TypeNamespace, ValueNamespace),
     mkIdentifier,
     resolvedLocalName,
   )
@@ -219,7 +219,7 @@ testDeepModuleInterfaceForcing =
           { interfaceConcreteImplMethods =
               Map.singleton
                 "Capability::method"
-                [ImplMethodType (TypeList deferredSignatureType)]
+                [ImplMethodType (TypeList deferredSignatureType) (CapabilityId (resolvedLocalName CapabilityNamespace (mkIdentifier "Capability"))) (MethodId (ImplId (StandaloneSourceUnit standaloneModulePath, CoreNodeId 0), mkIdentifier "method"))]
           }
       )
     ]

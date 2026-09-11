@@ -1,4 +1,3 @@
-{-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DeriveTraversable #-}
@@ -42,10 +41,6 @@ import Data.Set (Set)
 import qualified Data.Set as Set
 import Data.Text (Text)
 import GHC.Generics (Generic)
-import Jazz.Compiler.AST
-  ( CorePhase (Resolved),
-    SignatureType,
-  )
 import Jazz.Compiler.BuiltinCatalog
   ( BuiltinSymbol,
   )
@@ -54,7 +49,7 @@ import Jazz.Compiler.CoreIdentity (ResolvedNodeFacts, ResolvedReference, resolve
 import Jazz.Compiler.Name
   ( ResolvedName,
   )
-import Jazz.Compiler.SemanticDeclarations (ClassMethodType (..), ConstructorArgumentType (..), DataTypeBinding (..), instantiateDeclarationType)
+import Jazz.Compiler.SemanticDeclarations (ClassMethodType (..), ConstructorArgumentType (..), DataTypeBinding (..), ImplMethodType (..), instantiateDeclarationType)
 import Jazz.Compiler.StableSet
   ( StableSet,
     stableSetFromPreferred,
@@ -153,10 +148,6 @@ typeEnvBindingKey facts = TypeEnvKey (resolvedBinderReference facts)
 
 typeEnvReferenceKey :: ResolvedNodeFacts -> ResolvedName -> TypeEnvKey
 typeEnvReferenceKey facts = TypeEnvKey (resolvedValueReference facts)
-
-newtype ImplMethodType = ImplMethodType (SignatureType 'Resolved)
-  deriving stock (Eq, Generic, Show)
-  deriving anyclass (NFData)
 
 data ScopeCapabilityFacts = ScopeCapabilityFacts
   { scopeClassFacts :: Map Text Int,
