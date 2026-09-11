@@ -472,7 +472,7 @@ testAnalyzedLiteralRangeFacts = do
   let nodeId = CoreNodeId 17
       expression = ELit (CoreNode nodeId (SourceSpan 1 1) (emptyResolvedNodeFacts (NamedSourceUnit (nominalModulePath ("App" :| ["Main"]))))) (LInt 255)
       (literalType, literalState) = freshIntegerLiteralType (IntegerLiteralRange 0 255) initialInferState
-      checked = CheckedExpr (Just literalType) (ELit <$> draftExpressionNode literalState (Just literalType) expression <*> pure (LInt 255))
+      checked = CheckedExpr (Just literalType) (ELit <$> draftExpressionNode (Just literalType) expression <*> pure (LInt 255))
   case finalizeCheckedExpression literalState checked of
     Right (ELit (CoreNode _ _ facts) _) -> do
       assertEqual "uncommitted numeric representation" literalType (expressionSemanticType facts)
@@ -654,12 +654,12 @@ testAnalyzedFactInvariantFailures = do
       node :: Int -> CoreNode 'Resolved 'ExpressionSort
       node number = CoreNode (CoreNodeId number) (SourceSpan 1 1) (emptyResolvedNodeFacts owner)
       expression = ELit (node 41) (LInt 1)
-      unchecked = CheckedExpr Nothing (ELit <$> draftExpressionNode initialInferState Nothing expression <*> pure (LInt 1))
+      unchecked = CheckedExpr Nothing (ELit <$> draftExpressionNode Nothing expression <*> pure (LInt 1))
   assertEqual "an incomplete checked node fails finalization" (Left (MissingExpressionFacts (CoreNodeId 41) :| [])) (finalizeCheckedExpression initialInferState unchecked)
   let unknown = BuiltinName (mkIdentifier "unknown")
       unresolvedNode = (node 42) {coreNodeFacts = (emptyResolvedNodeFacts owner) {resolvedNodeReference = Just (UnresolvedReference unknown)}}
       unresolved = EVar unresolvedNode unknown
-      checkedUnresolved = CheckedExpr (Just SemanticInt) (EVar <$> draftExpressionNode initialInferState (Just SemanticInt) unresolved <*> pure unknown)
+      checkedUnresolved = CheckedExpr (Just SemanticInt) (EVar <$> draftExpressionNode (Just SemanticInt) unresolved <*> pure unknown)
   assertEqual "an unresolved reference cannot become analyzed" (Left (UnresolvedExpressionReference (CoreNodeId 42) unknown :| [])) (finalizeCheckedExpression initialInferState checkedUnresolved)
 
   let statementId = CoreNodeId 51
@@ -668,8 +668,8 @@ testAnalyzedFactInvariantFailures = do
       statementNode = CoreNode statementId (SourceSpan 1 1) ((emptyResolvedNodeFacts owner) {resolvedNodeBinder = Just binder})
       statement = SLet statementNode name expression
       block = EBlock (node 50) [statement]
-      checkedValue = CheckedExpr (Just SemanticInt) (ELit <$> draftExpressionNode initialInferState (Just SemanticInt) expression <*> pure (LInt 1))
-      finalizeBinding state = finalizeCheckedExpression state (CheckedExpr (Just SemanticInt) (EBlock <$> draftExpressionNode state (Just SemanticInt) block <*> sequenceA [draftStatement state statement (Just checkedValue) []]))
+      checkedValue = CheckedExpr (Just SemanticInt) (ELit <$> draftExpressionNode (Just SemanticInt) expression <*> pure (LInt 1))
+      finalizeBinding state = finalizeCheckedExpression state (CheckedExpr (Just SemanticInt) (EBlock <$> draftExpressionNode (Just SemanticInt) block <*> sequenceA [draftStatement state statement (Just checkedValue) []]))
       aliasState = recordStatementFactSeed statementId ([(name, BuiltinAliasTypeBinding BuiltinToInt8)], ValueDeclaration name) initialInferState
   assertEqual "an unprojected binding cannot silently lose its scheme" (Left (MissingStatementScheme statementId binder :| [])) (finalizeBinding aliasState)
 

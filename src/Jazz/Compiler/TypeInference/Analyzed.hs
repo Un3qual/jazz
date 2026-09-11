@@ -6,6 +6,9 @@
 module Jazz.Compiler.TypeInference.Analyzed
   ( draftExpressionNode,
     draftOperationNode,
+    ExpressionDecision (..),
+    noExpressionDecision,
+    draftDecidedExpressionNode,
     draftCaseArmNode,
     draftStatement,
     refineListPrependDraft,
@@ -66,8 +69,6 @@ import Jazz.Compiler.TypeInference.State
     ExplicitInstantiationTarget (..),
     ExpressionEvidenceSeed (..),
     InferState,
-    inferExplicitInstantiationSeeds,
-    inferExpressionEvidenceSeeds,
     inferFactInvariantFailures,
     inferNumericVars,
     inferStatementFactSeeds,
@@ -115,22 +116,34 @@ data ExpressionNodeDraft = ExpressionNodeDraft
     draftNodeNumericLiteral :: !Bool
   }
 
-draftExpressionNode :: InferState -> Maybe ExpressionType -> Expr 'Resolved -> Draft (CoreNode 'Analyzed 'ExpressionSort)
-draftExpressionNode = draftOperationNode Nothing
+data ExpressionDecision = ExpressionDecision
+  { decisionOperation :: Maybe BinaryOperation,
+    decisionEvidence :: Maybe ExpressionEvidenceSeed,
+    decisionInstantiation :: Maybe ExplicitInstantiationSeed
+  }
 
-draftOperationNode :: Maybe BinaryOperation -> InferState -> Maybe ExpressionType -> Expr 'Resolved -> Draft (CoreNode 'Analyzed 'ExpressionSort)
-draftOperationNode operation checked result expression =
+noExpressionDecision :: ExpressionDecision
+noExpressionDecision = ExpressionDecision Nothing Nothing Nothing
+
+draftExpressionNode :: Maybe ExpressionType -> Expr 'Resolved -> Draft (CoreNode 'Analyzed 'ExpressionSort)
+draftExpressionNode = draftDecidedExpressionNode noExpressionDecision
+
+draftOperationNode :: Maybe BinaryOperation -> Maybe ExpressionType -> Expr 'Resolved -> Draft (CoreNode 'Analyzed 'ExpressionSort)
+draftOperationNode operation = draftDecidedExpressionNode (noExpressionDecision {decisionOperation = operation})
+
+draftDecidedExpressionNode :: ExpressionDecision -> Maybe ExpressionType -> Expr 'Resolved -> Draft (CoreNode 'Analyzed 'ExpressionSort)
+draftDecidedExpressionNode decision result expression =
   let node = expressionNode expression
-      payload = (prepareExpressionNode checked (Just expression) result (coreNodeId node)) {draftNodeOperation = operation}
+      payload = prepareExpressionNode decision (Just expression) result (coreNodeId node)
    in payload `seq` Draft (\solved -> finalizeExpressionNode solved payload node)
 
-draftCaseArmNode :: InferState -> Maybe ExpressionType -> CoreNode 'Resolved 'ExpressionSort -> Draft (CoreNode 'Analyzed 'ExpressionSort)
-draftCaseArmNode checked result node =
-  let payload = prepareExpressionNode checked Nothing result (coreNodeId node)
+draftCaseArmNode :: Maybe ExpressionType -> CoreNode 'Resolved 'ExpressionSort -> Draft (CoreNode 'Analyzed 'ExpressionSort)
+draftCaseArmNode result node =
+  let payload = prepareExpressionNode noExpressionDecision Nothing result (coreNodeId node)
    in payload `seq` Draft (\solved -> finalizeExpressionNode solved payload node)
 
-refineListPrependDraft :: InferState -> Expr 'Resolved -> ExpressionType -> Draft (Expr 'Analyzed) -> Draft (Expr 'Analyzed)
-refineListPrependDraft state function elementType checked = case function of
+refineListPrependDraft :: Expr 'Resolved -> ExpressionType -> Draft (Expr 'Analyzed) -> Draft (Expr 'Analyzed)
+refineListPrependDraft function elementType checked = case function of
   EApply _ builtin _ ->
     let listType = SemanticList elementType
         partialType = SemanticFunction listType listType
@@ -138,20 +151,20 @@ refineListPrependDraft state function elementType checked = case function of
         rebuild partial callable expression = case expression of
           EApply _ analyzedBuiltin headValue -> EApply partial (mapExpressionFacts (const (coreNodeFacts callable)) analyzedBuiltin) headValue
           _ -> expression
-     in rebuild <$> draftExpressionNode state (Just partialType) function <*> draftExpressionNode state (Just callableType) builtin <*> checked
+     in rebuild <$> draftExpressionNode (Just partialType) function <*> draftExpressionNode (Just callableType) builtin <*> checked
   _ -> checked
 
-prepareExpressionNode :: InferState -> Maybe (Expr 'Resolved) -> Maybe ExpressionType -> CoreNodeId -> ExpressionNodeDraft
-prepareExpressionNode checked expression result nodeId =
+prepareExpressionNode :: ExpressionDecision -> Maybe (Expr 'Resolved) -> Maybe ExpressionType -> CoreNodeId -> ExpressionNodeDraft
+prepareExpressionNode decision expression result nodeId =
   ExpressionNodeDraft
     { draftNodeType = result,
-      draftNodeOperation = Nothing,
+      draftNodeOperation = decisionOperation decision,
       draftNodeEvidence = evidence,
-      draftNodeInstantiation = explicitInstantiationFacts nodeId expression (Map.lookup nodeId (inferExplicitInstantiationSeeds checked)) evidence,
+      draftNodeInstantiation = explicitInstantiationFacts nodeId expression (decisionInstantiation decision) evidence,
       draftNodeNumericLiteral = case expression of Just (ELit _ LInt {}) -> True; Just (ELit _ LFloat {}) -> True; _ -> False
     }
   where
-    evidence = Map.lookup nodeId (inferExpressionEvidenceSeeds checked)
+    evidence = decisionEvidence decision
 
 finalizeExpressionNode :: InferState -> ExpressionNodeDraft -> CoreNode 'Resolved 'ExpressionSort -> Attachment (CoreNode 'Analyzed 'ExpressionSort)
 finalizeExpressionNode _ _ (CoreNode nodeId _ ResolvedNodeFacts {resolvedNodeReference = Just (UnresolvedReference name)}) =

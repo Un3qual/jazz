@@ -8,29 +8,26 @@ module Jazz.Compiler.TypeInference.Instantiation
   )
 where
 
-import Data.Bifunctor (first)
 import Data.List.NonEmpty
   ( NonEmpty (..),
   )
 import qualified Data.Map.Strict as Map
 import Jazz.Compiler.AST
-  ( CoreNode (coreNodeFacts, coreNodeSpan),
-    CoreNodeId,
+  ( CoreNode (coreNodeFacts, coreNodeId, coreNodeSpan),
     CorePhase (..),
     Expr (..),
-    SignatureType,
     expressionNode,
   )
 import Jazz.Compiler.CoreIdentity (CapabilityMethodKey, capabilityMethodKeyFromReference, resolvedValueReference)
-import Jazz.Compiler.Diagnostics
-  ( SourceSpan,
-  )
 import Jazz.Compiler.Name
   ( ResolvedName,
     operatorBindingName,
   )
+import Jazz.Compiler.SemanticFacts (SemanticFactInvariantFailure (MissingExpressionFacts))
+import Jazz.Compiler.TypeInference.Analyzed (ExpressionDecision (..), draftDecidedExpressionNode, draftExpressionNode, noExpressionDecision)
 import Jazz.Compiler.TypeInference.Capabilities
-  ( applyTypeSchemePrimitiveConstraints,
+  ( MethodSelection (..),
+    applyTypeSchemePrimitiveConstraints,
     capabilityFactsFromState,
     deferExplicitConstraintsWithFacts,
     instantiateQualifiedMethodTypeWithExplicitTarget,
@@ -42,7 +39,7 @@ import Jazz.Compiler.TypeInference.Diagnostics
     mkExplicitTypeApplicationTargetError,
     mkInvalidExplicitTypeApplicationArgumentError,
   )
-import Jazz.Compiler.TypeInference.Draft (checkedExprType)
+import Jazz.Compiler.TypeInference.Draft (CheckedExpr (..), rejectedDraft)
 import Jazz.Compiler.TypeInference.Pattern
   ( instantiateConstructorBinding,
   )
@@ -55,7 +52,6 @@ import Jazz.Compiler.TypeInference.State
   ( ExplicitInstantiationSeed (..),
     ExplicitInstantiationTarget (..),
     InferState (..),
-    recordExplicitInstantiationSeed,
   )
 import Jazz.Compiler.TypeInference.Traversal
   ( InferExprFn,
@@ -139,73 +135,35 @@ instantiateTypeScheme typeScheme state =
       let (freshType, nextState) = freshTypeVar stateAcc
        in (Map.insert typeVar freshType bindings, nextState)
 
-inferExplicitTypeApplication ::
-  InferExprFn ->
-  TypeEnv ->
-  InferState ->
-  CoreNodeId ->
-  Expr 'Resolved ->
-  SourceSpan ->
-  SignatureType 'Resolved ->
-  (Maybe ExpressionType, InferState)
-inferExplicitTypeApplication inferExpression env state applicationNodeId functionExpr typeArgumentSpan typeArgument =
+inferExplicitTypeApplication :: InferExprFn -> TypeEnv -> InferState -> Expr 'Resolved -> (CheckedExpr, InferState)
+inferExplicitTypeApplication inferExpression env state expression@(ETypeApplication node functionExpr typeArgumentSpan typeArgument) =
   case (explicitTypeApplicationScheme env functionExpr, Signature.constraintSignatureTypeToExpressionTypeWithState state Map.empty typeArgument) of
     (_, Just explicitArgumentType)
       | Just methodKey <- explicitQualifiedMethodTypeApplicationKey env state functionExpr,
         Just targetName <- explicitTypeApplicationTargetName functionExpr ->
-          let (maybeInstantiatedType, nextState) =
-                instantiateQualifiedMethodTypeWithExplicitTarget applicationNodeId methodKey explicitArgumentType state
-           in ( maybeInstantiatedType,
-                recordExplicitInstantiationDecision
-                  applicationNodeId
-                  (ExplicitQualifiedMethodInstantiation targetName)
-                  explicitArgumentType
-                  maybeInstantiatedType
-                  (annotateNewErrorsWithPrimarySpan (coreNodeSpan (expressionNode functionExpr)) state nextState)
-              )
-    (Just typeScheme, Just explicitArgumentType)
+          let (selection, next) = instantiateQualifiedMethodTypeWithExplicitTarget methodKey explicitArgumentType state
+           in finish (ExplicitQualifiedMethodInstantiation targetName) explicitArgumentType (selectedMethodType selection) (selectedMethodEvidence selection) (annotateNewErrorsWithPrimarySpan (coreNodeSpan (expressionNode functionExpr)) state next)
+    (Just scheme, Just explicitArgumentType)
       | Just targetName <- explicitTypeApplicationTargetName functionExpr ->
-          let (maybeInstantiatedType, nextState) =
-                instantiateTypeSchemeWithExplicitArgument typeScheme explicitArgumentType state
-           in ( maybeInstantiatedType,
-                recordExplicitInstantiationDecision
-                  applicationNodeId
-                  (ExplicitBinderInstantiation targetName)
-                  explicitArgumentType
-                  maybeInstantiatedType
-                  nextState
-              )
-    (Just _, Just _) ->
-      (Nothing, addTypeError state mkExplicitTypeApplicationTargetError)
-    (Just _, Nothing) ->
-      (Nothing, addTypeError state (mkInvalidExplicitTypeApplicationArgumentError state typeArgumentSpan typeArgument))
+          let (result, next) = instantiateTypeSchemeWithExplicitArgument scheme explicitArgumentType state
+           in finish (ExplicitBinderInstantiation targetName) explicitArgumentType result Nothing next
+    (Just _, Just _) -> failed (addTypeError state mkExplicitTypeApplicationTargetError)
+    (Just _, Nothing) -> failed (addTypeError state (mkInvalidExplicitTypeApplicationArgumentError state typeArgumentSpan typeArgument))
     (Nothing, _) ->
-      let (functionResult, stateAfterFunction) =
-            first checkedExprType (inferExpression env state functionExpr)
-       in case functionResult of
-            Just _ ->
-              (Nothing, addTypeError stateAfterFunction mkExplicitTypeApplicationTargetError)
-            Nothing -> (Nothing, stateAfterFunction)
-
-recordExplicitInstantiationDecision ::
-  CoreNodeId ->
-  ExplicitInstantiationTarget ->
-  ExpressionType ->
-  Maybe ExpressionType ->
-  InferState ->
-  InferState
-recordExplicitInstantiationDecision applicationNodeId target argumentType maybeInstantiatedType state =
-  case maybeInstantiatedType of
-    Nothing -> state
-    Just _ ->
-      recordExplicitInstantiationSeed
-        applicationNodeId
-        ( ExplicitInstantiationSeed
-            { explicitInstantiationSeedTarget = target,
-              explicitInstantiationSeedArguments = argumentType :| []
-            }
-        )
-        state
+      let (functionCheck, next) = inferExpression env state functionExpr
+       in failed (case checkedExprType functionCheck of Just _ -> addTypeError next mkExplicitTypeApplicationTargetError; Nothing -> next)
+  where
+    failed next = (CheckedExpr Nothing (rejectedDraft (MissingExpressionFacts (coreNodeId node))), next)
+    finish target argument result evidence next =
+      let seed = ExplicitInstantiationSeed target (argument :| []) <$ result
+          decision = noExpressionDecision {decisionInstantiation = seed, decisionEvidence = evidence}
+          function = case functionExpr of
+            EVar _ name -> EVar <$> draftExpressionNode result functionExpr <*> pure name
+            EOperatorValue _ symbol -> EOperatorValue <$> draftExpressionNode result functionExpr <*> pure symbol
+            _ -> rejectedDraft (MissingExpressionFacts (coreNodeId (expressionNode functionExpr)))
+          tree = ETypeApplication <$> draftDecidedExpressionNode decision result expression <*> function <*> pure typeArgumentSpan <*> pure typeArgument
+       in (CheckedExpr result tree, next)
+inferExplicitTypeApplication _ _ state expression = (CheckedExpr Nothing (rejectedDraft (MissingExpressionFacts (coreNodeId (expressionNode expression)))), addTypeError state mkExplicitTypeApplicationTargetError)
 
 explicitTypeApplicationTargetName :: Expr 'Resolved -> Maybe ResolvedName
 explicitTypeApplicationTargetName functionExpr =

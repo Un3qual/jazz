@@ -82,7 +82,7 @@ import Jazz.Compiler.SemanticFacts
     SemanticFactInvariantFailure (MissingExpressionFacts),
     StatementDeclarationFact,
   )
-import Jazz.Compiler.TypeInference.Analyzed (draftExpressionNode, draftOperationNode, refineListPrependDraft)
+import Jazz.Compiler.TypeInference.Analyzed (ExpressionDecision (..), draftDecidedExpressionNode, draftExpressionNode, draftOperationNode, noExpressionDecision, refineListPrependDraft)
 import Jazz.Compiler.TypeInference.Capabilities
 import Jazz.Compiler.TypeInference.Diagnostics
 import Jazz.Compiler.TypeInference.Draft (CheckedExpr (..), CheckedScope (..), Draft, rejectedDraft)
@@ -116,6 +116,7 @@ import Jazz.Compiler.TypeInference.Solver
   )
 import Jazz.Compiler.TypeInference.State
   ( DeclarationState (..),
+    ExpressionEvidenceSeed,
     InferState (..),
     InferenceOutput (..),
     ModuleInferenceState (..),
@@ -193,7 +194,7 @@ inferExpressionWork inputs moduleStatementFacts expr =
               blockResult = checkedScopeType blockCheck
               blockType = fromMaybe unitType blockResult
               blockState = rawBlockState
-           in (CheckedExpr blockResult (EBlock <$> draftExpressionNode blockState (Just blockType) expr <*> checkedScopeTree blockCheck), blockState, InferencePreparedScope expr preparedScope)
+           in (CheckedExpr blockResult (EBlock <$> draftExpressionNode (Just blockType) expr <*> checkedScopeTree blockCheck), blockState, InferencePreparedScope expr preparedScope)
         _ ->
           let (result, resultState) =
                 inferExprTypeDetailed
@@ -289,7 +290,7 @@ inferExprTypeWithMode mode env state expr = case expr of
     let (scope, inferredState) = inferNestedScopeTypeWithMode inferExprTypeWithMode mode env state (prepareResolvedScope node statements)
         result = checkedScopeType scope
         finalState = inferredState
-     in (CheckedExpr result (EBlock <$> draftExpressionNode finalState result expr <*> checkedScopeTree scope), finalState)
+     in (CheckedExpr result (EBlock <$> draftExpressionNode result expr <*> checkedScopeTree scope), finalState)
   _ -> inferExprTypeDetailed env state expr
 
 -- Checking returns the draft subtree alongside its type. Legacy constructor
@@ -338,21 +339,16 @@ inferExprTypeDetailed env state expr = case expr of
         if sectionFallback then inferSectionApplicationWithFallback function argument symbol left right else inferBuiltinOperatorApplication symbol aliasScheme left right
     | Just (methodName, methodSpan, methodKey, arguments) <- qualifiedMethodApplicationSpine expr state,
       Map.notMember methodName env ->
-        let (result, afterArguments, argumentChecks) = inferQualifiedMethodApplicationWithResults inferLocatedMethodArgument env state (coreNodeId (expressionNode expr)) methodKey arguments
+        let (selection, afterArguments, argumentChecks) = inferQualifiedMethodApplicationWithResults inferLocatedMethodArgument env state methodKey arguments
+            result = selectedMethodType selection
             tree = case (result, traverse checkedExprType argumentChecks) of
-              (Just resultType, Just argumentTypes) -> draftQualifiedMethodSpine expr (foldr (SemanticFunction . resolveType afterArguments) (resolveType afterArguments resultType) argumentTypes) argumentChecks afterArguments
+              (Just resultType, Just argumentTypes) -> draftQualifiedMethodSpine (selectedMethodEvidence selection) expr (foldr (SemanticFunction . resolveType afterArguments) (resolveType afterArguments resultType) argumentTypes) argumentChecks
               _ -> rejectedDraft (MissingExpressionFacts (coreNodeId (expressionNode expr)))
          in (CheckedExpr result tree, annotateNewErrorsWithPrimarySpan methodSpan state afterArguments)
     | otherwise ->
         let (checked, finalState) = inferCheckedApplication env state expr function argument
          in (checked, finalState)
-  ETypeApplication node function argumentSpan argument ->
-    let (result, finalState) = inferExplicitTypeApplication inferExprTypeDetailed env state (coreNodeId node) function argumentSpan argument
-        target = case function of
-          EVar _ name -> EVar <$> draftExpressionNode finalState result function <*> pure name
-          EOperatorValue _ symbol -> EOperatorValue <$> draftExpressionNode finalState result function <*> pure symbol
-          _ -> rejectedDraft (MissingExpressionFacts (coreNodeId (expressionNode function)))
-     in finish result finalState (\facts -> ETypeApplication <$> facts <*> target <*> pure argumentSpan <*> pure argument)
+  ETypeApplication {} -> inferExplicitTypeApplication inferExprTypeDetailed env state expr
   ELambda node name body ->
     let (parameterType, stateAfterParameter) = freshTypeVar state
         (bodyCheck, finalState) = inferExprTypeDetailed (insertResolvedTypeBinding (coreNodeFacts node) name (PlainTypeBinding parameterType) env) stateAfterParameter body
@@ -361,11 +357,12 @@ inferExprTypeDetailed env state expr = case expr of
   EBlock {} -> inferExprTypeWithMode InferConcreteFunctions env state expr
   where
     leaf make =
-      let (result, finalState) = inferLeafExpression env state expr
-       in finish result finalState (fmap make)
+      let (result, evidence, finalState) = inferLeafExpression env state expr
+          decision = noExpressionDecision {decisionEvidence = evidence}
+       in (CheckedExpr result (make <$> draftDecidedExpressionNode decision result expr), finalState)
     finish = finishOperation Nothing
     finishOperation operation result finalState make =
-      (CheckedExpr result (make (draftOperationNode operation finalState result expr)), finalState)
+      (CheckedExpr result (make (draftOperationNode operation result expr)), finalState)
 
     selectedBinaryOperation operatorSymbol leftExpr rightExpr operandTyping =
       BinaryOperation
@@ -526,25 +523,32 @@ inferExprTypeDetailed env state expr = case expr of
       let (checked, nextState) = inferExprTypeDetailed argumentEnv priorState argumentExpr
        in (checked, annotateNewErrorsWithPrimarySpan (coreNodeSpan (expressionNode argumentExpr)) priorState nextState)
 
-inferLeafExpression :: TypeEnv -> InferState -> Expr 'Resolved -> (Maybe ExpressionType, InferState)
+inferLeafExpression :: TypeEnv -> InferState -> Expr 'Resolved -> (Maybe ExpressionType, Maybe ExpressionEvidenceSeed, InferState)
 inferLeafExpression env state expr = case expr of
   ELit _ literal ->
     let (literalType, afterLiteral) = literalExpressionType literal state
-     in (Just literalType, checkLiteralType afterLiteral literal)
-  ETuple _ [] -> (Just (SemanticTuple []), state)
+     in (Just literalType, Nothing, checkLiteralType afterLiteral literal)
+  ETuple _ [] -> (Just (SemanticTuple []), Nothing, state)
   EVar node name ->
-    let (result, finalState) = case Map.lookup (typeEnvReferenceKey (coreNodeFacts node) name) env of
-          Just binding -> instantiateEnvBinding binding state
+    let (result, evidence, finalState) = case Map.lookup (typeEnvReferenceKey (coreNodeFacts node) name) env of
+          Just binding -> ordinary (instantiateEnvBinding binding state)
           Nothing -> case instantiateBuiltinType (resolvedValueReference (coreNodeFacts node)) state of
-            Just (builtinType, next) -> (Just builtinType, next)
-            Nothing -> fromMaybe (Nothing, state) (instantiateQualifiedMethodType (coreNodeId node) (resolvedValueReference (coreNodeFacts node)) state)
-     in (result, annotateNewErrorsWithPrimarySpan (coreNodeSpan node) state finalState)
-  EOperatorValue node symbol -> case instantiateOperatorType symbol state of
-    Just (operatorType, next) -> (Just operatorType, next)
-    Nothing
-      | isBuiltinOperatorSymbol symbol -> (Nothing, addTypeError state (mkUnsupportedOperatorValueError symbol))
-    Nothing -> instantiateDeclaredOperatorBindingType env (coreNodeFacts node) symbol state
-  _ -> (Nothing, state)
+            Just (builtinType, next) -> (Just builtinType, Nothing, next)
+            Nothing -> case instantiateQualifiedMethodType (resolvedValueReference (coreNodeFacts node)) state of
+              Just (selection, next) -> (selectedMethodType selection, selectedMethodEvidence selection, next)
+              Nothing -> (Nothing, Nothing, state)
+     in (result, evidence, annotateNewErrorsWithPrimarySpan (coreNodeSpan node) state finalState)
+  EOperatorValue node symbol ->
+    ordinary
+      ( case instantiateOperatorType symbol state of
+          Just (operatorType, next) -> (Just operatorType, next)
+          Nothing
+            | isBuiltinOperatorSymbol symbol -> (Nothing, addTypeError state (mkUnsupportedOperatorValueError symbol))
+          Nothing -> instantiateDeclaredOperatorBindingType env (coreNodeFacts node) symbol state
+      )
+  _ -> (Nothing, Nothing, state)
+  where
+    ordinary (result, next) = (result, Nothing, next)
 
 -- The raw prepend primitive deliberately adopts the concrete element type
 -- carried by its list argument and coerces the prepended value to match.
@@ -575,9 +579,9 @@ inferCheckedApplication env state expr function argument =
       (result, finalState) = specializeListPrependRawResult function (checkedExprType argumentCheck) rawType rawState
       functionDraft = case (function, checkedExprType argumentCheck, result) of
         (EApply _ builtin _, Just (SemanticList elementType), Just _)
-          | builtinListPrependRawExpr builtin -> refineListPrependDraft finalState function (resolveType finalState elementType) (checkedExprTree functionCheck)
+          | builtinListPrependRawExpr builtin -> refineListPrependDraft function (resolveType finalState elementType) (checkedExprTree functionCheck)
         _ -> checkedExprTree functionCheck
-      draft = EApply <$> draftExpressionNode finalState result expr <*> functionDraft <*> checkedExprTree argumentCheck
+      draft = EApply <$> draftExpressionNode result expr <*> functionDraft <*> checkedExprTree argumentCheck
    in (CheckedExpr result draft, finalState)
 
 inferApplicationFromResults :: TypeEnv -> InferState -> Expr 'Resolved -> Expr 'Resolved -> Maybe ExpressionType -> Maybe ExpressionType -> InferState -> (Maybe ExpressionType, InferState)
@@ -707,12 +711,14 @@ applicationSpine expr =
 
 -- Specialized checks construct skipped callable wrappers from their selected
 -- types and owned argument trees. These builders do not mutate solver output.
-draftQualifiedMethodSpine :: Expr 'Resolved -> ExpressionType -> [CheckedExpr] -> InferState -> Draft (Expr 'Analyzed)
-draftQualifiedMethodSpine root methodType arguments state =
+draftQualifiedMethodSpine :: Maybe ExpressionEvidenceSeed -> Expr 'Resolved -> ExpressionType -> [CheckedExpr] -> Draft (Expr 'Analyzed)
+draftQualifiedMethodSpine evidence root methodType arguments =
   let (_, tree, remaining) = walk root arguments
    in if null remaining then tree else rejected root
   where
-    facts expression result = draftExpressionNode state (Just result) expression
+    facts expression result =
+      let decision = noExpressionDecision {decisionEvidence = if coreNodeId (expressionNode expression) == coreNodeId (expressionNode root) then evidence else Nothing}
+       in draftDecidedExpressionNode decision (Just result) expression
     rejected expression = rejectedDraft (MissingExpressionFacts (coreNodeId (expressionNode expression)))
     walk expression remaining = case expression of
       EApply _ dollar@(EOperatorValue _ "$") function ->
@@ -737,20 +743,20 @@ draftBuiltinApplication env selectedSymbol operation root left right leftType ri
           let partialType = SemanticFunction resolvedRight resolvedResult
               operatorType = SemanticFunction resolvedLeft partialType
               partialTree = EApply <$> facts partial partialType <*> callable operator operatorType <*> checkedExprTree left
-           in EApply <$> draftOperationNode operation state (Just resolvedResult) root <*> partialTree <*> checkedExprTree right
+           in EApply <$> draftOperationNode operation (Just resolvedResult) root <*> partialTree <*> checkedExprTree right
     EApply _ function _ ->
       let (argument, argumentType) = case sectionDirection function of
             Just True -> (right, resolvedRight)
             Just False -> (left, resolvedLeft)
             Nothing -> (right, resolvedRight)
           sectionType = SemanticFunction argumentType resolvedResult
-       in EApply <$> draftOperationNode operation state (Just resolvedResult) root <*> section function sectionType <*> checkedExprTree argument
+       in EApply <$> draftOperationNode operation (Just resolvedResult) root <*> section function sectionType <*> checkedExprTree argument
     _ -> rejected root
   where
     resolvedLeft = resolveType state leftType
     resolvedRight = resolveType state rightType
     resolvedResult = resolveType state resultType
-    facts expression result = draftExpressionNode state (Just result) expression
+    facts expression result = draftExpressionNode (Just result) expression
     rejected expression = rejectedDraft (MissingExpressionFacts (coreNodeId (expressionNode expression)))
     leaf expression result = case expression of
       EVar _ name -> EVar <$> facts expression result <*> pure name

@@ -91,7 +91,7 @@ inferPatternCaseType inferExpression env scrutineeType initialState caseArms =
                   bodyType = checkedExprType bodyCheck
                   afterBodyFacts = afterBody
                   (result, finalState) = mergeArmTypes expected bodyType afterBodyFacts
-                  arm = CaseArm <$> draftCaseArmNode afterBodyFacts bodyType armNode <*> checkedPattern typing pattern <*> guardDraft <*> checkedExprTree bodyCheck
+                  arm = CaseArm <$> draftCaseArmNode bodyType armNode <*> checkedPattern typing pattern <*> guardDraft <*> checkedExprTree bodyCheck
                in (result, arm : arms, finalState)
 
     rejectedArm pattern = Draft (const (AttachmentFailed (MissingPatternFacts (coreNodeId (patternNode pattern))) Seq.empty))

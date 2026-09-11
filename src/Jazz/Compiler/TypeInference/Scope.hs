@@ -85,9 +85,10 @@ import Jazz.Compiler.SemanticDeclarations (normalizeSignatureType)
 import Jazz.Compiler.SemanticFacts
   ( StatementDeclarationFact (..),
   )
-import Jazz.Compiler.TypeInference.Analyzed (draftExpressionNode, draftStatement, projectAnalyzedMethodSignature)
+import Jazz.Compiler.TypeInference.Analyzed (ExpressionDecision (..), draftDecidedExpressionNode, draftExpressionNode, draftStatement, noExpressionDecision, projectAnalyzedMethodSignature)
 import Jazz.Compiler.TypeInference.Capabilities
-  ( TypeEnvFreeVariables,
+  ( MethodSelection (..),
+    TypeEnvFreeVariables,
     addUnpreservedInferredMethodConstraintErrors,
     builtinDollarOperatorExpr,
     capabilityFactsFromState,
@@ -214,8 +215,10 @@ inferExprTypeWithExpectedMode inferExpression mode env state expectedType expr =
   case (resolveType state expectedType, expr) of
     (_, EVar node name)
       | Map.notMember (typeEnvReferenceKey (coreNodeFacts node) name) env,
-        Just (result, checkedState) <- instantiateQualifiedMethodTypeWithExpected (coreNodeId node) (resolvedValueReference (coreNodeFacts node)) expectedType state ->
-          finish result checkedState (\facts -> EVar <$> facts <*> pure name)
+        Just (selection, checkedState) <- instantiateQualifiedMethodTypeWithExpected (resolvedValueReference (coreNodeFacts node)) expectedType state ->
+          let result = selectedMethodType selection
+              decision = noExpressionDecision {decisionEvidence = selectedMethodEvidence selection}
+           in (CheckedExpr result (EVar <$> draftDecidedExpressionNode decision result expr <*> pure name), checkedState)
     (SemanticFunction argumentType resultType, ELambda node parameterName bodyExpr) ->
       let extendedEnv = insertResolvedTypeBinding (coreNodeFacts node) parameterName (PlainTypeBinding argumentType) env
           (bodyCheck, afterBody) = inferExprTypeWithExpectedMode inferExpression mode extendedEnv state resultType bodyExpr
@@ -246,7 +249,7 @@ inferExprTypeWithExpectedMode inferExpression mode env state expectedType expr =
             _ -> (checked, next)
   where
     finish result checkedState build =
-      ( CheckedExpr result (build (draftExpressionNode checkedState result expr)),
+      ( CheckedExpr result (build (draftExpressionNode result expr)),
         checkedState
       )
 
