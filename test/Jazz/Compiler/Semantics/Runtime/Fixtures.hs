@@ -44,7 +44,6 @@ where
 
 import qualified Data.List.NonEmpty as NonEmpty
 import qualified Data.Map.Strict as Map
-import qualified Data.Sequence as Seq
 import Data.Text (Text)
 import qualified Data.Text as Text
 import Jazz.Compiler.AST
@@ -85,11 +84,11 @@ import Jazz.Compiler.SemanticFacts
     AnalyzedScheme (..),
     CoreBinderId (..),
     ExpressionFacts (..),
+    InstantiationTarget (..),
     PatternConstructorFact (PatternHasNoConstructor),
     PatternFacts (..),
     PatternRefutability (RefutablePattern),
-    RuntimeObligation (ConstrainResult, InstantiateTypes),
-    RuntimePlan (RuntimePlan),
+    SemanticInstantiation (..),
     StatementDeclarationFact (..),
     StatementFacts (..),
   )
@@ -109,7 +108,7 @@ expressionNode =
         Map.empty
         []
         []
-        mempty
+        Nothing
     )
 
 patternNode :: CoreNode 'Analyzed 'PatternSort
@@ -167,9 +166,7 @@ expressionConstrainedAs resultType expression =
         node
           { coreNodeFacts =
               (coreNodeFacts node)
-                { expressionRuntimePlan =
-                    let RuntimePlan operations = expressionRuntimePlan (coreNodeFacts node)
-                     in RuntimePlan (operations Seq.|> ConstrainResult (fixtureSemanticType resultType))
+                { expressionResultRepresentation = Just (fixtureSemanticType resultType)
                 }
           }
     )
@@ -214,9 +211,7 @@ expressionTypeApplication function argumentSpan argumentType =
     ( expressionNode
         { coreNodeFacts =
             (coreNodeFacts expressionNode)
-              { expressionRuntimePlan =
-                  RuntimePlan
-                    (Seq.singleton (InstantiateTypes (fixtureSemanticType argumentType NonEmpty.:| [])))
+              { expressionInstantiations = [SemanticInstantiation (LexicalInstantiation (CoreBinderId (StandaloneSourceUnit standaloneModulePath, CoreNodeId (-1)))) (fixtureSemanticType argumentType NonEmpty.:| [])]
               }
         }
     )

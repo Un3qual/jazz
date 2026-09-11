@@ -1,5 +1,5 @@
 ---
-id: JN-COMPILER-DIRECT-RUNTIME-001
+id: JN-COMPILER-METHOD-IDENTITY-001
 status: ready
 priority: P1
 size: L
@@ -7,14 +7,14 @@ kind: impl
 autonomous_ready: yes
 depends_on: []
 last_verified: 2026-09-11
-plan_section: "T11a — Execute analyzed instantiation and representation facts directly"
+plan_section: "T11b — Use selected method identity for concrete evidence"
 target_paths:
-  - src/Jazz/Compiler/SemanticFacts.hs
+  - src/Jazz/Compiler/Runtime/Types.hs
   - src/Jazz/Compiler/Runtime/Engine.hs
 verification:
   - cabal test primitive-semantics-spec binding-signature-coherence-spec runtime-semantics-spec adt-pattern-runtime-spec module-pipeline-contract-spec --test-options=--skip-performance --jobs=4
   - bash scripts/check-execution-queue.sh
-deliverable: Consume checked instantiation, evidence, literal, and result facts directly and remove stored runtime plans.
+deliverable: Index implementation methods by MethodId and execute selected evidence directly while retaining dynamic dispatch.
 supersedes: []
 ---
 
@@ -30,7 +30,7 @@ supersedes: []
 
 **Spec:** [Validated audit findings](2026-09-10-compiler-architecture-validation.md), together with the target contracts and preservation rules below. The report preserves the disposition of all three input audits. The two Luna drafts were withdrawn after validation; their rejected or qualified recommendations are not implementation guidance.
 
-**Status:** Execution requested on 2026-09-11. T11a is the active bounded milestone in the execution queue. Execute the remaining tasks inline in dependency order; promote the next milestone when its prerequisites pass.
+**Status:** Execution requested on 2026-09-11. T11b is the active bounded milestone in the execution queue. Execute the remaining tasks inline in dependency order; promote the next milestone when its prerequisites pass.
 
 **Existing architecture decision:** [RFC 0016](../../rfcs/accepted/0016-optional-backend-removal.md) explicitly says to keep “attached analysis facts, and runtime plans.” Direct construction still retains attached facts, but T11a proposes changing the retained runtime-plan contract. Approval of this plan should therefore include that specific architectural decision and a narrow amendment through the repository's RFC process before removal. This is a dependency of T11a, not a reason to block unrelated tasks or ask for another confirmation while preparing this plan. If runtime plans are to remain, retain the small sequence and pursue direct identity/ownership improvements around it; do not claim its deletion completed.
 
@@ -310,14 +310,14 @@ The table is a dependency order, not a request for parallel agents. Work inline.
 
 **Files:** `src/Jazz/Compiler/SemanticFacts.hs`, `src/Jazz/Compiler/AST.hs`, `src/Jazz/Compiler/TypeInference/{Analyzed,Instantiation}.hs`, `src/Jazz/Compiler/Runtime/{Engine,Semantics,Types}.hs`; tests `test/Jazz/Compiler/Modules/ModulePipelineContractSpec.hs`, `test/Jazz/Compiler/Semantics/PrimitiveSemantics/`, `test/Jazz/Compiler/Semantics/BindingSignature/`, `test/Jazz/Compiler/Runtime/Observation/`.
 
-- [ ] Record the approved narrow amendment of RFC 0016's runtime-plan retention decision through the repository's RFC process. Preserve its backend-removal and hosted-frontend boundaries. If that change is not approved, retain `RuntimePlan` and mark the removal work deferred; the other ownership tasks remain valid.
-- [ ] Represent checked explicit instantiation with its target kind and ordered arguments, including qualified methods that have no ordinary lexical binder. Consolidate the existing instantiation metadata instead of adding an equivalent second record.
-- [ ] Apply literal specialization in literal evaluation and explicit type arguments in type-application evaluation. Use checked facts rather than reparsing the authored type syntax.
-- [ ] Apply checked result representation/defaulting at the existing return boundary. Preserve closure annotations, partial application, higher-order result hints, and profile-frame close order.
-- [ ] Remove construction/storage/interpretation of `RuntimePlan` and `RuntimeObligation` once all four operations have direct consumers. Evidence handling may initially retain current filtering semantics until T11b.
-- [ ] Remove shape-based runtime-hint prediction in inference only where the checked facts now give the same decision. Do not delete still-needed polymorphic/defaulting rules on the assumption that all types are closed.
-- [ ] Run primitive, binding-signature, runtime, ADT runtime, module-pipeline, and runtime-observation suites. Cover empty collections, polymorphic numeric results, imported constructors, and staged function type applications.
-- [ ] Commit direct fact consumption and plan removal.
+- [x] Record the approved narrow amendment of RFC 0016's runtime-plan retention decision through the repository's RFC process. Preserve its backend-removal and hosted-frontend boundaries. If that change is not approved, retain `RuntimePlan` and mark the removal work deferred; the other ownership tasks remain valid.
+- [x] Represent checked explicit instantiation with its target kind and ordered arguments, including qualified methods that have no ordinary lexical binder. Consolidate the existing instantiation metadata instead of adding an equivalent second record.
+- [x] Apply literal specialization in literal evaluation and explicit type arguments in type-application evaluation. Use checked facts rather than reparsing the authored type syntax.
+- [x] Apply checked result representation/defaulting at the existing return boundary. Preserve closure annotations, partial application, higher-order result hints, and profile-frame close order.
+- [x] Remove construction/storage/interpretation of `RuntimePlan` and `RuntimeObligation` once all four operations have direct consumers. Evidence handling may initially retain current filtering semantics until T11b.
+- [x] Remove shape-based runtime-hint prediction in inference only where the checked facts now give the same decision. Do not delete still-needed polymorphic/defaulting rules on the assumption that all types are closed.
+- [x] Run primitive, binding-signature, runtime, ADT runtime, module-pipeline, and runtime-observation suites. Cover empty collections, polymorphic numeric results, imported constructors, and staged function type applications.
+- [x] Commit direct fact consumption and plan removal.
 
 **Deletion criterion:** Analyzed nodes carry semantic decisions once; no stored sequence restates them. Runtime return handling retains the semantics that need to occur on return, without invoking a derived node-wide mini-program.
 
@@ -681,3 +681,11 @@ Documentation verification at plan completion checks local evidence targets/line
 - All six inference output maps and their duplicate-entry invariants are removed. Finalization only projects owned decisions with solved substitutions; it does not re-infer, rebuild environments, allocate variables, or select evidence. Capability representation selection reads the actual checked argument facts.
 - Replaced map-shape tests with malformed-node rejection, scheme/literal-range preservation, and output-erasure ownership checks spanning applications, patterns, signatures, classes, explicit instantiation, and recursive groups.
 - All nine T10 correctness suites pass in `/private/tmp/jazz-t10-final-correctness.log`: module pipeline, binding/signature, primitive, loader, ADT typing/runtime, pattern semantics/coverage, and generated invariants. Ormolu, HLint, and whitespace checks pass. Performance cases are explicitly skipped; benchmark comparisons remain waived. T10 is complete; T11a is active.
+
+### T11a direct runtime facts
+
+- Accepted RFC 0018 records the approved narrow amendment of RFC 0016; backend removal and hosted-frontend boundaries remain unchanged.
+- Removed `RuntimePlan` and `RuntimeObligation`, the duplicated instantiation argument record, and runtime plan interpretation. Explicit type application consumes ordered `SemanticInstantiation` arguments, literals consume their checked numeric type, and evidence is supplied before forcing nullary methods. Deferred cells expose their value before callable preparation.
+- Closed result representation is a semantic field with its own definition-site policy: generalized definitions can suppress a representation that a concrete use would enforce. Existing return controls preserve function/partial-call annotations, integer defaults, higher-order result hints, and profile-frame closure.
+- Retained the checker's polymorphic/defaulting and structural exact-match rules: method selection runs before all variables are solved, and those rules distinguish literal defaults, empty collections, and partial-call evidence. They no longer inspect runtime plans or reconstruct authored declarations.
+- Primitive, binding/signature, runtime correctness, ADT runtime, loader, and module-pipeline suites pass in `/private/tmp/jazz-t11a-final-correctness.log`. Runtime performance cases are skipped. Observation, profiling, and benchmark-stage API consumers compile only in `/private/tmp/jazz-t11a-api-build.log`; none execute. Ormolu, HLint, and whitespace checks pass. T11a is complete; T11b is active.

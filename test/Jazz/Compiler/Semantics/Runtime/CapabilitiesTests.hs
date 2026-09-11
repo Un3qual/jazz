@@ -10,7 +10,6 @@ import Control.Exception
   ( SomeException,
     try,
   )
-import Data.Foldable (toList)
 import qualified Data.List.NonEmpty as NonEmpty
 import qualified Data.Text as Text
 import Jazz.Compiler.AST
@@ -53,13 +52,13 @@ import Jazz.Compiler.Runtime.Types
   ( RuntimeMethodCandidate (..),
   )
 import Jazz.Compiler.SemanticFacts
-  ( CapabilityId (..),
+  ( AnalyzedType,
+    CapabilityId (..),
     EvidenceReference (..),
     ExpressionFacts (..),
     ImplId (..),
     MethodId (..),
-    RuntimeObligation (..),
-    RuntimePlan (..),
+    SemanticInstantiation (..),
   )
 import Jazz.Compiler.Semantics.Runtime.Fixtures
 import Jazz.Compiler.Semantics.Runtime.ResolvedFixture
@@ -162,7 +161,7 @@ capabilityTests =
     ("qualified method dispatch preserves ADT concrete payload hints", testQualifiedMethodDispatchPreservesAdtConcretePayloadHint),
     ("qualified method dispatch preserves monomorphic ADT concrete payload hints", testQualifiedMethodDispatchPreservesMonomorphicAdtConcretePayloadHint),
     ("qualified method dispatch keeps nested inferred hints scoped", testQualifiedMethodDispatchKeepsNestedInferredHintsScoped),
-    ("authored module transitions own standalone plans and evidence", testAuthoredModuleTransitionOwnsPlansAndEvidence),
+    ("authored module transitions own standalone plans and evidence", testAuthoredModuleTransitionOwnsFactsAndEvidence),
     ("qualified method dispatch prefers alias binding over method sentinel at runtime", testQualifiedMethodDispatchPrefersAliasBindingOverMethodSentinelAtRuntime),
     ("qualified zero-argument method dispatch returns itemValue", testQualifiedZeroArgumentMethodDispatchReturnsValue),
     ("qualified method dispatch rejects direct self alias", testQualifiedMethodDispatchRejectsDirectSelfAlias),
@@ -480,7 +479,7 @@ testQualifiedMethodDispatchSelectsNullaryBodyByBindingResultType = do
 testNullaryMethodSelectionRecordsCanonicalAnalyzedEvidence :: IO ()
 testNullaryMethodSelectionRecordsCanonicalAnalyzedEvidence = do
   (inference, analyzedExpression) <-
-    analyzeRuntimePlan
+    analyzeRuntimeFacts
       """
       class RuntimeDefault(a) {
       defaultValue :: a.
@@ -512,17 +511,12 @@ testNullaryMethodSelectionRecordsCanonicalAnalyzedEvidence = do
         [expectedResultEvidence, explicitTargetEvidence, uniqueBareEvidence]
         (expressionEvidenceInventory analyzedExpression)
       assertEqual
-        "nullary selection evidence is supplied before its result constraint"
-        [ ([expectedResultEvidence], [SupplyEvidence (expectedResultEvidence NonEmpty.:| []), ConstrainResult SemanticInt]),
-          ( [explicitTargetEvidence],
-            [ InstantiateTypes (SemanticBool NonEmpty.:| []),
-              SupplyEvidence (explicitTargetEvidence NonEmpty.:| []),
-              ConstrainResult SemanticBool
-            ]
-          ),
-          ([uniqueBareEvidence], [SupplyEvidence (uniqueBareEvidence NonEmpty.:| []), ConstrainResult SemanticInt])
+        "nullary selection retains instantiation and result facts"
+        [ ([expectedResultEvidence], [], Just SemanticInt),
+          ([explicitTargetEvidence], [SemanticBool NonEmpty.:| []], Just SemanticBool),
+          ([uniqueBareEvidence], [], Just SemanticInt)
         ]
-        (expressionEvidencePlanInventory analyzedExpression)
+        (expressionEvidenceFactsInventory analyzedExpression)
     implementations ->
       failTest ("expected three nullary implementation identities, got " <> Text.pack (show implementations))
   where
@@ -1927,10 +1921,10 @@ testQualifiedMethodDispatchKeepsNestedInferredHintsScoped = do
   assertEqual "runtime errors" [] (runRuntimeErrors result)
   assertEqual "runtime output" (Just "True") (runOutput result)
 
-testAuthoredModuleTransitionOwnsPlansAndEvidence :: IO ()
-testAuthoredModuleTransitionOwnsPlansAndEvidence = do
+testAuthoredModuleTransitionOwnsFactsAndEvidence :: IO ()
+testAuthoredModuleTransitionOwnsFactsAndEvidence = do
   (inference, analyzedExpression) <-
-    analyzeRuntimePlan
+    analyzeRuntimeFacts
       """
       module App::Main {
       class RuntimePick(a) {
@@ -1963,26 +1957,26 @@ sourceUnitStatements expression =
     _ -> []
 
 expressionEvidenceInventory :: Expr 'Analyzed -> [EvidenceReference]
-expressionEvidenceInventory = foldMap fst . expressionEvidencePlanInventory
+expressionEvidenceInventory = foldMap (\(evidence, _, _) -> evidence) . expressionEvidenceFactsInventory
 
-expressionEvidencePlanInventory :: Expr 'Analyzed -> [([EvidenceReference], [RuntimeObligation])]
-expressionEvidencePlanInventory expression =
-  nodeEvidencePlan expression
+expressionEvidenceFactsInventory :: Expr 'Analyzed -> [([EvidenceReference], [NonEmpty.NonEmpty AnalyzedType], Maybe AnalyzedType)]
+expressionEvidenceFactsInventory expression =
+  nodeEvidenceFacts expression
     <> case expression of
-      ELambda _ _ body -> expressionEvidencePlanInventory body
-      EList _ elements -> foldMap expressionEvidencePlanInventory elements
-      ETuple _ elements -> foldMap expressionEvidencePlanInventory elements
-      EApply _ function argument -> expressionEvidencePlanInventory function <> expressionEvidencePlanInventory argument
-      ETypeApplication _ function _ _ -> expressionEvidencePlanInventory function
-      EIf _ condition whenTrue whenFalse -> foldMap expressionEvidencePlanInventory [condition, whenTrue, whenFalse]
-      EPatternCase _ scrutinee arms -> expressionEvidencePlanInventory scrutinee <> foldMap armEvidencePlans arms
-      EBinary _ _ left right -> expressionEvidencePlanInventory left <> expressionEvidencePlanInventory right
-      ESectionLeft _ left _ -> expressionEvidencePlanInventory left
-      ESectionRight _ _ right -> expressionEvidencePlanInventory right
-      EBlock _ statements -> foldMap statementEvidencePlans statements
+      ELambda _ _ body -> expressionEvidenceFactsInventory body
+      EList _ elements -> foldMap expressionEvidenceFactsInventory elements
+      ETuple _ elements -> foldMap expressionEvidenceFactsInventory elements
+      EApply _ function argument -> expressionEvidenceFactsInventory function <> expressionEvidenceFactsInventory argument
+      ETypeApplication _ function _ _ -> expressionEvidenceFactsInventory function
+      EIf _ condition whenTrue whenFalse -> foldMap expressionEvidenceFactsInventory [condition, whenTrue, whenFalse]
+      EPatternCase _ scrutinee arms -> expressionEvidenceFactsInventory scrutinee <> foldMap armEvidenceFacts arms
+      EBinary _ _ left right -> expressionEvidenceFactsInventory left <> expressionEvidenceFactsInventory right
+      ESectionLeft _ left _ -> expressionEvidenceFactsInventory left
+      ESectionRight _ _ right -> expressionEvidenceFactsInventory right
+      EBlock _ statements -> foldMap statementEvidenceFacts statements
       _ -> []
   where
-    nodeEvidencePlan value =
+    nodeEvidenceFacts value =
       case value of
         ELit (CoreNode _ _ facts) _ -> plan facts
         EVar (CoreNode _ _ facts) _ -> plan facts
@@ -2002,29 +1996,27 @@ expressionEvidencePlanInventory expression =
       case expressionEvidence facts of
         [] -> []
         evidence ->
-          [(evidence, toList obligations)]
-          where
-            RuntimePlan obligations = expressionRuntimePlan facts
-    armEvidencePlans (CaseArm (CoreNode _ _ facts) _ guard body) =
-      plan facts <> foldMap expressionEvidencePlanInventory guard <> expressionEvidencePlanInventory body
-    statementEvidencePlans statement =
+          [(evidence, map instantiatedTypes (expressionInstantiations facts), expressionResultRepresentation facts)]
+    armEvidenceFacts (CaseArm (CoreNode _ _ facts) _ guard body) =
+      plan facts <> foldMap expressionEvidenceFactsInventory guard <> expressionEvidenceFactsInventory body
+    statementEvidenceFacts statement =
       case statement of
-        SLet _ _ value -> expressionEvidencePlanInventory value
-        SImpl _ _ _ methods -> foldMap (\(ImplMethod _ _ body) -> expressionEvidencePlanInventory body) methods
-        SExpr _ value -> expressionEvidencePlanInventory value
+        SLet _ _ value -> expressionEvidenceFactsInventory value
+        SImpl _ _ _ methods -> foldMap (\(ImplMethod _ _ body) -> expressionEvidenceFactsInventory body) methods
+        SExpr _ value -> expressionEvidenceFactsInventory value
         _ -> []
 
-analyzeRuntimePlan :: Text.Text -> IO (InferenceResult, Expr 'Analyzed)
-analyzeRuntimePlan source = do
+analyzeRuntimeFacts :: Text.Text -> IO (InferenceResult, Expr 'Analyzed)
+analyzeRuntimeFacts source = do
   expression <-
     case parseAndLowerStandaloneSource source of
       Left diagnostic ->
-        failTest ("runtime-plan fixture failed to lower: " <> renderDiagnostic diagnostic)
+        failTest ("runtime-facts fixture failed to lower: " <> renderDiagnostic diagnostic)
       Right lowered ->
         case resolveStandaloneExprNames (exportInventory []) lowered of
           Left diagnostics ->
             failTest
-              ( "runtime-plan fixture failed to resolve: "
+              ( "runtime-facts fixture failed to resolve: "
                   <> Text.unlines (map renderDiagnostic (NonEmpty.toList diagnostics))
               )
           Right resolved -> pure resolved
@@ -2035,9 +2027,9 @@ analyzeRuntimePlan source = do
   analyzedExpression <-
     case attachment of
       Left failures ->
-        failTest ("analyzed runtime-plan attachment failed: " <> Text.pack (show failures))
+        failTest ("analyzed runtime-facts attachment failed: " <> Text.pack (show failures))
       Right Nothing ->
-        failTest "analyzed runtime-plan attachment produced no expression"
+        failTest "analyzed runtime-facts attachment produced no expression"
       Right (Just analyzed) -> pure analyzed
   pure (inference, analyzedExpression)
 

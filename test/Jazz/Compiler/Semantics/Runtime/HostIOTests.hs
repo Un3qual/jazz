@@ -118,7 +118,7 @@ hostIOTests =
     ("host map callbacks preserve the active host cache and effect order", testHostMapCallbackPreservesActiveHostCacheAndEffectOrder),
     ("public host scopes keep imported deferred cells on the active host", testPublicHostScopeKeepsImportedDeferredCellOnActiveHost),
     ("host dependency scopes keep deferred cells on the active host", testHostDependencyScopeKeepsDeferredCellsOnActiveHost),
-    ("host dependency bindings retain their analyzed runtime plans", testHostDependencyBindingRetainsRuntimePlan),
+    ("host dependency bindings retain their analyzed runtime facts", testHostDependencyBindingRetainsRuntimeFacts),
     ("stacked result obligations preserve recursive unwind order", testStackedResultObligationsPreserveRecursiveUnwindOrder),
     ("host binding cache separates dynamic scope invocations", testHostBindingCacheSeparatesDynamicScopeInvocations),
     ("host scopes force zero-argument impl methods", testHostZeroArgumentImplMethod),
@@ -700,8 +700,8 @@ testStackedResultObligationsPreserveRecursiveUnwindOrder = do
         Nothing -> assertEqual "stacked result obligations produce a itemValue" True False
     Left _ -> assertEqual "stacked result obligations evaluate" True False
 
-testHostDependencyBindingRetainsRuntimePlan :: IO ()
-testHostDependencyBindingRetainsRuntimePlan = do
+testHostDependencyBindingRetainsRuntimeFacts :: IO ()
+testHostDependencyBindingRetainsRuntimeFacts = do
   let typeArgumentSpan = SourceSpan 2 18
       dependencyStatements =
         [ statementLet "identity" (SourceSpan 1 1) (expressionLambda "itemValue" (expressionVariable "itemValue")),

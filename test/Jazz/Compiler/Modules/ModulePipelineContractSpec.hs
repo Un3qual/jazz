@@ -3,7 +3,6 @@
 
 module Main (main) where
 
-import Data.Foldable (toList)
 import qualified Data.Foldable as Foldable
 import Data.Functor.Identity (runIdentity)
 import Data.IORef
@@ -148,7 +147,6 @@ import Jazz.Compiler.SemanticFacts
     AnalyzedNumericConstraint (..),
     AnalyzedPrimitiveConstraint (..),
     AnalyzedScheme (..),
-    AnalyzedType,
     BinaryOperandTyping (..),
     BinaryOperation (..),
     CapabilityId (..),
@@ -161,8 +159,6 @@ import Jazz.Compiler.SemanticFacts
     PatternConstructorFact (..),
     PatternFacts (..),
     PatternRefutability (..),
-    RuntimeObligation (..),
-    RuntimePlan (..),
     SemanticFactInvariantFailure (..),
     SemanticInstantiation (..),
     StatementDeclarationFact (..),
@@ -750,15 +746,6 @@ assertExprFacts :: Expr 'Analyzed -> IO ()
 assertExprFacts expression = do
   assertExpressionNodeFacts (exprNode expression)
   case expression of
-    ELit (CoreNode _ _ facts) (LInt _)
-      | SemanticNumeric target <- expressionSemanticType facts ->
-          let RuntimePlan obligations = expressionRuntimePlan facts
-           in assertEqual
-                "integer literal runtime plan specializes its representation"
-                True
-                (SpecializeNumericLiteral target `elem` obligations)
-    _ -> pure ()
-  case expression of
     ELambda _ _ body -> assertExprFacts body
     EList _ values -> mapM_ assertExprFacts values
     ETuple _ values -> mapM_ assertExprFacts values
@@ -776,16 +763,8 @@ assertExprFacts expression = do
     _ -> pure ()
 
 assertExpressionNodeFacts :: CoreNode 'Analyzed 'ExpressionSort -> IO ()
-assertExpressionNodeFacts (CoreNode _ _ facts) = do
-  case reverse (toList obligations) of
-    ConstrainResult resultType : _ ->
-      assertEqual "runtime result constraint is concrete" True (Foldable.null resultType)
-    _ -> pure ()
-  case NonEmpty.nonEmpty (expressionEvidence facts) of
-    Nothing -> pure ()
-    Just evidence -> assertEqual "runtime plan supplies selected evidence" True (SupplyEvidence evidence `elem` obligations)
-  where
-    RuntimePlan obligations = expressionRuntimePlan facts
+assertExpressionNodeFacts (CoreNode _ _ facts) =
+  mapM_ (assertEqual "result representation is concrete" True . Foldable.null) (expressionResultRepresentation facts)
 
 expressionEvidenceInventory :: Expr 'Analyzed -> [EvidenceReference]
 expressionEvidenceInventory expression =
@@ -1156,16 +1135,11 @@ testExplicitInstantiationBinderShadowing = do
         [ (binder, instantiatedType)
         | SemanticInstantiation (LexicalInstantiation binder) (instantiatedType :| []) <- instantiations
         ]
-      runtimeInstantiations = runtimeInstantiationInventory (coreModuleExpr coreModule)
   assertEqual "two lexical identity definitions" 2 (length identityBinderIds)
   assertEqual
     "explicit applications reference their lexical definition-node binders"
     (Set.fromList [(identityBinderIds !! 0, SemanticInt), (identityBinderIds !! 1, SemanticBool)])
     (Set.fromList instantiatedBinderTypes)
-  assertEqual
-    "runtime plans retain both exact type instantiations"
-    (Set.fromList [SemanticInt :| [], SemanticBool :| []])
-    (Set.fromList runtimeInstantiations)
   where
     sources =
       Map.singleton
@@ -1321,42 +1295,6 @@ identityDefinitionBinderIds expression =
             <> identityDefinitionBinderIds value
         SImpl _ _ _ methods -> foldMap (\(ImplMethod _ _ body) -> identityDefinitionBinderIds body) methods
         SExpr _ value -> identityDefinitionBinderIds value
-        _ -> []
-
-runtimeInstantiationInventory :: Expr 'Analyzed -> [NonEmpty AnalyzedType]
-runtimeInstantiationInventory expression =
-  nodeInstantiations expression
-    <> case expression of
-      ELambda _ _ body -> runtimeInstantiationInventory body
-      EList _ values -> foldMap runtimeInstantiationInventory values
-      ETuple _ values -> foldMap runtimeInstantiationInventory values
-      EApply _ function argument -> runtimeInstantiationInventory function <> runtimeInstantiationInventory argument
-      ETypeApplication _ function _ _ -> runtimeInstantiationInventory function
-      EIf _ condition whenTrue whenFalse -> foldMap runtimeInstantiationInventory [condition, whenTrue, whenFalse]
-      EPatternCase _ scrutinee arms -> runtimeInstantiationInventory scrutinee <> foldMap armInstantiations arms
-      EBinary _ _ left right -> runtimeInstantiationInventory left <> runtimeInstantiationInventory right
-      ESectionLeft _ left _ -> runtimeInstantiationInventory left
-      ESectionRight _ _ right -> runtimeInstantiationInventory right
-      EBlock _ statements -> foldMap statementInstantiations statements
-      _ -> []
-  where
-    nodeInstantiations value =
-      case exprNode value of
-        CoreNode _ _ facts ->
-          [types | InstantiateTypes types <- toList obligations]
-          where
-            RuntimePlan obligations = expressionRuntimePlan facts
-    armInstantiations (CaseArm (CoreNode _ _ facts) _ guard body) =
-      [types | InstantiateTypes types <- toList obligations]
-        <> foldMap runtimeInstantiationInventory guard
-        <> runtimeInstantiationInventory body
-      where
-        RuntimePlan obligations = expressionRuntimePlan facts
-    statementInstantiations statement =
-      case statement of
-        SLet _ _ value -> runtimeInstantiationInventory value
-        SImpl _ _ _ methods -> foldMap (\(ImplMethod _ _ body) -> runtimeInstantiationInventory body) methods
-        SExpr _ value -> runtimeInstantiationInventory value
         _ -> []
 
 namedLetSchemes :: Text -> Expr 'Analyzed -> [AnalyzedScheme]

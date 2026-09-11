@@ -40,7 +40,6 @@ import qualified Data.Map.Lazy as LazyMap
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
 import Data.Maybe (fromMaybe)
-import qualified Data.Sequence as Seq
 import Data.Set (Set)
 import qualified Data.Set as Set
 import Data.Text (Text)
@@ -55,6 +54,7 @@ import Jazz.Compiler.AST
     DataConstructor (..),
     Expr (..),
     ImplMethod (..),
+    Literal (..),
     Statement (..),
     expressionNode,
   )
@@ -228,11 +228,10 @@ import Jazz.Compiler.SemanticFacts
     CapabilityId (..),
     CoreNodeId,
     EvidenceReference (..),
-    ExpressionFacts (expressionResolution, expressionRuntimePlan),
+    ExpressionFacts (..),
     ImplId (..),
     MethodId (..),
-    RuntimeObligation (..),
-    RuntimePlan (..),
+    SemanticInstantiation (..),
     StatementDeclarationFact (..),
     StatementFacts (..),
   )
@@ -363,7 +362,7 @@ data RuntimeResultObligation
   = ApplyFunctionResultHint AnalyzedType
   | ApplyResultTypeHint AnalyzedType
   | ApplyExplicitResultHint AnalyzedType
-  | ApplyExpressionRuntimePlan (Maybe SourceUnitOwner) RuntimePlan
+  | ApplySelectedEvidence (NonEmpty.NonEmpty EvidenceReference)
   | AttachDefaultIntegerResult
   | CloseRuntimeProfileFrame
   deriving (Eq, Show)
@@ -397,7 +396,7 @@ data EvaluationFrame
   | EvaluateRightSection EvaluationContext Text ResolvedReference
   | BuildDeclaredRightSection EvaluationContext Text RuntimeValue
   | ApplyDeclaredRightSectionOperand RuntimeValue
-  | FinishTypeApplication
+  | FinishTypeApplication (Maybe SourceUnitOwner) [SemanticInstantiation] [EvidenceReference]
   | ApplyRemainingArguments [RuntimeValue]
 
 data EvaluationContinuation
@@ -1287,8 +1286,9 @@ stepEvaluationMachine observeStatistics observeProfile host machine =
   where
     stepExpression context expression =
       case expression of
-        ELit _ literal ->
-          continueWith (ReturnRuntimeValue (literalRuntimeValue literal)) expressionMachine
+        ELit _ literal -> do
+          value <- liftRuntimeResult (specializeAnalyzedLiteral facts literal)
+          continueWith (ReturnRuntimeValue value) expressionMachine
         EVar node name ->
           case Map.lookup (resolvedValueReference (expressionResolution (coreNodeFacts node))) (evaluationEnvironment context) of
             Just runtimeCell -> do
@@ -1372,9 +1372,9 @@ stepEvaluationMachine observeStatistics observeProfile host machine =
                   unforcedValue <- liftRuntimeResult runtimeCell
                   case unforcedValue of
                     VQualifiedMethodApplication {} -> forceReference unforcedValue
-                    _ -> evaluateTypeApplicationNormally expressionMachine context functionExpr
-                Nothing -> evaluateTypeApplicationNormally expressionMachine context functionExpr
-            _ -> evaluateTypeApplicationNormally expressionMachine context functionExpr
+                    _ -> evaluateTypeApplicationNormally resultMachine context facts functionExpr
+                Nothing -> evaluateTypeApplicationNormally resultMachine context facts functionExpr
+            _ -> evaluateTypeApplicationNormally resultMachine context facts functionExpr
         EIf _ conditionExpr thenExpr elseExpr ->
           suspendEvaluation
             expressionMachine
@@ -1413,36 +1413,32 @@ stepEvaluationMachine observeStatistics observeProfile host machine =
           stepBlock expressionMachine context (prepareAnalyzedScope expression) statements
       where
         modulePath = evaluationModulePath context
-        runtimePlan@(RuntimePlan obligations) = expressionRuntimePlanOf expression
-        expressionMachine =
-          appendRuntimeResultObligation (ApplyExpressionRuntimePlan modulePath runtimePlan) machine
+        facts = coreNodeFacts (expressionNode expression)
+        resultMachine = appendCheckedResult modulePath (expressionResultRepresentation facts) machine
+        expressionMachine = appendCheckedEvidence (expressionEvidence facts) resultMachine
 
         kernelReference (BuiltinReference identifier) = lookupKernelBuiltinSymbol (identifierText identifier)
         kernelReference _ = Nothing
 
-        forceReference runtimeValue = do
-          -- Consume the callable prefix before a method can run. Deferred host
-          -- cells expose their value first; their plan stays on the return path.
-          let (callableObligations, resultObligations) =
-                if isFunctionValue runtimeValue
-                  then Seq.spanl preparesCallable obligations
-                  else (Seq.empty, obligations)
-          preparedValue <-
-            liftRuntimeResult (applyExpressionRuntimePlan modulePath (RuntimePlan callableObligations) runtimeValue)
-          continueWith
-            (ForceRuntimeValue preparedValue)
-            (appendRuntimeResultObligation (ApplyExpressionRuntimePlan modulePath (RuntimePlan resultObligations)) machine)
+        forceReference runtimeValue
+          | null (expressionInstantiations facts),
+            null (expressionEvidence facts) =
+              continueWith (ForceRuntimeValue runtimeValue) resultMachine
+          | isFunctionValue runtimeValue = do
+              -- Select nullary methods before forcing can execute their body.
+              prepared <- liftRuntimeResult (prepareCheckedCallable modulePath (expressionInstantiations facts) (expressionEvidence facts) runtimeValue)
+              continueWith (ForceRuntimeValue prepared) resultMachine
+          | otherwise =
+              -- Deferred host cells must expose their value before preparation.
+              suspendEvaluation
+                resultMachine
+                (FinishTypeApplication modulePath (expressionInstantiations facts) (expressionEvidence facts))
+                (ForceRuntimeValue runtimeValue)
 
-        preparesCallable obligation = case obligation of
-          InstantiateTypes {} -> True
-          SupplyEvidence {} -> True
-          SpecializeNumericLiteral {} -> False
-          ConstrainResult {} -> False
-
-    evaluateTypeApplicationNormally expressionMachine context functionExpr =
+    evaluateTypeApplicationNormally resultMachine context facts functionExpr =
       suspendEvaluation
-        expressionMachine
-        FinishTypeApplication
+        resultMachine
+        (FinishTypeApplication (evaluationModulePath context) (expressionInstantiations facts) (expressionEvidence facts))
         (EvaluateExpression context functionExpr)
 
     stepBlock expressionMachine context preparedScope statements =
@@ -1832,8 +1828,9 @@ resumeEvaluationFrame observeStatistics observeProfile host machine frame runtim
           machine
     ApplyDeclaredRightSectionOperand rightValue ->
       continueWith (ApplyCallable runtimeValue rightValue) machine
-    FinishTypeApplication ->
-      continueWith (ReturnRuntimeValue runtimeValue) machine
+    FinishTypeApplication modulePath instantiations evidence -> do
+      prepared <- liftRuntimeResult (prepareCheckedCallable modulePath instantiations evidence runtimeValue)
+      continueWith (ReturnRuntimeValue prepared) machine
     ApplyRemainingArguments arguments ->
       applyRemainingArguments machine runtimeValue arguments
 
@@ -1947,16 +1944,6 @@ prependRuntimeResultObligation (ApplyFunctionResultHint typeHint) policy =
   case typeHint of
     SemanticFunction _ resultType -> prependRuntimeResultObligation (ApplyResultTypeHint resultType) policy
     _ -> policy
-prependRuntimeResultObligation (ApplyExpressionRuntimePlan modulePath (RuntimePlan obligations)) policy
-  | Seq.null obligations = policy
-  | ConstrainResult semanticType Seq.:< rest <- Seq.viewl obligations,
-    Seq.null rest =
-      case semanticType of
-        SemanticInt -> prependRuntimeResultObligation AttachDefaultIntegerResult policy
-        _
-          | Foldable.null semanticType ->
-              prependRuntimeResultObligation (ApplyResultTypeHint (qualifyRuntimeType modulePath semanticType)) policy
-        _ -> policy
 -- An Int result hint already performs Int64 conversion/defaulting. Keep that
 -- stronger check when it meets an ordinary integer-defaulting obligation.
 prependRuntimeResultObligation AttachDefaultIntegerResult policy@(RuntimeReturnPolicy (ApplyResultTypeHint SemanticInt : _)) = policy
@@ -1992,41 +1979,43 @@ dischargeRuntimeReturnPolicy (RuntimeReturnPolicy obligations) runtimeValue =
           liftRuntimeResult (applyRuntimeTypeHint typeHint currentValue)
         ApplyExplicitResultHint typeHint ->
           liftRuntimeResult (applyExplicitTypeApplicationResultHint typeHint currentValue)
-        ApplyExpressionRuntimePlan modulePath runtimePlan ->
-          liftRuntimeResult (applyExpressionRuntimePlan modulePath runtimePlan currentValue)
+        ApplySelectedEvidence evidence ->
+          pure (selectRuntimeEvidence evidence currentValue)
         AttachDefaultIntegerResult ->
           liftRuntimeResult (attachDefaultBindingIntegerTarget currentValue)
         CloseRuntimeProfileFrame -> do
           lift (modifyRuntimeObservation recordRuntimeProfileClose)
           pure currentValue
 
-expressionRuntimePlanOf :: Expr 'Analyzed -> RuntimePlan
-expressionRuntimePlanOf = expressionRuntimePlan . coreNodeFacts . expressionNode
+appendCheckedResult :: Maybe SourceUnitOwner -> Maybe AnalyzedType -> EvaluationMachine -> EvaluationMachine
+appendCheckedResult _ Nothing = id
+appendCheckedResult _ (Just SemanticInt) = appendRuntimeResultObligation AttachDefaultIntegerResult
+appendCheckedResult modulePath (Just semanticType)
+  | Foldable.null semanticType = appendRuntimeResultObligation (ApplyResultTypeHint (qualifyRuntimeType modulePath semanticType))
+  | otherwise = id
 
-applyExpressionRuntimePlan :: Maybe SourceUnitOwner -> RuntimePlan -> RuntimeValue -> Either Diagnostic RuntimeValue
-applyExpressionRuntimePlan modulePath (RuntimePlan obligations) initialValue =
-  foldM applyObligation initialValue obligations
+appendCheckedEvidence :: [EvidenceReference] -> EvaluationMachine -> EvaluationMachine
+appendCheckedEvidence evidence = case NonEmpty.nonEmpty evidence of
+  Nothing -> id
+  Just selected -> appendRuntimeResultObligation (ApplySelectedEvidence selected)
+
+specializeAnalyzedLiteral :: ExpressionFacts -> Literal -> Either Diagnostic RuntimeValue
+specializeAnalyzedLiteral facts literal = case (literal, expressionSemanticType facts) of
+  (LInt {}, SemanticNumeric target) -> convert target
+  (LFloat {}, SemanticNumeric target) -> convert target
+  _ -> Right value
   where
-    applyObligation runtimeValue obligation =
-      case obligation of
-        InstantiateTypes instantiatedTypes ->
-          foldM applyInstantiation runtimeValue instantiatedTypes
-        SupplyEvidence evidenceReferences ->
-          Right (selectRuntimeEvidence evidenceReferences runtimeValue)
-        SpecializeNumericLiteral targetType ->
-          evalNumericConversion (numericConversionBuiltinForTarget targetType) targetType runtimeValue
-        ConstrainResult semanticType ->
-          constrainRuntimeResult semanticType runtimeValue
+    value = literalRuntimeValue literal
+    convert target = evalNumericConversion (numericConversionBuiltinForTarget target) target value
 
-    applyInstantiation runtimeValue semanticType
-      | not (Foldable.null semanticType) = Right runtimeValue
-      | otherwise =
-          applyRuntimeInstantiation (qualifyRuntimeType modulePath semanticType) runtimeValue
-
-    constrainRuntimeResult semanticType runtimeValue = case semanticType of
-      SemanticInt -> attachDefaultBindingIntegerTarget runtimeValue
-      _ | Foldable.null semanticType -> applyRuntimeTypeHint (qualifyRuntimeType modulePath semanticType) runtimeValue
-      _ -> Right runtimeValue
+prepareCheckedCallable :: Maybe SourceUnitOwner -> [SemanticInstantiation] -> [EvidenceReference] -> RuntimeValue -> Either Diagnostic RuntimeValue
+prepareCheckedCallable modulePath instantiations evidence runtimeValue = do
+  instantiated <- foldM applyInstantiation runtimeValue (concatMap (NonEmpty.toList . instantiatedTypes) instantiations)
+  pure (maybe instantiated (\selected -> selectRuntimeEvidence selected instantiated) (NonEmpty.nonEmpty evidence))
+  where
+    applyInstantiation value semanticType
+      | not (Foldable.null semanticType) = Right value
+      | otherwise = applyRuntimeInstantiation (qualifyRuntimeType modulePath semanticType) value
 
 applyRuntimeInstantiation :: AnalyzedType -> RuntimeValue -> Either Diagnostic RuntimeValue
 applyRuntimeInstantiation typeHint runtimeValue

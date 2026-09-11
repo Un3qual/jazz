@@ -1,7 +1,6 @@
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DerivingStrategies #-}
-{-# LANGUAGE GeneralizedNewtypeDeriving #-}
 
 -- | Phase-local semantic identities and the complete facts attached by
 -- analysis. This module is intentionally neutral: syntax imports it, while
@@ -25,8 +24,6 @@ module Jazz.Compiler.SemanticFacts
     PatternConstructorFact (..),
     PatternFacts (..),
     PatternRefutability (..),
-    RuntimeObligation (..),
-    RuntimePlan (..),
     SemanticFactInvariantFailure (..),
     SemanticInstantiation (..),
     InstantiationTarget (..),
@@ -38,7 +35,6 @@ where
 import Control.DeepSeq (NFData)
 import Data.List.NonEmpty (NonEmpty)
 import Data.Map.Strict (Map)
-import Data.Sequence (Seq)
 import Data.Text (Text)
 import GHC.Generics (Generic)
 import Jazz.Compiler.CoreIdentity (CapabilityId (..), CapabilityMethodKey, CoreBinderId (..), CoreNodeId (..), ImplId (..), MethodId (..), ResolvedNodeFacts)
@@ -46,7 +42,6 @@ import Jazz.Compiler.ModuleIdentity (ModulePath)
 import Jazz.Compiler.Name (Identifier, ResolvedName)
 import Jazz.Compiler.TypeRepresentation
   ( InferenceVariable,
-    NumericType,
     SemanticType,
   )
 
@@ -74,19 +69,6 @@ data EvidenceReference = EvidenceReference
   deriving stock (Eq, Generic, Ord, Show)
   deriving anyclass (NFData)
 
-newtype RuntimePlan = RuntimePlan (Seq RuntimeObligation)
-  deriving stock (Eq, Generic, Show)
-  deriving newtype (Semigroup, Monoid)
-  deriving anyclass (NFData)
-
-data RuntimeObligation
-  = InstantiateTypes (NonEmpty AnalyzedType)
-  | SupplyEvidence (NonEmpty EvidenceReference)
-  | SpecializeNumericLiteral NumericType
-  | ConstrainResult AnalyzedType
-  deriving stock (Eq, Generic, Show)
-  deriving anyclass (NFData)
-
 -- | The primitive operation selected by inference, including the original
 -- operand identities when application syntax or an alias selected the operator.
 -- This is a decision attached to the existing tree, not a second expression.
@@ -112,7 +94,9 @@ data ExpressionFacts = ExpressionFacts
     expressionNumericConstraints :: Map InferenceVariable AnalyzedNumericConstraint,
     expressionInstantiations :: [SemanticInstantiation],
     expressionEvidence :: [EvidenceReference],
-    expressionRuntimePlan :: RuntimePlan
+    -- | Closed representation enforced on return. Generalized definitions may
+    -- suppress this even when a particular checked use has a concrete type.
+    expressionResultRepresentation :: Maybe AnalyzedType
   }
   deriving stock (Eq, Generic, Show)
   deriving anyclass (NFData)

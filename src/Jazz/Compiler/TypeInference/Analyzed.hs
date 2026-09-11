@@ -20,9 +20,7 @@ where
 
 import qualified Data.Foldable as Foldable
 import Data.List.NonEmpty (NonEmpty)
-import qualified Data.List.NonEmpty as NonEmpty
 import qualified Data.Map.Strict as Map
-import Data.Sequence (Seq)
 import qualified Data.Sequence as Seq
 import qualified Data.Set as Set
 import Data.Text (Text)
@@ -31,7 +29,6 @@ import Jazz.Compiler.AST
     CorePhase (..),
     CoreSort (..),
     Expr (..),
-    Literal (..),
     expressionNode,
   )
 import Jazz.Compiler.CoreIdentity (ResolvedNodeFacts (..), ResolvedReference (..))
@@ -50,8 +47,6 @@ import Jazz.Compiler.SemanticFacts
     EvidenceReference (..),
     ExpressionFacts (..),
     InstantiationTarget (..),
-    RuntimeObligation (..),
-    RuntimePlan (..),
     SemanticFactInvariantFailure (..),
     SemanticInstantiation (..),
     StatementDeclarationFact,
@@ -85,11 +80,6 @@ import Jazz.Compiler.TypeInference.Types
     quantifiedVariablesOrderedList,
   )
 
-data AttachedExplicitInstantiation = AttachedExplicitInstantiation
-  { attachedSemanticInstantiations :: [SemanticInstantiation],
-    attachedRuntimeArguments :: [NonEmpty ExpressionType]
-  }
-
 missing :: SemanticFactInvariantFailure -> Attachment value
 missing failure = AttachmentFailed failure Seq.empty
 
@@ -100,8 +90,7 @@ data ExpressionNodeDraft = ExpressionNodeDraft
   { draftNodeType :: !(Maybe ExpressionType),
     draftNodeOperation :: !(Maybe BinaryOperation),
     draftNodeEvidence :: !(Maybe ExpressionEvidenceSeed),
-    draftNodeInstantiation :: !(Attachment AttachedExplicitInstantiation),
-    draftNodeNumericLiteral :: !Bool
+    draftNodeInstantiation :: !(Attachment [SemanticInstantiation])
   }
 
 data ExpressionDecision = ExpressionDecision
@@ -148,8 +137,7 @@ prepareExpressionNode decision expression result nodeId =
     { draftNodeType = result,
       draftNodeOperation = decisionOperation decision,
       draftNodeEvidence = evidence,
-      draftNodeInstantiation = explicitInstantiationFacts nodeId expression (decisionInstantiation decision) evidence,
-      draftNodeNumericLiteral = case expression of Just (ELit _ LInt {}) -> True; Just (ELit _ LFloat {}) -> True; _ -> False
+      draftNodeInstantiation = explicitInstantiationFacts nodeId expression (decisionInstantiation decision) evidence
     }
   where
     evidence = decisionEvidence decision
@@ -163,8 +151,7 @@ finalizeExpressionNode state payload (CoreNode nodeId spanValue resolution) =
     Just inferredType ->
       let semanticType = resolveType state inferredType
           evidence = expressionEvidenceFacts state (draftNodeEvidence payload)
-          evidenceObligations = maybe Seq.empty (Seq.singleton . SupplyEvidence) (NonEmpty.nonEmpty evidence)
-       in makeNode semanticType evidence evidenceObligations <$> draftNodeInstantiation payload
+       in makeNode semanticType evidence <$> draftNodeInstantiation payload
   where
     operation = resolveOperation <$> draftNodeOperation payload
     resolveOperation selected =
@@ -176,7 +163,7 @@ finalizeExpressionNode state payload (CoreNode nodeId spanValue resolution) =
     operandVariables = case binaryOperationOperandTyping <$> operation of
       Just (UniformBinaryOperands operandType) -> freeTypeVariables operandType
       _ -> Set.empty
-    makeNode semanticType evidence evidenceObligations explicitFacts =
+    makeNode semanticType evidence explicitFacts =
       CoreNode
         nodeId
         spanValue
@@ -185,25 +172,19 @@ finalizeExpressionNode state payload (CoreNode nodeId spanValue resolution) =
             expressionSemanticType = semanticType,
             expressionBinaryOperation = operation,
             expressionNumericConstraints = Map.map projectNumericConstraint (Map.restrictKeys (inferNumericVars state) (freeTypeVariables semanticType <> operandVariables)),
-            expressionInstantiations = map (\instantiation -> instantiation {instantiatedTypes = fmap (resolveType state) (instantiatedTypes instantiation)}) (attachedSemanticInstantiations explicitFacts),
+            expressionInstantiations = map (\instantiation -> instantiation {instantiatedTypes = fmap (resolveType state) (instantiatedTypes instantiation)}) explicitFacts,
             expressionEvidence = evidence,
-            expressionRuntimePlan =
-              RuntimePlan
-                ( foldMap (Seq.singleton . InstantiateTypes . fmap (resolveType state)) (attachedRuntimeArguments explicitFacts)
-                    <> evidenceObligations
-                    <> numericLiteralObligations (draftNodeNumericLiteral payload) semanticType
-                    <> runtimeResultObligations semanticType
-                )
+            expressionResultRepresentation = resultRepresentation semanticType
           }
 
-explicitInstantiationFacts :: CoreNodeId -> Maybe (Expr 'Resolved) -> Maybe ExplicitInstantiationSeed -> Maybe ExpressionEvidenceSeed -> Attachment AttachedExplicitInstantiation
+explicitInstantiationFacts :: CoreNodeId -> Maybe (Expr 'Resolved) -> Maybe ExplicitInstantiationSeed -> Maybe ExpressionEvidenceSeed -> Attachment [SemanticInstantiation]
 explicitInstantiationFacts nodeId expression instantiation evidence =
   case (expression, instantiation) of
     (Just ETypeApplication {}, Nothing) ->
       missing (MissingExplicitInstantiationSeed nodeId)
     (Just (ETypeApplication _ function _ _), Just seed) ->
       attachSeed function seed
-    (_, Nothing) -> pure noExplicitInstantiation
+    (_, Nothing) -> pure []
     (_, Just _) -> missing (UnexpectedExplicitInstantiationSeed nodeId)
   where
     attachSeed function seed =
@@ -218,26 +199,16 @@ explicitInstantiationFacts nodeId expression instantiation evidence =
                   case resolvedBinder function of
                     Nothing -> missing (MissingExplicitInstantiationBinder nodeId referencedTarget)
                     Just binder ->
-                      pure
-                        AttachedExplicitInstantiation
-                          { attachedSemanticInstantiations = [SemanticInstantiation (LexicalInstantiation binder) resolvedArguments],
-                            attachedRuntimeArguments = [resolvedArguments]
-                          }
+                      pure [SemanticInstantiation (LexicalInstantiation binder) resolvedArguments]
                 ExplicitQualifiedMethodInstantiation _ ->
                   case (resolvedReference function, evidence) of
                     (Just (CapabilityMethodReference capability method), Just _) ->
-                      pure
-                        AttachedExplicitInstantiation
-                          { attachedSemanticInstantiations = [SemanticInstantiation (MethodInstantiation capability method) resolvedArguments],
-                            attachedRuntimeArguments = [resolvedArguments]
-                          }
+                      pure [SemanticInstantiation (MethodInstantiation capability method) resolvedArguments]
                     (_, Nothing) -> missing (MissingExpressionEvidence nodeId)
                     (_, Just _) -> missing (UnexpectedExplicitInstantiationSeed nodeId)
       where
         resolvedArguments = explicitInstantiationSeedArguments seed
         seededTarget = explicitInstantiationTargetName (explicitInstantiationSeedTarget seed)
-
-    noExplicitInstantiation = AttachedExplicitInstantiation [] []
 
 explicitInstantiationTargetName :: ExplicitInstantiationTarget -> ResolvedName
 explicitInstantiationTargetName target =
@@ -258,16 +229,11 @@ expressionEvidenceFacts state evidence =
           }
       ]
 
-numericLiteralObligations :: Bool -> ExpressionType -> Seq RuntimeObligation
-numericLiteralObligations True (SemanticNumeric numericType) = Seq.singleton (SpecializeNumericLiteral numericType)
-numericLiteralObligations _ _ = Seq.empty
-
--- Polymorphic constraints do no runtime work. Ordinary Int defaulting and
--- concrete representation hints remain result obligations.
-runtimeResultObligations :: ExpressionType -> Seq RuntimeObligation
-runtimeResultObligations semanticType
-  | Foldable.null semanticType = Seq.singleton (ConstrainResult semanticType)
-  | otherwise = Seq.empty
+-- Only a closed representation needs enforcement at the return boundary.
+resultRepresentation :: ExpressionType -> Maybe ExpressionType
+resultRepresentation semanticType
+  | Foldable.null semanticType = Just semanticType
+  | otherwise = Nothing
 
 resolvedReference :: Expr 'Resolved -> Maybe ResolvedReference
 resolvedReference expression = case expression of
@@ -296,22 +262,9 @@ constrainBindingRuntimeResult statementFacts =
   case statementBinderIds statementFacts of
     binder : _ ->
       case Map.lookup binder (statementGeneralizedSchemes statementFacts) of
-        Just scheme -> mapExpressionFacts (replaceRuntimeResult (analyzedSchemeType scheme))
+        Just scheme -> mapExpressionFacts (\facts -> facts {expressionResultRepresentation = resultRepresentation (analyzedSchemeType scheme)})
         Nothing -> id
     [] -> id
-
-replaceRuntimeResult :: ExpressionType -> ExpressionFacts -> ExpressionFacts
-replaceRuntimeResult runtimeType facts =
-  facts
-    { expressionRuntimePlan =
-        RuntimePlan
-          (prefix <> runtimeResultObligations runtimeType)
-    }
-  where
-    RuntimePlan obligations = expressionRuntimePlan facts
-    prefix = case Seq.viewr obligations of
-      rest Seq.:> ConstrainResult _ -> rest
-      _ -> obligations
 
 mapExpressionFacts :: (ExpressionFacts -> ExpressionFacts) -> Expr 'Analyzed -> Expr 'Analyzed
 mapExpressionFacts update expression =
