@@ -818,33 +818,34 @@ evaluateRuntimeScopePureRequest request = go Nothing indexedStatements
     terminalBlockLocalAliasExpr :: [Statement 'Analyzed] -> Maybe ([Statement 'Analyzed], Expr 'Analyzed)
     terminalBlockLocalAliasExpr blockStatements =
       case reverse blockStatements of
-        SExpr _ (EVar _ aliasName) : precedingStatements ->
+        SExpr _ (EVar aliasNode _) : precedingStatements ->
           let prefixStatements = reverse precedingStatements
            in fmap
                 (\aliasExpr -> (prefixStatements, aliasExpr))
-                (followLocalAlias Set.empty aliasName (localAliasBindings prefixStatements))
+                (followLocalAlias Set.empty (resolvedValueReference (expressionResolution (coreNodeFacts aliasNode))) (localAliasBindings prefixStatements))
         _ -> Nothing
 
-    localAliasBindings :: [Statement 'Analyzed] -> Map ResolvedName (Expr 'Analyzed)
+    localAliasBindings :: [Statement 'Analyzed] -> Map ResolvedReference (Expr 'Analyzed)
     localAliasBindings =
       foldl' collectBinding Map.empty
       where
-        collectBinding :: Map ResolvedName (Expr 'Analyzed) -> Statement 'Analyzed -> Map ResolvedName (Expr 'Analyzed)
+        collectBinding :: Map ResolvedReference (Expr 'Analyzed) -> Statement 'Analyzed -> Map ResolvedReference (Expr 'Analyzed)
         collectBinding bindings statement =
           case statement of
-            SLet _ bindingName bindingExpr ->
-              Map.insert bindingName bindingExpr bindings
+            SLet node _ bindingExpr ->
+              Map.insert (resolvedBinderReference (statementResolution (coreNodeFacts node))) bindingExpr bindings
             _ -> bindings
 
-    followLocalAlias :: Set ResolvedName -> ResolvedName -> Map ResolvedName (Expr 'Analyzed) -> Maybe (Expr 'Analyzed)
+    followLocalAlias :: Set ResolvedReference -> ResolvedReference -> Map ResolvedReference (Expr 'Analyzed) -> Maybe (Expr 'Analyzed)
     followLocalAlias visitedNames aliasName localBindings =
       if Set.member aliasName visitedNames
         then Nothing
         else case Map.lookup aliasName localBindings of
           Just aliasExpr ->
             case peelSingleExprBlock aliasExpr of
-              EVar _ nextAliasName
-                | Map.member nextAliasName localBindings ->
+              EVar nextAliasNode _
+                | let nextAliasName = resolvedValueReference (expressionResolution (coreNodeFacts nextAliasNode)),
+                  Map.member nextAliasName localBindings ->
                     followLocalAlias (Set.insert aliasName visitedNames) nextAliasName localBindings
               _ -> Just aliasExpr
           Nothing ->
@@ -979,7 +980,7 @@ evaluateRuntimeScopePureRequest request = go Nothing indexedStatements
             methodEnv = foldl' insertCandidate env methodCandidates
             methodExprsByKey =
               Map.fromList
-                [ (qualifiedMethodKey capabilityName methodName, methodExpr)
+                [ (runtimeMethodReference (Just (resolvedNodeOwner (statementResolution (coreNodeFacts implementationNode)))) capabilityName methodName, methodExpr)
                 | ImplMethod _ methodName methodExpr <- methods
                 ]
             methodCandidates =
@@ -995,7 +996,7 @@ evaluateRuntimeScopePureRequest request = go Nothing indexedStatements
                 )
                 methods
             methodCandidateCell candidateImplTarget methodName methodKey methodExpr =
-              case selectedQualifiedMethodAliasTarget methodModulePath methodExprsByKey Set.empty methodEnv methodKey methodExpr of
+              case selectedQualifiedMethodAliasTarget methodModulePath methodExprsByKey Set.empty methodEnv methodName methodExpr of
                 Left diagnostic ->
                   Left diagnostic
                 Right True ->
@@ -1024,7 +1025,7 @@ evaluateRuntimeScopePureRequest request = go Nothing indexedStatements
                 )
             _ -> methodCell
 
-    selectedQualifiedMethodAliasTarget :: Maybe SourceUnitOwner -> Map Text (Expr 'Analyzed) -> Set Text -> RuntimeEnv -> Text -> Expr 'Analyzed -> Either Diagnostic Bool
+    selectedQualifiedMethodAliasTarget :: Maybe SourceUnitOwner -> Map ResolvedReference (Expr 'Analyzed) -> Set ResolvedReference -> RuntimeEnv -> ResolvedReference -> Expr 'Analyzed -> Either Diagnostic Bool
     selectedQualifiedMethodAliasTarget methodModulePath methodExprsByKey visitedMethodKeys env methodKey expr
       | Set.member methodKey visitedMethodKeys =
           Right True
@@ -1058,19 +1059,19 @@ evaluateRuntimeScopePureRequest request = go Nothing indexedStatements
                     aliasExpr
                 Nothing ->
                   Right False
-            EVar _ aliasName ->
-              let aliasNameText = identifierText aliasName
-               in case Map.lookup aliasNameText methodExprsByKey of
+            EVar aliasNode _ ->
+              let aliasReference = resolvedValueReference (expressionResolution (coreNodeFacts aliasNode))
+               in case Map.lookup aliasReference methodExprsByKey of
                     Just aliasExpr ->
-                      selectedQualifiedMethodAliasTarget methodModulePath methodExprsByKey nextVisitedMethodKeys env aliasNameText aliasExpr
+                      selectedQualifiedMethodAliasTarget methodModulePath methodExprsByKey nextVisitedMethodKeys env aliasReference aliasExpr
                     Nothing ->
-                      Right (aliasNameText == methodKey)
+                      Right (aliasReference == methodKey)
             _ ->
               Right False
       where
         nextVisitedMethodKeys = Set.insert methodKey visitedMethodKeys
 
-    selectQualifiedMethodAliasTarget :: Maybe SourceUnitOwner -> Map Text (Expr 'Analyzed) -> Set Text -> RuntimeEnv -> Text -> Expr 'Analyzed -> Expr 'Analyzed -> Expr 'Analyzed -> Either Diagnostic Bool
+    selectQualifiedMethodAliasTarget :: Maybe SourceUnitOwner -> Map ResolvedReference (Expr 'Analyzed) -> Set ResolvedReference -> RuntimeEnv -> ResolvedReference -> Expr 'Analyzed -> Expr 'Analyzed -> Expr 'Analyzed -> Either Diagnostic Bool
     selectQualifiedMethodAliasTarget methodModulePath methodExprsByKey visitedMethodKeys env methodKey conditionExpr thenExpr elseExpr = do
       conditionValue <- evalValueWithModulePath methodModulePath env conditionExpr
       case conditionValue of
