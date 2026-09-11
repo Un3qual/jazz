@@ -98,7 +98,7 @@ import Jazz.Compiler.Name
     identifierText,
   )
 import Jazz.Compiler.SemanticDeclarations (concreteImplementationType, implementationTargetSignature, semanticFunctionArguments)
-import Jazz.Compiler.SemanticFacts (StatementDeclarationFact (ImplementationDeclaration))
+import Jazz.Compiler.SemanticFacts (AnalyzedScheme (..), ExpressionFacts (expressionResolution), StatementDeclarationFact (ImplementationDeclaration), StatementFacts (..))
 import Jazz.Compiler.SignatureRendering
   ( renderSignatureType,
   )
@@ -119,7 +119,7 @@ import Jazz.Compiler.TypeInference.Diagnostics
     mkTypeSchemeNumericConstraintError,
     mkTypeSchemeStrictEqualityConstraintError,
   )
-import Jazz.Compiler.TypeInference.Draft (CheckedExpr, checkedExprType)
+import Jazz.Compiler.TypeInference.Draft (Attachment (..), CheckedExpr (..), Draft (runDraft))
 import Jazz.Compiler.TypeInference.Environment
   ( TypeEnvFreeVariables,
     deleteTypeEnvFreeVariables,
@@ -157,7 +157,6 @@ import Jazz.Compiler.TypeInference.State
     inferInferredClassConstraintCount,
     inferInferredClassConstraints,
     inferModuleCapabilityFacts,
-    inferStatementFactSeeds,
     modifyDeclarationState,
     modifyInferenceOutput,
     modifyModuleInferenceState,
@@ -475,7 +474,7 @@ inferQualifiedMethodApplicationWithResults inferExpression env state methodKey a
                   methodKey
                   env
                   stateAfterArguments
-                  (zip argumentExprs typedArgumentTypes)
+                  (zip results typedArgumentTypes)
            in (expressionType, finalState, results)
   where
     step (resultsAcc, stateAcc) argumentExpr =
@@ -1071,7 +1070,7 @@ resolveQualifiedMethodApplicationType ::
   CapabilityMethodKey ->
   TypeEnv ->
   InferState ->
-  [(Expr 'Resolved, ExpressionType)] ->
+  [(CheckedExpr, ExpressionType)] ->
   (MethodSelection, InferState)
 resolveQualifiedMethodApplicationType methodKey env state typedArguments =
   case Map.lookup methodKey (inferClassMethodSignatures state) of
@@ -1155,7 +1154,7 @@ selectQualifiedMethodCandidate ::
   [ImplMethodType] ->
   TypeEnv ->
   InferState ->
-  [(Expr 'Resolved, ExpressionType)] ->
+  [(CheckedExpr, ExpressionType)] ->
   (MethodSelection, InferState)
 selectQualifiedMethodCandidate methodKey classMethodType implMethodTypes env state typedArguments =
   case preferredCandidates of
@@ -1170,6 +1169,13 @@ selectQualifiedMethodCandidate methodKey classMethodType implMethodTypes env sta
         addTypeError state (mkAmbiguousQualifiedMethodBodyForArgumentsError methodKey (resolvedArgumentTypes state))
       )
   where
+    -- This applies the current substitutions to already-owned decisions. It
+    -- neither checks expressions again nor changes the solver or evidence.
+    checkedArguments = [(project checked, expressionType) | (checked, expressionType) <- typedArguments]
+    project checked = case runDraft (checkedExprTree checked) state of
+      Attached expression -> Just expression
+      AttachmentFailed {} -> Nothing
+
     preferredCandidates =
       case exactMatchingCandidates of
         [] -> matchingCandidates
@@ -1191,7 +1197,7 @@ selectQualifiedMethodCandidate methodKey classMethodType implMethodTypes env sta
     filterExactMatches candidates =
       [ (implMethodType, matchedType, matchedState)
       | (implMethodType, matchedType, matchedState) <- candidates,
-        qualifiedMethodCandidateExactlyMatchesArguments state env classMethodType implMethodType typedArguments
+        qualifiedMethodCandidateExactlyMatchesArguments state env classMethodType implMethodType checkedArguments
       ]
 
     resolvedArgumentTypes stateForRendering =
@@ -1206,7 +1212,7 @@ qualifiedMethodCandidateExactlyMatchesArguments ::
   TypeEnv ->
   ClassMethodType ->
   ImplMethodType ->
-  [(Expr 'Resolved, ExpressionType)] ->
+  [(Maybe (Expr 'Analyzed), ExpressionType)] ->
   Bool
 qualifiedMethodCandidateExactlyMatchesArguments state env (ClassMethodType classParameter methodSignature) (ImplMethodType implTarget _ _) typedArguments =
   case instantiateClassMethodTarget classParameter implTarget methodSignature of
@@ -1221,7 +1227,7 @@ qualifiedMethodCandidateExactlyMatchesArguments state env (ClassMethodType class
             && and (zipWith3 exactCandidateArgumentMatches targetArgumentPositions (take suppliedArgumentCount candidateArgumentTypes) typedArguments)
     Nothing -> False
   where
-    exactCandidateArgumentMatches targetArgumentPosition candidateType (argumentExpr, expressionType) =
+    exactCandidateArgumentMatches targetArgumentPosition candidateType (Just argumentExpr, expressionType) =
       not targetArgumentPosition
         || case closedConstraintType candidateType of
           Nothing -> False
@@ -1230,8 +1236,9 @@ qualifiedMethodCandidateExactlyMatchesArguments state env (ClassMethodType class
             Nothing ->
               resolveType state candidateType == defaultLiteralTypes state (resolveType state expressionType)
                 && constraintExpressionHasExactEvidence state env signatureType argumentExpr
+    exactCandidateArgumentMatches targetArgumentPosition _ (Nothing, _) = not targetArgumentPosition
 
-scalarApplicationRuntimeHint :: InferState -> TypeEnv -> ExpressionType -> Expr 'Resolved -> Maybe (SemanticType ResolvedName Void)
+scalarApplicationRuntimeHint :: InferState -> TypeEnv -> ExpressionType -> Expr 'Analyzed -> Maybe (SemanticType ResolvedName Void)
 scalarApplicationRuntimeHint state env expressionType argumentExpr =
   case argumentExpr of
     EApply {} ->
@@ -1253,7 +1260,7 @@ scalarApplicationRuntimeHint state env expressionType argumentExpr =
             _ -> Nothing
     resolvedType = resolveType state expressionType
 
-constraintExpressionHasExactEvidence :: InferState -> TypeEnv -> SemanticType ResolvedName Void -> Expr 'Resolved -> Bool
+constraintExpressionHasExactEvidence :: InferState -> TypeEnv -> SemanticType ResolvedName Void -> Expr 'Analyzed -> Bool
 constraintExpressionHasExactEvidence state env signatureType argumentExpr =
   case (signatureType, argumentExpr) of
     (SemanticList elementType, EList _ elements) ->
@@ -1283,13 +1290,13 @@ constraintExpressionHasExactEvidence state env signatureType argumentExpr =
           constraintExpressionRuntimeHintMatches state env signatureType argumentExpr
     _ -> True
 
-constraintExpressionRuntimeHintMatches :: InferState -> TypeEnv -> SemanticType ResolvedName Void -> Expr 'Resolved -> Bool
+constraintExpressionRuntimeHintMatches :: InferState -> TypeEnv -> SemanticType ResolvedName Void -> Expr 'Analyzed -> Bool
 constraintExpressionRuntimeHintMatches state env signatureType argumentExpr =
   case constraintExpressionRuntimeHint state env argumentExpr of
     Just runtimeHint -> runtimeHint == signatureType
     Nothing -> False
 
-constraintExpressionRuntimeHint :: InferState -> TypeEnv -> Expr 'Resolved -> Maybe (SemanticType ResolvedName Void)
+constraintExpressionRuntimeHint :: InferState -> TypeEnv -> Expr 'Analyzed -> Maybe (SemanticType ResolvedName Void)
 constraintExpressionRuntimeHint state env argumentExpr =
   constraintExpressionRuntimeHintWithLocalHints state env Map.empty argumentExpr
 
@@ -1297,15 +1304,15 @@ constraintExpressionRuntimeHintWithLocalHints ::
   InferState ->
   TypeEnv ->
   Map TypeEnvKey (SemanticType ResolvedName Void) ->
-  Expr 'Resolved ->
+  Expr 'Analyzed ->
   Maybe (SemanticType ResolvedName Void)
 constraintExpressionRuntimeHintWithLocalHints state env localHints argumentExpr =
   case argumentExpr of
     EVar node referencedName ->
-      Map.lookup (typeEnvReferenceKey (coreNodeFacts node) referencedName) localHints
-        <|> (Map.lookup (typeEnvReferenceKey (coreNodeFacts node) referencedName) env >>= typeBindingRuntimeHint state)
+      Map.lookup (typeEnvReferenceKey (expressionResolution (coreNodeFacts node)) referencedName) localHints
+        <|> (Map.lookup (typeEnvReferenceKey (expressionResolution (coreNodeFacts node)) referencedName) env >>= typeBindingRuntimeHint state)
     EApply _ (EApply _ dollarExpr functionExpr) _
-      | builtinDollarOperatorExpr env dollarExpr ->
+      | checkedDollarOperatorExpr env dollarExpr ->
           case constraintExpressionRuntimeHintWithLocalHints state env localHints functionExpr of
             Just (SemanticFunction _ resultType) -> Just resultType
             _ -> Nothing
@@ -1325,7 +1332,7 @@ commonConstraintExpressionRuntimeHint ::
   InferState ->
   TypeEnv ->
   Map TypeEnvKey (SemanticType ResolvedName Void) ->
-  [Expr 'Resolved] ->
+  [Expr 'Analyzed] ->
   Maybe (SemanticType ResolvedName Void)
 commonConstraintExpressionRuntimeHint _ _ _ [] = Nothing
 commonConstraintExpressionRuntimeHint state env localHints (firstExpr : restExprs) = do
@@ -1340,7 +1347,7 @@ constraintBlockRuntimeHint ::
   InferState ->
   TypeEnv ->
   Map TypeEnvKey (SemanticType ResolvedName Void) ->
-  [Statement 'Resolved] ->
+  [Statement 'Analyzed] ->
   Maybe (SemanticType ResolvedName Void)
 constraintBlockRuntimeHint state env initialLocalHints statements =
   go initialLocalHints Map.empty statements
@@ -1352,30 +1359,37 @@ constraintBlockRuntimeHint state env initialLocalHints statements =
     go localHints pendingHints (statement : rest) =
       case statement of
         SSignature node name _ ->
-          let key = typeEnvReferenceKey (coreNodeFacts node) name
+          let key = typeEnvReferenceKey (statementResolution (coreNodeFacts node)) name
               nextPendingHints =
-                case checkedSignatureRuntimeHint (coreNodeId node) of
+                case checkedSignatureRuntimeHint (coreNodeFacts node) of
                   Just runtimeHint -> Map.insert key runtimeHint pendingHints
                   Nothing -> Map.delete key pendingHints
            in go localHints nextPendingHints rest
         SLet node name valueExpr ->
-          let key = typeEnvBindingKey (coreNodeFacts node) name
+          let key = typeEnvBindingKey (statementResolution (coreNodeFacts node)) name
               bindingHint =
                 Map.lookup key pendingHints
                   <|> constraintExpressionRuntimeHintWithLocalHints state env localHints valueExpr
               nextLocalHints =
                 case bindingHint of
-                  Just runtimeHint -> Map.insert (typeEnvBindingKey (coreNodeFacts node) name) runtimeHint localHints
+                  Just runtimeHint -> Map.insert (typeEnvBindingKey (statementResolution (coreNodeFacts node)) name) runtimeHint localHints
                   Nothing -> localHints
            in go nextLocalHints (Map.delete key pendingHints) rest
         _ ->
           go localHints pendingHints rest
 
-    checkedSignatureRuntimeHint nodeId = do
-      (bindings, _) <- Map.lookup nodeId (inferStatementFactSeeds state)
-      case bindings of
-        [(_, binding)] -> typeBindingRuntimeHint state binding
-        _ -> Nothing
+    checkedSignatureRuntimeHint facts = case Map.elems (statementGeneralizedSchemes facts) of
+      [scheme] | null (analyzedSchemeVariables scheme) -> closedConstraintType (defaultLiteralTypes state (analyzedSchemeType scheme))
+      _ -> Nothing
+
+checkedDollarOperatorExpr :: TypeEnv -> Expr 'Analyzed -> Bool
+checkedDollarOperatorExpr env expression = case expression of
+  EOperatorValue _ "$" -> True
+  EVar node name -> case Map.lookup (typeEnvReferenceKey (expressionResolution (coreNodeFacts node)) name) env of
+    Just (BuiltinOperatorAliasTypeBinding "$") -> True
+    Just (OperatorAliasSchemeTypeBinding "$" _) -> True
+    _ -> False
+  _ -> False
 
 typeBindingRuntimeHint :: InferState -> TypeBinding -> Maybe (SemanticType ResolvedName Void)
 typeBindingRuntimeHint state binding =
@@ -1403,7 +1417,7 @@ constraintTypeContainsList signatureType =
         || constraintTypeContainsList resultType
     _ -> False
 
-constructorApplicationExpressionHasExactEvidence :: InferState -> TypeEnv -> ResolvedName -> [SemanticType ResolvedName Void] -> Expr 'Resolved -> Bool
+constructorApplicationExpressionHasExactEvidence :: InferState -> TypeEnv -> ResolvedName -> [SemanticType ResolvedName Void] -> Expr 'Analyzed -> Bool
 constructorApplicationExpressionHasExactEvidence state env typeName typeArguments argumentExpr =
   case constructorExpressionSpine argumentExpr of
     Just (constructorName, constructorArgumentExprs) ->
@@ -1423,7 +1437,7 @@ constructorApplicationExpressionHasExactEvidence state env typeName typeArgument
         _ -> False
     Nothing -> False
 
-constructorExpressionSpine :: Expr 'Resolved -> Maybe (TypeEnvKey, [Expr 'Resolved])
+constructorExpressionSpine :: Expr 'Analyzed -> Maybe (TypeEnvKey, [Expr 'Analyzed])
 constructorExpressionSpine expr =
   go [] expr
   where
@@ -1432,11 +1446,11 @@ constructorExpressionSpine expr =
         EApply _ functionExpr argumentExpr ->
           go (argumentExpr : argumentExprs) functionExpr
         EVar node constructorName ->
-          Just (typeEnvReferenceKey (coreNodeFacts node) constructorName, argumentExprs)
+          Just (typeEnvReferenceKey (expressionResolution (coreNodeFacts node)) constructorName, argumentExprs)
         _ ->
           Nothing
 
-constructorArgumentExpressionHasExactEvidence :: InferState -> TypeEnv -> Map Text (SemanticType ResolvedName Void) -> ConstructorArgumentType -> Expr 'Resolved -> Bool
+constructorArgumentExpressionHasExactEvidence :: InferState -> TypeEnv -> Map Text (SemanticType ResolvedName Void) -> ConstructorArgumentType -> Expr 'Analyzed -> Bool
 constructorArgumentExpressionHasExactEvidence state env typeParameterBindings constructorArgument argumentExpr =
   case constructorArgument of
     ConstructorArgumentType fieldType ->
