@@ -10,6 +10,7 @@ module Jazz.Compiler.TypeInference.Draft
     finalizeDraft,
     rejectedDraft,
     CheckedExpr (..),
+    CheckedScope (..),
   )
 where
 
@@ -17,7 +18,7 @@ import Data.Foldable (toList)
 import Data.List.NonEmpty (NonEmpty (..))
 import Data.Sequence (Seq)
 import qualified Data.Sequence as Seq
-import Jazz.Compiler.AST (CorePhase (Analyzed), Expr)
+import Jazz.Compiler.AST (CorePhase (Analyzed), Expr, Statement)
 import Jazz.Compiler.SemanticFacts (SemanticFactInvariantFailure)
 import Jazz.Compiler.TypeInference.State (InferState)
 import Jazz.Compiler.TypeInference.Types (ExpressionType)
@@ -55,4 +56,9 @@ rejectedDraft failure = Draft (const (AttachmentFailed failure Seq.empty))
 data CheckedExpr = CheckedExpr
   { checkedExprType :: Maybe ExpressionType,
     checkedExprTree :: Draft (Expr 'Analyzed)
+  }
+
+data CheckedScope = CheckedScope
+  { checkedScopeType :: Maybe ExpressionType,
+    checkedScopeTree :: Draft [Statement 'Analyzed]
   }

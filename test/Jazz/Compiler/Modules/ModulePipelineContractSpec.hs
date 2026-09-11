@@ -631,18 +631,28 @@ testCheckedSubtreeOwnership = do
       "($) (+ 1.5) 1",
       "case (1, [2]) { | (item, [other]) | (other, [item]) if item > 0 -> item + other | _ -> 0 }"
     ]
+  mapM_
+    (assertOwnedBlock inputs)
+    [ "identity :: a -> a. identity = \\(item) -> item. first = identity @Int 1. identity = True. (first, identity).",
+      "data Box a = Box a. class Eq(a) { equals :: a -> a -> Bool. }. impl Eq(Int) { equals = \\(left, right) -> left == right. }. result = case Box 1 { | Box item -> Eq::equals @Int item 1 }. result.",
+      "left = \\(item) -> if True then item else right item. between = left 1. right = \\(item) -> left item. (between, right True)."
+    ]
   where
     assertOwned inputs source = do
       resolved <- resolveFixtureProgram (Map.singleton "src/App/Main.jz" ("module App::Main { " <> source <> ". }"))
       let entry = NonEmpty.last (coreProgramModules resolved)
       case coreModuleStatements entry of
-        [SExpr _ expression] -> do
-          let (checked, state, _) = inferExpressionWork inputs [] expression
-          owned <- either (fail . show) pure (finalizeCheckedExpression state checked)
-          independent <- either (fail . show) pure (finalizeCheckedExpression (state {inferOutput = inferOutput initialInferState}) checked)
-          assertEqual "checker retains each child and its decisions" owned independent
-          assertExprFacts owned
+        [SExpr _ expression] -> assertDraft inputs expression
         statements -> fail ("unexpected ownership fixture: " <> show statements)
+    assertOwnedBlock inputs source = do
+      resolved <- resolveFixtureProgram (Map.singleton "src/App/Main.jz" ("module App::Main { " <> source <> " }"))
+      assertDraft inputs (coreModuleExpr (NonEmpty.last (coreProgramModules resolved)))
+    assertDraft inputs expression = do
+      let (checked, state, _) = inferExpressionWork inputs [] expression
+      owned <- either (fail . show) pure (finalizeCheckedExpression state checked)
+      independent <- either (fail . show) pure (finalizeCheckedExpression (state {inferOutput = inferOutput initialInferState}) checked)
+      assertEqual "checker retains each child and its decisions" owned independent
+      assertExprFacts owned
 
 testAnalyzedFactInvariantFailures :: IO ()
 testAnalyzedFactInvariantFailures = do

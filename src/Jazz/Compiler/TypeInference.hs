@@ -83,10 +83,10 @@ import Jazz.Compiler.SemanticFacts
     SemanticFactInvariantFailure (MissingExpressionFacts),
     StatementDeclarationFact,
   )
-import Jazz.Compiler.TypeInference.Analyzed (draftExpressionNode, legacyExpressionDraft, refineListPrependDraft)
+import Jazz.Compiler.TypeInference.Analyzed (draftExpressionNode, refineListPrependDraft)
 import Jazz.Compiler.TypeInference.Capabilities
 import Jazz.Compiler.TypeInference.Diagnostics
-import Jazz.Compiler.TypeInference.Draft (CheckedExpr (..), Draft, rejectedDraft)
+import Jazz.Compiler.TypeInference.Draft (CheckedExpr (..), CheckedScope (..), Draft, rejectedDraft)
 import Jazz.Compiler.TypeInference.Environment (insertResolvedTypeBinding)
 import Jazz.Compiler.TypeInference.Interface (closeModuleBindings, importBindingTypes)
 import Jazz.Compiler.TypeInference.Operator
@@ -186,13 +186,15 @@ inferExpressionWork inputs moduleStatementFacts expr =
         EBlock node statements ->
           let preparedScope =
                 prepareResolvedScope node statements
-              (blockResult, rawBlockState, _) =
+              (blockCheck, rawBlockState, _) =
                 inferScopeTypeWithModeAndForwardBindingsUsingPreparedScope
                   preparedScope
                   inferExprTypeWithMode
                   InferenceOnly
                   importedEnvironment
                   initialState
+              blockResult = checkedScopeType blockCheck
+              blockType = fromMaybe unitType blockResult
               blockState =
                 recordExpressionFactType
                   (coreNodeId (expressionNode expr))
@@ -201,7 +203,7 @@ inferExpressionWork inputs moduleStatementFacts expr =
                       Nothing -> unitType
                   )
                   rawBlockState
-           in (CheckedExpr blockResult (legacyExpressionDraft expr), blockState, InferencePreparedScope expr preparedScope)
+           in (CheckedExpr blockResult (EBlock <$> draftExpressionNode blockState (Just blockType) expr <*> checkedScopeTree blockCheck), blockState, InferencePreparedScope expr preparedScope)
         _ ->
           let (result, resultState) =
                 inferExprTypeDetailed
@@ -294,9 +296,10 @@ instantiateEnvBinding binding state =
 inferExprTypeWithMode :: InferenceMode -> TypeEnv -> InferState -> Expr 'Resolved -> (CheckedExpr, InferState)
 inferExprTypeWithMode mode env state expr = case expr of
   EBlock node statements ->
-    let (result, inferredState) = inferNestedScopeTypeWithMode inferExprTypeWithMode mode env state (prepareResolvedScope node statements)
+    let (scope, inferredState) = inferNestedScopeTypeWithMode inferExprTypeWithMode mode env state (prepareResolvedScope node statements)
+        result = checkedScopeType scope
         finalState = maybe inferredState (\value -> recordExpressionFactType (coreNodeId node) value inferredState) result
-     in (CheckedExpr result (legacyExpressionDraft expr), finalState)
+     in (CheckedExpr result (EBlock <$> draftExpressionNode finalState result expr <*> checkedScopeTree scope), finalState)
   _ -> inferExprTypeDetailed env state expr
 
 -- Checking returns the draft subtree alongside its type. Legacy constructor

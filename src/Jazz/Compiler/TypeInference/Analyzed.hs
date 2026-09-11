@@ -8,6 +8,7 @@ module Jazz.Compiler.TypeInference.Analyzed
   ( attachAnalyzedExpression,
     draftExpressionNode,
     draftCaseArmNode,
+    draftStatement,
     refineListPrependDraft,
     finalizeCheckedExpression,
     legacyExpressionDraft,
@@ -60,6 +61,7 @@ import Jazz.Compiler.SemanticFacts
     RuntimePlan (..),
     SemanticFactInvariantFailure (..),
     SemanticInstantiation (..),
+    StatementDeclarationFact,
     StatementFacts (..),
   )
 import Jazz.Compiler.TypeInference.Draft (Attachment (..), CheckedExpr (..), Draft (..), attachmentResult)
@@ -371,6 +373,27 @@ attachPatternNode state pattern =
                   }
             )
 
+draftStatement :: InferState -> Statement 'Resolved -> Maybe CheckedExpr -> [(Int, CheckedExpr)] -> Draft (Statement 'Analyzed)
+draftStatement checked statement body methods = case statement of
+  SLet node name value -> makeLet name <$> facts node <*> valueDraft value body
+  SSignature node name signature -> SSignature <$> facts node <*> pure name <*> pure signature
+  SData node name parameters constructors -> SData <$> facts node <*> pure name <*> pure parameters <*> traverse constructor constructors
+  SClass node name parameters signatures -> SClass <$> facts node <*> pure name <*> pure parameters <*> traverse classMethod signatures
+  SImpl node name arguments declarations -> SImpl <$> facts node <*> pure name <*> pure arguments <*> traverse implMethod (zip [0 ..] declarations)
+  SModule node path -> SModule <$> facts node <*> pure path
+  SImport node path alias names -> SImport <$> facts node <*> pure path <*> pure alias <*> pure names
+  SExpr node value -> SExpr <$> facts node <*> valueDraft value body
+  where
+    facts (CoreNode nodeId spanValue resolution) =
+      let seed = Map.lookup nodeId (inferStatementFactSeeds checked)
+       in seed `seq` Draft (\solved -> CoreNode nodeId spanValue <$> projectStatementSeed solved nodeId resolution seed)
+    valueDraft _ (Just value) = checkedExprTree value
+    valueDraft value Nothing = Draft (const (missing (MissingExpressionFacts (coreNodeId (expressionNode value)))))
+    constructor (DataConstructor node name arguments) = DataConstructor <$> facts node <*> pure name <*> pure arguments
+    classMethod (ClassMethodSignature node name signature) = ClassMethodSignature <$> facts node <*> pure name <*> pure signature
+    implMethod (index, ImplMethod node name value) = ImplMethod <$> facts node <*> pure name <*> valueDraft value (lookup index methods)
+    makeLet name node value = SLet node name (constrainBindingRuntimeResult (coreNodeFacts node) value)
+
 attachStatementNode :: InferState -> Statement 'Resolved -> Attachment (Statement 'Analyzed)
 attachStatementNode state statement =
   case statement of
@@ -449,7 +472,11 @@ attachAnalyzedStatementFacts state nodes =
 
 projectStatementFacts :: InferState -> CoreNodeId -> ResolvedNodeFacts -> Attachment StatementFacts
 projectStatementFacts state nodeId resolution =
-  case Map.lookup nodeId (inferStatementFactSeeds state) of
+  projectStatementSeed state nodeId resolution (Map.lookup nodeId (inferStatementFactSeeds state))
+
+projectStatementSeed :: InferState -> CoreNodeId -> ResolvedNodeFacts -> Maybe ([(ResolvedName, TypeBinding)], StatementDeclarationFact) -> Attachment StatementFacts
+projectStatementSeed state nodeId resolution seed =
+  case seed of
     Nothing -> missing (MissingStatementFacts nodeId)
     Just ([], declarationFact) -> pure (facts declarationFact [] Map.empty)
     Just (bindings, declarationFact) ->
