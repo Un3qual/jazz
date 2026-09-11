@@ -615,7 +615,7 @@ testCheckedSubtreeOwnership = do
         EIf
           (node 1)
           (ELit (node 2) (LBool True))
-          (ETuple (node 3) [EList (node 4) [ELit (node 5) (LInt 1)], ELit (node 6) (LBool True)])
+          (ETuple (node 3) [EList (node 4) [ELit (node 5) (LInt 1)], EBinary (node 11) "==" (ELit (node 12) (LBool True)) (ELit (node 6) (LBool True))])
           (ETuple (node 7) [EList (node 8) [ELit (node 9) (LInt 2)], ELit (node 10) (LBool False)])
       inputs = InferenceInputs Nothing defaultWarningSettings Set.empty Map.empty Map.empty Map.empty emptyScopeCapabilityFacts Set.empty Nothing
       (checked, state, _) = inferExpressionWork inputs [] expression
@@ -623,6 +623,15 @@ testCheckedSubtreeOwnership = do
   expected <- either (fail . show) pure (finalizeCheckedExpression state checked)
   actual <- either (fail . show) pure (finalizeCheckedExpression erased checked)
   assertEqual "owned checked subtree survives output erasure" expected actual
+  resolved <- resolveFixtureProgram (Map.singleton "src/App/Main.jz" "module App::Main { (\\(x) -> x) (1 + 2). }")
+  let entry = NonEmpty.last (coreProgramModules resolved)
+  case coreModuleStatements entry of
+    [SExpr _ application] -> do
+      let (applicationCheck, applicationState, _) = inferExpressionWork inputs [] application
+      owned <- either (fail . show) pure (finalizeCheckedExpression applicationState applicationCheck)
+      independent <- either (fail . show) pure (finalizeCheckedExpression (applicationState {inferOutput = inferOutput initialInferState}) applicationCheck)
+      assertEqual "application retains its lambda and operand drafts" owned independent
+    statements -> fail ("unexpected application fixture: " <> show statements)
 
 testAnalyzedFactInvariantFailures :: IO ()
 testAnalyzedFactInvariantFailures = do

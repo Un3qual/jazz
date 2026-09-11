@@ -7,6 +7,7 @@
 module Jazz.Compiler.TypeInference.Analyzed
   ( attachAnalyzedExpression,
     draftExpressionNode,
+    refineListPrependDraft,
     finalizeCheckedExpression,
     legacyExpressionDraft,
     attachAnalyzedStatementFacts,
@@ -174,6 +175,18 @@ draftExpressionNode checked result expression =
   let node = expressionNode expression
       payload = prepareExpressionNode checked (Just expression) result (coreNodeId node)
    in payload `seq` Draft (\solved -> finalizeExpressionNode solved payload node)
+
+refineListPrependDraft :: InferState -> Expr 'Resolved -> ExpressionType -> Draft (Expr 'Analyzed) -> Draft (Expr 'Analyzed)
+refineListPrependDraft state function elementType checked = case function of
+  EApply _ builtin _ ->
+    let listType = SemanticList elementType
+        partialType = SemanticFunction listType listType
+        callableType = SemanticFunction elementType partialType
+        rebuild partial callable expression = case expression of
+          EApply _ analyzedBuiltin headValue -> EApply partial (mapExpressionFacts (const (coreNodeFacts callable)) analyzedBuiltin) headValue
+          _ -> expression
+     in rebuild <$> draftExpressionNode state (Just partialType) function <*> draftExpressionNode state (Just callableType) builtin <*> checked
+  _ -> checked
 
 attachExpressionNode :: InferState -> Maybe (Expr 'Resolved) -> CoreNode 'Resolved 'ExpressionSort -> Attachment (CoreNode 'Analyzed 'ExpressionSort)
 attachExpressionNode state expression node =
