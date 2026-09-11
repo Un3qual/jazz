@@ -67,7 +67,7 @@ import Jazz.Compiler.BuiltinCatalog
 import Jazz.Compiler.CapabilityFacts
   ( qualifiedMethodKey,
   )
-import Jazz.Compiler.CoreIdentity (ResolvedNodeFacts (resolvedNodeCaptures))
+import Jazz.Compiler.CoreIdentity (ResolvedNodeFacts (resolvedNodeCaptures, resolvedNodeReference), ResolvedReference (LexicalReference))
 import Jazz.Compiler.DiagnosticCatalog
   ( ErrorCode (..),
   )
@@ -151,6 +151,7 @@ import Jazz.Compiler.Runtime.ScopePlan
     runtimeExprRequiresHost,
     runtimeModulePathAfterStatements,
     runtimeStatementRequiresHost,
+    scopePlanBindingIndex,
     scopePlanBindingNameAt,
     scopePlanIndexedStatements,
     scopePlanIsHostRecursiveBinding,
@@ -704,43 +705,24 @@ evaluateRuntimeScopePureRequest request = go Nothing indexedStatements
       | otherwise =
           runtimeValue
 
-    recursiveAliasTarget :: Set ResolvedName -> Int -> Expr 'Analyzed -> Maybe Int
-    recursiveAliasTarget locallyBoundNames statementIndex valueExpr =
-      case peelSingleExprBlock valueExpr of
-        EVar _ targetName ->
-          if Set.member targetName locallyBoundNames
-            then Nothing
-            else case scopePlanRecursiveGroupAt scopePlan statementIndex of
-              Just groupMembers ->
-                lookupRecursivePeer targetName groupMembers
-              Nothing -> Nothing
-        EOperatorValue _ operatorSymbol
-          | not (isBuiltinOperatorSymbol operatorSymbol) ->
-              let targetName = operatorBindingName operatorSymbol
-               in if Set.member targetName locallyBoundNames
-                    then Nothing
-                    else case scopePlanRecursiveGroupAt scopePlan statementIndex of
-                      Just groupMembers ->
-                        lookupRecursivePeer targetName groupMembers
-                      Nothing -> Nothing
+    recursiveAliasTarget :: Int -> Expr 'Analyzed -> Maybe Int
+    recursiveAliasTarget statementIndex valueExpr = do
+      node <- case peelSingleExprBlock valueExpr of
+        EVar referenceNode _ -> Just referenceNode
+        EOperatorValue referenceNode _ -> Just referenceNode
         _ -> Nothing
+      LexicalReference binder <- resolvedNodeReference (expressionResolution (coreNodeFacts node))
+      targetIndex <- scopePlanBindingIndex scopePlan binder
+      groupMembers <- scopePlanRecursiveGroupAt scopePlan statementIndex
+      if targetIndex `elem` groupMembers then Just targetIndex else Nothing
 
     -- Preserve wrapper runtime semantics by evaluating the branch condition
     -- first, then following alias resolution only through the selected branch.
     selectedRecursiveAliasTarget :: Int -> RuntimeEnv -> Expr 'Analyzed -> Either Diagnostic (Maybe Int)
-    selectedRecursiveAliasTarget =
-      selectedRecursiveAliasTargetWithBound Set.empty
-
-    selectedRecursiveAliasTargetWithBound ::
-      Set ResolvedName ->
-      Int ->
-      RuntimeEnv ->
-      Expr 'Analyzed ->
-      Either Diagnostic (Maybe Int)
-    selectedRecursiveAliasTargetWithBound locallyBoundNames statementIndex env expr =
+    selectedRecursiveAliasTarget statementIndex env expr =
       case peelSingleExprBlock expr of
         EIf _ conditionExpr thenExpr elseExpr ->
-          selectRecursiveAliasTarget locallyBoundNames statementIndex env conditionExpr thenExpr elseExpr
+          selectRecursiveAliasTarget statementIndex env conditionExpr thenExpr elseExpr
         EPatternCase _ scrutineeExpr caseArms -> do
           scrutineeValue <- evalValueAt statementIndex env scrutineeExpr
           selectedArm <-
@@ -751,25 +733,24 @@ evaluateRuntimeScopePureRequest request = go Nothing indexedStatements
               scrutineeValue
               caseArms
           case selectedArm of
-            Just (newLocallyBoundNames, armEnv, bodyExpr) ->
-              selectedRecursiveAliasTargetWithBound
-                (Set.union locallyBoundNames newLocallyBoundNames)
+            Just (armEnv, bodyExpr) ->
+              selectedRecursiveAliasTarget
                 statementIndex
                 armEnv
                 bodyExpr
             Nothing ->
               Right Nothing
         peeledExpr ->
-          Right (recursiveAliasTarget locallyBoundNames statementIndex peeledExpr)
+          Right (recursiveAliasTarget statementIndex peeledExpr)
 
-    selectRecursiveAliasTarget :: Set ResolvedName -> Int -> RuntimeEnv -> Expr 'Analyzed -> Expr 'Analyzed -> Expr 'Analyzed -> Either Diagnostic (Maybe Int)
-    selectRecursiveAliasTarget locallyBoundNames statementIndex env conditionExpr thenExpr elseExpr = do
+    selectRecursiveAliasTarget :: Int -> RuntimeEnv -> Expr 'Analyzed -> Expr 'Analyzed -> Expr 'Analyzed -> Either Diagnostic (Maybe Int)
+    selectRecursiveAliasTarget statementIndex env conditionExpr thenExpr elseExpr = do
       conditionValue <- evalValueAt statementIndex env conditionExpr
       case conditionValue of
         VBool True ->
-          selectedRecursiveAliasTargetWithBound locallyBoundNames statementIndex env thenExpr
+          selectedRecursiveAliasTarget statementIndex env thenExpr
         VBool False ->
-          selectedRecursiveAliasTargetWithBound locallyBoundNames statementIndex env elseExpr
+          selectedRecursiveAliasTarget statementIndex env elseExpr
         other ->
           Left
             ( runtimeDiagnostic
@@ -783,7 +764,7 @@ evaluateRuntimeScopePureRequest request = go Nothing indexedStatements
       RuntimeEnv ->
       RuntimeValue ->
       [CaseArm 'Analyzed] ->
-      Either Diagnostic (Maybe (Set ResolvedName, RuntimeEnv, Expr 'Analyzed))
+      Either Diagnostic (Maybe (RuntimeEnv, Expr 'Analyzed))
     selectMatchingCaseArmForAlias patternModulePath evalGuard env scrutineeValue =
       chooseRemainingArm
       where
@@ -800,8 +781,7 @@ evaluateRuntimeScopePureRequest request = go Nothing indexedStatements
                 Nothing ->
                   Right
                     ( Just
-                        ( caseArmBoundNames caseArm,
-                          armEnv,
+                        ( armEnv,
                           bodyExpr
                         )
                     )
@@ -811,8 +791,7 @@ evaluateRuntimeScopePureRequest request = go Nothing indexedStatements
                     VBool True ->
                       Right
                         ( Just
-                            ( caseArmBoundNames caseArm,
-                              armEnv,
+                            ( armEnv,
                               bodyExpr
                             )
                         )
@@ -826,10 +805,6 @@ evaluateRuntimeScopePureRequest request = go Nothing indexedStatements
                         )
             Nothing ->
               chooseRemainingArm rest
-
-    caseArmBoundNames :: CaseArm 'Analyzed -> Set ResolvedName
-    caseArmBoundNames (CaseArm _ casePattern _ _) =
-      patternBinderNames casePattern
 
     -- Single-expression blocks are semantically transparent here, so peel
     -- them before following recursive alias edges and cycle detection.
@@ -928,17 +903,6 @@ evaluateRuntimeScopePureRequest request = go Nothing indexedStatements
             _ ->
               Left
                 (runtimeDiagnostic E3020 "internal runtime error: expected block binding statement for alias selection")
-
-    lookupRecursivePeer :: ResolvedName -> [Int] -> Maybe Int
-    lookupRecursivePeer targetName =
-      foldl' chooseTarget Nothing
-      where
-        chooseTarget currentChoice peerIndex =
-          case scopePlanBindingNameAt scopePlan peerIndex of
-            Just peerName
-              | peerName == targetName ->
-                  Just peerIndex
-            _ -> currentChoice
 
     envBefore :: Int -> RuntimeEnv
     envBefore statementIndex =
@@ -1077,7 +1041,7 @@ evaluateRuntimeScopePureRequest request = go Nothing indexedStatements
                   scrutineeValue
                   caseArms
               case selectedArm of
-                Just (_, armEnv, bodyExpr) ->
+                Just (armEnv, bodyExpr) ->
                   selectedQualifiedMethodAliasTarget methodModulePath methodExprsByKey visitedMethodKeys armEnv methodKey bodyExpr
                 Nothing ->
                   Right False

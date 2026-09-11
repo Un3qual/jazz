@@ -15,6 +15,7 @@ module Jazz.Compiler.Runtime.ScopePlan
     scopePlanIsRecursiveBinding,
     scopePlanIsSelfRecursiveFunction,
     scopePlanBindingNameAt,
+    scopePlanBindingIndex,
     scopePlanIsHostRecursiveBinding,
     runtimeExprRequiresHost,
     runtimeStatementRequiresHost,
@@ -42,7 +43,7 @@ import Jazz.Compiler.BuiltinCatalog
   ( BuiltinSymbol (..),
     lookupKernelBuiltinSymbol,
   )
-import Jazz.Compiler.CoreIdentity (ResolvedScopeFacts (..))
+import Jazz.Compiler.CoreIdentity (CoreBinderId, ResolvedScopeFacts (..))
 import Jazz.Compiler.ModuleIdentity (ModulePath, mkModulePath)
 import Jazz.Compiler.Name
   ( ResolvedName,
@@ -64,6 +65,7 @@ data RuntimeScopePlan = RuntimeScopePlan
     runtimeScopePlanRecursiveGroups :: IntMap [Int],
     runtimeScopePlanSelfRecursiveFunctions :: IntSet,
     runtimeScopePlanBindingNames :: IntMap ResolvedName,
+    runtimeScopePlanBindingIndices :: Map.Map CoreBinderId Int,
     runtimeScopePlanHostRecursiveBindings :: IntSet
   }
 
@@ -81,6 +83,7 @@ buildRuntimeScopePlan preludePath preludeStatementIndices initialModulePath prep
       runtimeScopePlanRecursiveGroups = recursiveGroups,
       runtimeScopePlanSelfRecursiveFunctions = selfRecursiveFunctions,
       runtimeScopePlanBindingNames = bindingNames,
+      runtimeScopePlanBindingIndices = Map.fromList [(binder, index) | (index, binder) <- Map.toList (resolvedScopeBinderIds lexicalFacts)],
       runtimeScopePlanHostRecursiveBindings = hostRecursiveBindings
     }
   where
@@ -146,6 +149,9 @@ scopePlanIsSelfRecursiveFunction plan statementIndex =
 scopePlanBindingNameAt :: RuntimeScopePlan -> Int -> Maybe ResolvedName
 scopePlanBindingNameAt plan statementIndex =
   IntMap.lookup statementIndex (runtimeScopePlanBindingNames plan)
+
+scopePlanBindingIndex :: RuntimeScopePlan -> CoreBinderId -> Maybe Int
+scopePlanBindingIndex plan binder = Map.lookup binder (runtimeScopePlanBindingIndices plan)
 
 scopePlanIsHostRecursiveBinding :: RuntimeScopePlan -> Int -> Bool
 scopePlanIsHostRecursiveBinding plan statementIndex =
