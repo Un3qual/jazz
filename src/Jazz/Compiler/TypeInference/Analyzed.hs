@@ -5,6 +5,7 @@
 -- Declaration and expression builders retain their checked children.
 module Jazz.Compiler.TypeInference.Analyzed
   ( draftExpressionNode,
+    draftOperationNode,
     draftCaseArmNode,
     draftStatement,
     refineListPrependDraft,
@@ -65,7 +66,6 @@ import Jazz.Compiler.TypeInference.State
     ExplicitInstantiationTarget (..),
     ExpressionEvidenceSeed (..),
     InferState,
-    inferBinaryOperations,
     inferExplicitInstantiationSeeds,
     inferExpressionEvidenceSeeds,
     inferFactInvariantFailures,
@@ -116,9 +116,12 @@ data ExpressionNodeDraft = ExpressionNodeDraft
   }
 
 draftExpressionNode :: InferState -> Maybe ExpressionType -> Expr 'Resolved -> Draft (CoreNode 'Analyzed 'ExpressionSort)
-draftExpressionNode checked result expression =
+draftExpressionNode = draftOperationNode Nothing
+
+draftOperationNode :: Maybe BinaryOperation -> InferState -> Maybe ExpressionType -> Expr 'Resolved -> Draft (CoreNode 'Analyzed 'ExpressionSort)
+draftOperationNode operation checked result expression =
   let node = expressionNode expression
-      payload = prepareExpressionNode checked (Just expression) result (coreNodeId node)
+      payload = (prepareExpressionNode checked (Just expression) result (coreNodeId node)) {draftNodeOperation = operation}
    in payload `seq` Draft (\solved -> finalizeExpressionNode solved payload node)
 
 draftCaseArmNode :: InferState -> Maybe ExpressionType -> CoreNode 'Resolved 'ExpressionSort -> Draft (CoreNode 'Analyzed 'ExpressionSort)
@@ -142,7 +145,7 @@ prepareExpressionNode :: InferState -> Maybe (Expr 'Resolved) -> Maybe Expressio
 prepareExpressionNode checked expression result nodeId =
   ExpressionNodeDraft
     { draftNodeType = result,
-      draftNodeOperation = Map.lookup nodeId (inferBinaryOperations checked),
+      draftNodeOperation = Nothing,
       draftNodeEvidence = evidence,
       draftNodeInstantiation = explicitInstantiationFacts nodeId expression (Map.lookup nodeId (inferExplicitInstantiationSeeds checked)) evidence,
       draftNodeNumericLiteral = case expression of Just (ELit _ LInt {}) -> True; Just (ELit _ LFloat {}) -> True; _ -> False

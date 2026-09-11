@@ -82,7 +82,7 @@ import Jazz.Compiler.SemanticFacts
     SemanticFactInvariantFailure (MissingExpressionFacts),
     StatementDeclarationFact,
   )
-import Jazz.Compiler.TypeInference.Analyzed (draftExpressionNode, refineListPrependDraft)
+import Jazz.Compiler.TypeInference.Analyzed (draftExpressionNode, draftOperationNode, refineListPrependDraft)
 import Jazz.Compiler.TypeInference.Capabilities
 import Jazz.Compiler.TypeInference.Diagnostics
 import Jazz.Compiler.TypeInference.Draft (CheckedExpr (..), CheckedScope (..), Draft, rejectedDraft)
@@ -125,7 +125,6 @@ import Jazz.Compiler.TypeInference.State
     inferVisibleTypes,
     initialInferState,
     modifyInferenceOutput,
-    recordBinaryOperation,
     recordPatternCoverageSite,
     recordStatementFactSeed,
     reservePatternCoverageSite,
@@ -364,8 +363,9 @@ inferExprTypeDetailed env state expr = case expr of
     leaf make =
       let (result, finalState) = inferLeafExpression env state expr
        in finish result finalState (fmap make)
-    finish result finalState make =
-      (CheckedExpr result (make (draftExpressionNode finalState result expr)), finalState)
+    finish = finishOperation Nothing
+    finishOperation operation result finalState make =
+      (CheckedExpr result (make (draftOperationNode operation finalState result expr)), finalState)
 
     selectedBinaryOperation operatorSymbol leftExpr rightExpr operandTyping =
       BinaryOperation
@@ -373,12 +373,6 @@ inferExprTypeDetailed env state expr = case expr of
         operandTyping
         (coreNodeId (expressionNode leftExpr))
         (coreNodeId (expressionNode rightExpr))
-
-    recordSelectedBinaryOperation operation finalState =
-      maybe
-        finalState
-        (\selected -> recordBinaryOperation (coreNodeId (expressionNode expr)) selected finalState)
-        operation
 
     inferBinaryExpression operatorSymbol leftExpr rightExpr
       | hasOperatorRule operatorSymbol || isBuiltinOperatorSymbol operatorSymbol =
@@ -400,7 +394,7 @@ inferExprTypeDetailed env state expr = case expr of
                       stateAfterRight
                   _ -> (Nothing, Nothing, stateAfterRight)
               operation = selectedBinaryOperation operatorSymbol leftExpr rightExpr <$> operandTyping
-           in finish expressionType (recordSelectedBinaryOperation operation finalState) (\node -> EBinary <$> node <*> pure operatorSymbol <*> checkedExprTree leftCheck <*> checkedExprTree rightCheck)
+           in finishOperation operation expressionType finalState (\node -> EBinary <$> node <*> pure operatorSymbol <*> checkedExprTree leftCheck <*> checkedExprTree rightCheck)
       | otherwise =
           inferDeclaredBinaryExpression env state operatorSymbol leftExpr rightExpr
 
@@ -513,11 +507,10 @@ inferExprTypeDetailed env state expr = case expr of
                       stateAfterBinary
               _ -> stateAfterBinary
           operation = selectedBinaryOperation operatorSymbol leftExpr rightExpr <$> operandTyping
-          stateWithOperation = recordSelectedBinaryOperation operation finalState
           tree = case (leftResult, rightResult, expressionType) of
-            (Just leftType, Just rightType, Just resultType) -> draftBuiltinApplication env operatorSymbol expr leftCheck rightCheck leftType rightType resultType stateWithOperation
+            (Just leftType, Just rightType, Just resultType) -> draftBuiltinApplication env operatorSymbol operation expr leftCheck rightCheck leftType rightType resultType finalState
             _ -> rejectedDraft (MissingExpressionFacts (coreNodeId (expressionNode expr)))
-       in (CheckedExpr expressionType tree, stateWithOperation)
+       in (CheckedExpr expressionType tree, finalState)
 
     inferSectionApplicationWithFallback function argument symbol left right =
       let (generic, genericState) = inferCheckedApplication env state expr function argument
@@ -735,8 +728,8 @@ draftQualifiedMethodSpine root methodType arguments state =
       EVar _ name -> (methodType, EVar <$> facts expression methodType <*> pure name, remaining)
       _ -> (methodType, rejected expression, remaining)
 
-draftBuiltinApplication :: TypeEnv -> Text -> Expr 'Resolved -> CheckedExpr -> CheckedExpr -> ExpressionType -> ExpressionType -> ExpressionType -> InferState -> Draft (Expr 'Analyzed)
-draftBuiltinApplication env selectedSymbol root left right leftType rightType resultType state =
+draftBuiltinApplication :: TypeEnv -> Text -> Maybe BinaryOperation -> Expr 'Resolved -> CheckedExpr -> CheckedExpr -> ExpressionType -> ExpressionType -> ExpressionType -> InferState -> Draft (Expr 'Analyzed)
+draftBuiltinApplication env selectedSymbol operation root left right leftType rightType resultType state =
   case root of
     EApply _ partial@(EApply _ operator _) _
       | Just (symbol, _) <- builtinOperatorSymbolExpr env operator,
@@ -744,14 +737,14 @@ draftBuiltinApplication env selectedSymbol root left right leftType rightType re
           let partialType = SemanticFunction resolvedRight resolvedResult
               operatorType = SemanticFunction resolvedLeft partialType
               partialTree = EApply <$> facts partial partialType <*> callable operator operatorType <*> checkedExprTree left
-           in EApply <$> facts root resolvedResult <*> partialTree <*> checkedExprTree right
+           in EApply <$> draftOperationNode operation state (Just resolvedResult) root <*> partialTree <*> checkedExprTree right
     EApply _ function _ ->
       let (argument, argumentType) = case sectionDirection function of
             Just True -> (right, resolvedRight)
             Just False -> (left, resolvedLeft)
             Nothing -> (right, resolvedRight)
           sectionType = SemanticFunction argumentType resolvedResult
-       in EApply <$> facts root resolvedResult <*> section function sectionType <*> checkedExprTree argument
+       in EApply <$> draftOperationNode operation state (Just resolvedResult) root <*> section function sectionType <*> checkedExprTree argument
     _ -> rejected root
   where
     resolvedLeft = resolveType state leftType
