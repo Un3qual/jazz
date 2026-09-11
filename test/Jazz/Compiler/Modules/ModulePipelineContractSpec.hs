@@ -96,6 +96,7 @@ import Jazz.Compiler.ModuleIdentity
   )
 import Jazz.Compiler.ModuleInterface
   ( ModuleInterface (..),
+    ModuleValueBinding (..),
     emptyCompileInputs,
   )
 import Jazz.Compiler.ModuleResolver (ModuleResolutionConfig (..), resolveProgramWithAmbientExports)
@@ -1422,7 +1423,7 @@ testAnalyzedModuleKeepsPrivateInterfaceWithPublicInventory = do
       assertEqual
         "full analyzed interface"
         (Set.fromList [ModuleExport ValueNamespace "answer", ModuleExport ValueNamespace "helper"])
-        (Map.keysSet (interfaceValueTypes (analyzedInterface valueModule)))
+        (Map.keysSet (interfaceValueBindings (analyzedInterface valueModule)))
       assertEqual
         "public analyzed inventory"
         (Set.singleton (ModuleExport ValueNamespace "answer"))
@@ -1515,16 +1516,29 @@ testModuleExportIdentityPreservesNamespaces = do
   (_, analyzed) <- analyzeFixtureProgram shadowingSources
   case lookupCoreModule (nominalModulePath ("Lib" :| ["Maybe"])) analyzed of
     Nothing -> fail "missing analyzed Lib::Maybe module"
-    Just maybeModule ->
-      assertEqual
-        "analyzed shadowed export identities"
-        expectedExports
-        ( Map.keysSet
-            ( Map.filterWithKey
-                (\moduleExport _ -> moduleExportName moduleExport == "Just")
-                (interfaceValueTypes (analyzedInterface maybeModule))
-            )
-        )
+    Just maybeModule -> do
+      let bindings = Map.filterWithKey (\moduleExport _ -> moduleExportName moduleExport == "Just") (interfaceValueBindings (analyzedInterface maybeModule))
+          binder namespace = interfaceBindingId <$> Map.lookup (ModuleExport namespace "Just") bindings
+      assertEqual "analyzed shadowed export identities" expectedExports (Map.keysSet bindings)
+      case coreModuleStatements maybeModule of
+        [SData _ _ _ [DataConstructor constructorNode _ _], SLet valueNode _ _] -> do
+          assertEqual
+            "constructor interface retains its declaration ID"
+            (resolvedNodeBinder (statementResolution (coreNodeFacts constructorNode)))
+            (binder ConstructorNamespace)
+          assertEqual
+            "value interface retains its distinct declaration ID"
+            (resolvedNodeBinder (statementResolution (coreNodeFacts valueNode)))
+            (binder ValueNamespace)
+        _ -> fail "unexpected constructor/value declaration fixture"
+      case lookupCoreModule (nominalModulePath ("App" :| ["Main"])) analyzed of
+        Just entry
+          | [SExpr _ (EVar node _)] <- coreModuleStatements entry ->
+              assertEqual
+                "imported use retains the interface declaration ID"
+                (LexicalReference <$> binder ValueNamespace)
+                (resolvedNodeReference (expressionResolution (coreNodeFacts node)))
+        _ -> fail "unexpected imported value fixture"
   case evaluateAnalyzedProgram analyzed of
     Left diagnostic -> fail ("runtime program failed: " <> Text.unpack (renderDiagnostic diagnostic))
     Right runtime ->
@@ -1611,7 +1625,7 @@ testGroupedExportsPublishSelectedConstructor = do
                 ModuleExport ConstructorNamespace "Second"
               ]
           )
-          (Map.keysSet (interfaceValueTypes (analyzedInterface choiceModule)))
+          (Map.keysSet (interfaceValueBindings (analyzedInterface choiceModule)))
         assertEqual
           "grouped public inventory"
           ( Set.fromList
@@ -1895,7 +1909,7 @@ testAnalyzedInterfacesExposeOnlyDeclaredExports = do
           assertEqual
             "exported values"
             (Set.fromList [ModuleExport ValueNamespace "answer"])
-            (Map.keysSet (interfaceValueTypes (analyzedInterface valueModule)))
+            (Map.keysSet (interfaceValueBindings (analyzedInterface valueModule)))
       assertEqual "no compile errors" [] (analyzedProgramErrors analyzed)
       assertEqual "no diagnostics" [] diagnostics
   where

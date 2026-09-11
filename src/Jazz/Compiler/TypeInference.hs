@@ -29,6 +29,7 @@ import Jazz.Compiler.AST
     Expr (..),
     Literal (..),
     Statement (..),
+    coreNodeFacts,
     coreNodeId,
     coreNodeSpan,
     expressionNode,
@@ -49,6 +50,7 @@ import Jazz.Compiler.BuiltinCatalog
     numericTypeIntegerBounds,
     numericTypeLiteralIntegerBounds,
   )
+import Jazz.Compiler.CoreIdentity (CoreBinderId, ResolvedNodeFacts (resolvedNodeBinder))
 import Jazz.Compiler.Diagnostics
   ( Diagnostic,
     SourceSpan,
@@ -63,6 +65,7 @@ import Jazz.Compiler.FractionalLiteral
 import Jazz.Compiler.ModuleIdentity (ModulePath, standaloneModulePath)
 import Jazz.Compiler.ModuleInterface
   ( ModuleInterface (..),
+    ModuleValueBinding (..),
     emptyModuleInterface,
     moduleExportForBinding,
   )
@@ -434,7 +437,7 @@ coverageFailureDiagnostic failure =
 
 forceModuleInterfaceContainers :: ModuleInterface -> ()
 forceModuleInterfaceContainers moduleInterface =
-  forceMapEntriesWhnf (interfaceValueTypes moduleInterface) `seq`
+  Map.foldrWithKey (\export (ModuleValueBinding binder binding) forced -> export `seq` binder `seq` binding `seq` forced) () (interfaceValueBindings moduleInterface) `seq`
     forceMapEntriesWhnf (interfaceDataTypes moduleInterface) `seq`
       forceMapEntriesWhnf (interfaceClassFacts moduleInterface) `seq`
         forceSetEntriesWhnf (interfaceGeneratedEqualityClassFacts moduleInterface) `seq`
@@ -511,10 +514,10 @@ initialStateForInference inputs =
 moduleInterfaceFromState :: InferenceInputs -> Expr 'Resolved -> InferState -> ModuleInterface
 moduleInterfaceFromState inputs expr state =
   emptyModuleInterface
-    { interfaceValueTypes =
+    { interfaceValueBindings =
         Map.fromList
-          [ (moduleExportForBinding (renderName name) binding, binding)
-          | name <- Set.toList declaredValues,
+          [ (moduleExportForBinding (renderName name) binding, ModuleValueBinding binder binding)
+          | (name, binder) <- Map.toList declaredValues,
             Just binding <- [Map.lookup name (inferVisibleTypes state)]
           ],
       interfaceDataTypes = Map.restrictKeys (inferDataTypes state) declaredDataTypes,
@@ -525,32 +528,34 @@ moduleInterfaceFromState inputs expr state =
       interfaceConcreteImplMethods = scopeConcreteImplMethods localCapabilities
     }
   where
-    (declaredValues, declaredDataTypes) = declaredModuleNames expr
+    (declaredValues, declaredDataTypes) = declaredModuleBindings expr
     localCapabilities =
       case inferenceCurrentModulePath inputs of
         Just modulePath -> Map.findWithDefault emptyScopeCapabilityFacts modulePath (inferModuleCapabilityFacts state)
         Nothing -> capabilityFactsFromState state
 
-declaredModuleNames :: Expr 'Resolved -> (Set ResolvedName, Set Text)
-declaredModuleNames expression =
+declaredModuleBindings :: Expr 'Resolved -> (Map ResolvedName CoreBinderId, Set Text)
+declaredModuleBindings expression =
   case expression of
-    EBlock _ statements -> foldl' collect (Set.empty, Set.empty) statements
-    _ -> (Set.empty, Set.empty)
+    EBlock _ statements -> foldl' collect (Map.empty, Set.empty) statements
+    _ -> (Map.empty, Set.empty)
   where
-    collect :: (Set ResolvedName, Set Text) -> Statement 'Resolved -> (Set ResolvedName, Set Text)
+    collect :: (Map ResolvedName CoreBinderId, Set Text) -> Statement 'Resolved -> (Map ResolvedName CoreBinderId, Set Text)
     collect (valueNames, dataTypeNames) statement =
       case statement of
-        SLet _ name _
-          | publicModuleValue name -> (Set.insert name valueNames, dataTypeNames)
+        SLet node name _
+          | publicModuleValue name -> (insertBinder node name valueNames, dataTypeNames)
           | otherwise -> (valueNames, dataTypeNames)
         SData _ typeName _ constructors ->
           ( foldl'
-              (\names (DataConstructor _ constructorName _) -> Set.insert constructorName names)
+              (\names (DataConstructor node constructorName _) -> insertBinder node constructorName names)
               valueNames
               constructors,
             Set.insert (renderName typeName) dataTypeNames
           )
         _ -> (valueNames, dataTypeNames)
+
+    insertBinder node name bindings = maybe bindings (\binder -> Map.insert name binder bindings) (resolvedNodeBinder (coreNodeFacts node))
 
     publicModuleValue name =
       case name of

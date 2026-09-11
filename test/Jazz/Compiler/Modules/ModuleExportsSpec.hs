@@ -6,6 +6,7 @@ import Data.List.NonEmpty (NonEmpty (..))
 import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
 import Data.Text (Text)
+import Jazz.Compiler.CoreIdentity (CoreBinderId (..), CoreNodeId (..))
 import Jazz.Compiler.Diagnostics (SourceSpan (..))
 import Jazz.Compiler.ModuleExports
   ( LocatedModuleExportName (..),
@@ -24,8 +25,10 @@ import Jazz.Compiler.ModuleExports
     selectValidatedModuleExportSelectors,
     selectorEligibleNames,
   )
+import Jazz.Compiler.ModuleIdentity (SourceUnitOwner (..), standaloneModulePath)
 import Jazz.Compiler.ModuleInterface
   ( ModuleInterface (..),
+    ModuleValueBinding (..),
     emptyModuleInterface,
     moduleInterfaceExportInventory,
   )
@@ -273,9 +276,9 @@ testInterfaceInventory =
   where
     interface =
       emptyModuleInterface
-        { interfaceValueTypes =
+        { interfaceValueBindings =
             Map.singleton
               (ModuleExport ValueNamespace "answer")
-              (PlainTypeBinding SemanticInt),
+              (ModuleValueBinding (CoreBinderId (StandaloneSourceUnit standaloneModulePath, CoreNodeId 1)) (PlainTypeBinding SemanticInt)),
           interfaceClassFacts = Map.singleton "Eq" 1
         }

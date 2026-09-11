@@ -8,6 +8,7 @@ module Jazz.Compiler.ModuleInterface
   ( CompileInputs (..),
     ModuleExport (..),
     ModuleInterface (..),
+    ModuleValueBinding (..),
     compileInputs,
     emptyCompileInputs,
     emptyModuleInterface,
@@ -24,6 +25,7 @@ import qualified Data.Set as Set
 import Data.Text (Text)
 import GHC.Generics (Generic)
 import Jazz.Compiler.CapabilityFacts (ConcreteImplFact)
+import Jazz.Compiler.CoreIdentity (CoreBinderId)
 import Jazz.Compiler.ModuleExports
   ( ModuleExport (..),
     ModuleExportInventory,
@@ -48,8 +50,17 @@ moduleExportForBinding exportName binding =
       moduleExportName = exportName
     }
 
+-- | An exported type and the declaration whose value supplies it. Import
+-- aliases change the visible name, never this defining identity.
+data ModuleValueBinding = ModuleValueBinding
+  { interfaceBindingId :: CoreBinderId,
+    interfaceBindingType :: TypeBinding
+  }
+  deriving stock (Eq, Generic, Show)
+  deriving anyclass (NFData)
+
 data ModuleInterface = ModuleInterface
-  { interfaceValueTypes :: Map ModuleExport TypeBinding,
+  { interfaceValueBindings :: Map ModuleExport ModuleValueBinding,
     interfaceDataTypes :: Map Text DataTypeBinding,
     interfaceClassFacts :: Map Text Int,
     interfaceGeneratedEqualityClassFacts :: Set Text,
@@ -63,7 +74,7 @@ data ModuleInterface = ModuleInterface
 moduleInterfaceExportInventory :: ModuleInterface -> ModuleExportInventory
 moduleInterfaceExportInventory interface =
   exportInventory
-    ( Map.keys (interfaceValueTypes interface)
+    ( Map.keys (interfaceValueBindings interface)
         <> [ ModuleExport TypeNamespace name
            | name <- Map.keys (interfaceDataTypes interface)
            ]
@@ -75,7 +86,7 @@ moduleInterfaceExportInventory interface =
 emptyModuleInterface :: ModuleInterface
 emptyModuleInterface =
   ModuleInterface
-    { interfaceValueTypes = Map.empty,
+    { interfaceValueBindings = Map.empty,
       interfaceDataTypes = Map.empty,
       interfaceClassFacts = Map.empty,
       interfaceGeneratedEqualityClassFacts = Set.empty,

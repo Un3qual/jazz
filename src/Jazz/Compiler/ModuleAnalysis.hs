@@ -299,7 +299,7 @@ importSelectedInterface origin maybeAlias maybeSymbols publicInventory evidenceC
           [ ( UserName (ResolvedUserName origin (moduleExportNamespace export) (mkIdentifier (moduleExportName export))),
               rebaseTypeBinding origin dataTypeNames classNames binding
             )
-          | (export, binding) <- Map.toList selectedValueTypes
+          | (export, ModuleValueBinding _ binding) <- Map.toList selectedValueTypes
           ],
       importedDataTypes =
         Map.fromList
@@ -353,7 +353,7 @@ importSelectedInterface origin maybeAlias maybeSymbols publicInventory evidenceC
     selectedValueTypes =
       Map.filterWithKey
         (\export _ -> inventoryHasExport export selectedInventory)
-        (interfaceValueTypes moduleInterface)
+        (interfaceValueBindings moduleInterface)
     selectedClassNames = exportNamesInNamespace CapabilityNamespace selectedInventory
     selectedClassFacts =
       Map.restrictKeys

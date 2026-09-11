@@ -21,7 +21,7 @@ import Jazz.Compiler.AST
     Expr (ELit),
     Literal (LInt),
   )
-import Jazz.Compiler.CoreIdentity (emptyResolvedNodeFacts)
+import Jazz.Compiler.CoreIdentity (CoreBinderId (..), emptyResolvedNodeFacts)
 import Jazz.Compiler.DiagnosticCatalog (ErrorCode (E1001))
 import Jazz.Compiler.Diagnostics
   ( DiagnosticOrigin (CompilationOrigin),
@@ -41,6 +41,7 @@ import Jazz.Compiler.ModuleExports
 import Jazz.Compiler.ModuleIdentity (SourceUnitOwner (StandaloneSourceUnit), standaloneModulePath)
 import Jazz.Compiler.ModuleInterface
   ( ModuleInterface (..),
+    ModuleValueBinding (..),
     emptyModuleInterface,
   )
 import Jazz.Compiler.ModuleRuntime
@@ -189,10 +190,10 @@ testDeepModuleInterfaceForcing =
     [ ( "value type",
         "nested expression type was forced",
         emptyModuleInterface
-          { interfaceValueTypes =
+          { interfaceValueBindings =
               Map.singleton
                 (ModuleExport ValueNamespace "value")
-                (PlainTypeBinding (SemanticList deferredExpressionType))
+                (ModuleValueBinding (CoreBinderId (StandaloneSourceUnit standaloneModulePath, CoreNodeId 1)) (PlainTypeBinding (SemanticList deferredExpressionType)))
           }
       ),
       ( "data type",
