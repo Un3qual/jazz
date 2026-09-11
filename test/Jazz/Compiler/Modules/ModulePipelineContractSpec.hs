@@ -601,7 +601,7 @@ testAnalyzedMethodParameterBoundary =
       assertEqual
         "an unexpected variable fails projection instead of dropping or guessing the binder"
         (Left (InvalidAnalyzedMethodSignature "Probe::bad"))
-        (projectAnalyzedMethodSignature initialInferState "Probe::bad" (ClassMethodType "a" signatureType))
+        (projectAnalyzedMethodSignature "Probe::bad" (ClassMethodType "a" signatureType))
 
 testAnalyzedFactInvariantFailures :: IO ()
 testAnalyzedFactInvariantFailures = do

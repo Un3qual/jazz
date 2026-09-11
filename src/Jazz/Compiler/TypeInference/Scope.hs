@@ -314,7 +314,7 @@ registerClassDeclaration state capabilityName parameters checkedMethods =
 
     recordMethod current (node, methodName, methodType)
       | length parameters /= 1 = current
-      | otherwise = case projectAnalyzedMethodSignature current (identifierText methodName) methodType of
+      | otherwise = case projectAnalyzedMethodSignature (identifierText methodName) methodType of
           Right analyzed -> recordStatementFactSeed (coreNodeId node) ([], MethodDeclaration methodName analyzed) current
           Left failure -> error ("validated class method lost its parameter: " <> show failure)
 

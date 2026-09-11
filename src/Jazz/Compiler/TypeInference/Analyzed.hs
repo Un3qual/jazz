@@ -37,7 +37,7 @@ import Jazz.Compiler.AST
     expressionNode,
   )
 import Jazz.Compiler.CoreIdentity (ResolvedNodeFacts (..), ResolvedReference (..))
-import Jazz.Compiler.Name (ResolvedName, operatorBindingName)
+import Jazz.Compiler.Name (ResolvedName, identifierText, operatorBindingName)
 import Jazz.Compiler.SemanticDeclarations (instantiateDeclarationType)
 import Jazz.Compiler.SemanticFacts
   ( AnalyzedMethodSignature (..),
@@ -59,8 +59,7 @@ import Jazz.Compiler.SemanticFacts
     SemanticInstantiation (..),
     StatementFacts (..),
   )
-import Jazz.Compiler.TypeInference.Pattern (instantiateConstructorBinding)
-import Jazz.Compiler.TypeInference.Solver (freshTypeVariable, resolveType)
+import Jazz.Compiler.TypeInference.Solver (resolveType)
 import Jazz.Compiler.TypeInference.State
   ( ExplicitInstantiationSeed (..),
     ExplicitInstantiationTarget (..),
@@ -78,6 +77,7 @@ import Jazz.Compiler.TypeInference.State
 import Jazz.Compiler.TypeInference.TypeOps (freeTypeVariables)
 import Jazz.Compiler.TypeInference.Types
   ( ClassMethodType (..),
+    ConstructorArgumentType (..),
     ExpressionType,
     IntegerLiteralRange (..),
     NumericConstraint (..),
@@ -435,24 +435,30 @@ projectTypeBinding state binderId@(CoreBinderId (_, nodeId)) binding =
     PlainTypeBinding expressionType -> Right (monomorphicScheme state expressionType)
     SchemeTypeBinding scheme -> Right (projectScheme state scheme)
     OperatorAliasSchemeTypeBinding _ scheme -> Right (projectScheme state scheme)
-    ConstructorTypeBinding {} -> maybe missingScheme Right (projectConstructorBinding state binding)
+    ConstructorTypeBinding {} -> maybe missingScheme Right (projectConstructorBinding binding)
     BuiltinAliasTypeBinding {} -> missingScheme
     BuiltinOperatorAliasTypeBinding {} -> missingScheme
   where
     missingScheme = Left (MissingStatementScheme nodeId binderId)
 
-projectConstructorBinding :: InferState -> TypeBinding -> Maybe AnalyzedScheme
-projectConstructorBinding state binding = do
-  (argumentTypes, resultType, instantiatedState) <- instantiateConstructorBinding binding state
-  let constructorType = foldr SemanticFunction resultType argumentTypes
-      resolvedConstructorType = resolveType instantiatedState constructorType
+-- Constructor quantifiers are local to their declaration scheme. Projecting
+-- a normalized declaration does not allocate or inspect solver variables.
+projectConstructorBinding :: TypeBinding -> Maybe AnalyzedScheme
+projectConstructorBinding (ConstructorTypeBinding name parameters fields) = do
+  arguments <- traverse fieldType fields
   pure
     AnalyzedScheme
-      { analyzedSchemeVariables = Set.toAscList (freeTypeVariables resolvedConstructorType),
+      { analyzedSchemeVariables = variables,
         analyzedSchemeConstraints = [],
         analyzedSchemePrimitiveConstraints = [],
-        analyzedSchemeType = resolvedConstructorType
+        analyzedSchemeType = foldr SemanticFunction (SemanticData name (map SemanticVariable variables)) arguments
       }
+  where
+    variables = take (length parameters) [0 ..]
+    argumentsByName = Map.fromList (zip (map identifierText parameters) (map SemanticVariable variables))
+    fieldType (ConstructorArgumentType value) = instantiateDeclarationType argumentsByName value
+    fieldType ConstructorArgumentFresh = Nothing
+projectConstructorBinding _ = Nothing
 
 monomorphicScheme :: InferState -> ExpressionType -> AnalyzedScheme
 monomorphicScheme state expressionType =
@@ -496,10 +502,11 @@ projectNumericConstraint constraint =
     IntegralNumericConstraint -> AnalyzedIntegralNumericConstraint
     IntegralLiteralNumericConstraint (IntegerLiteralRange lower upper) -> AnalyzedIntegralLiteralNumericConstraint lower upper
 
-projectAnalyzedMethodSignature :: InferState -> Text -> ClassMethodType -> Either SemanticFactInvariantFailure AnalyzedMethodSignature
-projectAnalyzedMethodSignature state methodName (ClassMethodType parameter methodType) =
+projectAnalyzedMethodSignature :: Text -> ClassMethodType -> Either SemanticFactInvariantFailure AnalyzedMethodSignature
+projectAnalyzedMethodSignature methodName (ClassMethodType parameter methodType) =
   case instantiateDeclarationType (Map.singleton parameter parameterType) methodType of
     Nothing -> Left (InvalidAnalyzedMethodSignature methodName)
     Just signature -> Right (AnalyzedMethodSignature parameterId signature)
   where
-    (parameterId, parameterType, _) = freshTypeVariable state
+    parameterId = 0
+    parameterType = SemanticVariable parameterId
