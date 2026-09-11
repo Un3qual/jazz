@@ -162,7 +162,6 @@ renderRuntimeValue value =
     VOperator {} -> "<function>"
     VSectionLeft {} -> "<function>"
     VSectionRight {} -> "<function>"
-    VDeclaredOperatorRightSection {} -> "<function>"
     VConstructorApplication shape capturedArgs
       | constructorApplicationIsSaturated shape capturedArgs ->
           renderConstructorValue
@@ -1259,7 +1258,6 @@ renderRuntimeType value =
     VTuple {} -> "Tuple"
     VSectionLeft {} -> "Function"
     VSectionRight {} -> "Function"
-    VDeclaredOperatorRightSection {} -> "Function"
     VClosure {} -> "Function"
     VBuiltin {} -> "Function"
     VOperator {} -> "Function"

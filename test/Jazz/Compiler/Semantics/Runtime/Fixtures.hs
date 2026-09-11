@@ -67,13 +67,15 @@ import Jazz.Compiler.CoreIdentity (ResolvedReference (BuiltinOperatorReference),
 import Jazz.Compiler.Diagnostics (SourceSpan (..))
 import Jazz.Compiler.ModuleIdentity (SourceUnitOwner (StandaloneSourceUnit), standaloneModulePath)
 import Jazz.Compiler.Name
-  ( Name (BuiltinName),
+  ( GeneratedNameKind (..),
+    Name (BuiltinName),
     NameNamespace (CapabilityNamespace, ConstructorNamespace, TypeNamespace, ValueNamespace),
     ResolvedName,
     ResolvedNameOrigin (CurrentModule),
     ResolvedUserName (ResolvedUserName),
     UnresolvedName,
     UserNameLike (renderUserName),
+    generatedName,
     identifierText,
     mkIdentifier,
     operatorBindingName,
@@ -259,10 +261,36 @@ expressionBinary :: Text -> Expr 'Analyzed -> Expr 'Analyzed -> Expr 'Analyzed
 expressionBinary = EBinary expressionNode
 
 expressionSectionLeft :: Expr 'Analyzed -> Text -> Expr 'Analyzed
-expressionSectionLeft = ESectionLeft expressionNode
+expressionSectionLeft left symbol
+  | isBuiltinOperatorSymbol symbol = ESectionLeft expressionNode left symbol
+  | otherwise =
+      expressionApply (expressionLambda captured (expressionApply (expressionOperatorValue symbol) (expressionVariable captured))) left
+  where
+    captured = generatedName (OperatorSectionLeft 0)
 
 expressionSectionRight :: Text -> Expr 'Analyzed -> Expr 'Analyzed
-expressionSectionRight = ESectionRight expressionNode
+expressionSectionRight symbol right
+  | isBuiltinOperatorSymbol symbol = ESectionRight expressionNode symbol right
+  | otherwise =
+      expressionApply
+        ( expressionLambda
+            capturedRight
+            ( expressionApply
+                ( expressionLambda
+                    capturedFunction
+                    ( expressionLambda
+                        left
+                        (expressionApply (expressionApply (expressionVariable capturedFunction) (expressionVariable left)) (expressionVariable capturedRight))
+                    )
+                )
+                (expressionOperatorValue symbol)
+            )
+        )
+        right
+  where
+    capturedRight = generatedName (OperatorSectionRight 0)
+    capturedFunction = generatedName (OperatorSectionFunction 0)
+    left = generatedName (OperatorSectionLeft 0)
 
 expressionBlock :: [Statement 'Analyzed] -> Expr 'Analyzed
 expressionBlock = EBlock expressionNode

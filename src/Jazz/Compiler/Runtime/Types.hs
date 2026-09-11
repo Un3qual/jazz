@@ -33,7 +33,6 @@ module Jazz.Compiler.Runtime.Types
         VOperator,
         VSectionLeft,
         VSectionRight,
-        VDeclaredOperatorRightSection,
         VConstructor,
         VConstructorApplication,
         VQualifiedMethod,
@@ -191,7 +190,6 @@ data RuntimeValue
   | VOperator Text [RuntimeValue]
   | VSectionLeft Text RuntimeValue
   | VSectionRight Text RuntimeValue
-  | VDeclaredOperatorRightSection Text RuntimeValue RuntimeValue
   | VConstructorState RuntimeConstructorShape RuntimeAppliedArguments
   | VQualifiedMethodState Text InferenceVariable AnalyzedType RuntimeMethodCandidates RuntimeAppliedArguments
   | VAnnotatedState RuntimeAnnotation RuntimeValue
@@ -237,8 +235,6 @@ instance Show RuntimeValue where
         "VSectionLeft " <> show operatorSymbol <> " " <> show operand
       VSectionRight operatorSymbol operand ->
         "VSectionRight " <> show operatorSymbol <> " " <> show operand
-      VDeclaredOperatorRightSection operatorSymbol _ rightOperand ->
-        "VDeclaredOperatorRightSection " <> show operatorSymbol <> " <operator> " <> show rightOperand
       VConstructorState shape capturedArgs ->
         "VConstructor "
           <> show (runtimeConstructorTypeName shape)
@@ -319,7 +315,6 @@ pattern VQualifiedMethodApplication methodKey classParameter methodSignature can
   VOperator,
   VSectionLeft,
   VSectionRight,
-  VDeclaredOperatorRightSection,
   VConstructor,
   VQualifiedMethod,
   VAnnotated,
@@ -339,7 +334,6 @@ pattern VQualifiedMethodApplication methodKey classParameter methodSignature can
   VOperator,
   VSectionLeft,
   VSectionRight,
-  VDeclaredOperatorRightSection,
   VConstructorApplication,
   VQualifiedMethodApplication,
   VAnnotated,

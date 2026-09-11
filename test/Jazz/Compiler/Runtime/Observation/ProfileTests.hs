@@ -1,4 +1,5 @@
 {-# LANGUAGE DataKinds #-}
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 module Jazz.Compiler.Runtime.Observation.ProfileTests
@@ -150,7 +151,7 @@ testCallableIdentities = do
   assertHasIdentity "method identity" (== MethodCallable "Probe::identity") methodProfile
   assertHasIdentity
     "generated-section identity"
-    (== GeneratedCallable "declared right section %%")
+    (\case ClosureCallable _ _ parameter -> "OperatorSectionLeft" `Text.isInfixOf` parameter; _ -> False)
     generatedProfile
   assertHasIdentity "host identity" (== HostCallable "arguments") hostProfile
   where

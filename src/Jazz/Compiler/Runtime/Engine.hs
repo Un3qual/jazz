@@ -86,9 +86,6 @@ import Jazz.Compiler.Name
     qualifiedMemberName,
     renderName,
   )
-import Jazz.Compiler.Parser.Operator
-  ( isBuiltinOperatorSymbol,
-  )
 import Jazz.Compiler.Pattern
   ( patternBinderNames,
   )
@@ -389,14 +386,8 @@ data EvaluationFrame
   | EvaluateCaseGuard EvaluationContext RuntimeValue RuntimeEnv (Expr 'Analyzed) [CaseArm 'Analyzed]
   | EvaluateBuiltinRightOperand EvaluationContext Text (Expr 'Analyzed)
   | ApplyBuiltinBinary Text RuntimeValue
-  | EvaluateDeclaredOperatorLeft EvaluationContext (Expr 'Analyzed) (Expr 'Analyzed)
-  | ApplyDeclaredOperatorLeft EvaluationContext RuntimeValue (Expr 'Analyzed)
-  | EvaluateDeclaredOperatorRight EvaluationContext (Expr 'Analyzed)
-  | EvaluateLeftSection EvaluationContext Text ResolvedReference
-  | ApplyForcedCallable RuntimeValue
-  | EvaluateRightSection EvaluationContext Text ResolvedReference
-  | BuildDeclaredRightSection EvaluationContext Text RuntimeValue
-  | ApplyDeclaredRightSectionOperand RuntimeValue
+  | EvaluateLeftSection Text
+  | EvaluateRightSection Text
   | FinishTypeApplication (Maybe SourceUnitOwner) [SemanticInstantiation] [EvidenceReference]
   | ApplyRemainingArguments [RuntimeValue]
 
@@ -686,7 +677,6 @@ evaluateRuntimeScopePureRequest request = go Nothing indexedStatements
     recursiveAliasTarget statementIndex valueExpr = do
       node <- case peelSingleExprBlock valueExpr of
         EVar referenceNode _ -> Just referenceNode
-        EOperatorValue referenceNode _ -> Just referenceNode
         _ -> Nothing
       LexicalReference binder <- resolvedNodeReference (expressionResolution (coreNodeFacts node))
       targetIndex <- scopePlanBindingIndex scopePlan binder
@@ -1386,30 +1376,15 @@ stepEvaluationMachine observeStatistics observeProfile host machine =
             expressionMachine
             (EvaluateCaseArms context caseArms)
             (EvaluateExpression context scrutineeExpr)
-        EBinary node operatorSymbol leftExpr rightExpr
-          | isBuiltinOperatorSymbol operatorSymbol ->
-              suspendEvaluation
-                expressionMachine
-                (EvaluateBuiltinRightOperand context operatorSymbol rightExpr)
-                (EvaluateExpression context leftExpr)
-          | otherwise -> do
-              operatorValue <-
-                liftRuntimeResult
-                  (lookupDeclaredOperatorCell operatorSymbol (resolvedValueReference (expressionResolution (coreNodeFacts node))) (evaluationEnvironment context))
-              suspendEvaluation
-                expressionMachine
-                (EvaluateDeclaredOperatorLeft context leftExpr rightExpr)
-                (ForceRuntimeValue operatorValue)
-        ESectionLeft node leftExpr operatorSymbol ->
+        EBinary _ operatorSymbol leftExpr rightExpr ->
           suspendEvaluation
             expressionMachine
-            (EvaluateLeftSection context operatorSymbol (resolvedValueReference (expressionResolution (coreNodeFacts node))))
+            (EvaluateBuiltinRightOperand context operatorSymbol rightExpr)
             (EvaluateExpression context leftExpr)
-        ESectionRight node operatorSymbol rightExpr ->
-          suspendEvaluation
-            expressionMachine
-            (EvaluateRightSection context operatorSymbol (resolvedValueReference (expressionResolution (coreNodeFacts node))))
-            (EvaluateExpression context rightExpr)
+        ESectionLeft _ leftExpr operatorSymbol ->
+          suspendEvaluation expressionMachine (EvaluateLeftSection operatorSymbol) (EvaluateExpression context leftExpr)
+        ESectionRight _ operatorSymbol rightExpr ->
+          suspendEvaluation expressionMachine (EvaluateRightSection operatorSymbol) (EvaluateExpression context rightExpr)
         EBlock _ statements ->
           stepBlock expressionMachine context (prepareAnalyzedScope expression) statements
       where
@@ -1536,11 +1511,6 @@ stepEvaluationMachine observeStatistics observeProfile host machine =
               resultValue <-
                 evalBinaryWithHost host operatorSymbol argumentValue rightValue
               continueWith (ReturnRuntimeValue resultValue) profiledMachine
-        VDeclaredOperatorRightSection _ operatorValue rightValue ->
-          suspendEvaluation
-            profiledMachine
-            (ApplyDeclaredRightSectionOperand rightValue)
-            (ApplyCallable operatorValue argumentValue)
         VClosure closure -> do
           hintedArgumentValue <-
             case runtimeClosureTypeHint closure of
@@ -1660,7 +1630,6 @@ runtimeApplicationKind runtimeValue =
     VOperator {} -> Just OperatorApplication
     VSectionLeft {} -> Just OperatorApplication
     VSectionRight {} -> Just OperatorApplication
-    VDeclaredOperatorRightSection {} -> Just ClosureApplication
     VConstructorApplication {} -> Just ConstructorApplication
     VQualifiedMethodApplication {} -> Just MethodApplication
     _ -> Nothing
@@ -1674,8 +1643,6 @@ runtimeCallableIdentity runtimeValue =
     VOperator operatorSymbol _ -> Just (OperatorCallable operatorSymbol)
     VSectionLeft operatorSymbol _ -> Just (OperatorCallable operatorSymbol)
     VSectionRight operatorSymbol _ -> Just (OperatorCallable operatorSymbol)
-    VDeclaredOperatorRightSection operatorSymbol _ _ ->
-      Just (GeneratedCallable ("declared right section " <> operatorSymbol))
     VConstructorApplication shape _ ->
       Just (ConstructorCallable (renderName (runtimeConstructorName shape)))
     VQualifiedMethodApplication methodKey _ _ _ _ -> Just (MethodCallable methodKey)
@@ -1776,59 +1743,10 @@ resumeEvaluationFrame observeStatistics observeProfile host machine frame runtim
           continueWith
             (ReturnRuntimeValue resultValue)
             (closeRuntimeProfileOnReturn observeProfile machine)
-    EvaluateDeclaredOperatorLeft context leftExpr rightExpr ->
-      suspendEvaluation
-        machine
-        (ApplyDeclaredOperatorLeft context runtimeValue rightExpr)
-        (EvaluateExpression context leftExpr)
-    ApplyDeclaredOperatorLeft context operatorValue rightExpr ->
-      suspendEvaluation
-        machine
-        (EvaluateDeclaredOperatorRight context rightExpr)
-        (ApplyCallable operatorValue runtimeValue)
-    EvaluateDeclaredOperatorRight context rightExpr ->
-      suspendEvaluation
-        machine
-        (ApplyEvaluatedFunction runtimeValue)
-        (EvaluateExpression context rightExpr)
-    EvaluateLeftSection context operatorSymbol reference
-      | isBuiltinOperatorSymbol operatorSymbol ->
-          continueWith
-            (ReturnRuntimeValue (VSectionLeft operatorSymbol runtimeValue))
-            machine
-      | otherwise -> do
-          operatorValue <-
-            liftRuntimeResult
-              (lookupDeclaredOperatorCell operatorSymbol reference (evaluationEnvironment context))
-          suspendEvaluation
-            machine
-            (ApplyForcedCallable runtimeValue)
-            (ForceRuntimeValue operatorValue)
-    ApplyForcedCallable argumentValue ->
-      continueWith (ApplyCallable runtimeValue argumentValue) machine
-    EvaluateRightSection context operatorSymbol reference
-      | isBuiltinOperatorSymbol operatorSymbol ->
-          continueWith
-            (ReturnRuntimeValue (VSectionRight operatorSymbol runtimeValue))
-            machine
-      | otherwise -> do
-          operatorValue <-
-            liftRuntimeResult
-              (lookupDeclaredOperatorCell operatorSymbol reference (evaluationEnvironment context))
-          suspendEvaluation
-            machine
-            (BuildDeclaredRightSection context operatorSymbol runtimeValue)
-            (ForceRuntimeValue operatorValue)
-    BuildDeclaredRightSection _ operatorSymbol rightValue ->
-      do
-        recordRuntimeStatisticWhen observeStatistics (recordRuntimeClosureCreation 2)
-        continueWith
-          ( ReturnRuntimeValue
-              (VDeclaredOperatorRightSection operatorSymbol runtimeValue rightValue)
-          )
-          machine
-    ApplyDeclaredRightSectionOperand rightValue ->
-      continueWith (ApplyCallable runtimeValue rightValue) machine
+    EvaluateLeftSection operatorSymbol ->
+      continueWith (ReturnRuntimeValue (VSectionLeft operatorSymbol runtimeValue)) machine
+    EvaluateRightSection operatorSymbol ->
+      continueWith (ReturnRuntimeValue (VSectionRight operatorSymbol runtimeValue)) machine
     FinishTypeApplication modulePath instantiations evidence -> do
       prepared <- liftRuntimeResult (prepareCheckedCallable modulePath instantiations evidence runtimeValue)
       continueWith (ReturnRuntimeValue prepared) machine
@@ -2059,17 +1977,6 @@ runtimeEvidence modulePath implementationNodeId capabilityName methodName target
     targetType
   where
     implementationId = ImplId (fromMaybe (StandaloneSourceUnit standaloneModulePath) modulePath, implementationNodeId)
-
-lookupDeclaredOperatorCell :: Text -> ResolvedReference -> RuntimeEnv -> Either Diagnostic RuntimeValue
-lookupDeclaredOperatorCell operatorSymbol reference env =
-  case Map.lookup reference env of
-    Just runtimeCell -> runtimeCell
-    Nothing ->
-      Left
-        ( runtimeDiagnostic
-            E3027
-            ("operator '" <> operatorSymbol <> "' has no executable binding")
-        )
 
 evalValueWithHost ::
   (Monad m) =>

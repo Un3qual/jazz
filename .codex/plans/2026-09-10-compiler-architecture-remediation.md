@@ -1,5 +1,5 @@
 ---
-id: JN-COMPILER-OPERATOR-NORMALIZATION-001
+id: JN-COMPILER-PROGRAM-TRAVERSAL-001
 status: ready
 priority: P1
 size: L
@@ -7,14 +7,14 @@ kind: impl
 autonomous_ready: yes
 depends_on: []
 last_verified: 2026-09-11
-plan_section: "T11c — Normalize operator syntax where it removes duplicated handling"
+plan_section: "T12 — Share the module execution traversal"
 target_paths:
-  - src/Jazz/Compiler/ModuleResolver/Names.hs
+  - src/Jazz/Compiler/ModuleRuntime.hs
   - src/Jazz/Compiler/Runtime/Engine.hs
 verification:
-  - cabal test primitive-semantics-spec binding-signature-coherence-spec runtime-semantics-spec adt-pattern-runtime-spec module-pipeline-contract-spec --test-options=--skip-performance --jobs=4
+  - cabal test module-pipeline-contract-spec prelude-loading-spec module-loader-spec cli-spec --jobs=4
   - bash scripts/check-execution-queue.sh
-deliverable: Normalize equivalent operator forms during resolution and remove their duplicate downstream implementations.
+deliverable: Share dependency-order execution and prelude publication across pure and host program APIs.
 supersedes: []
 ---
 
@@ -30,7 +30,7 @@ supersedes: []
 
 **Spec:** [Validated audit findings](2026-09-10-compiler-architecture-validation.md), together with the target contracts and preservation rules below. The report preserves the disposition of all three input audits. The two Luna drafts were withdrawn after validation; their rejected or qualified recommendations are not implementation guidance.
 
-**Status:** Execution requested on 2026-09-11. T11c is the active bounded milestone in the execution queue. Execute the remaining tasks inline in dependency order; promote the next milestone when its prerequisites pass.
+**Status:** Execution requested on 2026-09-11. T12 is the active bounded milestone in the execution queue. Execute the remaining tasks inline in dependency order; promote the next milestone when its prerequisites pass.
 
 **Existing architecture decision:** [RFC 0016](../../rfcs/accepted/0016-optional-backend-removal.md) explicitly says to keep “attached analysis facts, and runtime plans.” Direct construction still retains attached facts, but T11a proposes changing the retained runtime-plan contract. Approval of this plan should therefore include that specific architectural decision and a narrow amendment through the repository's RFC process before removal. This is a dependency of T11a, not a reason to block unrelated tasks or ask for another confirmation while preparing this plan. If runtime plans are to remain, retain the small sequence and pursue direct identity/ownership improvements around it; do not claim its deletion completed.
 
@@ -338,12 +338,12 @@ The table is a dependency order, not a request for parallel agents. Work inline.
 
 **Files:** `src/Jazz/Compiler/AST.hs`, `src/Jazz/Compiler/ModuleResolver/Names.hs`, `src/Jazz/Compiler/TypeInference/{Operator,Traversal}.hs`, `src/Jazz/Compiler/Runtime/{Engine,Semantics}.hs`, `src/Jazz/Compiler/SemanticFacts.hs`; tests `test/Jazz/Compiler/Semantics/CoreNormalizationSpec.hs`, `test/Jazz/Compiler/Parser/{OperatorFixitySpec,OperatorSectionSpec}.hs`, `test/Jazz/Compiler/Semantics/PrimitiveSemantics/EqualityOperator.hs`, `test/Jazz/Compiler/Modules/Loader/OperatorsTests.hs`.
 
-- [ ] Normalize sections/operator values to resolved callable references and applications/lambdas once binding identity is known, within resolution before its final scope facts are published. Preserve generated binder freshness and source spans. Keep the parser's canonical `Lowered` representation unchanged so hosted structural parity remains meaningful.
-- [ ] Lower binary surface forms only where equivalent application semantics preserve short-circuiting, laziness, declared operator behavior, and operand promotion. Retain a dedicated checked primitive operation when evaluation semantics require it.
-- [ ] Preserve the inference-selected operand typing/operation fact on the canonical operation. Equivalent aliases must still produce the same numeric decision.
-- [ ] Delete downstream source-form branches that are now unreachable. Do not add a second full executable tree just to avoid phase-specific constructors.
-- [ ] Run normalization, operator parser/fixity/sections, primitive, loader, purity, and module-pipeline suites. Check diagnostics at the authored operator location.
-- [ ] Commit one operator family at a time if necessary; report any justified retained operation explicitly.
+- [x] Normalize sections/operator values to resolved callable references and applications/lambdas once binding identity is known, within resolution before its final scope facts are published. Preserve generated binder freshness and source spans. Keep the parser's canonical `Lowered` representation unchanged so hosted structural parity remains meaningful.
+- [x] Lower binary surface forms only where equivalent application semantics preserve short-circuiting, laziness, declared operator behavior, and operand promotion. Retain a dedicated checked primitive operation when evaluation semantics require it.
+- [x] Preserve the inference-selected operand typing/operation fact on the canonical operation. Equivalent aliases must still produce the same numeric decision.
+- [x] Delete downstream source-form branches that are now unreachable. Do not add a second full executable tree just to avoid phase-specific constructors.
+- [x] Run normalization, operator parser/fixity/sections, primitive, loader, purity, and module-pipeline suites. Check diagnostics at the authored operator location.
+- [x] Commit one operator family at a time if necessary; report any justified retained operation explicitly.
 
 **Deletion criterion:** A normalized operator form has one downstream semantic implementation. Syntax retained because it represents distinct execution behavior is not a failed refactor.
 
@@ -695,3 +695,9 @@ Documentation verification at plan completion checks local evidence targets/line
 - Runtime method candidates now retain an ordered dynamic sequence and a `MethodId` index. Checked evidence selects an indexed method once; a selected method bypasses both argument-based and type-hint candidate filtering. Captured arguments and surrounding annotations are preserved.
 - Removed concrete-evidence canonicalization and candidate scans. Selection validates method/implementation agreement, nominal capability identity, and compatible target representation. A new malformed-evidence boundary test demonstrated the prior acceptance of a mismatched target and now rejects it.
 - Runtime correctness, module pipeline, primitives, binding/signature coherence, and loader suites pass in `/private/tmp/jazz-t11b-method-identity.log`. The valid red boundary run is recorded in `/private/tmp/jazz-t11b-evidence-boundary-red.log`. Runtime performance cases are skipped; candidate-width measurements remain waived. Ormolu, HLint, and whitespace checks pass. T11b is complete; T11c is active.
+
+### T11c operator normalization
+
+- Resolution now turns operator values into callable references and declared binary/section forms into applications and fresh capturing lambdas before lexical facts are published. Generated nodes retain source spans; authored operator spelling preserves missing-binding diagnostics. Canonical Lowered parser output is unchanged.
+- Removed the declared binary/section checker and runtime implementations, including the dedicated declared-right-section value. Primitive binary operations and sections remain because their short-circuiting, eager capture, and numeric promotion semantics differ from ordinary application.
+- Normalization, primitive, runtime correctness, loader, module pipeline, purity, binding/signature, name, operator parser/fixity/section, source-range, canonical-core comparison, and structured diagnostic checks pass. Final deletion checks: `/private/tmp/jazz-t11c-single-operator-execution.log`; parser compatibility: `/private/tmp/jazz-t11c-parser-compatibility.log`. Observation, profiling, and benchmark-stage fixtures compile only in `/private/tmp/jazz-t11c-api-build.log`. No benchmark or performance tests ran. Ormolu, HLint, and whitespace checks pass. T11c is complete; T12 is active.
