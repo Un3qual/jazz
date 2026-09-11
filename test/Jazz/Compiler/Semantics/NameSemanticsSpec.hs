@@ -4,6 +4,7 @@ module Main (main) where
 
 import Data.List.NonEmpty (NonEmpty (..))
 import qualified Data.Map.Strict as Map
+import qualified Data.Set as Set
 import Jazz.Compiler.AST (CoreNode (..), Expr (..), Statement (..))
 import Jazz.Compiler.CoreIdentity (CoreBinderId (..), ResolvedNodeFacts (..), ResolvedReference (..))
 import Jazz.Compiler.ModuleExports (exportInventory)
@@ -24,6 +25,7 @@ import Jazz.Compiler.Name
     namePurity,
     qualifiedName,
     renderName,
+    resolveDeclarationOwner,
     resolvedAmbientName,
     resolvedImportedName,
     resolvedLocalName,
@@ -40,6 +42,7 @@ tests :: [NamedTest]
 tests =
   [ ("source and resolved names render from distinct payloads", testSourceAndResolvedNamesRender),
     ("every name origin renders its stable spelling", testEveryNameOriginRenders),
+    ("declaration views preserve source identity", testDeclarationViews),
     ("generated names do not acquire user purity", testGeneratedNamesDoNotAcquireUserPurity),
     ("kernel bridge binders remain local while their targets resolve as builtins", testKernelBridgeTargetResolution),
     ("references select source-owned declarations across rebinding and lambda shadowing", testDeclarationTargets)
@@ -74,6 +77,21 @@ testEveryNameOriginRenders = do
   assertEqual "ambient resolved" "answer" (renderName ambient)
   assertEqual "builtin" "print" (renderName builtin)
   assertEqual "generated" "<generated:OperatorSectionFunction>" (renderName generated)
+
+testDeclarationViews :: IO ()
+testDeclarationViews = do
+  let path = mkModulePath (mkIdentifier "Shared" :| [])
+      declaration owner = resolveDeclarationOwner owner (resolvedLocalName TypeNamespace (mkIdentifier "Box"))
+      local = declaration (NamedSourceUnit path)
+      imported = resolvedImportedName path TypeNamespace (mkIdentifier "Box")
+  assertEqual "local diagnostic spelling" "Box" (renderName local)
+  assertEqual "imported diagnostic spelling" "Shared::Box" (renderName imported)
+  assertEqual "import view retains nominal identity" local imported
+  assertEqual "ordered keys agree with nominal equality" (Just True) (Map.lookup imported (Map.singleton local True))
+  assertEqual
+    "same path in distinct source units remains distinct"
+    3
+    (Set.size (Set.fromList (map declaration [NamedSourceUnit path, StandaloneSourceUnit path, PreludeSourceUnit path])))
 
 testGeneratedNamesDoNotAcquireUserPurity :: IO ()
 testGeneratedNamesDoNotAcquireUserPurity = do

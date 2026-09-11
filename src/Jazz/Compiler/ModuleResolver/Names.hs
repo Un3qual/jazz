@@ -81,12 +81,12 @@ import Jazz.Compiler.Name
     mkIdentifier,
     operatorBindingName,
     qualifiedMemberName,
+    resolveDeclarationOwner,
     resolvedAmbientName,
     resolvedImportedName,
   )
 import Jazz.Compiler.Parser.Operator (isBuiltinOperatorSymbol)
 import Jazz.Compiler.RecursiveBindings (publishResolvedCaptures, resolveLexicalScopes)
-import Jazz.Compiler.SourceUnitOwnership (sourceUnitOwnerOrigin)
 import Jazz.Compiler.TypeRepresentation
   ( pattern ConstrainedSignature,
     pattern SignatureConstraint,
@@ -250,7 +250,7 @@ resolveExprNames context rootExpression = Right (publishResolvedCaptures (resolv
         EApply node function argument ->
           EApply (resolveNode owner node) (resolveExpr owner boundValues function) (resolveExpr owner boundValues argument)
         ETypeApplication node function spanValue signatureType ->
-          ETypeApplication (resolveNode owner node) (resolveExpr owner boundValues function) spanValue (resolveSignatureType signatureType)
+          ETypeApplication (resolveNode owner node) (resolveExpr owner boundValues function) spanValue (resolveSignatureType owner signatureType)
         EIf node condition trueBranch falseBranch ->
           EIf
             (resolveNode owner node)
@@ -305,7 +305,7 @@ resolveExprNames context rootExpression = Right (publishResolvedCaptures (resolv
               UserName (ResolvedUserName origin ValueNamespace identifier)
                 | [className, method] <- Text.splitOn "::" (identifierText identifier) ->
                     CapabilityMethodReference
-                      (CapabilityId (UserName (ResolvedUserName (if origin == CurrentModule then sourceUnitOwnerOrigin owner else origin) CapabilityNamespace (mkIdentifier className))))
+                      (CapabilityId (UserName (ResolvedUserName (if origin == CurrentModule then LocalDeclaration owner else origin) CapabilityNamespace (mkIdentifier className))))
                       (mkIdentifier method)
               _ -> UnresolvedReference name
 
@@ -399,14 +399,14 @@ resolveExprNames context rootExpression = Right (publishResolvedCaptures (resolv
         SLet node name value ->
           SLet (resolveBinderNode owner node) (resolveBinder ValueNamespace name) (resolveBindingValue owner boundValues name value)
         SSignature node name payload ->
-          SSignature (resolveBinderNode owner node) (resolveBinder ValueNamespace name) (resolveSignaturePayload payload)
+          SSignature (resolveBinderNode owner node) (resolveBinder ValueNamespace name) (resolveSignaturePayload owner payload)
         SData node name parameters constructors ->
-          SData (resolveNode owner node) (resolveBinder TypeNamespace name) (map (resolveBinder TypeNamespace) parameters) (map (resolveDataConstructor owner) constructors)
+          SData (resolveNode owner node) (resolveDeclarationOwner owner (resolveBinder TypeNamespace name)) (map (resolveBinder TypeNamespace) parameters) (map (resolveDataConstructor owner) constructors)
         SClass node name parameters methods ->
-          SClass (resolveNode owner node) (resolveBinder CapabilityNamespace name) (map (resolveBinder TypeNamespace) parameters) (map (resolveClassMethod owner (resolveBinder CapabilityNamespace name)) methods)
+          SClass (resolveNode owner node) (resolveDeclarationOwner owner (resolveBinder CapabilityNamespace name)) (map (resolveBinder TypeNamespace) parameters) (map (resolveClassMethod owner (resolveDeclarationOwner owner (resolveBinder CapabilityNamespace name))) methods)
         SImpl node name arguments methods ->
           let methodBindings = foldl' (\acc (ImplMethod _ methodName _) -> insertVisibleName ValueNamespace methodName acc) boundValues methods
-           in SImpl (resolveNode owner node) (resolveName Map.empty CapabilityNamespace name) (map resolveSignatureType arguments) (map (resolveImplMethod owner methodBindings (resolveName Map.empty CapabilityNamespace name)) methods)
+           in SImpl (resolveNode owner node) (resolveDeclarationOwner owner (resolveName Map.empty CapabilityNamespace name)) (map (resolveSignatureType owner) arguments) (map (resolveImplMethod owner methodBindings (resolveDeclarationOwner owner (resolveName Map.empty CapabilityNamespace name))) methods)
         SModule node path -> SModule (resolveNode owner node) path
         SImport node path alias symbols -> SImport (resolveNode owner node) path alias symbols
         SExpr node value -> SExpr (resolveNode owner node) (resolveExpr owner boundValues value)
@@ -422,10 +422,10 @@ resolveExprNames context rootExpression = Right (publishResolvedCaptures (resolv
         _ -> resolveExpr owner boundValues value
 
     resolveDataConstructor owner (DataConstructor node name fieldTypes) =
-      DataConstructor (resolveBinderNode owner node) (resolveBinder ConstructorNamespace name) (map resolveSignatureType fieldTypes)
+      DataConstructor (resolveBinderNode owner node) (resolveBinder ConstructorNamespace name) (map (resolveSignatureType owner) fieldTypes)
 
     resolveClassMethod owner capability (ClassMethodSignature node name payload) =
-      ClassMethodSignature (resolveMethodNode owner capability name node) (resolveBinder ValueNamespace name) (resolveSignaturePayload payload)
+      ClassMethodSignature (resolveMethodNode owner capability name node) (resolveBinder ValueNamespace name) (resolveSignaturePayload owner payload)
 
     resolveImplMethod owner boundValues capability (ImplMethod node name body) =
       ImplMethod (resolveMethodNode owner capability name node) (resolveBinder ValueNamespace name) (resolveExpr owner boundValues body)
@@ -435,23 +435,23 @@ resolveExprNames context rootExpression = Right (publishResolvedCaptures (resolv
           target = referenceTarget owner (qualifiedMemberName capability (resolveBinder ValueNamespace method))
        in resolved {coreNodeFacts = (coreNodeFacts resolved) {resolvedNodeReference = Just target}}
 
-    resolveSignaturePayload payload =
+    resolveSignaturePayload owner payload =
       case payload of
-        SignatureType signatureType -> SignatureType (resolveSignatureType signatureType)
+        SignatureType signatureType -> SignatureType (resolveSignatureType owner signatureType)
         ConstrainedSignature constraints signatureType ->
           ConstrainedSignature
-            (map resolveSignatureConstraint constraints)
-            (resolveSignatureType signatureType)
-        UnsupportedSignature tokens -> UnsupportedSignature (map resolveSignatureToken tokens)
+            (map (resolveSignatureConstraint owner) constraints)
+            (resolveSignatureType owner signatureType)
+        UnsupportedSignature tokens -> UnsupportedSignature (map (resolveSignatureToken owner) tokens)
 
-    resolveSignatureToken = fmap (resolveName Map.empty TypeNamespace)
+    resolveSignatureToken owner = fmap (resolveDeclarationOwner owner . resolveName Map.empty TypeNamespace)
 
-    resolveSignatureConstraint (SignatureConstraint name arguments) =
-      SignatureConstraint (resolveName Map.empty CapabilityNamespace name) (map resolveSignatureType arguments)
+    resolveSignatureConstraint owner (SignatureConstraint name arguments) =
+      SignatureConstraint (resolveDeclarationOwner owner (resolveName Map.empty CapabilityNamespace name)) (map (resolveSignatureType owner) arguments)
 
-    resolveSignatureType =
+    resolveSignatureType owner =
       bimap
-        (resolveName Map.empty TypeNamespace)
+        (resolveDeclarationOwner owner . resolveName Map.empty TypeNamespace)
         (resolveBinder TypeNamespace)
 
     sourceNameText name =
@@ -536,5 +536,5 @@ resolvedPublicReferences origin inventory = Map.fromList . concatMap statementRe
       SData _ _ _ constructors -> concat [binding ConstructorNamespace name node | DataConstructor node name _ <- constructors]
       SClass _ name _ methods
         | Set.member (identifierText name) (exportNamesInNamespace CapabilityNamespace inventory) ->
-            [(UserName (ResolvedUserName origin ValueNamespace (mkIdentifier (identifierText name <> "::" <> identifierText method))), CapabilityMethodReference (CapabilityId (key CapabilityNamespace name)) (mkIdentifier (identifierText method))) | ClassMethodSignature _ method _ <- methods]
+            [(UserName (ResolvedUserName origin ValueNamespace (mkIdentifier (identifierText name <> "::" <> identifierText method))), CapabilityMethodReference (CapabilityId name) (mkIdentifier (identifierText method))) | ClassMethodSignature _ method _ <- methods]
       _ -> []

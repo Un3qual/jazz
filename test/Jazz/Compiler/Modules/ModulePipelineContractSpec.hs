@@ -219,6 +219,7 @@ tests =
     ("single-module analysis consumes complete imported interfaces", testSingleModuleAnalysis),
     ("exported scheme parameters are independent of private solver allocation", testExportedSchemeParameterIdentity),
     ("imported monomorphic aliases retain declaration sharing", testImportedMonomorphicAliasSharing),
+    ("nominal types retain identity across their module boundary", testNominalTypeIdentity),
     ("runtime consumes analyzed declarations after source types are erased", testRuntimeUsesAnalyzedDeclarations),
     ("operation facts retain the numeric rule decision across equivalent aliases", testBinaryOperandAliasSelection),
     ("analyzed operations retain operand typing and alias selection", testAnalyzedBinaryOperations),
@@ -347,6 +348,24 @@ testImportedMonomorphicAliasSharing = do
           ("src/Lib/Alias.jz", "module Lib::Alias { import Lib::Box. another = other. }"),
           ("src/App/Main.jz", "module App::Main { import Lib::Box. import Lib::Alias. first = make 1. another " <> second <> ". }")
         ]
+
+testNominalTypeIdentity :: IO ()
+testNominalTypeIdentity = do
+  (_, program) <-
+    analyzeFixtureProgram
+      ( Map.fromList
+          [ ("src/Lib/Box.jz", "module Lib::Box { data Box = Box. boxed = Box. }"),
+            ("src/App/Main.jz", "module App::Main { import Lib::Box. copy = boxed. }")
+          ]
+      )
+  defining <- exportedType program (nominalModulePath ("Lib" :| ["Box"])) "boxed"
+  imported <- exportedType program (nominalModulePath ("App" :| ["Main"])) "copy"
+  assertEqual "the defining and importing views name the same type" defining imported
+  where
+    exportedType program path name = do
+      checked <- maybe (fail "missing checked module") pure (lookupCoreModule path program)
+      binding <- maybe (fail "missing exported value") pure (Map.lookup (ModuleExport ValueNamespace name) (interfaceValueBindings (analyzedInterface checked)))
+      pure (interfaceBindingType binding)
 
 testBinaryOperandAliasSelection :: IO ()
 testBinaryOperandAliasSelection = do

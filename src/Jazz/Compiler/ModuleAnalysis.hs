@@ -477,10 +477,15 @@ rebaseSignatureTypeNames origin dataTypeNames =
 rebaseKnownName :: ResolvedNameOrigin -> NameNamespace -> Set.Set Text -> ResolvedName -> ResolvedName
 rebaseKnownName origin namespace knownNames name =
   case name of
-    UserName (ResolvedUserName CurrentModule _ identifier)
-      | Set.member (identifierText identifier) knownNames ->
+    UserName (ResolvedUserName definingOrigin _ identifier)
+      | localDeclaration definingOrigin,
+        Set.member (identifierText identifier) knownNames ->
           UserName (ResolvedUserName origin namespace identifier)
     _ -> name
+  where
+    localDeclaration CurrentModule = True
+    localDeclaration LocalDeclaration {} = True
+    localDeclaration _ = False
 
 rebaseKnownText :: ResolvedNameOrigin -> Set.Set Text -> Text -> Text
 rebaseKnownText origin knownNames name
