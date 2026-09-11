@@ -12,11 +12,14 @@ module Jazz.Compiler.CoreIdentity
     MethodId (..),
     ResolvedReference (..),
     ResolvedNodeFacts (..),
+    ResolvedScopeFacts (..),
     emptyResolvedNodeFacts,
   )
 where
 
 import Control.DeepSeq (NFData)
+import Data.Map.Strict (Map)
+import Data.Set (Set)
 import Data.Text (Text)
 import GHC.Generics (Generic)
 import Jazz.Compiler.ModuleIdentity (SourceUnitOwner)
@@ -57,10 +60,23 @@ data ResolvedReference
 data ResolvedNodeFacts = ResolvedNodeFacts
   { resolvedNodeOwner :: SourceUnitOwner,
     resolvedNodeBinder :: Maybe CoreBinderId,
-    resolvedNodeReference :: Maybe ResolvedReference
+    resolvedNodeReference :: Maybe ResolvedReference,
+    resolvedNodeScope :: Maybe ResolvedScopeFacts
   }
   deriving stock (Eq, Generic, Show)
   deriving anyclass (NFData)
 
 emptyResolvedNodeFacts :: SourceUnitOwner -> ResolvedNodeFacts
-emptyResolvedNodeFacts owner = ResolvedNodeFacts owner Nothing Nothing
+emptyResolvedNodeFacts owner = ResolvedNodeFacts owner Nothing Nothing Nothing
+
+-- | Lexical facts for the exact, source-ordered statements of a resolved block.
+-- Statement indices are local views; binding identities remain source-owned.
+data ResolvedScopeFacts = ResolvedScopeFacts
+  { resolvedScopeOuterBindingNames :: Set ResolvedName,
+    resolvedScopeBindingNames :: Map Int ResolvedName,
+    resolvedScopeBinderIds :: Map Int CoreBinderId,
+    resolvedScopeRecursiveGroups :: Map Int [Int],
+    resolvedScopeSelfRecursiveFunctions :: Set Int
+  }
+  deriving stock (Eq, Generic, Show)
+  deriving anyclass (NFData)

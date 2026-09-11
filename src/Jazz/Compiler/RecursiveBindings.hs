@@ -25,6 +25,7 @@ module Jazz.Compiler.RecursiveBindings
     lookupLambdaCapturedNames,
     lookupLambdaCapturedNamesOrdered,
     prepareRecursiveScope,
+    prepareResolvedScope,
     preparedRecursiveScopeBindingNames,
     preparedRecursiveScopeFactsForOuterBindings,
     preparedRecursiveScopeGroups,
@@ -53,12 +54,13 @@ import Jazz.Compiler.AST
     CoreNameAt,
     CoreNode (..),
     CorePhase (Resolved),
+    CoreSort (ExpressionSort),
     CoreUserNameAt,
     Expr (..),
     ImplMethod (..),
     Statement (..),
   )
-import Jazz.Compiler.CoreIdentity (CoreBinderId, ResolvedNodeFacts (..), ResolvedReference (..))
+import Jazz.Compiler.CoreIdentity (CoreBinderId, ResolvedNodeFacts (..), ResolvedReference (..), ResolvedScopeFacts (..))
 import Jazz.Compiler.Name (Name, ResolvedName, operatorBindingName)
 import Jazz.Compiler.Parser.Operator
   ( isBuiltinOperatorSymbol,
@@ -135,7 +137,20 @@ buildRecursiveScopeFacts outerBindingNames indexedStatements =
 -- | One statement scope paired with the outer visibility projection and
 -- recursive facts from which it was derived. The constructor stays private so
 -- consumers cannot cross-pair any of the three.
-data PreparedRecursiveScope phase = PreparedRecursiveScope ![Statement phase] !(Set (CoreNameAt phase)) !(RecursiveScopeFacts phase)
+data PreparedRecursiveScope phase
+  = PreparedRecursiveScope ![Statement phase] !(Set (CoreNameAt phase)) !(RecursiveScopeFacts phase)
+  | PreparedResolvedScope ![Statement phase] !(Set (CoreNameAt phase)) !(RecursiveScopeFacts phase)
+
+-- | The resolved block is authoritative even when a consumer's type or value
+-- environment contains a different diagnostic/public-name projection.
+prepareResolvedScope :: CoreNode 'Resolved 'ExpressionSort -> [Statement 'Resolved] -> PreparedRecursiveScope 'Resolved
+prepareResolvedScope node statements = case resolvedNodeScope (coreNodeFacts node) of
+  Just facts ->
+    PreparedResolvedScope
+      statements
+      (resolvedScopeOuterBindingNames facts)
+      (RecursiveScopeFacts (resolvedScopeBindingNames facts) (resolvedScopeRecursiveGroups facts))
+  Nothing -> error ("resolved block has no lexical facts: " <> show (coreNodeId node))
 
 prepareRecursiveScope :: (Ord (CoreUserNameAt phase)) => Set (CoreNameAt phase) -> [Statement phase] -> PreparedRecursiveScope phase
 prepareRecursiveScope outerBindingNames statements =
@@ -146,9 +161,12 @@ prepareRecursiveScope outerBindingNames statements =
 
 preparedRecursiveScopeStatements :: PreparedRecursiveScope phase -> [Statement phase]
 preparedRecursiveScopeStatements (PreparedRecursiveScope statements _ _) = statements
+preparedRecursiveScopeStatements (PreparedResolvedScope statements _ _) = statements
 
 preparedRecursiveScopeOuterBindingNames :: PreparedRecursiveScope phase -> Set (CoreNameAt phase)
 preparedRecursiveScopeOuterBindingNames (PreparedRecursiveScope _ outerBindingNames _) =
+  outerBindingNames
+preparedRecursiveScopeOuterBindingNames (PreparedResolvedScope _ outerBindingNames _) =
   outerBindingNames
 
 -- | Reuse the owned facts when the consumer has the same outer visibility.
@@ -166,14 +184,17 @@ preparedRecursiveScopeFactsForOuterBindings
     | expectedOuterBindingNames == preparedOuterBindingNames = recursiveScopeFactsValue
     | otherwise =
         buildRecursiveScopeFacts expectedOuterBindingNames (zip [0 ..] statements)
+preparedRecursiveScopeFactsForOuterBindings _ (PreparedResolvedScope _ _ facts) = facts
 
 preparedRecursiveScopeBindingNames :: PreparedRecursiveScope phase -> Map Int (CoreNameAt phase)
 preparedRecursiveScopeBindingNames (PreparedRecursiveScope _ _ recursiveScopeFactsValue) =
   recursiveScopeBindingNames recursiveScopeFactsValue
+preparedRecursiveScopeBindingNames (PreparedResolvedScope _ _ facts) = recursiveScopeBindingNames facts
 
 preparedRecursiveScopeGroups :: PreparedRecursiveScope phase -> Map Int [Int]
 preparedRecursiveScopeGroups (PreparedRecursiveScope _ _ recursiveScopeFactsValue) =
   recursiveScopeGroups recursiveScopeFactsValue
+preparedRecursiveScopeGroups (PreparedResolvedScope _ _ facts) = recursiveScopeGroups facts
 
 -- | Free-variable facts arranged in the same child-index shape as the lambda
 -- AST. The plan deliberately retains neither lambda bodies nor parameters, so

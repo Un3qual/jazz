@@ -44,7 +44,6 @@ import Jazz.Compiler.BuiltinCatalog
   ( BuiltinSymbol (BuiltinListPrependRaw),
     builtinSymbolName,
     builtinSymbolNumericConversionTarget,
-    kernelBuiltinNames,
     lookupKernelBuiltinSymbol,
     numericTypeFloatMax,
     numericTypeIntegerBounds,
@@ -69,7 +68,7 @@ import Jazz.Compiler.ModuleInterface
   )
 import Jazz.Compiler.Name
   ( Name (..),
-    NameNamespace (CapabilityNamespace, ValueNamespace),
+    NameNamespace (CapabilityNamespace),
     ResolvedName,
     UnresolvedName,
     identifierText,
@@ -89,7 +88,7 @@ import Jazz.Compiler.PatternCoverage
   )
 import Jazz.Compiler.RecursiveBindings
   ( PreparedRecursiveScope,
-    prepareRecursiveScope,
+    prepareResolvedScope,
     preparedRecursiveScopeStatements,
   )
 import Jazz.Compiler.SemanticFacts
@@ -330,14 +329,9 @@ inferExpressionWork mode inputs moduleStatementFacts evidenceCandidates expr =
           )
           moduleStatementFacts
    in case expr of
-        EBlock _ statements ->
+        EBlock node statements ->
           let preparedScope =
-                prepareRecursiveScope
-                  ( Set.union
-                      (Map.keysSet (inferenceImportedTypes inputs))
-                      (Set.map (resolvedAmbientName ValueNamespace . mkIdentifier) kernelBuiltinNames)
-                  )
-                  statements
+                prepareResolvedScope node statements
               (blockResult, rawBlockState, bindings) =
                 inferScopeTypeWithModeAndForwardBindingsUsingPreparedScope
                   preparedScope
