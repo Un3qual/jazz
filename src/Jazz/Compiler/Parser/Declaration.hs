@@ -78,11 +78,10 @@ import Jazz.Compiler.Parser.Lexer
     isImmediatelyAfter,
   )
 import Jazz.Compiler.Parser.ModuleDeclaration
-  ( ModuleBodyParser,
-    collectImportAliasesUntilBrace,
+  ( collectImportAliasesUntilBrace,
     collectImportAliasesUntilEnd,
-    parseImportStatementFromTokens,
-    parseModuleStatementFromTokens,
+    parseImportStatementParser,
+    parseModuleStatementParser,
     registerImportAliases,
     rejectNestedImportDeclaration,
     rejectNestedModuleDeclaration,
@@ -188,9 +187,17 @@ parseStatementParser parseExpression parseBlock context = do
             parserDeclaredOperators = builtinOperatorTable,
             parserStatementContext = ModuleBodyContext
           }
-      parseModuleBody =
-        runTokenStreamParserPrefixDetailed "module body" (parseBlock moduleBodyContext)
+      finish statements =
+        (statements, context {parserKnownAliases = registerImportAliases knownAliases statements})
   case tokens of
+    moduleToken@Token {tokenKind = TModule} :< _ ->
+      case parserStatementContext context of
+        TopLevelContext -> finish <$> parseModuleStatementParser (parseBlock moduleBodyContext)
+        _ -> liftOwnedResult (rejectNestedModuleDeclaration moduleToken)
+    importToken@Token {tokenKind = TImport} :< _ ->
+      case parserStatementContext context of
+        NestedBlockContext -> liftOwnedResult (rejectNestedImportDeclaration importToken)
+        _ -> finish . pure <$> parseImportStatementParser
     operatorToken@Token {tokenKind = TIdentifier "operator"} :< rest
       | looksLikeOperatorDeclaration rest -> do
           (operatorInfo, remaining) <-
@@ -209,18 +216,11 @@ parseStatementParser parseExpression parseBlock context = do
         liftOwnedResult
           ( parseStatementFromTokens
               parseExpressionTokens
-              parseModuleBody
               context
               tokens
           )
       consumeParsedPrefix remaining
-      pure
-        ( statements,
-          context
-            { parserKnownAliases =
-                registerImportAliases knownAliases statements
-            }
-        )
+      pure (finish statements)
 
 liftOwnedResult :: Either ParserFailure a -> Parser a
 liftOwnedResult result =
@@ -432,11 +432,10 @@ consumeOperatorDeclarationDot operatorToken fixityLabel tokens =
 
 parseStatementFromTokens ::
   ImplExpressionParser ->
-  ModuleBodyParser ->
   ParserContext ->
   TokenStream ->
   Either ParserFailure ([SurfaceStatement], TokenStream)
-parseStatementFromTokens parseExpression parseModuleBody context tokens =
+parseStatementFromTokens parseExpression context tokens =
   case tokens of
     Token {tokenKind = TLParen}
       :< operatorToken@Token {tokenKind = TOperator {}}
@@ -465,17 +464,6 @@ parseStatementFromTokens parseExpression parseModuleBody context tokens =
       | isDeclarationContext statementContext,
         looksLikeReservedAbstractionDeclaration name rest ->
           rejectReservedAbstractionSyntax abstractionToken
-    moduleToken@Token {tokenKind = TModule} :< _ ->
-      case statementContext of
-        TopLevelContext ->
-          parseModuleStatementFromTokens parseModuleBody tokens
-        ModuleBodyContext -> rejectNestedModuleDeclaration moduleToken
-        NestedBlockContext -> rejectNestedModuleDeclaration moduleToken
-    importToken@Token {tokenKind = TImport} :< _ ->
-      case statementContext of
-        NestedBlockContext -> rejectNestedImportDeclaration importToken
-        TopLevelContext -> singleStatement <$> parseImportStatementFromTokens tokens
-        ModuleBodyContext -> singleStatement <$> parseImportStatementFromTokens tokens
     dataToken@Token {tokenKind = TData} :< _ ->
       case statementContext of
         TopLevelContext -> singleStatement <$> parseDataStatementFromTokens tokens
