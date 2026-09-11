@@ -254,7 +254,6 @@ testDisabledObservationSkipsContinuationDepthState = do
           ( runRuntimeHostEvaluation disabledRuntimeHost $ \_ ->
               evaluateModuleScopeWithRequiredEvaluationHost
                 inspectingHost
-                Nothing
                 EvaluateEntryModule
                 Map.empty
                 (resolveRuntimeFixture (expressionBlock [statementExpression (SourceSpan 1 1) expression]))

@@ -19,11 +19,9 @@ module Jazz.Compiler.Runtime
     ScopeResult (..),
     evaluateModuleScope,
     evaluateModuleScopePure,
-    evaluateRuntimeExprWithSourceUnitStatements,
     evaluateRuntimeExpr,
     evaluateRuntimeExprObserved,
     evaluateRuntimeExprWithHost,
-    evaluateRuntimeExprWithHostAndSourceUnitStatementsObserved,
     evaluateModuleScopeWithHost,
     evaluateModuleScopeWithRequiredHost,
     evaluateModuleScopeWithRequiredEvaluationHost,
@@ -38,14 +36,11 @@ module Jazz.Compiler.Runtime
 where
 
 import Data.Functor.Identity (runIdentity)
-import Data.Set (Set)
-import qualified Data.Set as Set
 import Jazz.Compiler.AST
   ( CorePhase (..),
     Expr,
   )
 import Jazz.Compiler.Diagnostics (Diagnostic)
-import Jazz.Compiler.ModuleIdentity (ModulePath, preludeModulePath)
 import Jazz.Compiler.RecursiveBindings (prepareAnalyzedScope)
 import Jazz.Compiler.Runtime.Engine
   ( evaluateRuntimeExpressionObserved,
@@ -91,7 +86,6 @@ import Jazz.Compiler.RuntimeHost
   ( RuntimeHost,
     disabledRuntimeHost,
   )
-import Jazz.Compiler.SourceUnitOwnership (SourceUnitOwner)
 
 evaluateRuntimeExpr :: Expr 'Analyzed -> Either Diagnostic (Maybe RuntimeValue)
 evaluateRuntimeExpr =
@@ -106,9 +100,7 @@ evaluateRuntimeExprObserved observationRequest expr =
         observationRequest
         disabledRuntimeHost
         RuntimeExpressionRequest
-          { runtimeExpressionSourceUnitStatementIndices = Set.empty,
-            runtimeExpressionPreludeModulePath = preludeModulePath,
-            runtimeExpression = expr
+          { runtimeExpression = expr
           }
     )
 
@@ -120,77 +112,33 @@ evaluateRuntimeExprWithHost host expr =
         RuntimeObservationDisabled
         host
         RuntimeExpressionRequest
-          { runtimeExpressionSourceUnitStatementIndices = Set.empty,
-            runtimeExpressionPreludeModulePath = preludeModulePath,
-            runtimeExpression = expr
+          { runtimeExpression = expr
           }
-    )
-
-evaluateRuntimeExprWithHostAndSourceUnitStatementsObserved ::
-  (Monad m) =>
-  RuntimeObservationRequest ->
-  RuntimeHost m ->
-  Set Int ->
-  ModulePath ->
-  Expr 'Analyzed ->
-  m (RuntimeObservationResult (Maybe RuntimeValue))
-evaluateRuntimeExprWithHostAndSourceUnitStatementsObserved observationRequest host sourceUnitStatementIndices preludePath expr =
-  evaluateRuntimeExpressionObserved
-    observationRequest
-    host
-    RuntimeExpressionRequest
-      { runtimeExpressionSourceUnitStatementIndices = sourceUnitStatementIndices,
-        runtimeExpressionPreludeModulePath = preludePath,
-        runtimeExpression = expr
-      }
-
-evaluateRuntimeExprWithSourceUnitStatements ::
-  Set Int ->
-  Expr 'Analyzed ->
-  Either Diagnostic (Maybe RuntimeValue)
-evaluateRuntimeExprWithSourceUnitStatements sourceUnitStatementIndices expr =
-  runIdentity
-    ( fmap
-        (runtimeOutcomeAsDiagnosticResult . runtimeObservationOutcome)
-        ( evaluateRuntimeExprWithHostAndSourceUnitStatementsObserved
-            RuntimeObservationDisabled
-            disabledRuntimeHost
-            sourceUnitStatementIndices
-            preludeModulePath
-            expr
-        )
     )
 
 -- | The program coordinator uses this only after proving that all artifacts
 -- are host-free, including every dependency supplying the initial environment.
 evaluateModuleScopePure ::
-  Maybe SourceUnitOwner -> ModuleEvaluationMode -> RuntimeEnv -> Expr 'Analyzed -> Either Diagnostic ScopeResult
-evaluateModuleScopePure owner mode env expression =
+  ModuleEvaluationMode -> RuntimeEnv -> Expr 'Analyzed -> Either Diagnostic ScopeResult
+evaluateModuleScopePure mode env expression =
   evaluateRuntimeScopePureRequest
     RuntimeScopeRequest
-      { runtimeScopeSourceUnitStatementIndices = Set.empty,
-        runtimeScopePreludeModulePath = preludeModulePath,
-        runtimeScopeCurrentModulePath = owner,
-        runtimeScopeEvaluationMode = mode,
+      { runtimeScopeEvaluationMode = mode,
         runtimeScopeInitialEnvironment = env,
         runtimeScope = prepareAnalyzedScope expression
       }
 
 evaluateModuleScope ::
-  Maybe SourceUnitOwner ->
   ModuleEvaluationMode ->
   RuntimeEnv ->
   Expr 'Analyzed ->
   Either Diagnostic ScopeResult
-evaluateModuleScope currentModulePath evaluationMode initialEnv statements =
+evaluateModuleScope evaluationMode initialEnv statements =
   runIdentity
     ( evaluateRuntimeScopeWithHostRequest
         disabledRuntimeHost
         RuntimeScopeRequest
-          { runtimeScopeSourceUnitStatementIndices = Set.empty,
-            runtimeScopePreludeModulePath = preludeModulePath,
-            runtimeScopeCurrentModulePath = currentModulePath,
-            runtimeScopeEvaluationMode = evaluationMode,
+          { runtimeScopeEvaluationMode = evaluationMode,
             runtimeScopeInitialEnvironment = initialEnv,
             runtimeScope = prepareAnalyzedScope statements
           }
@@ -199,19 +147,15 @@ evaluateModuleScope currentModulePath evaluationMode initialEnv statements =
 evaluateModuleScopeWithHost ::
   (Monad m) =>
   RuntimeHost m ->
-  Maybe SourceUnitOwner ->
   ModuleEvaluationMode ->
   RuntimeEnv ->
   Expr 'Analyzed ->
   m (Either Diagnostic ScopeResult)
-evaluateModuleScopeWithHost host currentModulePath evaluationMode initialEnv statements =
+evaluateModuleScopeWithHost host evaluationMode initialEnv statements =
   evaluateRuntimeScopeWithHostRequest
     host
     RuntimeScopeRequest
-      { runtimeScopeSourceUnitStatementIndices = Set.empty,
-        runtimeScopePreludeModulePath = preludeModulePath,
-        runtimeScopeCurrentModulePath = currentModulePath,
-        runtimeScopeEvaluationMode = evaluationMode,
+      { runtimeScopeEvaluationMode = evaluationMode,
         runtimeScopeInitialEnvironment = initialEnv,
         runtimeScope = prepareAnalyzedScope statements
       }
@@ -219,21 +163,17 @@ evaluateModuleScopeWithHost host currentModulePath evaluationMode initialEnv sta
 evaluateModuleScopeWithRequiredHost ::
   (Monad m) =>
   RuntimeHost m ->
-  Maybe SourceUnitOwner ->
   ModuleEvaluationMode ->
   RuntimeEnv ->
   Expr 'Analyzed ->
   m (Either Diagnostic ScopeResult)
-evaluateModuleScopeWithRequiredHost host currentModulePath evaluationMode initialEnv statements =
+evaluateModuleScopeWithRequiredHost host evaluationMode initialEnv statements =
   runRuntimeHostEvaluation host $ \evaluationHost ->
     runtimeControlAsDiagnosticResult
       <$> evaluateRuntimeScopeWithRequiredHostRequest
         evaluationHost
         RuntimeScopeRequest
-          { runtimeScopeSourceUnitStatementIndices = Set.empty,
-            runtimeScopePreludeModulePath = preludeModulePath,
-            runtimeScopeCurrentModulePath = currentModulePath,
-            runtimeScopeEvaluationMode = evaluationMode,
+          { runtimeScopeEvaluationMode = evaluationMode,
             runtimeScopeInitialEnvironment = initialEnv,
             runtimeScope = prepareAnalyzedScope statements
           }
@@ -241,16 +181,14 @@ evaluateModuleScopeWithRequiredHost host currentModulePath evaluationMode initia
 evaluateModuleScopeWithRequiredEvaluationHost ::
   (Monad m) =>
   RuntimeHost (RuntimeHostEvaluationT m) ->
-  Maybe SourceUnitOwner ->
   ModuleEvaluationMode ->
   RuntimeEnv ->
   Expr 'Analyzed ->
   RuntimeHostEvaluationT m (Either Diagnostic ScopeResult)
-evaluateModuleScopeWithRequiredEvaluationHost host currentModulePath evaluationMode initialEnv statements =
+evaluateModuleScopeWithRequiredEvaluationHost host evaluationMode initialEnv statements =
   runtimeControlAsDiagnosticResult
     <$> evaluateModuleScopeWithRequiredEvaluationHostControl
       host
-      currentModulePath
       evaluationMode
       initialEnv
       statements
@@ -258,19 +196,15 @@ evaluateModuleScopeWithRequiredEvaluationHost host currentModulePath evaluationM
 evaluateModuleScopeWithRequiredEvaluationHostControl ::
   (Monad m) =>
   RuntimeHost (RuntimeHostEvaluationT m) ->
-  Maybe SourceUnitOwner ->
   ModuleEvaluationMode ->
   RuntimeEnv ->
   Expr 'Analyzed ->
   RuntimeHostEvaluationT m (Either RuntimeControl ScopeResult)
-evaluateModuleScopeWithRequiredEvaluationHostControl host currentModulePath evaluationMode initialEnv statements =
+evaluateModuleScopeWithRequiredEvaluationHostControl host evaluationMode initialEnv statements =
   evaluateRuntimeScopeWithRequiredHostRequest
     host
     RuntimeScopeRequest
-      { runtimeScopeSourceUnitStatementIndices = Set.empty,
-        runtimeScopePreludeModulePath = preludeModulePath,
-        runtimeScopeCurrentModulePath = currentModulePath,
-        runtimeScopeEvaluationMode = evaluationMode,
+      { runtimeScopeEvaluationMode = evaluationMode,
         runtimeScopeInitialEnvironment = initialEnv,
         runtimeScope = prepareAnalyzedScope statements
       }

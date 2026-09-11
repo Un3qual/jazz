@@ -487,7 +487,6 @@ testHostDependencyScopeKeepsUnusedBindingLazy = do
         runState
           ( evaluateModuleScopeWithRequiredHost
               statefulHost
-              Nothing
               EvaluateDependencyModule
               Map.empty
               (resolveRuntimeFixture (expressionBlock statements))
@@ -513,7 +512,6 @@ testHostDependencyBindingIsShared = do
         dependencyResult <-
           evaluateModuleScopeWithRequiredHost
             statefulHost
-            (Just (NamedSourceUnit (mkModulePath ("Dependency" :| []))))
             EvaluateDependencyModule
             Map.empty
             (resolveRuntimeFixtureWith dependencyOwner Map.empty (expressionBlock dependencyStatements))
@@ -522,7 +520,6 @@ testHostDependencyBindingIsShared = do
           Right dependencyScope ->
             evaluateModuleScopeWithRequiredHost
               statefulHost
-              (Just (NamedSourceUnit (mkModulePath ("Main" :| []))))
               EvaluateEntryModule
               (scopeResultEnvironment dependencyScope)
               (resolveRuntimeFixtureWith entryOwner (fixtureDeclarations (resolveRuntimeFixtureWith dependencyOwner Map.empty (expressionBlock dependencyStatements))) (expressionBlock entryStatements))
@@ -561,7 +558,6 @@ testHostMapCallbackPreservesActiveHostCacheAndEffectOrder = do
           dependencyResult <-
             evaluateModuleScopeWithRequiredEvaluationHost
               evaluationHost
-              (Just (NamedSourceUnit (mkModulePath ("Dependency" :| []))))
               EvaluateDependencyModule
               Map.empty
               (resolveRuntimeFixtureWith dependencyOwner Map.empty (expressionBlock dependencyStatements))
@@ -570,7 +566,6 @@ testHostMapCallbackPreservesActiveHostCacheAndEffectOrder = do
             Right dependencyScope ->
               evaluateModuleScopeWithRequiredEvaluationHost
                 evaluationHost
-                (Just (NamedSourceUnit (mkModulePath ("Main" :| []))))
                 EvaluateEntryModule
                 (scopeResultEnvironment dependencyScope)
                 (resolveRuntimeFixtureWith entryOwner (fixtureDeclarations (resolveRuntimeFixtureWith dependencyOwner Map.empty (expressionBlock dependencyStatements))) (expressionBlock entryStatements))
@@ -600,7 +595,6 @@ testPublicHostScopeKeepsImportedDeferredCellOnActiveHost = do
         dependencyResult <-
           evaluateModuleScopeWithRequiredHost
             statefulHost
-            (Just (NamedSourceUnit (mkModulePath ("Dependency" :| []))))
             EvaluateDependencyModule
             Map.empty
             (resolveRuntimeFixtureWith dependencyOwner Map.empty (expressionBlock dependencyStatements))
@@ -609,7 +603,6 @@ testPublicHostScopeKeepsImportedDeferredCellOnActiveHost = do
           Right dependencyScope ->
             evaluateModuleScopeWithHost
               statefulHost
-              (Just (NamedSourceUnit (mkModulePath ("Main" :| []))))
               EvaluateEntryModule
               (scopeResultEnvironment dependencyScope)
               (resolveRuntimeFixtureWith entryOwner (fixtureDeclarations (resolveRuntimeFixtureWith dependencyOwner Map.empty (expressionBlock dependencyStatements))) (expressionBlock entryStatements))
@@ -646,7 +639,6 @@ testHostDependencyScopeKeepsDeferredCellsOnActiveHost = do
         dependencyResult <-
           evaluateModuleScopeWithRequiredHost
             statefulHost
-            (Just (NamedSourceUnit (mkModulePath ("Dependency" :| []))))
             EvaluateDependencyModule
             Map.empty
             (resolveRuntimeFixtureWith dependencyOwner Map.empty (expressionBlock dependencyStatements))
@@ -655,7 +647,6 @@ testHostDependencyScopeKeepsDeferredCellsOnActiveHost = do
           Right dependencyScope ->
             evaluateModuleScopeWithRequiredHost
               statefulHost
-              (Just (NamedSourceUnit (mkModulePath ("Main" :| []))))
               EvaluateEntryModule
               (scopeResultEnvironment dependencyScope)
               (resolveRuntimeFixtureWith entryOwner (fixtureDeclarations (resolveRuntimeFixtureWith dependencyOwner Map.empty (expressionBlock dependencyStatements))) (expressionBlock entryStatements))
@@ -688,7 +679,6 @@ testStackedResultObligationsPreserveRecursiveUnwindOrder = do
         runState
           ( evaluateModuleScopeWithRequiredHost
               statefulHost
-              Nothing
               EvaluateEntryModule
               (Map.singleton convertReference (Right stackedFunction))
               (resolveRuntimeFixtureWith entryOwner (Map.singleton (fixtureValueName "convert") convertReference) (expressionBlock statements))
@@ -728,7 +718,6 @@ testHostDependencyBindingRetainsRuntimePlan = do
         dependencyResult <-
           evaluateModuleScopeWithRequiredHost
             statefulHost
-            (Just (NamedSourceUnit (mkModulePath ("Dependency" :| []))))
             EvaluateDependencyModule
             Map.empty
             (resolveRuntimeFixtureWith dependencyOwner Map.empty (expressionBlock dependencyStatements))
@@ -737,7 +726,6 @@ testHostDependencyBindingRetainsRuntimePlan = do
           Right dependencyScope ->
             evaluateModuleScopeWithRequiredHost
               statefulHost
-              (Just (NamedSourceUnit (mkModulePath ("Main" :| []))))
               EvaluateEntryModule
               (scopeResultEnvironment dependencyScope)
               (resolveRuntimeFixtureWith entryOwner (fixtureDeclarations (resolveRuntimeFixtureWith dependencyOwner Map.empty (expressionBlock dependencyStatements))) (expressionBlock entryStatements))

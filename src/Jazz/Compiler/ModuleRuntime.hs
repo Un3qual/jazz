@@ -27,11 +27,10 @@ import qualified Data.Sequence as Seq
 import qualified Data.Set as Set
 import Data.Text (Text)
 import Jazz.Compiler.AST
-  ( CoreNode (coreNodeFacts),
-    CorePhase (..),
+  ( CorePhase (..),
   )
 import Jazz.Compiler.CapabilityFacts (splitQualifiedMethodKey)
-import Jazz.Compiler.CoreIdentity (CapabilityId (..), ResolvedNodeFacts (resolvedNodeOwner), ResolvedReference (..))
+import Jazz.Compiler.CoreIdentity (CapabilityId (..), ResolvedReference (..))
 import Jazz.Compiler.Diagnostics
   ( Diagnostic,
   )
@@ -103,9 +102,7 @@ import Jazz.Compiler.RuntimeHost
   ( RuntimeHost,
     disabledRuntimeHost,
   )
-import Jazz.Compiler.SemanticFacts (ExpressionFacts (expressionResolution))
 import Jazz.Compiler.SourceProgram (isStandaloneSourceModule)
-import Jazz.Compiler.SourceUnitOwnership (SourceUnitOwner (..))
 
 -- | Runtime-facing exports keep capability methods structurally distinct from
 -- ordinary values instead of encoding their owner in a value-name string.
@@ -170,7 +167,6 @@ evaluateAnalyzedProgramPureUnchecked analyzedProgram = do
                 prepareModuleEvaluation entryPath analyzedProgram ambientEnv runtimeModules analyzedModule
           scopeResult <-
             evaluateModuleScopePure
-              (Just (resolvedNodeOwner (expressionResolution (coreNodeFacts (ModuleGraph.coreModuleBodyNode analyzedModule)))))
               (preparedModuleEvaluationMode preparedModule)
               (preparedModuleImportedEnvironment preparedModule)
               (coreModuleExpr analyzedModule)
@@ -185,7 +181,6 @@ evaluatePrelude mode analyzedPrelude =
     Just analyzedModule -> do
       scopeResult <-
         evaluateModuleScopePure
-          (Just (PreludeSourceUnit (coreModulePath analyzedModule)))
           mode
           Map.empty
           (coreModuleExpr analyzedModule)
@@ -273,7 +268,6 @@ evaluateAnalyzedProgramWithEvaluationHostUnchecked evaluationHost analyzedProgra
             ExceptT
               ( evaluateModuleScopeWithRequiredEvaluationHostControl
                   evaluationHost
-                  (Just (resolvedNodeOwner (expressionResolution (coreNodeFacts (ModuleGraph.coreModuleBodyNode analyzedModule)))))
                   (preparedModuleEvaluationMode preparedModule)
                   (preparedModuleImportedEnvironment preparedModule)
                   (coreModuleExpr analyzedModule)
@@ -355,7 +349,6 @@ evaluatePreludeWithEvaluationHost host mode analyzedPrelude =
       scopeResult <-
         evaluateModuleScopeWithRequiredEvaluationHostControl
           host
-          (Just (PreludeSourceUnit (coreModulePath analyzedModule)))
           mode
           Map.empty
           (coreModuleExpr analyzedModule)

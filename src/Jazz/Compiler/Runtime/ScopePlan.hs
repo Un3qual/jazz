@@ -10,7 +10,6 @@ module Jazz.Compiler.Runtime.ScopePlan
     scopePlanIndexedStatements,
     scopePlanStatementAt,
     scopePlanModulePathForStatement,
-    runtimeModulePathAfterStatements,
     scopePlanRecursiveGroupAt,
     scopePlanIsRecursiveBinding,
     scopePlanIsSelfRecursiveFunction,
@@ -29,9 +28,7 @@ import Data.IntMap.Strict (IntMap)
 import qualified Data.IntMap.Strict as IntMap
 import Data.IntSet (IntSet)
 import qualified Data.IntSet as IntSet
-import qualified Data.List.NonEmpty as NonEmpty
 import qualified Data.Map.Strict as Map
-import Data.Set (Set)
 import qualified Data.Set as Set
 import Jazz.Compiler.AST
   ( CaseArm (..),
@@ -40,17 +37,16 @@ import Jazz.Compiler.AST
     Expr (..),
     ImplMethod (..),
     Statement (..),
+    statementNode,
   )
 import Jazz.Compiler.BuiltinCatalog
   ( BuiltinSymbol (..),
     lookupKernelBuiltinSymbol,
   )
-import Jazz.Compiler.CoreIdentity (CoreBinderId, ResolvedReference, ResolvedScopeFacts (..), resolvedBinderReference)
-import Jazz.Compiler.ModuleIdentity (ModulePath, mkModulePath)
+import Jazz.Compiler.CoreIdentity (CoreBinderId, ResolvedNodeFacts (resolvedNodeOwner), ResolvedReference, ResolvedScopeFacts (..), resolvedBinderReference)
 import Jazz.Compiler.Name
   ( ResolvedName,
     identifierText,
-    mkIdentifier,
   )
 import Jazz.Compiler.RecursiveBindings
   ( PreparedRecursiveScope,
@@ -59,7 +55,7 @@ import Jazz.Compiler.RecursiveBindings
     preparedRecursiveScopeStatements,
   )
 import Jazz.Compiler.SemanticFacts (StatementFacts (statementResolution))
-import Jazz.Compiler.SourceUnitOwnership (SourceUnitOwner (..), sourceUnitStatementRuntimePaths)
+import Jazz.Compiler.SourceUnitOwnership (SourceUnitOwner (..))
 
 data RuntimeScopePlan = RuntimeScopePlan
   { runtimeScopePlanIndexedStatements :: [(Int, Statement 'Analyzed)],
@@ -73,12 +69,9 @@ data RuntimeScopePlan = RuntimeScopePlan
   }
 
 buildRuntimeScopePlan ::
-  ModulePath ->
-  Set Int ->
-  Maybe SourceUnitOwner ->
   PreparedRecursiveScope 'Analyzed ->
   RuntimeScopePlan
-buildRuntimeScopePlan preludePath preludeStatementIndices initialModulePath preparedScope =
+buildRuntimeScopePlan preparedScope =
   RuntimeScopePlan
     { runtimeScopePlanIndexedStatements = indexedStatements,
       runtimeScopePlanStatementsByIndex = statementsByIndex,
@@ -101,7 +94,7 @@ buildRuntimeScopePlan preludePath preludeStatementIndices initialModulePath prep
       IntMap.fromDistinctAscList
         ( zip
             [0 :: Int ..]
-            (sourceUnitStatementRuntimePaths preludePath preludeStatementIndices initialModulePath statements)
+            [Just (resolvedNodeOwner (statementResolution (coreNodeFacts (statementNode statement)))) | statement <- statements]
         )
     hostRecursiveBindings =
       IntSet.fromList
@@ -126,16 +119,6 @@ scopePlanStatementAt plan statementIndex =
 scopePlanModulePathForStatement :: RuntimeScopePlan -> Int -> Maybe SourceUnitOwner
 scopePlanModulePathForStatement plan statementIndex =
   IntMap.findWithDefault Nothing statementIndex (runtimeScopePlanModulePathsByStatement plan)
-
-runtimeModulePathAfterStatements :: Maybe SourceUnitOwner -> [Statement 'Analyzed] -> Maybe SourceUnitOwner
-runtimeModulePathAfterStatements =
-  foldl'
-    ( \activeModulePath statement ->
-        case statement of
-          SModule _ modulePath
-            | Just segments <- NonEmpty.nonEmpty modulePath -> Just (NamedSourceUnit (mkModulePath (fmap mkIdentifier segments)))
-          _ -> activeModulePath
-    )
 
 scopePlanRecursiveGroupAt :: RuntimeScopePlan -> Int -> Maybe [Int]
 scopePlanRecursiveGroupAt plan statementIndex =

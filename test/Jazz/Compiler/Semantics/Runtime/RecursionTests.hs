@@ -492,9 +492,6 @@ testPatternCaseBinderDoesNotGainRecursiveFunctionVisibility :: IO ()
 testPatternCaseBinderDoesNotGainRecursiveFunctionVisibility = do
   let plan =
         buildRuntimeScopePlan
-          preludeModulePath
-          Set.empty
-          Nothing
           (prepareAnalyzedScope (resolveRuntimeFixture (expressionBlock witnessStatements)))
   assertEqual "pattern-binder witness is not a runtime recursive group" False (scopePlanIsRecursiveBinding plan 0)
   assertEqual "pattern-binder witness gets no recursive function visibility" False (scopePlanIsSelfRecursiveFunction plan 0)
@@ -527,13 +524,10 @@ testPreludeScopePlanUsesNonemptyModulePath :: IO ()
 testPreludeScopePlanUsesNonemptyModulePath = do
   let plan =
         buildRuntimeScopePlan
-          preludeModulePath
-          (Set.singleton 0)
-          Nothing
-          (prepareAnalyzedScope (resolveRuntimeFixture (expressionBlock [statementLet "preludeValue" (SourceSpan 1 1) (expressionLiteral (LInt 1))])))
+          (prepareAnalyzedScope (resolveRuntimeFixtureWith (PreludeSourceUnit preludeModulePath) mempty (expressionBlock [statementLet "preludeValue" (SourceSpan 1 1) (expressionLiteral (LInt 1))])))
   assertEqual
     "prelude statement path"
-    (Just (InjectedPreludeSourceUnit preludeModulePath Nothing))
+    (Just (PreludeSourceUnit preludeModulePath))
     (scopePlanModulePathForStatement plan 0)
 
 testPatternCaseBinderPreservesAliasDefinitionRecursiveVisibility :: IO ()
@@ -586,9 +580,6 @@ scopePlanForSource source =
               Right (Just expression) -> pure expression
           pure
             ( buildRuntimeScopePlan
-                preludeModulePath
-                Set.empty
-                Nothing
                 (prepareAnalyzedScope analyzedExpression)
             )
   where

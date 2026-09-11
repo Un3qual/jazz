@@ -67,15 +67,13 @@ import Jazz.Compiler.BuiltinCatalog
 import Jazz.Compiler.CapabilityFacts
   ( qualifiedMethodKey,
   )
-import Jazz.Compiler.CoreIdentity (ResolvedNodeFacts (resolvedNodeCaptures, resolvedNodeReference), ResolvedReference (..), resolvedBinderReference, resolvedValueReference)
+import Jazz.Compiler.CoreIdentity (ResolvedNodeFacts (resolvedNodeCaptures, resolvedNodeOwner, resolvedNodeReference), ResolvedReference (..), resolvedBinderReference, resolvedValueReference)
 import Jazz.Compiler.DiagnosticCatalog
   ( ErrorCode (..),
   )
 import Jazz.Compiler.Diagnostics (Diagnostic)
 import Jazz.Compiler.ModuleIdentity
-  ( ModulePath,
-    preludeModulePath,
-    standaloneModulePath,
+  ( standaloneModulePath,
   )
 import Jazz.Compiler.Name
   ( Name (..),
@@ -148,7 +146,6 @@ import Jazz.Compiler.Runtime.ScopePlan
   ( buildRuntimeScopePlan,
     exprDefinitelyNotFunctionValue,
     runtimeExprRequiresHost,
-    runtimeModulePathAfterStatements,
     runtimeStatementRequiresHost,
     scopePlanBindingIndex,
     scopePlanBindingNameAt,
@@ -341,10 +338,7 @@ evaluateRuntimeExpressionPure request =
 runtimeExpressionScopeRequest :: RuntimeExpressionRequest -> RuntimeScopeRequest
 runtimeExpressionScopeRequest request =
   RuntimeScopeRequest
-    { runtimeScopeSourceUnitStatementIndices = runtimeExpressionSourceUnitStatementIndices request,
-      runtimeScopePreludeModulePath = runtimeExpressionPreludeModulePath request,
-      runtimeScopeCurrentModulePath = Nothing,
-      runtimeScopeEvaluationMode = EvaluateEntryModule,
+    { runtimeScopeEvaluationMode = EvaluateEntryModule,
       runtimeScopeInitialEnvironment = Map.empty,
       runtimeScope = prepareAnalyzedScope (runtimeExpression request)
     }
@@ -433,16 +427,12 @@ evaluateRuntimeScopeWithRequiredHostRequest host request =
   runExceptT
     ( evalScopeWithHost
         host
-        (runtimeScopePreludeModulePath request)
-        (runtimeScopeSourceUnitStatementIndices request)
-        currentModulePath
         evaluationMode
         (opaqueRuntimeEnvironmentMayReachHostCells initialEnv)
         initialEnv
         preparedScope
     )
   where
-    currentModulePath = runtimeScopeCurrentModulePath request
     evaluationMode = runtimeScopeEvaluationMode request
     initialEnv = runtimeScopeInitialEnvironment request
     preparedScope = runtimeScope request
@@ -472,9 +462,6 @@ evaluateRuntimeScopeWithEvaluationHostRequest host request =
       runExceptT
         ( evalScopeWithHost
             host
-            preludePath
-            preludeStatementIndices
-            currentModulePath
             evaluationMode
             (opaqueRuntimeEnvironmentMayReachHostCells initialEnv)
             initialEnv
@@ -487,9 +474,6 @@ evaluateRuntimeScopeWithEvaluationHostRequest host request =
             Right value -> Right value
         )
   where
-    preludePath = runtimeScopePreludeModulePath request
-    preludeStatementIndices = runtimeScopeSourceUnitStatementIndices request
-    currentModulePath = runtimeScopeCurrentModulePath request
     evaluationMode = runtimeScopeEvaluationMode request
     initialEnv = runtimeScopeInitialEnvironment request
     preparedScope = runtimeScope request
@@ -498,18 +482,11 @@ evaluateRuntimeScopeWithEvaluationHostRequest host request =
 evaluateRuntimeScopePureRequest :: RuntimeScopeRequest -> Either Diagnostic ScopeResult
 evaluateRuntimeScopePureRequest request = go Nothing indexedStatements
   where
-    preludeStatementIndices = runtimeScopeSourceUnitStatementIndices request
-    preludePath = runtimeScopePreludeModulePath request
-    currentModulePath = runtimeScopeCurrentModulePath request
     evaluationMode = runtimeScopeEvaluationMode request
     initialEnv = runtimeScopeInitialEnvironment request
     preparedScope = runtimeScope request
     scopePlan =
-      buildRuntimeScopePlan
-        preludePath
-        preludeStatementIndices
-        currentModulePath
-        preparedScope
+      buildRuntimeScopePlan preparedScope
     indexedStatements = scopePlanIndexedStatements scopePlan
     bindingCells =
       LazyIntMap.fromDistinctAscList
@@ -857,11 +834,7 @@ evaluateRuntimeScopePureRequest request = go Nothing indexedStatements
         Nothing -> blockInitialEnv
       where
         blockScopePlan =
-          buildRuntimeScopePlan
-            preludeModulePath
-            Set.empty
-            blockModulePath
-            blockScope
+          buildRuntimeScopePlan blockScope
         indexedBlockStatements = scopePlanIndexedStatements blockScopePlan
         blockBindingCells =
           LazyIntMap.fromDistinctAscList
@@ -1479,9 +1452,6 @@ stepEvaluationMachine observeStatistics observeProfile host machine =
           scopeResult <-
             evalScopeWithHost
               host
-              preludeModulePath
-              Set.empty
-              (evaluationModulePath context)
               EvaluateEntryModule
               (evaluationEnvironmentMayReachHostCells context)
               (evaluationEnvironment context)
@@ -1489,9 +1459,7 @@ stepEvaluationMachine observeStatistics observeProfile host machine =
           let terminalContext =
                 context
                   { evaluationModulePath =
-                      runtimeModulePathAfterStatements
-                        (evaluationModulePath context)
-                        prefixStatements,
+                      Just (resolvedNodeOwner (expressionResolution (coreNodeFacts (expressionNode terminalExpr)))),
                     evaluationEnvironment = scopeResultEnvironment scopeResult,
                     evaluationEnvironmentMayReachHostCells =
                       scopeResultEnvironmentMayReachHostCells scopeResult
@@ -1501,9 +1469,6 @@ stepEvaluationMachine observeStatistics observeProfile host machine =
           _ <-
             evalScopeWithHost
               host
-              preludeModulePath
-              Set.empty
-              (evaluationModulePath context)
               EvaluateEntryModule
               (evaluationEnvironmentMayReachHostCells context)
               (evaluationEnvironment context)
@@ -2153,15 +2118,12 @@ evalValueWithHost host currentModulePath env envMayReachHostCells expr =
 evalScopeWithHost ::
   (Monad m) =>
   RuntimeHost (RuntimeHostEvaluationT m) ->
-  ModulePath ->
-  Set Int ->
-  Maybe SourceUnitOwner ->
   ModuleEvaluationMode ->
   Bool ->
   RuntimeEnv ->
   PreparedRecursiveScope 'Analyzed ->
   ExceptT RuntimeControl (RuntimeHostEvaluationT m) ScopeResult
-evalScopeWithHost host preludePath preludeStatementIndices currentModulePath evaluationMode initialEnvMayReachHostCells initialEnv preparedScope = do
+evalScopeWithHost host evaluationMode initialEnvMayReachHostCells initialEnv preparedScope = do
   scopeId <- lift freshDeferredHostScopeId
   observationEnabled <-
     lift
@@ -2170,9 +2132,6 @@ evalScopeWithHost host preludePath preludeStatementIndices currentModulePath eva
     observationEnabled
     scopeId
     host
-    preludePath
-    preludeStatementIndices
-    currentModulePath
     evaluationMode
     initialEnvMayReachHostCells
     initialEnv
@@ -2183,23 +2142,16 @@ evalScopeWithHostInstance ::
   Bool ->
   DeferredHostScopeId ->
   RuntimeHost (RuntimeHostEvaluationT m) ->
-  ModulePath ->
-  Set Int ->
-  Maybe SourceUnitOwner ->
   ModuleEvaluationMode ->
   Bool ->
   RuntimeEnv ->
   PreparedRecursiveScope 'Analyzed ->
   ExceptT RuntimeControl (RuntimeHostEvaluationT m) ScopeResult
-evalScopeWithHostInstance observationEnabled scopeId host preludePath preludeStatementIndices currentModulePath evaluationMode initialEnvMayReachHostCells initialEnv preparedScope =
+evalScopeWithHostInstance observationEnabled scopeId host evaluationMode initialEnvMayReachHostCells initialEnv preparedScope =
   go initialEnvMayReachHostCells initialEnv Nothing indexedStatements
   where
     scopePlan =
-      buildRuntimeScopePlan
-        preludePath
-        preludeStatementIndices
-        currentModulePath
-        preparedScope
+      buildRuntimeScopePlan preparedScope
     indexedStatements = scopePlanIndexedStatements scopePlan
     modulePathForStatement = scopePlanModulePathForStatement scopePlan
 
@@ -2211,20 +2163,11 @@ evalScopeWithHostInstance observationEnabled scopeId host preludePath preludeSta
                 span
                   (\(index, chunkStatement) -> statementMayUsePureChunk hostCellsMayBeReachable index chunkStatement)
                   remaining
-              chunkPreludeStatementIndices =
-                Set.fromList
-                  [ localIndex
-                  | (localIndex, (globalIndex, _)) <- zip [0 ..] pureChunk,
-                    Set.member globalIndex preludeStatementIndices
-                  ]
           scopeResult <-
             liftRuntimeResult
               ( evaluateRuntimeScopePureRequest
                   RuntimeScopeRequest
-                    { runtimeScopeSourceUnitStatementIndices = chunkPreludeStatementIndices,
-                      runtimeScopePreludeModulePath = preludePath,
-                      runtimeScopeCurrentModulePath = modulePathForStatement statementIndex,
-                      runtimeScopeEvaluationMode = evaluationMode,
+                    { runtimeScopeEvaluationMode = evaluationMode,
                       runtimeScopeInitialEnvironment = env,
                       runtimeScope = selectPreparedScope (map fst pureChunk) preparedScope
                     }
@@ -2347,10 +2290,7 @@ evalScopeWithHostInstance observationEnabled scopeId host preludePath preludeSta
             not (scopePlanIsHostRecursiveBinding scopePlan statementIndex) ->
               case evaluateRuntimeScopePureRequest
                 RuntimeScopeRequest
-                  { runtimeScopeSourceUnitStatementIndices = groupPreludeStatementIndices,
-                    runtimeScopePreludeModulePath = preludePath,
-                    runtimeScopeCurrentModulePath = modulePathForStatement statementIndex,
-                    runtimeScopeEvaluationMode = EvaluateEntryModule,
+                  { runtimeScopeEvaluationMode = EvaluateEntryModule,
                     runtimeScopeInitialEnvironment = diagnosticBaseEnv,
                     runtimeScope = selectPreparedScope (map fst indexedGroupStatements) preparedScope
                   } of
@@ -2362,12 +2302,6 @@ evalScopeWithHostInstance observationEnabled scopeId host preludePath preludeSta
               | groupIndex <- groupMembers,
                 Just groupStatement <- [scopePlanStatementAt scopePlan groupIndex]
               ]
-            groupPreludeStatementIndices =
-              Set.fromList
-                [ localIndex
-                | (localIndex, (globalIndex, _)) <- zip [0 ..] indexedGroupStatements,
-                  Set.member globalIndex preludeStatementIndices
-                ]
             recursiveBindingFallback =
               runtimeDiagnostic E3021 "runtime recursive binding has no concrete value"
         _ ->
