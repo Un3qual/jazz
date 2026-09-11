@@ -16,6 +16,7 @@ module Jazz.Compiler.Driver
     compileModuleGraphWithPrelude,
     compileModuleGraphWithResolvedPrelude,
     buildAnalyzedProgram,
+    buildAnalyzedSourceProgram,
     RunExecution (..),
     RunResult,
     runDiagnostics,
@@ -71,13 +72,14 @@ import Jazz.Compiler.ModuleCompiler
   )
 import Jazz.Compiler.ModuleExports (exportInventory)
 import Jazz.Compiler.ModuleGraph (CoreProgram, preludeIdentity)
-import Jazz.Compiler.ModuleIdentity (ModulePath, moduleIdentityPath, preludeModulePath)
+import Jazz.Compiler.ModuleIdentity (ModulePath, moduleIdentityPath)
 import Jazz.Compiler.ModuleInterface (compileInputs)
 import Jazz.Compiler.ModuleResolver
   ( ModuleResolutionConfig,
     resolvePreludeArtifact,
     resolveProgramWithAmbientExports,
     resolveSourceUnitExprNames,
+    resolveStandaloneProgram,
   )
 import Jazz.Compiler.ModuleRuntime
   ( RuntimeProgram (runtimeProgramOutput),
@@ -194,15 +196,9 @@ runRuntimeErrors =
 -- Compiler driver flow for the current implementation slice:
 -- analyze -> collect warnings/errors -> apply warning-as-error policy.
 compileExpr :: WarningSettings -> Expr 'Lowered -> IO CompileResult
-compileExpr = compileExprWithHiddenStatements Set.empty
-
-compileExprWithHiddenStatements ::
-  Set Int ->
-  WarningSettings ->
-  Expr 'Lowered ->
-  IO CompileResult
-compileExprWithHiddenStatements hiddenStatementIndices settings expr =
-  compileExprWithSourceUnitStatements hiddenStatementIndices hiddenStatementIndices preludeModulePath settings expr
+compileExpr settings expression = do
+  result <- buildAnalyzedSourceProgram settings PreludeAbsent expression
+  pure (CompileResult (either (: []) (\(_, diagnostics, _) -> diagnostics) result))
 
 compileExprWithSourceUnitStatements ::
   Set Int ->
@@ -543,6 +539,24 @@ runtimeObservationRunResult runtimeValueProjection compilePhaseDiagnostics runti
           runExecution = RunCompleted (runtimeValueProjection value),
           runRuntimeObservation = runtimeObservationReport runtimeResult
         }
+
+-- | Analyze an in-memory source unit through the program coordinator.
+buildAnalyzedSourceProgram ::
+  WarningSettings ->
+  ResolvedPrelude ->
+  Expr 'Lowered ->
+  IO (Either Diagnostic (CoreProgram 'Resolved, [Diagnostic], Maybe (CoreProgram 'Analyzed)))
+buildAnalyzedSourceProgram settings resolvedPrelude expression =
+  case preparePrelude resolvedPrelude of
+    Left diagnostic -> pure (Left diagnostic)
+    Right preparedPrelude ->
+      case do
+        prelude <- resolvePreludeArtifact (preparedPreludeVisibleExports preparedPrelude) (preparedPreludeArtifact preparedPrelude)
+        resolveStandaloneProgram prelude (preparedPreludeVisibleExports preparedPrelude) expression of
+        Left diagnostic -> pure (Left diagnostic)
+        Right program -> do
+          (diagnostics, analyzed) <- analyzeProgram (compileInputs settings (preparedPreludeHiddenStatementIndices preparedPrelude)) program
+          pure (Right (program, diagnostics, analyzed))
 
 buildAnalyzedProgram ::
   WarningSettings ->

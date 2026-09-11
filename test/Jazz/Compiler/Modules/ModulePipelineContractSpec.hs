@@ -42,8 +42,10 @@ import Jazz.Compiler.Diagnostics.Render
   )
 import Jazz.Compiler.Driver
   ( CompileResult,
+    ResolvedPrelude (..),
     RunExecution (..),
     RunResult,
+    buildAnalyzedSourceProgram,
     compileErrors,
     compileModuleGraphWithPrelude,
     compileWarnings,
@@ -78,6 +80,7 @@ import Jazz.Compiler.ModuleGraph
     ModuleImport (..),
     PreludeArtifact (..),
     ResolvedModuleFacts (..),
+    coreModuleBodyNode,
     coreModuleExpr,
     coreModuleFacts,
     coreModuleImports,
@@ -93,6 +96,8 @@ import Jazz.Compiler.ModuleIdentity
     mkModulePath,
     mkSourceFile,
     moduleIdentity,
+    preludeModulePath,
+    standaloneModulePath,
   )
 import Jazz.Compiler.ModuleInterface
   ( ModuleInterface (..),
@@ -159,6 +164,7 @@ import Jazz.Compiler.SemanticFacts
     StatementDeclarationFact (..),
     StatementFacts (..),
   )
+import Jazz.Compiler.SourceProgram (parseAndLowerStandaloneSource)
 import Jazz.Compiler.TypeInference.Analyzed (attachAnalyzedExpression, projectAnalyzedMethodSignature)
 import Jazz.Compiler.TypeInference.Result (InferenceResult (..))
 import Jazz.Compiler.TypeInference.Solver (freshIntegerLiteralType)
@@ -205,7 +211,8 @@ main = runTestSuite "ModulePipelineContract" tests
 
 tests :: [NamedTest]
 tests =
-  [ ("single-module analysis consumes complete imported interfaces", testSingleModuleAnalysis),
+  [ ("standalone source and prelude keep separate graph identities", testStandaloneProgramOwnership),
+    ("single-module analysis consumes complete imported interfaces", testSingleModuleAnalysis),
     ("runtime consumes analyzed declarations after source types are erased", testRuntimeUsesAnalyzedDeclarations),
     ("operation facts retain the numeric rule decision across equivalent aliases", testBinaryOperandAliasSelection),
     ("analyzed operations retain operand typing and alias selection", testAnalyzedBinaryOperations),
@@ -243,6 +250,27 @@ tests =
 -- Resolve real modules once, then check the entry from the public dependency
 -- interface alone. This covers nominal data, explicit binder instantiation and
 -- selected implementation evidence without giving the operation a program graph.
+testStandaloneProgramOwnership :: IO ()
+testStandaloneProgramOwnership = do
+  source <- either (fail . show) pure (parseAndLowerStandaloneSource "saved = make. saved.")
+  result <- buildAnalyzedSourceProgram defaultWarningSettings (PreludeExplicit "data Token = Token. make = Token.") source
+  case result of
+    Right (resolved, [], Just analyzed) -> do
+      let entry = NonEmpty.last (coreProgramModules resolved)
+      assertEqual "standalone root owner" (StandaloneSourceUnit standaloneModulePath) (resolvedNodeOwner (coreNodeFacts (coreModuleBodyNode entry)))
+      case preludeModule (coreProgramPrelude resolved) of
+        Just prelude -> do
+          assertEqual "prelude root owner" (PreludeSourceUnit preludeModulePath) (resolvedNodeOwner (coreNodeFacts (coreModuleBodyNode prelude)))
+          assertEqual "independent root node spaces" (coreNodeId (coreModuleBodyNode prelude)) (coreNodeId (coreModuleBodyNode entry))
+          case ([node | SLet node _ _ <- coreModuleStatements prelude], coreModuleStatements entry) of
+            ([definition], SLet _ _ (EVar use _) : _) ->
+              assertEqual "source selects the prelude declaration" (LexicalReference <$> resolvedNodeBinder (coreNodeFacts definition)) (resolvedNodeReference (coreNodeFacts use))
+            _ -> fail "unexpected standalone identity fixture shape"
+        Nothing -> fail "missing independent prelude artifact"
+      runtime <- either (fail . show) pure (evaluateAnalyzedProgram analyzed)
+      assertEqual "standalone program result" (Just "Token") (renderRuntimeValue <$> runtimeProgramOutput runtime)
+    other -> fail ("standalone graph analysis failed: " <> show other)
+
 testSingleModuleAnalysis :: IO ()
 testSingleModuleAnalysis = do
   (resolved, analyzed) <- analyzeFixtureProgram factCompletenessSources

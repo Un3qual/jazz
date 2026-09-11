@@ -17,6 +17,7 @@ module Jazz.Compiler.ModuleResolver
     resolveExprNames,
     resolvePreludeArtifact,
     resolveStandaloneExprNames,
+    resolveStandaloneProgram,
     resolveSourceUnitExprNames,
     resolveProgramWithAmbientExports,
   )
@@ -71,6 +72,7 @@ import GHC.Generics
 import Jazz.Compiler.AST
   ( CorePhase (..),
     Expr (..),
+    Statement (..),
   )
 import Jazz.Compiler.CoreIdentity (ResolvedReference)
 import Jazz.Compiler.DiagnosticCatalog
@@ -131,6 +133,7 @@ import Jazz.Compiler.ModuleResolver.Names
     resolveSourceUnitExprNames,
     resolveStandaloneExprNames,
     resolvedPublicReferences,
+    standaloneLocalInventory,
   )
 import Jazz.Compiler.Name
   ( IdentifierLike,
@@ -164,6 +167,7 @@ import Jazz.Compiler.Parser.AST
 import Jazz.Compiler.Parser.Lower
   ( lowerSurfaceModule,
   )
+import Jazz.Compiler.SourceProgram (standaloneSourceModule)
 import Jazz.Compiler.TypeRepresentation
   ( pattern ConstrainedSignature,
     pattern SignatureConstraint,
@@ -246,6 +250,35 @@ resolveProgramWithAmbientExports config prelude ambientExports loadSource entryM
 
     mkProgramInvariantDiagnostic failures =
       mkErrorDiagnostic E4016 CompilationOrigin ("resolved program invariant failed: " <> Text.pack (show failures))
+
+-- | Standalone source enters the same graph coordinator with an independent
+-- prelude artifact. A source header retains its named-unit ownership.
+resolveStandaloneProgram ::
+  ModuleGraph.PreludeArtifact 'Resolved ->
+  ModuleExportInventory ->
+  Expr 'Lowered ->
+  Either Diagnostic (ModuleGraph.CoreProgram 'Resolved)
+resolveStandaloneProgram prelude ambientExports expression = do
+  resolvedModule <-
+    first NonEmpty.head $
+      resolveCoreModuleNames owner ambientReferences ambientExports inventory inventory emptyImportScope [] loweredModule
+  first (\failures -> mkErrorDiagnostic E4016 CompilationOrigin ("standalone program invariant failed: " <> Text.pack (show failures))) $
+    ModuleGraph.mkCoreProgram prelude modulePath (NonEmpty.singleton resolvedModule)
+  where
+    loweredModule = standaloneSourceModule expression
+    modulePath = ModuleGraph.coreModulePath loweredModule
+    owner =
+      if any isModule (ModuleGraph.coreModuleStatements loweredModule)
+        then NamedSourceUnit modulePath
+        else StandaloneSourceUnit modulePath
+    isModule SModule {} = True
+    isModule _ = False
+    inventory = standaloneLocalInventory (ModuleGraph.coreModuleExpr loweredModule)
+    ambientReferences =
+      maybe
+        Map.empty
+        (resolvedPublicReferences AmbientPrelude ambientExports . ModuleGraph.coreModuleStatements)
+        (ModuleGraph.preludeModule prelude)
 
 resolveStateWithLookupAndVisibleSymbols ::
   (Monad m) =>

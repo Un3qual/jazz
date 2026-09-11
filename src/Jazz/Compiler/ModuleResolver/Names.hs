@@ -9,6 +9,7 @@ module Jazz.Compiler.ModuleResolver.Names
     resolveNode,
     resolveExprNames,
     resolveStandaloneExprNames,
+    standaloneLocalInventory,
     resolveSourceUnitExprNames,
     resolvedPublicReferences,
   )

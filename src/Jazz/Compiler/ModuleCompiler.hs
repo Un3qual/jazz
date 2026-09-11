@@ -16,7 +16,8 @@ import qualified Data.List.NonEmpty as NonEmpty
 import qualified Data.Map.Strict as Map
 import qualified Data.Sequence as Seq
 import qualified Data.Set as Set
-import Jazz.Compiler.AST (CorePhase (..))
+import Jazz.Compiler.AST (CoreNode (coreNodeFacts), CorePhase (..))
+import Jazz.Compiler.CoreIdentity (ResolvedNodeFacts (resolvedNodeOwner))
 import Jazz.Compiler.Diagnostics (Diagnostic, isErrorDiagnostic)
 import Jazz.Compiler.ModuleAnalysis
   ( ImportedInterface,
@@ -88,12 +89,13 @@ analyzeProgram inputs resolvedProgram =
                   Just dependency <- [Map.lookup (ModuleGraph.importedModule importDecl) dependenciesByPath]
                 ]
           modulePath = coreModulePath resolvedModule
+          owner = const (resolvedNodeOwner (coreNodeFacts (ModuleGraph.coreModuleBodyNode resolvedModule)))
       (inference, maybeAnalyzedModule) <-
-        analyzeModule inputs NamedSourceUnit Set.empty importedInterface resolvedModule
+        analyzeModule inputs owner Set.empty importedInterface resolvedModule
       let dependency =
             ( ModuleGraph.resolvedModuleExports (coreModuleFacts resolvedModule),
               inferredModuleInterface inference,
-              moduleEvidenceCandidates NamedSourceUnit resolvedModule
+              moduleEvidenceCandidates owner resolvedModule
             )
       pure
         ( modules Seq.|> maybeAnalyzedModule,

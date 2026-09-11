@@ -112,7 +112,7 @@ analyzeModule inputs owner hiddenStatements importedInterface resolvedModule = d
     analyzeExpressionWithInputs
       (moduleStatementFactSeeds resolvedModule)
       (Map.unionWith (<>) (moduleEvidenceCandidates owner resolvedModule) (importedEvidenceCandidates importedInterface))
-      (moduleInferenceInputs inputs modulePath importedInterface)
+      ((moduleInferenceInputs inputs modulePath importedInterface) {inferenceCurrentModulePath = case owner modulePath of StandaloneSourceUnit _ -> Nothing; _ -> Just (modulePathTexts modulePath)})
       hiddenStatements
       (coreModuleExpr resolvedModule)
   maybeAnalyzedExpression <- checkedAttachment modulePath attachment

@@ -27,10 +27,11 @@ import qualified Data.Sequence as Seq
 import qualified Data.Set as Set
 import Data.Text (Text)
 import Jazz.Compiler.AST
-  ( CorePhase (..),
+  ( CoreNode (coreNodeFacts),
+    CorePhase (..),
   )
 import Jazz.Compiler.CapabilityFacts (splitQualifiedMethodKey)
-import Jazz.Compiler.CoreIdentity (CapabilityId (..), ResolvedReference (..))
+import Jazz.Compiler.CoreIdentity (CapabilityId (..), ResolvedNodeFacts (resolvedNodeOwner), ResolvedReference (..))
 import Jazz.Compiler.Diagnostics
   ( Diagnostic,
   )
@@ -102,6 +103,7 @@ import Jazz.Compiler.RuntimeHost
   ( RuntimeHost,
     disabledRuntimeHost,
   )
+import Jazz.Compiler.SemanticFacts (ExpressionFacts (expressionResolution))
 import Jazz.Compiler.SourceUnitOwnership (SourceUnitOwner (..))
 
 -- | Runtime-facing exports keep capability methods structurally distinct from
@@ -167,7 +169,7 @@ evaluateAnalyzedProgramPureUnchecked analyzedProgram = do
                 prepareModuleEvaluation entryPath analyzedProgram ambientEnv runtimeModules analyzedModule
           scopeResult <-
             evaluateModuleScope
-              (Just (NamedSourceUnit (preparedModulePath preparedModule)))
+              (Just (resolvedNodeOwner (expressionResolution (coreNodeFacts (ModuleGraph.coreModuleBodyNode analyzedModule)))))
               (preparedModuleEvaluationMode preparedModule)
               (preparedModuleImportedEnvironment preparedModule)
               (coreModuleExpr analyzedModule)
@@ -268,7 +270,7 @@ evaluateAnalyzedProgramWithEvaluationHostUnchecked evaluationHost analyzedProgra
             ExceptT
               ( evaluateModuleScopeWithRequiredEvaluationHostControl
                   evaluationHost
-                  (Just (NamedSourceUnit (preparedModulePath preparedModule)))
+                  (Just (resolvedNodeOwner (expressionResolution (coreNodeFacts (ModuleGraph.coreModuleBodyNode analyzedModule)))))
                   (preparedModuleEvaluationMode preparedModule)
                   (preparedModuleImportedEnvironment preparedModule)
                   (coreModuleExpr analyzedModule)
