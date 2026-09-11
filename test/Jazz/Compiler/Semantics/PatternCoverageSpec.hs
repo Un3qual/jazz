@@ -63,9 +63,8 @@ import Jazz.Compiler.TypeInference.Types
   ( ConstructorArgumentType (..),
     DataTypeBinding (..),
     ExpressionType,
+    SemanticBinding (..),
     SemanticType (..),
-    TypeBinding (..),
-    TypeEnv,
     TypeEnvKey (..),
     emptyScopeCapabilityFacts,
   )
@@ -692,7 +691,7 @@ hiddenConstructorInputs =
       inferenceImportedTypes =
         fixtureTypes $
           Map.fromList
-            [ (resolvedLocalName ValueNamespace (mkIdentifier "subject"), PlainTypeBinding maybeIntType),
+            [ (resolvedLocalName ValueNamespace (mkIdentifier "subject"), PlainTypeBinding (SemanticData (resolvedTypeName "Maybe") [SemanticInt])),
               (resolvedLocalName ConstructorNamespace (mkIdentifier "Nothing"), ConstructorTypeBinding (resolvedTypeName "Maybe") [resolvedLocalName TypeNamespace (mkIdentifier "a")] [])
             ],
       inferenceImportedDataTypes =
@@ -852,5 +851,5 @@ resolvedTypeName = resolvedLocalName TypeNamespace . mkIdentifier
 
 -- These partial inference inputs intentionally have no defining source unit;
 -- the expected results are diagnostics, never a successful analyzed tree.
-fixtureTypes :: Map.Map ResolvedName TypeBinding -> TypeEnv
+fixtureTypes :: Map.Map ResolvedName (SemanticBinding variable) -> Map.Map TypeEnvKey (SemanticBinding variable)
 fixtureTypes = Map.mapKeys (\name -> TypeEnvKey (UnresolvedReference name) name)

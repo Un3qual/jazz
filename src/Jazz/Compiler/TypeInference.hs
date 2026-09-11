@@ -97,6 +97,7 @@ import Jazz.Compiler.RecursiveBindings
     prepareResolvedScope,
     preparedRecursiveScopeStatements,
   )
+import Jazz.Compiler.SemanticDeclarations (DeclarationVariable)
 import Jazz.Compiler.SemanticFacts
   ( BinaryOperation (..),
     CoreNodeId,
@@ -111,6 +112,7 @@ import Jazz.Compiler.TypeInference.Analyzed
 import Jazz.Compiler.TypeInference.Capabilities
 import Jazz.Compiler.TypeInference.Diagnostics
 import Jazz.Compiler.TypeInference.Environment (insertResolvedTypeBinding)
+import Jazz.Compiler.TypeInference.Interface (closeModuleBindings, importBindingTypes)
 import Jazz.Compiler.TypeInference.Operator
   ( applyOperatorAliasSchemeConstraints,
     builtinSectionOperatorSymbol,
@@ -166,11 +168,12 @@ import Jazz.Compiler.TypeInference.Types
     IntegerLiteralRange (..),
     NumericConstraint (..),
     ScopeCapabilityFacts (..),
+    SemanticBinding (..),
     SemanticType (..),
-    TypeBinding (..),
+    TypeBinding,
     TypeEnv,
     TypeEnvKey (..),
-    TypeScheme (..),
+    TypeScheme,
     emptyScopeCapabilityFacts,
     typeEnvReferenceKey,
   )
@@ -183,7 +186,7 @@ import Jazz.Compiler.WarningConfig
 data InferenceInputs = InferenceInputs
   { inferenceWarningSettings :: WarningSettings,
     inferenceExternalUses :: Set CoreBinderId,
-    inferenceImportedTypes :: TypeEnv,
+    inferenceImportedTypes :: Map TypeEnvKey (SemanticBinding DeclarationVariable),
     inferenceImportedDataTypes :: Map Text DataTypeBinding,
     inferenceImportedConstructorWitnessNames :: Map ResolvedName UnresolvedName,
     inferenceImportedCapabilities :: ScopeCapabilityFacts,
@@ -309,10 +312,11 @@ inferenceSubjectExpr subject =
 
 inferExpressionWork :: InferenceMode -> InferenceInputs -> [(CoreNode 'Resolved 'StatementSort, StatementDeclarationFact)] -> Expr 'Resolved -> (Maybe ExpressionType, InferState, Map Int (ResolvedName, SourceSpan), InferenceSubject)
 inferExpressionWork mode inputs moduleStatementFacts expr =
-  let initialState =
+  let (importedEnvironment, importedState) = importBindingTypes (inferenceImportedTypes inputs) (initialStateForInference inputs)
+      initialState =
         foldl'
           (\state (node, declarationFact) -> recordStatementFactSeed (coreNodeId node) ([], declarationFact) state)
-          (initialStateForInference inputs)
+          importedState
           moduleStatementFacts
    in case expr of
         EBlock node statements ->
@@ -323,7 +327,7 @@ inferExpressionWork mode inputs moduleStatementFacts expr =
                   preparedScope
                   (inferExprTypeWithMode False)
                   mode
-                  (inferenceImportedTypes inputs)
+                  importedEnvironment
                   initialState
               blockState =
                 recordExpressionFactType
@@ -339,7 +343,7 @@ inferExpressionWork mode inputs moduleStatementFacts expr =
                 inferExprTypeWithMode
                   True
                   mode
-                  (inferenceImportedTypes inputs)
+                  importedEnvironment
                   initialState
                   expr
            in (result, resultState, Map.empty, InferenceExpression expr)
@@ -497,8 +501,9 @@ moduleInterfaceFromState :: InferenceInputs -> Expr 'Resolved -> InferState -> M
 moduleInterfaceFromState inputs expr state =
   emptyModuleInterface
     { interfaceValueBindings =
-        Map.fromList
-          [ (moduleExportForBinding (renderName name) binding, ModuleValueBinding binder binding)
+        closeModuleBindings
+          state
+          [ (moduleExportForBinding (renderName name) binding, binder, binding)
           | (name, binder) <- Map.toList declaredValues,
             Just binding <- [Map.lookup (TypeEnvKey (LexicalReference binder) name) (inferVisibleTypes state)]
           ],

@@ -67,6 +67,7 @@ import Jazz.Compiler.CapabilityFacts (ConcreteImplFact)
 import Jazz.Compiler.Diagnostics (Diagnostic)
 import Jazz.Compiler.Name (ResolvedName, UnresolvedName)
 import Jazz.Compiler.PatternCoverage (PatternCoverageSite)
+import Jazz.Compiler.SemanticDeclarations (DeclarationVariable)
 import Jazz.Compiler.SemanticFacts
   ( BinaryOperation,
     CapabilityId,
@@ -114,6 +115,7 @@ data ModuleInferenceState = ModuleInferenceState
   { inferenceModulePath :: Maybe [Text],
     inferenceLocalCapabilities :: ScopeCapabilityFacts,
     inferenceModuleCapabilities :: Map [Text] ScopeCapabilityFacts,
+    inferenceDeclarationParameters :: Map InferenceVariable DeclarationVariable,
     inferenceConstructorWitnessNames :: Map ResolvedName UnresolvedName,
     inferenceVisibleTypes :: TypeEnv
   }
@@ -211,6 +213,7 @@ initialInferState =
           { inferenceModulePath = Nothing,
             inferenceLocalCapabilities = emptyScopeCapabilityFacts,
             inferenceModuleCapabilities = Map.empty,
+            inferenceDeclarationParameters = Map.empty,
             inferenceConstructorWitnessNames = Map.empty,
             inferenceVisibleTypes = Map.empty
           },

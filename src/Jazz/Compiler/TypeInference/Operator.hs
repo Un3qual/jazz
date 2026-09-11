@@ -72,8 +72,9 @@ import Jazz.Compiler.TypeInference.Types
   ( ExpressionType,
     IntegerLiteralRange (..),
     NumericConstraint (..),
+    SemanticScheme (..),
     SemanticType (..),
-    TypeScheme (..),
+    TypeScheme,
     quantifiedVariablesMembershipSet,
   )
 import Jazz.Compiler.TypeRepresentation (NumericType (..))

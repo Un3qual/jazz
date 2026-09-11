@@ -36,11 +36,13 @@ import Jazz.Compiler.TypeInference.TypeOps
   )
 import Jazz.Compiler.TypeInference.Types
   ( InferenceVariable,
+    SemanticBinding (..),
+    SemanticScheme (..),
     SemanticType (..),
-    TypeBinding (..),
+    TypeBinding,
     TypeEnv,
     TypeEnvKey (..),
-    TypeScheme (..),
+    TypeScheme,
     quantifiedVariablesMembershipSet,
     typeEnvBindingKey,
   )

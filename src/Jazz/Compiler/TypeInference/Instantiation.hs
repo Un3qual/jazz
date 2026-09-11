@@ -70,10 +70,12 @@ import Jazz.Compiler.TypeInference.TypeOps
   )
 import Jazz.Compiler.TypeInference.Types
   ( ExpressionType,
+    SemanticBinding (..),
+    SemanticScheme (..),
     SemanticType (..),
-    TypeBinding (..),
+    TypeBinding,
     TypeEnv,
-    TypeScheme (..),
+    TypeScheme,
     quantifiedVariablesOrderedList,
     typeEnvReferenceKey,
   )

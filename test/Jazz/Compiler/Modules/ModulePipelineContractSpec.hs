@@ -36,7 +36,7 @@ import Jazz.Compiler.BuiltinCatalog
   ( BuiltinSymbol (BuiltinToInt8),
   )
 import Jazz.Compiler.CoreIdentity (ResolvedNodeFacts (..), ResolvedReference (..), emptyResolvedNodeFacts)
-import Jazz.Compiler.Diagnostics (Diagnostic, SourceSpan (..))
+import Jazz.Compiler.Diagnostics (Diagnostic, SourceSpan (..), isErrorDiagnostic)
 import Jazz.Compiler.Diagnostics.Render
   ( renderDiagnostic,
   )
@@ -189,9 +189,9 @@ import Jazz.Compiler.TypeInference.Types
     IntegerLiteralRange (..),
     NumericConstraint (..),
     SchemePrimitiveConstraint (..),
+    SemanticBinding (..),
+    SemanticScheme (..),
     SemanticType (..),
-    TypeBinding (..),
-    TypeScheme (..),
     emptyScopeCapabilityFacts,
     quantifiedVariablesFromPreferred,
   )
@@ -205,6 +205,7 @@ import Jazz.TestHarness
   ( NamedTest,
     assertContains,
     assertEqual,
+    assertSingleDiagnosticCode,
     runTestSuite,
   )
 
@@ -216,6 +217,8 @@ tests =
   [ ("standalone source and prelude keep separate graph identities", testStandaloneProgramOwnership),
     ("standalone prelude expressions retain effects and terminal values", testStandalonePreludeExecution),
     ("single-module analysis consumes complete imported interfaces", testSingleModuleAnalysis),
+    ("exported scheme parameters are independent of private solver allocation", testExportedSchemeParameterIdentity),
+    ("imported monomorphic aliases retain declaration sharing", testImportedMonomorphicAliasSharing),
     ("runtime consumes analyzed declarations after source types are erased", testRuntimeUsesAnalyzedDeclarations),
     ("operation facts retain the numeric rule decision across equivalent aliases", testBinaryOperandAliasSelection),
     ("analyzed operations retain operand typing and alias selection", testAnalyzedBinaryOperations),
@@ -315,6 +318,35 @@ testSingleModuleAnalysis = do
       case Map.lookup (importedModule importDecl) interfaces of
         Nothing -> fail "missing dependency interface"
         Just interface -> pure (dependencyImportInterface importDecl interface)
+
+testExportedSchemeParameterIdentity :: IO ()
+testExportedSchemeParameterIdentity = do
+  direct <- exportedPick ""
+  shifted <- exportedPick "private = \\(item) -> item. "
+  assertEqual "closed exported scheme is stable across private allocations" direct shifted
+  where
+    exportedPick prefix = do
+      (_, analyzed) <- analyzeFixtureProgram (Map.singleton "src/App/Main.jz" ("module App::Main { " <> prefix <> "pick :: a -> b -> a. pick = \\(left, right) -> left. }"))
+      let interface = analyzedInterface (NonEmpty.last (coreProgramModules analyzed))
+      case Map.lookup (ModuleExport ValueNamespace "pick") (interfaceValueBindings interface) of
+        Just binding -> pure (interfaceBindingType binding)
+        Nothing -> fail "missing exported pick scheme"
+
+testImportedMonomorphicAliasSharing :: IO ()
+testImportedMonomorphicAliasSharing = do
+  resolved <- resolveFixtureProgram (sources "True")
+  (diagnostics, analyzed) <- analyzeProgram (emptyCompileInputs defaultWarningSettings) resolved
+  assertSingleDiagnosticCode "monomorphic aliases reject inconsistent uses" "E2006" (filter isErrorDiagnostic diagnostics)
+  assertEqual "inconsistent aliases have no analyzed program" Nothing analyzed
+  _ <- analyzeFixtureProgram (sources "2")
+  pure ()
+  where
+    sources second =
+      Map.fromList
+        [ ("src/Lib/Box.jz", "module Lib::Box { data Box a = Box a. make = Box. other = make. }"),
+          ("src/Lib/Alias.jz", "module Lib::Alias { import Lib::Box. another = other. }"),
+          ("src/App/Main.jz", "module App::Main { import Lib::Box. import Lib::Alias. first = make 1. another " <> second <> ". }")
+        ]
 
 testBinaryOperandAliasSelection :: IO ()
 testBinaryOperandAliasSelection = do
@@ -728,7 +760,7 @@ testAnalyzedFactInvariantFailures = do
       rangeName = BuiltinName (mkIdentifier "range")
       rangeVariable = InferenceVariable 0
       rangeScheme =
-        TypeScheme
+        SemanticScheme
           { schemeQuantifiedVariables = quantifiedVariablesFromPreferred [rangeVariable] (Set.singleton rangeVariable),
             schemeClassConstraints = [],
             schemePrimitiveConstraints =

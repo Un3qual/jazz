@@ -36,8 +36,8 @@ import Jazz.Compiler.TypeInference.State (InferState, inferClassMethodSignatures
 import Jazz.Compiler.TypeInference.Types
   ( ClassMethodType (..),
     ExpressionType,
+    SemanticBinding (PlainTypeBinding),
     SemanticType,
-    TypeBinding (PlainTypeBinding),
     TypeEnv,
     typeEnvReferenceKey,
   )

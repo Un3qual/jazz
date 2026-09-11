@@ -34,8 +34,8 @@ import Jazz.Compiler.ModuleInterface
   )
 import Jazz.Compiler.Name (NameNamespace (..))
 import Jazz.Compiler.TypeInference.Types
-  ( SemanticType (..),
-    TypeBinding (PlainTypeBinding),
+  ( SemanticBinding (PlainTypeBinding),
+    SemanticType (..),
   )
 import Jazz.TestHarness (NamedTest, assertEqual, runTestSuite)
 

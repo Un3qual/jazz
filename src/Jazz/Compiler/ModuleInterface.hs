@@ -31,15 +31,16 @@ import Jazz.Compiler.ModuleExports
     exportInventory,
   )
 import Jazz.Compiler.Name (NameNamespace (..))
-import Jazz.Compiler.TypeInference.Types
+import Jazz.Compiler.SemanticDeclarations
   ( ClassMethodType,
     DataTypeBinding,
+    DeclarationVariable,
     ImplMethodType,
-    TypeBinding (..),
+    SemanticBinding (..),
   )
 import Jazz.Compiler.WarningConfig (WarningSettings)
 
-moduleExportForBinding :: Text -> TypeBinding -> ModuleExport
+moduleExportForBinding :: Text -> SemanticBinding variable -> ModuleExport
 moduleExportForBinding exportName binding =
   ModuleExport
     { moduleExportNamespace =
@@ -53,7 +54,7 @@ moduleExportForBinding exportName binding =
 -- aliases change the visible name, never this defining identity.
 data ModuleValueBinding = ModuleValueBinding
   { interfaceBindingId :: CoreBinderId,
-    interfaceBindingType :: TypeBinding
+    interfaceBindingType :: SemanticBinding DeclarationVariable
   }
   deriving stock (Eq, Generic, Show)
   deriving anyclass (NFData)

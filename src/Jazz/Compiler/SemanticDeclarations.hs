@@ -1,5 +1,6 @@
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE DeriveTraversable #-}
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE OverloadedStrings #-}
 
@@ -10,6 +11,22 @@ module Jazz.Compiler.SemanticDeclarations
     DataTypeBinding (..),
     ImplMethodType (..),
     SignatureTypeFailure (..),
+    DeclarationVariable (..),
+    IntegerLiteralRange (..),
+    NumericConstraint (..),
+    QuantifiedVariables,
+    ScopeCapabilityFacts (..),
+    SemanticBinding (..),
+    SemanticScheme (..),
+    SchemeConstraint (..),
+    SchemePrimitiveConstraint (..),
+    emptyScopeCapabilityFacts,
+    quantifiedVariablesFromPreferred,
+    quantifiedVariablesMembershipSet,
+    quantifiedVariablesOrderedList,
+    bindingQuantifiedVariables,
+    bindingVariableOrder,
+    mapBindingTypes,
     instantiateDeclarationType,
     concreteImplementationType,
     implementationTargetSignature,
@@ -20,15 +37,19 @@ where
 
 import Control.Applicative ((<|>))
 import Control.DeepSeq (NFData)
+import Data.Foldable (toList)
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
+import Data.Set (Set)
+import qualified Data.Set as Set
 import Data.Text (Text)
 import Data.Void (Void, absurd)
 import GHC.Generics (Generic)
-import Jazz.Compiler.BuiltinCatalog (numericTypeFromName)
-import Jazz.Compiler.CapabilityFacts (identifierLooksLikeTypeVariable)
-import Jazz.Compiler.CoreIdentity (CapabilityId, MethodId)
+import Jazz.Compiler.BuiltinCatalog (BuiltinSymbol, numericTypeFromName)
+import Jazz.Compiler.CapabilityFacts (ConcreteImplFact, identifierLooksLikeTypeVariable)
+import Jazz.Compiler.CoreIdentity (CapabilityId, CoreBinderId, MethodId)
 import Jazz.Compiler.Name (ResolvedName, identifierText)
+import Jazz.Compiler.StableSet (StableSet, stableSetFromPreferred, stableSetMembershipSet, stableSetOrderedList)
 import Jazz.Compiler.TypeRepresentation (SemanticType (..), SignatureType (..), semanticTypeToSignature, substituteSemanticVariables)
 
 -- | A checked method type with its class parameter explicitly bound.
@@ -140,3 +161,158 @@ concreteImplementationType target = case target of
 
 implementationTargetSignature :: SemanticType ResolvedName Void -> SignatureType ResolvedName ResolvedName
 implementationTargetSignature = semanticTypeToSignature . fmap absurd
+
+-- | Quantifiers are local to a scheme. A monomorphic parameter instead belongs
+-- to a declaration, so aliases preserve sharing without exposing solver IDs.
+data DeclarationVariable
+  = SchemeParameter Int
+  | DeclarationParameter CoreBinderId Int
+  deriving stock (Eq, Generic, Ord, Show)
+  deriving anyclass (NFData)
+
+data IntegerLiteralRange = IntegerLiteralRange Integer Integer
+  deriving stock (Eq, Generic, Ord, Show)
+  deriving anyclass (NFData)
+
+data NumericConstraint
+  = AnyNumericConstraint
+  | RuntimeArithmeticNumericConstraint
+  | RuntimeComparisonNumericConstraint
+  | IntegralNumericConstraint
+  | IntegralLiteralNumericConstraint IntegerLiteralRange
+  deriving stock (Eq, Generic, Show)
+  deriving anyclass (NFData)
+
+data SemanticBinding variable
+  = PlainTypeBinding (SemanticType ResolvedName variable)
+  | SchemeTypeBinding (SemanticScheme variable)
+  | BuiltinAliasTypeBinding BuiltinSymbol
+  | BuiltinOperatorAliasTypeBinding Text
+  | OperatorAliasSchemeTypeBinding Text (SemanticScheme variable)
+  | ConstructorTypeBinding ResolvedName [ResolvedName] [ConstructorArgumentType]
+  deriving stock (Eq, Generic, Show)
+  deriving anyclass (NFData)
+
+newtype QuantifiedVariables variable = QuantifiedVariables (StableSet variable)
+  deriving stock (Eq, Generic, Show)
+  deriving anyclass (NFData)
+
+quantifiedVariablesFromPreferred :: (Ord variable) => [variable] -> Set variable -> QuantifiedVariables variable
+quantifiedVariablesFromPreferred preferred variables =
+  QuantifiedVariables (stableSetFromPreferred preferred variables)
+
+quantifiedVariablesMembershipSet :: QuantifiedVariables variable -> Set variable
+quantifiedVariablesMembershipSet (QuantifiedVariables variables) =
+  stableSetMembershipSet variables
+
+quantifiedVariablesOrderedList :: QuantifiedVariables variable -> [variable]
+quantifiedVariablesOrderedList (QuantifiedVariables variables) =
+  stableSetOrderedList variables
+
+data SemanticScheme variable = SemanticScheme
+  { schemeQuantifiedVariables :: QuantifiedVariables variable,
+    schemeClassConstraints :: [SchemeConstraint (SemanticType ResolvedName variable)],
+    schemePrimitiveConstraints :: [SchemePrimitiveConstraint (SemanticType ResolvedName variable)],
+    schemeDefiningCapabilities :: ScopeCapabilityFacts,
+    schemeResultType :: SemanticType ResolvedName variable
+  }
+  deriving stock (Eq, Generic, Show)
+  deriving anyclass (NFData)
+
+data SchemePrimitiveConstraint typeValue
+  = TypeSchemeNumericConstraint NumericConstraint typeValue
+  | TypeSchemeStrictEqualityConstraint typeValue
+  deriving stock (Eq, Foldable, Functor, Generic, Show, Traversable)
+  deriving anyclass (NFData)
+
+data SchemeConstraint typeValue
+  = TypeSchemeConstraint Text typeValue
+  | TypeSchemeInferredConstraint Text typeValue
+  | TypeSchemeMethodConstraint Text Text typeValue
+  deriving stock (Eq, Foldable, Functor, Generic, Ord, Show, Traversable)
+  deriving anyclass (NFData)
+
+data ScopeCapabilityFacts = ScopeCapabilityFacts
+  { scopeClassFacts :: Map Text Int,
+    scopeGeneratedEqualityClassFacts :: Set Text,
+    scopeConcreteImplFacts :: Set ConcreteImplFact,
+    scopeClassMethodSignatures :: Map Text ClassMethodType,
+    scopeConcreteImplMethods :: Map Text [ImplMethodType]
+  }
+  deriving stock (Eq, Generic, Show)
+  deriving anyclass (NFData)
+
+instance Semigroup ScopeCapabilityFacts where
+  leftFacts <> rightFacts =
+    ScopeCapabilityFacts
+      { scopeClassFacts = Map.union (scopeClassFacts leftFacts) (scopeClassFacts rightFacts),
+        scopeGeneratedEqualityClassFacts =
+          Set.union
+            (scopeGeneratedEqualityClassFacts leftFacts)
+            (scopeGeneratedEqualityClassFacts rightFacts),
+        scopeConcreteImplFacts =
+          Set.union
+            (scopeConcreteImplFacts leftFacts)
+            (scopeConcreteImplFacts rightFacts),
+        scopeClassMethodSignatures =
+          Map.union
+            (scopeClassMethodSignatures leftFacts)
+            (scopeClassMethodSignatures rightFacts),
+        scopeConcreteImplMethods =
+          Map.unionWith
+            (<>)
+            (scopeConcreteImplMethods leftFacts)
+            (scopeConcreteImplMethods rightFacts)
+      }
+
+instance Monoid ScopeCapabilityFacts where
+  mempty =
+    ScopeCapabilityFacts
+      { scopeClassFacts = Map.empty,
+        scopeGeneratedEqualityClassFacts = Set.empty,
+        scopeConcreteImplFacts = Set.empty,
+        scopeClassMethodSignatures = Map.empty,
+        scopeConcreteImplMethods = Map.empty
+      }
+
+emptyScopeCapabilityFacts :: ScopeCapabilityFacts
+emptyScopeCapabilityFacts = mempty
+
+-- | Transform solved types and their binders together, preserving binder order.
+mapBindingTypes :: (Ord target) => (variable -> target) -> (SemanticType ResolvedName variable -> SemanticType ResolvedName target) -> SemanticBinding variable -> SemanticBinding target
+mapBindingTypes variable expression binding = case binding of
+  PlainTypeBinding value -> PlainTypeBinding (expression value)
+  SchemeTypeBinding scheme -> SchemeTypeBinding (mapScheme scheme)
+  OperatorAliasSchemeTypeBinding symbol scheme -> OperatorAliasSchemeTypeBinding symbol (mapScheme scheme)
+  BuiltinAliasTypeBinding symbol -> BuiltinAliasTypeBinding symbol
+  BuiltinOperatorAliasTypeBinding symbol -> BuiltinOperatorAliasTypeBinding symbol
+  ConstructorTypeBinding name parameters fields -> ConstructorTypeBinding name parameters fields
+  where
+    mapScheme scheme =
+      SemanticScheme
+        { schemeQuantifiedVariables =
+            let ordered = map variable (quantifiedVariablesOrderedList (schemeQuantifiedVariables scheme))
+             in quantifiedVariablesFromPreferred ordered (Set.fromList ordered),
+          schemeClassConstraints = map (fmap expression) (schemeClassConstraints scheme),
+          schemePrimitiveConstraints = map (fmap expression) (schemePrimitiveConstraints scheme),
+          schemeDefiningCapabilities = schemeDefiningCapabilities scheme,
+          schemeResultType = expression (schemeResultType scheme)
+        }
+
+bindingQuantifiedVariables :: SemanticBinding variable -> [variable]
+bindingQuantifiedVariables binding = case binding of
+  SchemeTypeBinding scheme -> quantifiedVariablesOrderedList (schemeQuantifiedVariables scheme)
+  OperatorAliasSchemeTypeBinding _ scheme -> quantifiedVariablesOrderedList (schemeQuantifiedVariables scheme)
+  _ -> []
+
+bindingVariableOrder :: SemanticBinding variable -> [variable]
+bindingVariableOrder binding = case binding of
+  PlainTypeBinding value -> toList value
+  SchemeTypeBinding scheme -> schemeVariables scheme
+  OperatorAliasSchemeTypeBinding _ scheme -> schemeVariables scheme
+  _ -> []
+  where
+    schemeVariables scheme =
+      toList (schemeResultType scheme)
+        <> concatMap (foldMap toList) (schemeClassConstraints scheme)
+        <> concatMap (foldMap toList) (schemePrimitiveConstraints scheme)

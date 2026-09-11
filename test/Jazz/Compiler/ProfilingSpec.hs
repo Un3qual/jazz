@@ -71,8 +71,8 @@ import Jazz.Compiler.TypeInference.Types
     ConstructorArgumentType (ConstructorArgumentType),
     DataTypeBinding (DataTypeBinding),
     ImplMethodType (ImplMethodType),
+    SemanticBinding (PlainTypeBinding),
     SemanticType (..),
-    TypeBinding (PlainTypeBinding),
   )
 import Jazz.TestHarness
   ( NamedTest,

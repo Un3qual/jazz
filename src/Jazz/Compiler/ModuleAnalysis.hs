@@ -69,6 +69,7 @@ import Jazz.Compiler.Name
     qualifiedName,
     sourceName,
   )
+import Jazz.Compiler.SemanticDeclarations (DeclarationVariable)
 import Jazz.Compiler.SemanticFacts
   ( CoreNodeId,
     SemanticFactInvariantFailure (..),
@@ -87,11 +88,10 @@ import Jazz.Compiler.TypeInference.Types
     ImplMethodType (..),
     SchemeConstraint (..),
     ScopeCapabilityFacts (..),
+    SemanticBinding (..),
+    SemanticScheme (..),
     SemanticType (..),
-    TypeBinding (..),
-    TypeEnv,
     TypeEnvKey (..),
-    TypeScheme (..),
   )
 
 -- | Analyze one resolved module against its complete imported interface. The
@@ -224,7 +224,7 @@ dependencyImportInterface importDecl (publicInventory, moduleInterface) =
         moduleInterface
 
 data ImportedInterface = ImportedInterface
-  { importedTypes :: TypeEnv,
+  { importedTypes :: Map TypeEnvKey (SemanticBinding DeclarationVariable),
     importedDataTypes :: Map Text DataTypeBinding,
     importedConstructorWitnessNames :: Map ResolvedName UnresolvedName,
     importedCapabilities :: ScopeCapabilityFacts,
@@ -366,7 +366,7 @@ methodUsesClass :: Set.Set Text -> Text -> value -> Bool
 methodUsesClass classNames methodKey _ =
   any (\className -> (className <> "::") `Text.isPrefixOf` methodKey) (Set.toList classNames)
 
-rebaseTypeBinding :: ResolvedNameOrigin -> Set.Set Text -> Set.Set Text -> TypeBinding -> TypeBinding
+rebaseTypeBinding :: ResolvedNameOrigin -> Set.Set Text -> Set.Set Text -> SemanticBinding variable -> SemanticBinding variable
 rebaseTypeBinding origin dataTypeNames classNames binding =
   case binding of
     PlainTypeBinding expressionType ->
@@ -409,7 +409,7 @@ rebaseExpressionType origin dataTypeNames expressionType =
         (rebaseExpressionType origin dataTypeNames resultType)
     _ -> expressionType
 
-rebaseTypeScheme :: ResolvedNameOrigin -> Set.Set Text -> Set.Set Text -> TypeScheme -> TypeScheme
+rebaseTypeScheme :: ResolvedNameOrigin -> Set.Set Text -> Set.Set Text -> SemanticScheme variable -> SemanticScheme variable
 rebaseTypeScheme origin dataTypeNames classNames typeScheme =
   typeScheme
     { schemeClassConstraints = map rebaseSchemeConstraint (schemeClassConstraints typeScheme),

@@ -182,11 +182,13 @@ import Jazz.Compiler.TypeInference.Types
     SchemeConstraint (..),
     SchemePrimitiveConstraint (..),
     ScopeCapabilityFacts,
+    SemanticBinding (..),
+    SemanticScheme (..),
     SemanticType (..),
-    TypeBinding (..),
+    TypeBinding,
     TypeEnv,
     TypeEnvKey (..),
-    TypeScheme (..),
+    TypeScheme,
     TypeSchemeConstraint,
     TypeSchemePrimitiveConstraint,
     quantifiedVariablesFromPreferred,
@@ -490,7 +492,7 @@ inferScopeTypeInternal
                     schemeVariables = freeTypeVariables resolvedType
                     inferredClassConstraints = typeSchemeInferredClassConstraints state schemeVariables
                  in SchemeTypeBinding
-                      TypeScheme
+                      SemanticScheme
                         { schemeQuantifiedVariables =
                             quantifiedVariablesFromPreferred
                               (expressionTypeVariableOrder resolvedType)
@@ -1848,7 +1850,7 @@ generalizedOrdinaryBinding environmentVariables state valueExpr expressionType =
         then PlainTypeBinding resolvedType
         else
           SchemeTypeBinding
-            TypeScheme
+            SemanticScheme
               { schemeQuantifiedVariables = quantifiedVariablesFromPreferred (expressionTypeVariableOrder resolvedType) schemeVariables,
                 schemeClassConstraints = inferredClassConstraints,
                 schemePrimitiveConstraints = primitiveConstraints,
@@ -1893,7 +1895,7 @@ generalizedExplicitSignatureBinding environmentVariables state pendingSignature 
         then PlainTypeBinding resolvedType
         else
           SchemeTypeBinding
-            TypeScheme
+            SemanticScheme
               { schemeQuantifiedVariables = quantifiedVariablesFromPreferred (pendingSignatureVariableOrder pendingSignature) schemeVariables,
                 schemeClassConstraints = schemeConstraints,
                 schemePrimitiveConstraints = primitiveConstraints,
