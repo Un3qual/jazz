@@ -35,6 +35,7 @@ import Jazz.Compiler.RecursiveBindings
   )
 import Jazz.Compiler.SemanticFacts (StatementDeclarationFact (SignatureDeclaration))
 import Jazz.Compiler.Semantics.BindingSignature.Shared (resolvedProgram)
+import Jazz.Compiler.TypeInference (CheckedExpr (..))
 import Jazz.Compiler.TypeInference.Capabilities
   ( typeSchemeReferencedCapabilityFacts,
   )
@@ -455,9 +456,9 @@ testProductionScopeElaboratesSignatureOnce = do
             EVar node name ->
               case Map.lookup (typeEnvReferenceKey (coreNodeFacts node) name) env of
                 Just (PlainTypeBinding expressionType) ->
-                  ((Just expressionType), state)
-                _ -> (Nothing, state)
-            _ -> (Nothing, state)
+                  (syntheticChecked (Just expressionType), state)
+                _ -> (syntheticChecked Nothing, state)
+            _ -> (syntheticChecked Nothing, state)
         InferenceOnly ->
           error "expected production callback invocation"
 
@@ -686,10 +687,10 @@ typeName = resolvedLocalName TypeNamespace . mkIdentifier
 capabilityName :: Text -> ResolvedName
 capabilityName = resolvedLocalName CapabilityNamespace . mkIdentifier
 
-inferenceOnlyResult :: InferenceMode -> Maybe ExpressionType -> InferState -> (Maybe ExpressionType, InferState)
+inferenceOnlyResult :: InferenceMode -> Maybe ExpressionType -> InferState -> (CheckedExpr, InferState)
 inferenceOnlyResult mode expressionType state =
   case mode of
-    InferenceOnly -> (expressionType, state)
+    InferenceOnly -> (syntheticChecked expressionType, state)
     InferConcreteFunctions ->
       error "expected inference-only callback invocation"
 
@@ -726,3 +727,6 @@ testImplChecksPreserveRollback = do
       assertEqual "one mismatch survives the successful subsequent body" 1 (inferErrorCount finalState)
       assertEqual "failed substitutions remain absent at completion" variable (resolveType finalState variable)
     _ -> failTest "expected resolved impl fixture"
+
+syntheticChecked :: Maybe ExpressionType -> CheckedExpr
+syntheticChecked value = CheckedExpr value (error "synthetic scope callback has no executable subtree")

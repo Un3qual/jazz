@@ -169,13 +169,15 @@ import Jazz.Compiler.SemanticFacts
     StatementFacts (..),
   )
 import Jazz.Compiler.SourceProgram (parseAndLowerStandaloneSource)
-import Jazz.Compiler.TypeInference.Analyzed (attachAnalyzedExpression, projectAnalyzedMethodSignature)
+import Jazz.Compiler.TypeInference (InferenceInputs (..), inferExpressionWork)
+import Jazz.Compiler.TypeInference.Analyzed (attachAnalyzedExpression, finalizeCheckedExpression, projectAnalyzedMethodSignature)
 import Jazz.Compiler.TypeInference.Result (inferredDiagnostics)
 import Jazz.Compiler.TypeInference.Solver (freshIntegerLiteralType)
 import Jazz.Compiler.TypeInference.State
   ( ExplicitInstantiationSeed (..),
     ExplicitInstantiationTarget (..),
     ExpressionEvidenceSeed (..),
+    InferState (..),
     initialInferState,
     recordExplicitInstantiationSeed,
     recordExpressionEvidenceSeed,
@@ -226,6 +228,7 @@ tests =
     ("operation facts retain the numeric rule decision across equivalent aliases", testBinaryOperandAliasSelection),
     ("analyzed operations retain operand typing and alias selection", testAnalyzedBinaryOperations),
     ("analyzed expressions preserve literal-range constraints for backend specialization", testAnalyzedLiteralRangeFacts),
+    ("checked subtrees own their facts before finalization", testCheckedSubtreeOwnership),
     ("successful inference attaches complete analyzed facts", testAnalyzedProgramFactsAreComplete),
     ("analyzed methods identify used and unused class parameters", testAnalyzedMethodParameterIdentity),
     ("method projection rejects variables outside the class binder", testAnalyzedMethodParameterBoundary),
@@ -602,6 +605,24 @@ testAnalyzedMethodParameterBoundary =
         "an unexpected variable fails projection instead of dropping or guessing the binder"
         (Left (InvalidAnalyzedMethodSignature "Probe::bad"))
         (projectAnalyzedMethodSignature "Probe::bad" (ClassMethodType "a" signatureType))
+
+-- Finalization may read the solver, but the checker must already own the tree
+-- and its decisions. Erasing all output facts must leave that tree intact.
+testCheckedSubtreeOwnership :: IO ()
+testCheckedSubtreeOwnership = do
+  let node number = CoreNode (CoreNodeId number) (SourceSpan 1 1) (emptyResolvedNodeFacts (NamedSourceUnit (nominalModulePath ("Draft" :| []))))
+      expression =
+        EIf
+          (node 1)
+          (ELit (node 2) (LBool True))
+          (ETuple (node 3) [EList (node 4) [ELit (node 5) (LInt 1)], ELit (node 6) (LBool True)])
+          (ETuple (node 7) [EList (node 8) [ELit (node 9) (LInt 2)], ELit (node 10) (LBool False)])
+      inputs = InferenceInputs Nothing defaultWarningSettings Set.empty Map.empty Map.empty Map.empty emptyScopeCapabilityFacts Set.empty Nothing
+      (checked, state, _) = inferExpressionWork inputs [] expression
+      erased = state {inferOutput = inferOutput initialInferState}
+  expected <- either (fail . show) pure (finalizeCheckedExpression state checked)
+  actual <- either (fail . show) pure (finalizeCheckedExpression erased checked)
+  assertEqual "owned checked subtree survives output erasure" expected actual
 
 testAnalyzedFactInvariantFailures :: IO ()
 testAnalyzedFactInvariantFailures = do

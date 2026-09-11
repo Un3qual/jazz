@@ -45,6 +45,7 @@ where
 import Control.Applicative
   ( (<|>),
   )
+import Data.Bifunctor (first)
 import Data.Foldable
   ( toList,
   )
@@ -119,6 +120,7 @@ import Jazz.Compiler.TypeInference.Diagnostics
     mkTypeSchemeNumericConstraintError,
     mkTypeSchemeStrictEqualityConstraintError,
   )
+import Jazz.Compiler.TypeInference.Draft (checkedExprType)
 import Jazz.Compiler.TypeInference.Environment
   ( TypeEnvFreeVariables,
     deleteTypeEnvFreeVariables,
@@ -468,7 +470,7 @@ inferQualifiedMethodApplicationWithResults inferExpression env state nodeId meth
   where
     step (resultsAcc, stateAcc) argumentExpr =
       let (result, stateAfterArgument) =
-            inferExpression env stateAcc argumentExpr
+            first checkedExprType (inferExpression env stateAcc argumentExpr)
        in (result : resultsAcc, stateAfterArgument)
 
 addUnpreservedInferredMethodConstraintErrors ::

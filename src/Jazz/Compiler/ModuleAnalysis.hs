@@ -92,8 +92,9 @@ import Jazz.Compiler.TypeInference
     inferenceSubjectExpr,
     moduleInterfaceFromState,
   )
-import Jazz.Compiler.TypeInference.Analyzed (attachAnalyzedExpression, attachAnalyzedStatementFacts)
+import Jazz.Compiler.TypeInference.Analyzed (attachAnalyzedStatementFacts, finalizeCheckedExpression)
 import Jazz.Compiler.TypeInference.Diagnostics (mkNonExhaustivePatternMatchError, mkUnreachablePatternArmError)
+import Jazz.Compiler.TypeInference.Draft (CheckedExpr (..))
 import Jazz.Compiler.TypeInference.Result (InferenceResult (..), inferredDiagnostics)
 import Jazz.Compiler.TypeInference.Solver (resolveType)
 import Jazz.Compiler.TypeInference.State (InferState, inferErrorsRev, inferPatternCoverageSites)
@@ -354,7 +355,7 @@ analyzeResolvedExpression ::
         (Maybe (Expr 'Analyzed))
     )
 analyzeResolvedExpression settings expression = do
-  (inference, finalState) <-
+  (inference, finalState, checked) <-
     inferExpressionWithRequestAndState
       InferenceRequest
         { requestedInferenceInputs = emptyInferenceInputs settings,
@@ -368,9 +369,7 @@ analyzeResolvedExpression settings expression = do
       pure
         ( inference,
           Just
-            <$> attachAnalyzedExpression
-              finalState
-              (inferenceResolvedExpr inference)
+            <$> finalizeCheckedExpression finalState checked
         )
 
 inferExpressionWithInputs :: InferenceInputs -> Expr 'Resolved -> IO InferenceResult
@@ -383,9 +382,9 @@ inferExpressionWithInputs inputs =
       }
 
 inferExpressionWithRequest :: InferenceRequest -> Expr 'Resolved -> IO InferenceResult
-inferExpressionWithRequest request expr = fst <$> inferExpressionWithRequestAndState request expr
+inferExpressionWithRequest request expr = (\(result, _, _) -> result) <$> inferExpressionWithRequestAndState request expr
 
-inferExpressionWithRequestAndState :: InferenceRequest -> Expr 'Resolved -> IO (InferenceResult, InferState)
+inferExpressionWithRequestAndState :: InferenceRequest -> Expr 'Resolved -> IO (InferenceResult, InferState, CheckedExpr)
 inferExpressionWithRequestAndState request expr =
   {-# SCC "jazz-stage:type-inference" #-}
   let inputs = requestedInferenceInputs request
@@ -404,9 +403,9 @@ inferExpressionWithRequestAndState request expr =
                 inputs
                 (requestedHideRootBindings request)
                 inferenceSubject
-                inferredResult
+                (checkedExprType inferredResult)
                 finalizedInference
-            pure (inference, finalState)
+            pure (inference, finalState, inferredResult)
 
 analyzeExpressionWithInputs ::
   [(CoreNode 'Resolved 'StatementSort, StatementDeclarationFact)] ->
@@ -420,7 +419,7 @@ analyzeExpressionWithInputs ::
         (Maybe (Expr 'Analyzed, Map CoreNodeId StatementFacts))
     )
 analyzeExpressionWithInputs moduleStatementFacts inputs hideRootBindings expression = do
-  (inference, finalState) <-
+  (inference, finalState, checked) <-
     inferExpressionWithRequestAndState
       InferenceRequest
         { requestedInferenceInputs = inputs,
@@ -435,7 +434,7 @@ analyzeExpressionWithInputs moduleStatementFacts inputs hideRootBindings express
         ( inference,
           Just
             <$> ( (,)
-                    <$> attachAnalyzedExpression finalState (inferenceResolvedExpr inference)
+                    <$> finalizeCheckedExpression finalState checked
                     <*> attachAnalyzedStatementFacts finalState (map fst moduleStatementFacts)
                 )
         )

@@ -10,6 +10,7 @@ module Jazz.Compiler.TypeInference.Pattern
   )
 where
 
+import Data.Bifunctor (first)
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
 import Data.Set (Set)
@@ -36,6 +37,7 @@ import Jazz.Compiler.SemanticFacts
   )
 import Jazz.Compiler.TypeInference.Capabilities (defaultLiteralTypes)
 import Jazz.Compiler.TypeInference.Diagnostics
+import Jazz.Compiler.TypeInference.Draft (checkedExprType)
 import Jazz.Compiler.TypeInference.Environment (insertResolvedTypeBinding)
 import Jazz.Compiler.TypeInference.Solver
   ( freshIntegerLiteralType,
@@ -90,7 +92,7 @@ inferPatternCaseType inferExpression env scrutineeType initialState caseArms =
                   stateAfterGuard =
                     inferCaseGuardType armEnv stateAfterPattern guardExpr
                   (bodyResult, stateAfterBody) =
-                    inferExpression armEnv stateAfterGuard bodyExpr
+                    first checkedExprType (inferExpression armEnv stateAfterGuard bodyExpr)
                   maybeBodyType = bodyResult
                   stateAfterBodyFacts =
                     maybe
@@ -121,7 +123,7 @@ inferPatternCaseType inferExpression env scrutineeType initialState caseArms =
         Nothing -> stateAcc
         Just conditionExpr ->
           let (guardResult, stateAfterGuard) =
-                inferExpression armEnv stateAcc conditionExpr
+                first checkedExprType (inferExpression armEnv stateAcc conditionExpr)
               maybeGuardType = guardResult
               checkedState =
                 case maybeGuardType of

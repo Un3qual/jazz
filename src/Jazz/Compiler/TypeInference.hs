@@ -5,6 +5,7 @@
 -- ordering and warning policy belong to the module analysis coordinator.
 module Jazz.Compiler.TypeInference
   ( InferenceInputs (..),
+    CheckedExpr (..),
     InferenceSubject (..),
     inferenceSubjectExpr,
     inferExpressionWork,
@@ -12,6 +13,7 @@ module Jazz.Compiler.TypeInference
   )
 where
 
+import Data.Bifunctor (first)
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
 import Data.Set (Set)
@@ -79,8 +81,10 @@ import Jazz.Compiler.SemanticFacts
   ( BinaryOperation (..),
     StatementDeclarationFact,
   )
+import Jazz.Compiler.TypeInference.Analyzed (draftExpressionNode, legacyExpressionDraft)
 import Jazz.Compiler.TypeInference.Capabilities
 import Jazz.Compiler.TypeInference.Diagnostics
+import Jazz.Compiler.TypeInference.Draft (CheckedExpr (..))
 import Jazz.Compiler.TypeInference.Environment (insertResolvedTypeBinding)
 import Jazz.Compiler.TypeInference.Interface (closeModuleBindings, importBindingTypes)
 import Jazz.Compiler.TypeInference.Operator
@@ -169,7 +173,7 @@ inferenceSubjectExpr subject =
     InferencePreparedScope expr preparedScope ->
       preparedRecursiveScopeStatements preparedScope `seq` expr
 
-inferExpressionWork :: InferenceInputs -> [(CoreNode 'Resolved 'StatementSort, StatementDeclarationFact)] -> Expr 'Resolved -> (Maybe ExpressionType, InferState, InferenceSubject)
+inferExpressionWork :: InferenceInputs -> [(CoreNode 'Resolved 'StatementSort, StatementDeclarationFact)] -> Expr 'Resolved -> (CheckedExpr, InferState, InferenceSubject)
 inferExpressionWork inputs moduleStatementFacts expr =
   let (importedEnvironment, importedState) = importBindingTypes (inferenceImportedTypes inputs) (initialStateForInference inputs)
       initialState =
@@ -196,7 +200,7 @@ inferExpressionWork inputs moduleStatementFacts expr =
                       Nothing -> unitType
                   )
                   rawBlockState
-           in (blockResult, blockState, InferencePreparedScope expr preparedScope)
+           in (CheckedExpr blockResult (legacyExpressionDraft expr), blockState, InferencePreparedScope expr preparedScope)
         _ ->
           let (result, resultState) =
                 inferExprTypeDetailed
@@ -286,48 +290,52 @@ instantiateEnvBinding binding state =
         Nothing -> (Nothing, state)
     _ -> instantiateNonBuiltinTypeBinding binding state
 
-inferExprTypeWithMode ::
-  InferenceMode ->
-  TypeEnv ->
-  InferState ->
-  Expr 'Resolved ->
-  (Maybe ExpressionType, InferState)
-inferExprTypeWithMode mode env state expr =
-  case expr of
-    EBlock node statements ->
-      uncurry recordBlockResult (inferBlock mode node statements)
-    _ -> inferExprTypeDetailed env state expr
+inferExprTypeWithMode :: InferenceMode -> TypeEnv -> InferState -> Expr 'Resolved -> (CheckedExpr, InferState)
+inferExprTypeWithMode mode env state expr = case expr of
+  EBlock node statements ->
+    let (result, inferredState) = inferNestedScopeTypeWithMode inferExprTypeWithMode mode env state (prepareResolvedScope node statements)
+        finalState = maybe inferredState (\value -> recordExpressionFactType (coreNodeId node) value inferredState) result
+     in (CheckedExpr result (legacyExpressionDraft expr), finalState)
+  _ -> inferExprTypeDetailed env state expr
+
+-- Checking returns the draft subtree alongside its type. Legacy constructor
+-- families temporarily retain attachment until their own children are migrated.
+inferExprTypeDetailed :: TypeEnv -> InferState -> Expr 'Resolved -> (CheckedExpr, InferState)
+inferExprTypeDetailed env state expr = case expr of
+  ELit _ literal -> leaf (\node -> ELit node literal)
+  EVar _ name -> leaf (\node -> EVar node name)
+  EOperatorValue _ symbol -> leaf (\node -> EOperatorValue node symbol)
+  ETuple _ [] -> leaf (\node -> ETuple node [])
+  EIf _ condition thenExpression elseExpression ->
+    let (conditionCheck, stateAfterCondition) = inferExprTypeDetailed env state condition
+        (thenCheck, stateAfterThen) = inferExprTypeDetailed env stateAfterCondition thenExpression
+        (elseCheck, stateAfterElse) = inferExprTypeDetailed env stateAfterThen elseExpression
+        (result, finalState) = inferIfFromResults (checkedExprType conditionCheck) (checkedExprType thenCheck) (checkedExprType elseCheck) stateAfterElse
+     in finish result finalState (\node -> EIf <$> node <*> checkedExprTree conditionCheck <*> checkedExprTree thenCheck <*> checkedExprTree elseCheck)
+  EList _ elements ->
+    let (result, children, finalState) = inferListElements env state elements
+     in finish result finalState (\node -> EList <$> node <*> traverse checkedExprTree children)
+  ETuple _ elements ->
+    let (result, children, finalState) = inferTupleElements env state elements
+     in finish result finalState (\node -> ETuple <$> node <*> traverse checkedExprTree children)
+  ELambda node name body ->
+    let (parameterType, stateAfterParameter) = freshTypeVar state
+        (bodyCheck, finalState) = inferExprTypeDetailed (insertResolvedTypeBinding (coreNodeFacts node) name (PlainTypeBinding parameterType) env) stateAfterParameter body
+        result = SemanticFunction (resolveType finalState parameterType) <$> checkedExprType bodyCheck
+     in finish result finalState (\facts -> ELambda <$> facts <*> pure name <*> checkedExprTree bodyCheck)
+  _ ->
+    let (result, inferredState) = inferExprTypeDetailedRaw env state expr
+     in (CheckedExpr result (legacyExpressionDraft expr), recordType result inferredState)
   where
-    recordBlockResult result inferredState =
-      ( result,
-        maybe
-          inferredState
-          (\expressionType -> recordExpressionFactType (coreNodeId (expressionNode expr)) expressionType inferredState)
-          result
-      )
+    leaf make =
+      let (result, finalState) = inferExprTypeDetailedRaw env state expr
+       in finish result finalState (fmap make)
+    finish result finalState make =
+      (CheckedExpr result (make (draftExpressionNode finalState result expr)), recordType result finalState)
+    recordType result finalState = maybe finalState (\value -> recordExpressionFactType (coreNodeId (expressionNode expr)) value finalState) result
 
-    inferBlock blockMode node statements =
-      inferNestedScopeTypeWithMode
-        inferExprTypeWithMode
-        blockMode
-        env
-        state
-        (prepareResolvedScope node statements)
-
--- | Infer expression types and record the semantic facts consumed by analysis.
-inferExprTypeDetailed ::
-  TypeEnv ->
-  InferState ->
-  Expr 'Resolved ->
-  (Maybe ExpressionType, InferState)
-inferExprTypeDetailed env state expr =
-  let (result, inferredState) = inferExprTypeDetailedRaw env state expr
-   in ( result,
-        maybe
-          inferredState
-          (\expressionType -> recordExpressionFactType (coreNodeId (expressionNode expr)) expressionType inferredState)
-          result
-      )
+inferExprTypeDetailedType :: TypeEnv -> InferState -> Expr 'Resolved -> (Maybe ExpressionType, InferState)
+inferExprTypeDetailedType env state expression = first checkedExprType (inferExprTypeDetailed env state expression)
 
 inferExprTypeDetailedRaw ::
   TypeEnv ->
@@ -341,15 +349,10 @@ inferExprTypeDetailedRaw env state expr =
        in (Just literalType, checkLiteralType stateAfterLiteral literal)
     ETuple _ [] -> (Just (SemanticTuple []), state)
     EBinary _ symbol left right -> inferBinaryExpression symbol left right
-    EIf _ condition thenExpression elseExpression ->
-      let (conditionResult, stateAfterCondition) = inferExprTypeDetailed env state condition
-          (thenResult, stateAfterThen) = inferExprTypeDetailed env stateAfterCondition thenExpression
-          (elseResult, stateAfterElse) = inferExprTypeDetailed env stateAfterThen elseExpression
-          (expressionType, finalState) = inferIfFromResults conditionResult thenResult elseResult stateAfterElse
-       in (expressionType, finalState)
+    EIf {} -> inferExprTypeDetailedType env state expr
     EPatternCase _ scrutinee caseArms ->
       let (coverageOrdinal, stateWithOrdinal) = reservePatternCoverageSite state
-          (scrutineeResult, stateAfterScrutinee) = inferExprTypeDetailed env stateWithOrdinal scrutinee
+          (scrutineeResult, stateAfterScrutinee) = inferExprTypeDetailedType env stateWithOrdinal scrutinee
           (scrutineeType, stateWithScrutineeType) = case scrutineeResult of
             Just inferredType -> (inferredType, stateAfterScrutinee)
             Nothing -> freshTypeVar stateAfterScrutinee
@@ -365,15 +368,15 @@ inferExprTypeDetailedRaw env state expr =
               )
               inferredFinalState
        in (expressionType, finalState)
-    EList _ elements -> inferListElements state elements
-    ETuple _ elements -> inferTupleElements state elements
+    EList {} -> inferExprTypeDetailedType env state expr
+    ETuple _ (_ : _) -> inferExprTypeDetailedType env state expr
     EBlock node statements -> inferNestedScopeTypeWithMode inferExprTypeWithMode InferConcreteFunctions env state (prepareResolvedScope node statements)
     EVar node name ->
       let (expressionType, finalState) = inferVariableType node name state
        in (expressionType, annotateNewErrorsWithPrimarySpan (coreNodeSpan node) state finalState)
     ELambda node name body ->
       let (parameterType, stateAfterParameter) = freshTypeVar state
-          (bodyResult, finalState) = inferExprTypeDetailed (insertResolvedTypeBinding (coreNodeFacts node) name (PlainTypeBinding parameterType) env) stateAfterParameter body
+          (bodyResult, finalState) = inferExprTypeDetailedType (insertResolvedTypeBinding (coreNodeFacts node) name (PlainTypeBinding parameterType) env) stateAfterParameter body
           expressionType = SemanticFunction (resolveType finalState parameterType) <$> bodyResult
        in (expressionType, finalState)
     EOperatorValue {} ->
@@ -427,9 +430,9 @@ inferExprTypeDetailedRaw env state expr =
 
     inferBuiltinOperatorApplication operatorSymbol maybeAliasScheme (_, leftExpr) (_, rightExpr) =
       let (leftResult, stateAfterLeft) =
-            inferExprTypeDetailed env state leftExpr
+            inferExprTypeDetailedType env state leftExpr
           (rightResult, stateAfterRight) =
-            inferExprTypeDetailed env stateAfterLeft rightExpr
+            inferExprTypeDetailedType env stateAfterLeft rightExpr
           (expressionType, operandTyping, stateAfterBinary) =
             case (leftResult, rightResult) of
               (Just leftType, Just rightType) ->
@@ -574,9 +577,9 @@ inferExprTypeDetailedRaw env state expr =
 
     inferGenericApplication functionExpr argumentExpr =
       let (functionResult, stateAfterFunction) =
-            inferExprTypeDetailed env state functionExpr
+            inferExprTypeDetailedType env state functionExpr
           (argumentResult, stateAfterArgument) =
-            inferExprTypeDetailed env stateAfterFunction argumentExpr
+            inferExprTypeDetailedType env stateAfterFunction argumentExpr
           (rawExpressionType, rawFinalState) =
             inferApplicationFromResults
               env
@@ -638,33 +641,6 @@ inferExprTypeDetailedRaw env state expr =
             == Just BuiltinListPrependRaw
         _ -> False
 
-    inferIfFromResults conditionResult thenResult elseResult stateAfterElse =
-      let stateAfterConditionCheck =
-            case conditionResult of
-              Just inferredConditionType ->
-                case unifyTypes inferredConditionType SemanticBool stateAfterElse of
-                  Just unifiedState -> unifiedState
-                  Nothing ->
-                    addTypeError
-                      stateAfterElse
-                      (mkIfConditionTypeError (resolveType stateAfterElse inferredConditionType))
-              Nothing -> stateAfterElse
-       in case (thenResult, elseResult) of
-            (Just inferredThenType, Just inferredElseType) ->
-              case unifyTypes inferredThenType inferredElseType stateAfterConditionCheck of
-                Just unifiedState ->
-                  (Just (resolveType unifiedState inferredThenType), unifiedState)
-                Nothing ->
-                  ( Nothing,
-                    addTypeError
-                      stateAfterConditionCheck
-                      ( mkIfBranchTypeMismatchError
-                          (resolveType stateAfterConditionCheck inferredThenType)
-                          (resolveType stateAfterConditionCheck inferredElseType)
-                      )
-                  )
-            _ -> (Nothing, stateAfterConditionCheck)
-
     inferApplicationFromResults currentEnv applicationStartState functionExpr argumentExpr functionResult argumentResult stateAfterArgument =
       case inferApplicationFromResultsUnchecked applicationStartState functionResult argumentResult stateAfterArgument of
         result@(Nothing, _) -> result
@@ -697,9 +673,9 @@ inferExprTypeDetailedRaw env state expr =
     inferBinaryExpression operatorSymbol leftExpr rightExpr
       | hasOperatorRule operatorSymbol || isBuiltinOperatorSymbol operatorSymbol =
           let (leftResult, stateAfterLeft) =
-                inferExprTypeDetailed env state leftExpr
+                inferExprTypeDetailedType env state leftExpr
               (rightResult, stateAfterRight) =
-                inferExprTypeDetailed env stateAfterLeft rightExpr
+                inferExprTypeDetailedType env stateAfterLeft rightExpr
               (expressionType, operandTyping, finalState) =
                 case (leftResult, rightResult) of
                   (Just leftType, Just rightType) ->
@@ -721,7 +697,7 @@ inferExprTypeDetailedRaw env state expr =
             instantiateDeclaredOperatorBindingType currentEnv (coreNodeFacts (expressionNode expr)) operatorSymbol initialState
           operatorResult = operatorType
           (leftResult, stateAfterLeft) =
-            inferExprTypeDetailed currentEnv stateAfterOperator leftExpr
+            inferExprTypeDetailedType currentEnv stateAfterOperator leftExpr
           (intermediateType, stateAfterFirstApplication) =
             inferApplicationFromResultsUnchecked
               initialState
@@ -730,7 +706,7 @@ inferExprTypeDetailedRaw env state expr =
               stateAfterLeft
           intermediateResult = intermediateType
           (rightResult, stateAfterRight) =
-            inferExprTypeDetailed currentEnv stateAfterFirstApplication rightExpr
+            inferExprTypeDetailedType currentEnv stateAfterFirstApplication rightExpr
           (expressionType, finalState) =
             inferApplicationFromResultsUnchecked
               stateAfterFirstApplication
@@ -742,7 +718,7 @@ inferExprTypeDetailedRaw env state expr =
     inferLeftSection operatorSymbol leftExpr
       | hasOperatorRule operatorSymbol || isBuiltinOperatorSymbol operatorSymbol =
           let (leftResult, stateAfterLeft) =
-                inferExprTypeDetailed env state leftExpr
+                inferExprTypeDetailedType env state leftExpr
               (expressionType, finalState) =
                 case leftResult of
                   Just leftType ->
@@ -754,7 +730,7 @@ inferExprTypeDetailedRaw env state expr =
                 instantiateDeclaredOperatorBindingType env (coreNodeFacts (expressionNode expr)) operatorSymbol state
               operatorResult = operatorType
               (leftResult, stateAfterLeft) =
-                inferExprTypeDetailed env stateAfterOperator leftExpr
+                inferExprTypeDetailedType env stateAfterOperator leftExpr
               (expressionType, finalState) =
                 inferApplicationFromResultsUnchecked
                   state
@@ -766,7 +742,7 @@ inferExprTypeDetailedRaw env state expr =
     inferRightSection operatorSymbol rightExpr
       | hasOperatorRule operatorSymbol || isBuiltinOperatorSymbol operatorSymbol =
           let (rightResult, stateAfterRight) =
-                inferExprTypeDetailed env state rightExpr
+                inferExprTypeDetailedType env state rightExpr
               (expressionType, finalState) =
                 case rightResult of
                   Just rightType ->
@@ -787,7 +763,7 @@ inferExprTypeDetailedRaw env state expr =
                   stateAfterOperator
               intermediateResult = intermediateType
               (rightResult, stateAfterRight) =
-                inferExprTypeDetailed env stateAfterFirstApplication rightExpr
+                inferExprTypeDetailedType env stateAfterFirstApplication rightExpr
               (bodyType, finalState) =
                 inferApplicationFromResultsUnchecked
                   stateAfterFirstApplication
@@ -799,62 +775,60 @@ inferExprTypeDetailedRaw env state expr =
                   <$> bodyType
            in (expressionType, finalState)
 
-    inferListElements initialState elements =
-      case elements of
-        [] ->
-          let (elementType, finalState) = freshTypeVar initialState
-           in (Just (SemanticList elementType), finalState)
-        firstElement : restElements ->
-          let (firstResult, stateAfterFirst) =
-                inferExprTypeDetailed env initialState firstElement
-              (finalElementType, finalState) =
-                foldl'
-                  inferNextListElement
-                  (firstResult, stateAfterFirst)
-                  restElements
-           in (SemanticList <$> finalElementType, finalState)
+inferListElements :: TypeEnv -> InferState -> [Expr 'Resolved] -> (Maybe ExpressionType, [CheckedExpr], InferState)
+inferListElements env initialState elements = case elements of
+  [] -> let (elementType, finalState) = freshTypeVar initialState in (Just (SemanticList elementType), [], finalState)
+  firstElement : rest ->
+    let (firstCheck, stateAfterFirst) = inferExprTypeDetailed env initialState firstElement
+        (elementType, reversed, finalState) = foldl' step (checkedExprType firstCheck, [firstCheck], stateAfterFirst) rest
+     in (SemanticList <$> elementType, reverse reversed, finalState)
+  where
+    step (expected, reversed, prior) element =
+      let (checked, afterElement) = inferExprTypeDetailed env prior element
+          (nextExpected, finalState) = case (expected, checkedExprType checked) of
+            (Just expectedType, Just actualType) -> case unifyTypes expectedType actualType afterElement of
+              Just unified -> (Just (resolveType unified expectedType), unified)
+              Nothing -> (Just expectedType, addTypeError afterElement (mkListElementTypeMismatchError (resolveType afterElement expectedType) (resolveType afterElement actualType)))
+            _ -> (expected, afterElement)
+       in (nextExpected, checked : reversed, finalState)
 
-    inferNextListElement (expectedType, stateAcc) element =
-      let (actualResult, stateAfterElement) =
-            inferExprTypeDetailed env stateAcc element
-          actualType = actualResult
-          (nextExpectedType, finalState) =
-            case (expectedType, actualType) of
-              (Just inferredExpectedType, Just inferredActualType) ->
-                case unifyTypes inferredExpectedType inferredActualType stateAfterElement of
-                  Just unifiedState ->
-                    ( Just
-                        (resolveType unifiedState inferredExpectedType),
-                      unifiedState
-                    )
-                  Nothing ->
-                    ( Just inferredExpectedType,
-                      addTypeError
-                        stateAfterElement
-                        ( mkListElementTypeMismatchError
-                            (resolveType stateAfterElement inferredExpectedType)
-                            (resolveType stateAfterElement inferredActualType)
-                        )
-                    )
-              _ -> (expectedType, stateAfterElement)
-       in (nextExpectedType, finalState)
+inferTupleElements :: TypeEnv -> InferState -> [Expr 'Resolved] -> (Maybe ExpressionType, [CheckedExpr], InferState)
+inferTupleElements env = go (Just []) []
+  where
+    go types children state remaining = case remaining of
+      [] -> (SemanticTuple . reverse <$> types, reverse children, state)
+      element : rest ->
+        let (checked, next) = inferExprTypeDetailed env state element
+            nextTypes = ((:) . resolveType next <$> checkedExprType checked) <*> types
+         in go nextTypes (checked : children) next rest
 
-    inferTupleElements initialState elements =
-      goTuple (Just []) initialState elements
-      where
-        goTuple maybeReversedTypes stateAcc remainingElements =
-          case remainingElements of
-            [] ->
-              (SemanticTuple . reverse <$> maybeReversedTypes, stateAcc)
-            element : rest ->
-              let (elementResult, stateAfterElement) =
-                    inferExprTypeDetailed env stateAcc element
-                  nextReversedTypes =
-                    case (maybeReversedTypes, elementResult) of
-                      (Just reversedTypes, Just inferredElementType) ->
-                        Just (resolveType stateAfterElement inferredElementType : reversedTypes)
-                      _ -> Nothing
-               in goTuple nextReversedTypes stateAfterElement rest
+inferIfFromResults :: Maybe ExpressionType -> Maybe ExpressionType -> Maybe ExpressionType -> InferState -> (Maybe ExpressionType, InferState)
+inferIfFromResults conditionResult thenResult elseResult stateAfterElse =
+  let stateAfterConditionCheck =
+        case conditionResult of
+          Just inferredConditionType ->
+            case unifyTypes inferredConditionType SemanticBool stateAfterElse of
+              Just unifiedState -> unifiedState
+              Nothing ->
+                addTypeError
+                  stateAfterElse
+                  (mkIfConditionTypeError (resolveType stateAfterElse inferredConditionType))
+          Nothing -> stateAfterElse
+   in case (thenResult, elseResult) of
+        (Just inferredThenType, Just inferredElseType) ->
+          case unifyTypes inferredThenType inferredElseType stateAfterConditionCheck of
+            Just unifiedState ->
+              (Just (resolveType unifiedState inferredThenType), unifiedState)
+            Nothing ->
+              ( Nothing,
+                addTypeError
+                  stateAfterConditionCheck
+                  ( mkIfBranchTypeMismatchError
+                      (resolveType stateAfterConditionCheck inferredThenType)
+                      (resolveType stateAfterConditionCheck inferredElseType)
+                  )
+              )
+        _ -> (Nothing, stateAfterConditionCheck)
 
 discardFailedFunctionApplicationConstraints :: InferState -> InferState -> InferState
 discardFailedFunctionApplicationConstraints stateBeforeFunction stateAfterApplication =

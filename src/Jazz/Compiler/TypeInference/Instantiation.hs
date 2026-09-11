@@ -8,6 +8,7 @@ module Jazz.Compiler.TypeInference.Instantiation
   )
 where
 
+import Data.Bifunctor (first)
 import Data.List.NonEmpty
   ( NonEmpty (..),
   )
@@ -41,6 +42,7 @@ import Jazz.Compiler.TypeInference.Diagnostics
     mkExplicitTypeApplicationTargetError,
     mkInvalidExplicitTypeApplicationArgumentError,
   )
+import Jazz.Compiler.TypeInference.Draft (checkedExprType)
 import Jazz.Compiler.TypeInference.Pattern
   ( instantiateConstructorBinding,
   )
@@ -184,7 +186,7 @@ inferExplicitTypeApplication inferExpression env state applicationNodeId functio
       (Nothing, addTypeError state (mkInvalidExplicitTypeApplicationArgumentError state typeArgumentSpan typeArgument))
     (Nothing, _) ->
       let (functionResult, stateAfterFunction) =
-            inferExpression env state functionExpr
+            first checkedExprType (inferExpression env state functionExpr)
        in case functionResult of
             Just _ ->
               (Nothing, addTypeError stateAfterFunction mkExplicitTypeApplicationTargetError)

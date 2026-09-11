@@ -128,6 +128,7 @@ import Jazz.Compiler.TypeInference.Diagnostics
     mkUnknownConstructorPayloadTypeError,
     targetedFloatLiteralDiagnostic,
   )
+import Jazz.Compiler.TypeInference.Draft (checkedExprType)
 import Jazz.Compiler.TypeInference.Environment (insertResolvedTypeBinding, insertResolvedTypeEnvFreeVariables)
 import Jazz.Compiler.TypeInference.ImplChecking (checkImplMethodBodies)
 import Jazz.Compiler.TypeInference.Instantiation
@@ -203,8 +204,10 @@ import Jazz.Compiler.TypeRepresentation
     pattern SignatureType,
   )
 
+type InferTypeWithModeFn = InferenceMode -> TypeEnv -> InferState -> Expr 'Resolved -> (Maybe ExpressionType, InferState)
+
 inferExprTypeWithExpectedMode ::
-  InferExprWithModeFn ->
+  InferTypeWithModeFn ->
   InferenceMode ->
   TypeEnv ->
   InferState ->
@@ -225,7 +228,7 @@ inferExprTypeWithExpectedMode inferExpression mode env state expectedType expr =
     nodeId = coreNodeId (expressionNode expr)
 
 inferExprTypeWithExpectedModeRaw ::
-  InferExprWithModeFn ->
+  InferTypeWithModeFn ->
   InferenceMode ->
   TypeEnv ->
   InferState ->
@@ -465,7 +468,7 @@ inferScopeTypeInternal
       lexicalFacts = preparedRecursiveScopeFacts preparedScope
       bindingKeysByStatement = Map.mapWithKey (\index name -> TypeEnvKey (LexicalReference (resolvedScopeBinderIds lexicalFacts Map.! index)) name) bindingNamesByStatement
       bindingKeyAt index = bindingKeysByStatement Map.! index
-      inferExpression = scopeInferExpression
+      inferExpression selectedMode visibleEnv currentState expression = first checkedExprType (scopeInferExpression selectedMode visibleEnv currentState expression)
       mode = scopeInferenceMode
       initialEnv = scopeInitialEnv
       initialState = scopeInitialState
