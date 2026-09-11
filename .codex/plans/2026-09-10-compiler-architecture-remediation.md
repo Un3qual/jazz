@@ -1,5 +1,5 @@
 ---
-id: JN-COMPILER-RESOLVED-IDENTITY-001
+id: JN-COMPILER-LEXICAL-FACTS-001
 status: ready
 priority: P1
 size: L
@@ -7,14 +7,14 @@ kind: impl
 autonomous_ready: yes
 depends_on: []
 last_verified: 2026-09-11
-plan_section: "T04 — Establish declaration identity during resolution"
+plan_section: "T05 — Publish and consume resolved lexical scope facts"
 target_paths:
   - src/Jazz/Compiler/ModuleResolver/Names.hs
-  - src/Jazz/Compiler/TypeInference/Analyzed.hs
+  - src/Jazz/Compiler/RecursiveBindings.hs
 verification:
-  - cabal test name-semantics-spec recursive-binding-spec binding-signature-spec module-pipeline-contract-spec module-loader-spec --test-show-details=failures --jobs=4
+  - cabal test recursive-bindings-spec binding-signature-coherence-spec runtime-semantics-spec rebinding-warning-spec module-pipeline-contract-spec --test-options=--skip-performance --test-show-details=failures --jobs=4
   - bash scripts/check-execution-queue.sh
-deliverable: Resolve source-owned declaration IDs and consume explicit instantiation targets without rebuilding binder environments.
+deliverable: Publish lexical groups and capture candidates during resolution and migrate scope consumers to these facts.
 supersedes: []
 ---
 
@@ -30,13 +30,15 @@ supersedes: []
 
 **Spec:** [Validated audit findings](2026-09-10-compiler-architecture-validation.md), together with the target contracts and preservation rules below. The report preserves the disposition of all three input audits. The two Luna drafts were withdrawn after validation; their rejected or qualified recommendations are not implementation guidance.
 
-**Status:** Execution requested on 2026-09-11. T04 is the active bounded milestone in the execution queue. Execute the remaining tasks inline in dependency order; promote the next milestone when its prerequisites pass.
+**Status:** Execution requested on 2026-09-11. T05 is the active bounded milestone in the execution queue. Execute the remaining tasks inline in dependency order; promote the next milestone when its prerequisites pass.
 
 **Existing architecture decision:** [RFC 0016](../../rfcs/accepted/0016-optional-backend-removal.md) explicitly says to keep “attached analysis facts, and runtime plans.” Direct construction still retains attached facts, but T11a proposes changing the retained runtime-plan contract. Approval of this plan should therefore include that specific architectural decision and a narrow amendment through the repository's RFC process before removal. This is a dependency of T11a, not a reason to block unrelated tasks or ask for another confirmation while preparing this plan. If runtime plans are to remain, retain the small sequence and pursue direct identity/ownership improvements around it; do not claim its deletion completed.
 
 **Baseline:** `2695289b1e9a7555855eb6b00147a478ae010c6d`, the main-branch source revision before this documentation work. Compiler sources remain identical to that revision. Refresh the diff and tests if implementation begins from a newer checkout.
 
 ## Global constraints
+
+**Verification override (2026-09-11):** Do not run benchmark or performance tests until the ENTIRE plan is complete. This includes opt-in hosted resource-statistics and parser scale runs. Use focused correctness suites throughout the remaining implementation tasks.
 
 1. Preserve accepted syntax, diagnostic codes/severity/order/locations, export visibility, type inference and generalization, numeric semantics, evaluation order/laziness, host traces, explicit exit, and CLI result projections.
 2. Preserve current rebinding and recursive-group semantics, including nearest earlier declarations, interleaved groups, conditional callable aliases, nested pattern scope, and declaration-site capture. No blanket recursive `let` semantics and no ban on rebinding.
@@ -206,13 +208,13 @@ The table is a dependency order, not a request for parallel agents. Work inline.
 
 **Files:** New `src/Jazz/Compiler/CoreIdentity.hs`; `src/Jazz/Compiler/AST.hs`, `src/Jazz/Compiler/Name.hs`, `src/Jazz/Compiler/SemanticFacts.hs`, `src/Jazz/Compiler/ModuleResolver/Names.hs`, `src/Jazz/Compiler/RecursiveBindings.hs`, `src/Jazz/Compiler/TypeInference/Analyzed.hs`, `jazz.cabal`; tests `test/Jazz/Compiler/Semantics/NameSemanticsSpec.hs`, `test/Jazz/Compiler/Modules/ModulePipelineContractSpec.hs`, `test/Jazz/Compiler/Semantics/RecursiveBindingsSpec.hs`.
 
-- [ ] Move early identity primitives out of semantic-output ownership, preserving compatibility re-exports during migration. Make binder identity source-unit-qualified; preserve `ImplId`/`MethodId` ownership distinctions.
-- [ ] Assign IDs from declaration, lambda, pattern, constructor, and method nodes. Handle multiple pattern/constructor binders without collisions. Retain source spelling separately.
-- [ ] Extend resolved phase facts for value/operator uses and binders. Resolve uses with the current ordered rebinding/recursive visibility algorithm; do not substitute ordinary whole-block recursive scope rules.
-- [ ] Make explicit instantiation targets carry the resolved binder/method target. Change attachment to consume it and remove its `referencedBinder` name reconstruction for migrated uses.
-- [ ] Preserve error-stage behavior for unresolved names: resolution may report/retain the same diagnostic cause without converting a legitimate forward recursive reference into an error or manufacturing a successful binding.
-- [ ] Run name, recursive-binding, binding-signature, module-pipeline, and loader suites. Cover nested pattern shadowing, builtin/import shadowing, operator rebinding, and distinct source-unit ownership.
-- [ ] Commit identity production and its first consumer together. Avoid a permanent tree plus parallel global symbol table.
+- [x] Move early identity primitives out of semantic-output ownership, preserving compatibility re-exports during migration. Make binder identity source-unit-qualified; preserve `ImplId`/`MethodId` ownership distinctions.
+- [x] Assign IDs from declaration, lambda, pattern, constructor, and method nodes. Handle multiple pattern/constructor binders without collisions. Retain source spelling separately.
+- [x] Extend resolved phase facts for value/operator uses and binders. Resolve uses with the current ordered rebinding/recursive visibility algorithm; do not substitute ordinary whole-block recursive scope rules.
+- [x] Make explicit instantiation targets carry the resolved binder/method target. Change attachment to consume it and remove its `referencedBinder` name reconstruction for migrated uses.
+- [x] Preserve error-stage behavior for unresolved names: resolution may report/retain the same diagnostic cause without converting a legitimate forward recursive reference into an error or manufacturing a successful binding.
+- [x] Run name, recursive-binding, binding-signature, module-pipeline, and loader suites. Cover nested pattern shadowing, builtin/import shadowing, operator rebinding, and distinct source-unit ownership.
+- [x] Commit identity production and its first consumer together. Avoid a permanent tree plus parallel global symbol table.
 
 **Deletion criterion:** Explicit instantiation does not recover a lexical declaration from a map of display names. Every successful checked value reference has an unambiguous target identity.
 
@@ -524,4 +526,14 @@ Documentation verification at plan completion checks local evidence targets/line
 - Migrated modules/imports (`9921a2a5`), bindings/signatures (`ee6f7b30`), and classes/implementations (`977f0372`) through the existing Megaparsec parser. The final slice moves data and operator declarations and deletes the last consumed-token adapters.
 - Preserved the existing signature/alias classification, parser commitment, source spans, and structured error causes. Bounded signature payload inspection remains pure; declaration parsing no longer re-enters a token-stream runner.
 - All 61 previously passing default suites pass; the same ten RFC 0017 hosted-parser cases fail. Default parser scale and opt-in full declaration/expression suites pass. Stopped the two remaining opt-in hosted resource-statistics suites in accordance with the maintainer's request to focus on code. They are not claimed as passing.
-- Verification: changed-file HLint and Ormolu; focused declaration, operator, import, canonical parser and ADT suites; full default-suite results captured in `/private/tmp/jazz-architecture-t03-full.log` with the opt-in results above. No further benchmark or opt-in resource-statistics runs are required for this rewrite.
+- Verification: changed-file HLint and Ormolu; focused declaration, operator, import, canonical parser and ADT suites; full default-suite results captured in `/private/tmp/jazz-architecture-t03-full.log` with the opt-in results above. The maintainer subsequently specified that no benchmark or performance tests may run until the ENTIRE plan is complete; implementation verification uses focused correctness suites only.
+
+
+### T04 — resolved declaration identities (complete, 2026-09-11)
+
+- `CoreIdentity` owns node, source-owned binder, capability, implementation, and method identity. Resolved nodes carry their owner, declared binder, and selected reference; analyzed expressions/patterns/statements retain these facts. Compatibility identity exports remain in `SemanticFacts` for unmigrated import sites.
+- Resolution selects lexical declaration IDs, kernel/operator catalog targets, and capability-method identities. Declaration, lambda, pattern/as-binder, constructor, and method nodes use their own IDs. Module/prelude identity projections provide imported targets without rewriting defining ownership.
+- Explicit instantiation now distinguishes a lexical binder from a qualified method. Attachment consumes the resolved reference and rejects unresolved references after successful checking. Deleted attachment's binder environment reconstruction, pattern binder rebuilding, and positional ownership reconstruction; removed the imported binder inventory/sidecar after its last consumer migrated.
+- Preserved constructor-before-value rebinding, kernel uses before prelude bridge declarations, and conditional self-reference identity without granting an eager initializer a recursive runtime cell. Existing loader/runtime tests caught and verified these distinctions. Added one resolution-boundary case covering rebinding, lambda shadowing, and three source-owner categories sharing a display path.
+- Verification: name semantics, recursive bindings, binding/signature coherence, module pipeline contracts, loader, prelude loading, runtime semantics, and ADT runtime suites pass. The final runtime correctness run explicitly excludes timing and deep-recursion scale groups through `--skip-performance`; default test coverage remains available for final-plan verification. Changed Haskell files pass Ormolu/HLint and the diff whitespace check.
+- Logs: `/private/tmp/jazz-architecture-t04-correctness.log`, `/private/tmp/jazz-architecture-t04-runtime-correctness.log`. No benchmark or performance tests are authorized during the remaining implementation milestones; always pass `--skip-performance` when running runtime semantics and leave parser scale/resource-statistics suites until the ENTIRE plan is complete.

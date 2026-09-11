@@ -64,8 +64,9 @@ import Jazz.Compiler.AST
     Statement (..),
   )
 import Jazz.Compiler.CapabilityFacts (signaturePayloadConstraintType)
+import Jazz.Compiler.CoreIdentity (emptyResolvedNodeFacts)
 import Jazz.Compiler.Diagnostics (SourceSpan (..))
-import Jazz.Compiler.ModuleIdentity (standaloneModulePath)
+import Jazz.Compiler.ModuleIdentity (SourceUnitOwner (StandaloneSourceUnit), standaloneModulePath)
 import Jazz.Compiler.Name
   ( Name (BuiltinName),
     NameNamespace (CapabilityNamespace, ConstructorNamespace, TypeNamespace, ValueNamespace),
@@ -102,6 +103,7 @@ expressionNode =
     (CoreNodeId 0)
     (SourceSpan 1 1)
     ( ExpressionFacts
+        (emptyResolvedNodeFacts (StandaloneSourceUnit standaloneModulePath))
         (TypeRepresentation.SemanticVariable (TypeRepresentation.InferenceVariable 0))
         Nothing
         Map.empty
@@ -115,14 +117,14 @@ patternNode =
   CoreNode
     (CoreNodeId 0)
     (SourceSpan 1 1)
-    (PatternFacts Map.empty PatternHasNoConstructor RefutablePattern)
+    (PatternFacts (emptyResolvedNodeFacts (StandaloneSourceUnit standaloneModulePath)) Map.empty PatternHasNoConstructor RefutablePattern)
 
 statementNode :: SourceSpan -> CoreNode 'Analyzed 'StatementSort
 statementNode spanValue =
   CoreNode
     (CoreNodeId (spanLine spanValue * 1000 + spanColumn spanValue))
     spanValue
-    (StatementFacts [] Map.empty ExpressionDeclaration)
+    (StatementFacts (emptyResolvedNodeFacts (StandaloneSourceUnit standaloneModulePath)) [] Map.empty ExpressionDeclaration)
 
 resolvedName :: NameNamespace -> UnresolvedName -> ResolvedName
 resolvedName namespace =
@@ -305,9 +307,9 @@ statementData spanValue name parameters constructors =
     variables = zip (map typeName parameters) (map TypeRepresentation.InferenceVariable [0 ..])
     resultType = TypeRepresentation.SemanticData (typeName name) (map (TypeRepresentation.SemanticVariable . snd) variables)
     analyzedConstructor (DataConstructor node constructor fields) =
-      DataConstructor node {coreNodeFacts = StatementFacts [binder] (Map.singleton binder scheme) (ValueDeclaration constructor)} constructor fields
+      DataConstructor node {coreNodeFacts = StatementFacts (emptyResolvedNodeFacts (StandaloneSourceUnit standaloneModulePath)) [binder] (Map.singleton binder scheme) (ValueDeclaration constructor)} constructor fields
       where
-        binder = CoreBinderId (standaloneModulePath, coreNodeId node)
+        binder = CoreBinderId (StandaloneSourceUnit standaloneModulePath, coreNodeId node)
         scheme =
           AnalyzedScheme
             (map snd variables)

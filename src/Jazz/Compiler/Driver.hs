@@ -77,7 +77,7 @@ import Jazz.Compiler.ModuleResolver
   ( ModuleResolutionConfig,
     resolvePreludeArtifact,
     resolveProgramWithAmbientExports,
-    resolveStandaloneExprNames,
+    resolveSourceUnitExprNames,
   )
 import Jazz.Compiler.ModuleRuntime
   ( RuntimeProgram (runtimeProgramOutput),
@@ -595,7 +595,7 @@ buildAnalyzedProgram settings resolvedPrelude resolutionConfig entryModulePath s
 -- for downstream compile/run results.
 analyzeForDriver :: Set Int -> Set Int -> ModulePath -> WarningSettings -> Expr 'Lowered -> IO ([Diagnostic], Either (NonEmpty.NonEmpty SemanticFactInvariantFailure) (Maybe (Expr 'Analyzed)))
 analyzeForDriver hiddenStatementIndices preludeStatementIndices preludePath settings expr = do
-  case resolveStandaloneExprNames (exportInventory []) (reindexLoweredExpr expr) of
+  case resolveSourceUnitExprNames preludePath preludeStatementIndices (exportInventory []) (reindexLoweredExpr expr) of
     Left diagnostics ->
       pure (NonEmpty.toList diagnostics, Right Nothing)
     Right resolvedExpr -> do

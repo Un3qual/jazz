@@ -158,6 +158,7 @@ library jazz-internal
       Jazz.Compiler.Runtime.Semantics
       Jazz.Compiler.Runtime.Types
       Jazz.Compiler.RuntimeHost
+      Jazz.Compiler.CoreIdentity
       Jazz.Compiler.SemanticFacts
       Jazz.Compiler.SignatureRendering
       Jazz.Compiler.SourceProgram

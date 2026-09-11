@@ -22,7 +22,9 @@ import Data.Set (Set)
 import qualified Data.Set as Set
 import Data.Text (Text)
 import Jazz.Compiler.AST
-  ( CorePhase (..),
+  ( CoreNode,
+    CorePhase (..),
+    CoreSort (StatementSort),
     DataConstructor (..),
     Expr (..),
     Literal (..),
@@ -92,7 +94,6 @@ import Jazz.Compiler.RecursiveBindings
   )
 import Jazz.Compiler.SemanticFacts
   ( BinaryOperation (..),
-    CoreBinderId,
     CoreNodeId,
     SemanticFactInvariantFailure,
     StatementDeclarationFact,
@@ -100,7 +101,6 @@ import Jazz.Compiler.SemanticFacts
   )
 import Jazz.Compiler.TypeInference.Analyzed
   ( attachAnalyzedExpression,
-    attachAnalyzedSourceUnitExpression,
     attachAnalyzedStatementFacts,
   )
 import Jazz.Compiler.TypeInference.Capabilities
@@ -189,7 +189,7 @@ data InferenceRequest = InferenceRequest
   { requestedInferenceInputs :: InferenceInputs,
     requestedHiddenStatementIndices :: Set Int,
     requestedPreludeStatementIndices :: Set Int,
-    requestedModuleStatementFacts :: [(CoreNodeId, StatementDeclarationFact)],
+    requestedModuleStatementFacts :: [(CoreNode 'Resolved 'StatementSort, StatementDeclarationFact)],
     requestedImplementationEvidenceCandidates :: Map Text [ImplementationEvidenceCandidate]
   }
 
@@ -227,10 +227,7 @@ analyzeSourceUnitExpression preludePath hiddenStatementIndices preludeStatementI
       pure
         ( inference,
           Just
-            <$> attachAnalyzedSourceUnitExpression
-              standaloneModulePath
-              preludePath
-              preludeStatementIndices
+            <$> attachAnalyzedExpression
               finalState
               (inferredExpr inference)
         )
@@ -277,9 +274,7 @@ inferExpressionWithRequestAndState request expr =
             pure (inference, finalState)
 
 analyzeExpressionWithInputs ::
-  ModulePath ->
-  [(CoreNodeId, StatementDeclarationFact)] ->
-  Map ResolvedName CoreBinderId ->
+  [(CoreNode 'Resolved 'StatementSort, StatementDeclarationFact)] ->
   Map Text [ImplementationEvidenceCandidate] ->
   InferenceInputs ->
   Set Int ->
@@ -290,7 +285,7 @@ analyzeExpressionWithInputs ::
         (NonEmpty.NonEmpty SemanticFactInvariantFailure)
         (Maybe (Expr 'Analyzed, Map CoreNodeId StatementFacts))
     )
-analyzeExpressionWithInputs modulePath moduleStatementFacts importedBinders evidenceCandidates inputs hiddenStatementIndices expression = do
+analyzeExpressionWithInputs moduleStatementFacts evidenceCandidates inputs hiddenStatementIndices expression = do
   (inference, finalState) <-
     inferExpressionWithRequestAndState
       InferenceRequest
@@ -308,8 +303,8 @@ analyzeExpressionWithInputs modulePath moduleStatementFacts importedBinders evid
         ( inference,
           Just
             <$> ( (,)
-                    <$> attachAnalyzedExpression modulePath importedBinders finalState (inferredExpr inference)
-                    <*> attachAnalyzedStatementFacts modulePath finalState (map fst moduleStatementFacts)
+                    <$> attachAnalyzedExpression finalState (inferredExpr inference)
+                    <*> attachAnalyzedStatementFacts finalState (map fst moduleStatementFacts)
                 )
         )
 
@@ -324,11 +319,11 @@ inferenceSubjectExpr subject =
     InferencePreparedScope expr preparedScope ->
       preparedRecursiveScopeStatements preparedScope `seq` expr
 
-inferExpressionWork :: InferenceMode -> InferenceInputs -> [(CoreNodeId, StatementDeclarationFact)] -> Map Text [ImplementationEvidenceCandidate] -> Expr 'Resolved -> (Maybe ExpressionType, InferState, Map Int (ResolvedName, SourceSpan), InferenceSubject)
+inferExpressionWork :: InferenceMode -> InferenceInputs -> [(CoreNode 'Resolved 'StatementSort, StatementDeclarationFact)] -> Map Text [ImplementationEvidenceCandidate] -> Expr 'Resolved -> (Maybe ExpressionType, InferState, Map Int (ResolvedName, SourceSpan), InferenceSubject)
 inferExpressionWork mode inputs moduleStatementFacts evidenceCandidates expr =
   let initialState =
         foldl'
-          (\state (nodeId, declarationFact) -> recordStatementFactSeed nodeId ([], declarationFact) state)
+          (\state (node, declarationFact) -> recordStatementFactSeed (coreNodeId node) ([], declarationFact) state)
           ( modifyModuleInferenceState
               (\moduleState -> moduleState {inferenceImplementationEvidenceCandidates = evidenceCandidates})
               (initialStateForInference inputs)

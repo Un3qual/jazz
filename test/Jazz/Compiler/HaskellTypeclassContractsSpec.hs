@@ -18,6 +18,7 @@ import qualified Jazz.Compiler.AST as AST
 import Jazz.Compiler.CapabilityFacts
   ( ConcreteImplFact (ConcreteImplFact),
   )
+import Jazz.Compiler.CoreIdentity (emptyResolvedNodeFacts)
 import Jazz.Compiler.Diagnostics
   ( SourceSpan (SourceSpan),
     isErrorDiagnostic,
@@ -28,7 +29,7 @@ import Jazz.Compiler.ModuleExports
     exportInventory,
     exportInventoryEntries,
   )
-import Jazz.Compiler.ModuleIdentity (mkModulePath)
+import Jazz.Compiler.ModuleIdentity (SourceUnitOwner (StandaloneSourceUnit), mkModulePath, standaloneModulePath)
 import Jazz.Compiler.Name
   ( NameNamespace (CapabilityNamespace, TypeNamespace, ValueNamespace),
     ResolvedName,
@@ -356,10 +357,10 @@ assertImportedConstraintFactAccepted label sourceArgument importedArgument = do
         ]
 
 fixtureExpressionNode :: AST.CoreNode 'AST.Resolved sort
-fixtureExpressionNode = AST.CoreNode (AST.CoreNodeId 0) (SourceSpan 1 1) ()
+fixtureExpressionNode = AST.CoreNode (AST.CoreNodeId 0) (SourceSpan 1 1) (emptyResolvedNodeFacts (StandaloneSourceUnit standaloneModulePath))
 
 fixtureStatementNode :: SourceSpan -> AST.CoreNode 'AST.Resolved sort
-fixtureStatementNode spanValue = AST.CoreNode (AST.CoreNodeId 0) spanValue ()
+fixtureStatementNode spanValue = AST.CoreNode (AST.CoreNodeId 0) spanValue (emptyResolvedNodeFacts (StandaloneSourceUnit standaloneModulePath))
 
 localValueName :: Text -> ResolvedName
 localValueName = resolvedLocalName ValueNamespace . mkIdentifier

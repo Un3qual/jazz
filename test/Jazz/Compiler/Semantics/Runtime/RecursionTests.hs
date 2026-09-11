@@ -3,6 +3,7 @@
 
 module Jazz.Compiler.Semantics.Runtime.RecursionTests
   ( recursionTests,
+    recursionScaleTests,
   )
 where
 
@@ -92,14 +93,18 @@ import System.Timeout
   ( timeout,
   )
 
-recursionTests :: [NamedTest]
-recursionTests =
+recursionScaleTests :: [NamedTest]
+recursionScaleTests =
   [ ("tail-recursive closure is stack safe at bootstrap depth", testTailRecursiveClosureIsStackSafe),
     ("tail-recursive case arm is stack safe", testTailRecursiveCaseArmIsStackSafe),
     ("typed tail-recursive closure preserves result hints", testTypedTailRecursiveClosureIsStackSafe),
     ("explicitly hinted tail recursion preserves result obligations", testExplicitlyHintedTailRecursionPreservesResultObligations),
-    ("100,000 explicit result hints render and apply stack safely", testExplicitResultHintsRenderAndApplyStackSafely),
-    ("mixed explicit result hints preserve order and multiplicity", testMixedExplicitResultHintsPreserveOrderAndMultiplicity),
+    ("100,000 explicit result hints render and apply stack safely", testExplicitResultHintsRenderAndApplyStackSafely)
+  ]
+
+recursionTests :: [NamedTest]
+recursionTests =
+  [ ("mixed explicit result hints preserve order and multiplicity", testMixedExplicitResultHintsPreserveOrderAndMultiplicity),
     ("pure and host evaluators preserve diagnostic parity", testPureAndHostDiagnosticsMatch),
     ("alias-only recursive cycle produces deterministic runtime diagnostic", testAliasOnlyRecursiveCycleRuntimeError),
     ("wrapped alias-only recursive cycle produces deterministic runtime diagnostic", testWrappedAliasOnlyRecursiveCycleRuntimeError),

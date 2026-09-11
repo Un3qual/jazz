@@ -42,6 +42,7 @@ import Control.DeepSeq (NFData (..))
 import Data.Kind (Constraint, Type)
 import Data.Text (Text)
 import GHC.Generics (Generic)
+import Jazz.Compiler.CoreIdentity (CoreNodeId (..), ResolvedNodeFacts)
 import Jazz.Compiler.Diagnostics (SourceSpan)
 import Jazz.Compiler.FractionalLiteral (FractionalLiteralSource)
 import Jazz.Compiler.Name
@@ -50,8 +51,7 @@ import Jazz.Compiler.Name
     SourceName,
   )
 import Jazz.Compiler.SemanticFacts
-  ( CoreNodeId (..),
-    ExpressionFacts,
+  ( ExpressionFacts,
     PatternFacts,
     StatementFacts,
   )
@@ -70,7 +70,7 @@ type CoreNameAt phase = Name (CoreUserNameAt phase)
 
 type family FactsAt (phase :: CorePhase) (sort :: CoreSort) :: Type where
   FactsAt 'Lowered sort = ()
-  FactsAt 'Resolved sort = ()
+  FactsAt 'Resolved sort = ResolvedNodeFacts
   FactsAt 'Analyzed 'ExpressionSort = ExpressionFacts
   FactsAt 'Analyzed 'PatternSort = PatternFacts
   FactsAt 'Analyzed 'StatementSort = StatementFacts

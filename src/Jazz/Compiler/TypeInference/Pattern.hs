@@ -17,7 +17,7 @@ import qualified Data.Set as Set
 import Data.Text (Text)
 import Jazz.Compiler.AST
   ( CaseArm (..),
-    CoreNode (coreNodeId),
+    CoreNode (coreNodeFacts, coreNodeId),
     CorePhase (..),
     Literal (..),
     Pattern (..),
@@ -251,7 +251,8 @@ inferPatternType env scrutineeType pattern state =
   let (typing, inferredState) = inferPatternTypeRaw env scrutineeType pattern state
       facts =
         PatternFacts
-          { patternBindingTypes = resolvedPatternBindingMap inferredState (patternBindings typing),
+          { patternResolution = coreNodeFacts (patternNode pattern),
+            patternBindingTypes = resolvedPatternBindingMap inferredState (patternBindings typing),
             patternConstructorFact = patternConstructor pattern,
             patternRefutability = patternRefutabilityFact pattern
           }

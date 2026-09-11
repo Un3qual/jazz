@@ -29,6 +29,7 @@ module Jazz.Compiler.SemanticFacts
     RuntimePlan (..),
     SemanticFactInvariantFailure (..),
     SemanticInstantiation (..),
+    InstantiationTarget (..),
     StatementDeclarationFact (..),
     StatementFacts (..),
   )
@@ -40,7 +41,7 @@ import Data.Map.Strict (Map)
 import Data.Sequence (Seq)
 import Data.Text (Text)
 import GHC.Generics (Generic)
-import Jazz.Compiler.ModuleIdentity (ModulePath, SourceUnitOwner)
+import Jazz.Compiler.CoreIdentity (CapabilityId (..), CoreBinderId (..), CoreNodeId (..), ImplId (..), MethodId (..), ResolvedNodeFacts)
 import Jazz.Compiler.Name (Identifier, ResolvedName)
 import Jazz.Compiler.TypeRepresentation
   ( InferenceVariable,
@@ -50,29 +51,14 @@ import Jazz.Compiler.TypeRepresentation
 
 type AnalyzedType = SemanticType ResolvedName InferenceVariable
 
-newtype CoreNodeId = CoreNodeId Int
-  deriving stock (Eq, Generic, Ord, Show)
-  deriving newtype (Enum)
-  deriving anyclass (NFData)
-
-newtype CoreBinderId = CoreBinderId (ModulePath, CoreNodeId)
-  deriving stock (Eq, Generic, Ord, Show)
-  deriving anyclass (NFData)
-
-newtype CapabilityId = CapabilityId ResolvedName
-  deriving stock (Eq, Generic, Ord, Show)
-  deriving anyclass (NFData)
-
-newtype ImplId = ImplId (SourceUnitOwner, CoreNodeId)
-  deriving stock (Eq, Generic, Ord, Show)
-  deriving anyclass (NFData)
-
-newtype MethodId = MethodId (ImplId, Identifier)
+data InstantiationTarget
+  = LexicalInstantiation CoreBinderId
+  | MethodInstantiation CapabilityId Identifier
   deriving stock (Eq, Generic, Ord, Show)
   deriving anyclass (NFData)
 
 data SemanticInstantiation = SemanticInstantiation
-  { instantiatedBinder :: CoreBinderId,
+  { instantiatedTarget :: InstantiationTarget,
     instantiatedTypes :: NonEmpty AnalyzedType
   }
   deriving stock (Eq, Generic, Ord, Show)
@@ -119,7 +105,8 @@ data BinaryOperandTyping
   deriving anyclass (NFData)
 
 data ExpressionFacts = ExpressionFacts
-  { expressionSemanticType :: AnalyzedType,
+  { expressionResolution :: ResolvedNodeFacts,
+    expressionSemanticType :: AnalyzedType,
     expressionBinaryOperation :: Maybe BinaryOperation,
     expressionNumericConstraints :: Map InferenceVariable AnalyzedNumericConstraint,
     expressionInstantiations :: [SemanticInstantiation],
@@ -142,7 +129,8 @@ data PatternRefutability
   deriving anyclass (NFData)
 
 data PatternFacts = PatternFacts
-  { patternBindingTypes :: Map ResolvedName AnalyzedType,
+  { patternResolution :: ResolvedNodeFacts,
+    patternBindingTypes :: Map ResolvedName AnalyzedType,
     patternConstructorFact :: PatternConstructorFact,
     patternRefutability :: PatternRefutability
   }
@@ -150,7 +138,8 @@ data PatternFacts = PatternFacts
   deriving anyclass (NFData)
 
 data StatementFacts = StatementFacts
-  { statementBinderIds :: [CoreBinderId],
+  { statementResolution :: ResolvedNodeFacts,
+    statementBinderIds :: [CoreBinderId],
     statementGeneralizedSchemes :: Map CoreBinderId AnalyzedScheme,
     statementDeclarationFact :: StatementDeclarationFact
   }
@@ -181,6 +170,7 @@ data SemanticFactInvariantFailure
   | DuplicatePatternFacts CoreNodeId
   | DuplicateStatementFacts CoreNodeId
   | MissingExpressionFacts CoreNodeId
+  | UnresolvedExpressionReference CoreNodeId ResolvedName
   | MissingExpressionEvidence CoreNodeId
   | AmbiguousExpressionEvidence CoreNodeId
   | MissingExplicitInstantiationSeed CoreNodeId
@@ -190,6 +180,7 @@ data SemanticFactInvariantFailure
   | UnidentifiedExplicitInstantiationBinder CoreNodeId
   | MissingPatternFacts CoreNodeId
   | MissingStatementFacts CoreNodeId
+  | MissingStatementBinder CoreNodeId
   | MissingStatementScheme CoreNodeId CoreBinderId
   | AnalyzedModuleRootNotBlock CoreNodeId
   | InvalidAnalyzedMethodSignature Text

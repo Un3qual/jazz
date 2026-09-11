@@ -3,6 +3,7 @@
 
 module Jazz.Compiler.Semantics.Runtime.HostIOTests
   ( hostIOTests,
+    hostScaleTests,
   )
 where
 
@@ -99,10 +100,13 @@ import System.IO
   )
 import System.Timeout (timeout)
 
+hostScaleTests :: [NamedTest]
+hostScaleTests =
+  [("host-backed tail recursion is stack safe and preserves effect order", testHostTailRecursionIsStackSafe)]
+
 hostIOTests :: [NamedTest]
 hostIOTests =
   [ ("host-aware evaluator preserves pure expressions", testHostAwareEvaluatorPreservesPureExpressions),
-    ("host-backed tail recursion is stack safe and preserves effect order", testHostTailRecursionIsStackSafe),
     ("host intrinsics return raw values and preserve call order", testHostIntrinsicsReturnRawValues),
     ("host failures normalize every category", testHostFailuresNormalizeEveryCategory),
     ("host effects execute at selected expression depth", testHostEffectsExecuteAtSelectedExpressionDepth),

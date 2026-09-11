@@ -7,7 +7,6 @@ module Jazz.Compiler.ModuleAnalysis
     analyzeModule,
     dependencyImportInterface,
     importWholeInterface,
-    moduleBinderInventory,
     moduleEvidenceCandidates,
   )
 where
@@ -27,11 +26,9 @@ import Jazz.Compiler.AST
     Expr (EBlock),
     SignaturePayload,
     SignatureType,
-    Statement (..),
     expressionNode,
     statementNode,
   )
-import qualified Jazz.Compiler.AST as AST
 import Jazz.Compiler.CapabilityFacts
   ( ConcreteImplFact (..),
     concreteImplFactClassName,
@@ -63,7 +60,7 @@ import Jazz.Compiler.ModuleIdentity
 import Jazz.Compiler.ModuleInterface
 import Jazz.Compiler.Name
   ( Name (..),
-    NameNamespace (CapabilityNamespace, ConstructorNamespace, TypeNamespace, ValueNamespace),
+    NameNamespace (CapabilityNamespace, ConstructorNamespace, TypeNamespace),
     ResolvedName,
     ResolvedNameOrigin (..),
     ResolvedUserName (..),
@@ -74,8 +71,7 @@ import Jazz.Compiler.Name
     sourceName,
   )
 import Jazz.Compiler.SemanticFacts
-  ( CoreBinderId,
-    CoreNodeId,
+  ( CoreNodeId,
     SemanticFactInvariantFailure (..),
     StatementDeclarationFact (..),
     StatementFacts (..),
@@ -112,9 +108,7 @@ analyzeModule inputs owner hiddenStatements importedInterface resolvedModule = d
   let modulePath = coreModulePath resolvedModule
   (inference, attachment) <-
     analyzeExpressionWithInputs
-      modulePath
       (moduleStatementFactSeeds resolvedModule)
-      (importedBinderIds importedInterface)
       (Map.unionWith (<>) (moduleEvidenceCandidates owner resolvedModule) (importedEvidenceCandidates importedInterface))
       (moduleInferenceInputs inputs modulePath importedInterface)
       hiddenStatements
@@ -142,11 +136,11 @@ checkedAnalyzedModule modulePath result =
     Left failure -> fail ("semantic fact invariant failure in " <> Text.unpack (renderModulePath modulePath) <> ": " <> show failure)
     Right value -> pure value
 
-moduleStatementFactSeeds :: CoreModule 'Resolved -> [(CoreNodeId, StatementDeclarationFact)]
+moduleStatementFactSeeds :: CoreModule 'Resolved -> [(CoreNode 'Resolved 'StatementSort, StatementDeclarationFact)]
 moduleStatementFactSeeds = map importSeed . coreModuleImports
   where
     importSeed importDecl =
-      ( coreNodeId (ModuleGraph.moduleImportNode importDecl),
+      ( ModuleGraph.moduleImportNode importDecl,
         ImportDeclaration
           (NonEmpty.toList (modulePathTextSegments (ModuleGraph.importedModule importDecl)))
       )
@@ -199,7 +193,7 @@ analyzedModuleFromExpression resolvedModule inference moduleStatementFacts analy
 analyzedImport :: Map CoreNodeId StatementFacts -> ModuleImport 'Resolved -> Either SemanticFactInvariantFailure (ModuleImport 'Analyzed)
 analyzedImport factsByNode importDecl =
   case ModuleGraph.moduleImportNode importDecl of
-    CoreNode nodeId spanValue () ->
+    CoreNode nodeId spanValue _ ->
       case Map.lookup nodeId factsByNode of
         Nothing -> Left (MissingStatementFacts nodeId)
         Just facts ->
@@ -210,35 +204,14 @@ analyzedImport factsByNode importDecl =
                 ModuleGraph.importExposure = ModuleGraph.importExposure importDecl
               }
 
-moduleBinderInventory :: CoreModule 'Analyzed -> Map ModuleExport CoreBinderId
-moduleBinderInventory coreModule =
-  Map.fromList (foldMap statementBinders (ModuleGraph.coreModuleStatements coreModule))
-  where
-    statementBinders :: Statement 'Analyzed -> [(ModuleExport, CoreBinderId)]
-    statementBinders statement =
-      case statement of
-        AST.SLet node name _ -> binding ValueNamespace name node
-        AST.SSignature node name _ -> binding ValueNamespace name node
-        AST.SData _ _ _ constructors ->
-          foldMap
-            (\(AST.DataConstructor node name _) -> binding ConstructorNamespace name node)
-            constructors
-        _ -> []
-
-    binding :: NameNamespace -> ResolvedName -> CoreNode 'Analyzed 'StatementSort -> [(ModuleExport, CoreBinderId)]
-    binding namespace name (CoreNode _ _ facts) =
-      case statementBinderIds facts of
-        [binderId] -> [(ModuleExport namespace (identifierText name), binderId)]
-        _ -> []
-
 moduleEvidenceCandidates :: (ModulePath -> SourceUnitOwner) -> CoreModule 'Resolved -> Map Text [ImplementationEvidenceCandidate]
 moduleEvidenceCandidates owner coreModule =
   implementationEvidenceCandidatesInModule
     (owner (coreModulePath coreModule))
     (coreModuleExpr coreModule)
 
-dependencyImportInterface :: ModuleImport 'Resolved -> (ModuleExportInventory, ModuleInterface, Map ModuleExport CoreBinderId, Map Text [ImplementationEvidenceCandidate]) -> ImportedInterface
-dependencyImportInterface importDecl (publicInventory, moduleInterface, binderIds, evidenceCandidates) =
+dependencyImportInterface :: ModuleImport 'Resolved -> (ModuleExportInventory, ModuleInterface, Map Text [ImplementationEvidenceCandidate]) -> ImportedInterface
+dependencyImportInterface importDecl (publicInventory, moduleInterface, evidenceCandidates) =
   case ModuleGraph.importExposure importDecl of
     ImportAllUnqualified ->
       importSelectedInterface
@@ -246,7 +219,6 @@ dependencyImportInterface importDecl (publicInventory, moduleInterface, binderId
         Nothing
         Nothing
         publicInventory
-        binderIds
         evidenceCandidates
         moduleInterface
     ImportOnlyUnqualified symbolNames ->
@@ -255,7 +227,6 @@ dependencyImportInterface importDecl (publicInventory, moduleInterface, binderId
         Nothing
         (Just (map identifierText (NonEmpty.toList symbolNames)))
         publicInventory
-        binderIds
         evidenceCandidates
         moduleInterface
     ImportQualifiedOnly qualifier ->
@@ -264,7 +235,6 @@ dependencyImportInterface importDecl (publicInventory, moduleInterface, binderId
         (Just (identifierText (moduleQualifierIdentifier qualifier)))
         Nothing
         publicInventory
-        binderIds
         evidenceCandidates
         moduleInterface
 
@@ -274,7 +244,6 @@ data ImportedInterface = ImportedInterface
     importedConstructorWitnessNames :: Map ResolvedName UnresolvedName,
     importedCapabilities :: ScopeCapabilityFacts,
     importedClassNames :: Set.Set Text,
-    importedBinderIds :: Map ResolvedName CoreBinderId,
     importedEvidenceCandidates :: Map Text [ImplementationEvidenceCandidate]
   }
 
@@ -298,7 +267,6 @@ instance Semigroup ImportedInterface where
                       (scopeConcreteImplMethods rightFacts)
                 },
         importedClassNames = Set.union (importedClassNames left) (importedClassNames right),
-        importedBinderIds = Map.union (importedBinderIds left) (importedBinderIds right),
         importedEvidenceCandidates = Map.unionWith union (importedEvidenceCandidates left) (importedEvidenceCandidates right)
       }
 
@@ -310,23 +278,21 @@ instance Monoid ImportedInterface where
         importedConstructorWitnessNames = Map.empty,
         importedCapabilities = mempty,
         importedClassNames = Set.empty,
-        importedBinderIds = Map.empty,
         importedEvidenceCandidates = Map.empty
       }
 
-importWholeInterface :: ResolvedNameOrigin -> Map ModuleExport CoreBinderId -> Map Text [ImplementationEvidenceCandidate] -> ModuleInterface -> ImportedInterface
-importWholeInterface origin binderIds evidenceCandidates moduleInterface =
+importWholeInterface :: ResolvedNameOrigin -> Map Text [ImplementationEvidenceCandidate] -> ModuleInterface -> ImportedInterface
+importWholeInterface origin evidenceCandidates moduleInterface =
   importSelectedInterface
     origin
     Nothing
     Nothing
     (moduleInterfaceExportInventory moduleInterface)
-    binderIds
     evidenceCandidates
     moduleInterface
 
-importSelectedInterface :: ResolvedNameOrigin -> Maybe Text -> Maybe [Text] -> ModuleExportInventory -> Map ModuleExport CoreBinderId -> Map Text [ImplementationEvidenceCandidate] -> ModuleInterface -> ImportedInterface
-importSelectedInterface origin maybeAlias maybeSymbols publicInventory binderIds evidenceCandidates moduleInterface =
+importSelectedInterface :: ResolvedNameOrigin -> Maybe Text -> Maybe [Text] -> ModuleExportInventory -> Map Text [ImplementationEvidenceCandidate] -> ModuleInterface -> ImportedInterface
+importSelectedInterface origin maybeAlias maybeSymbols publicInventory evidenceCandidates moduleInterface =
   ImportedInterface
     { importedTypes =
         Map.fromList
@@ -353,12 +319,6 @@ importSelectedInterface origin maybeAlias maybeSymbols publicInventory binderIds
       importedClassNames = case maybeAlias of
         Nothing -> selectedClassNames
         Just _ -> Set.empty,
-      importedBinderIds =
-        Map.fromList
-          [ (importedName export, binderId)
-          | (export, binderId) <- Map.toList binderIds,
-            inventoryHasExport export selectedInventory
-          ],
       importedEvidenceCandidates =
         Map.fromList
           [ ( rebaseMethodKey origin classNames methodKey,

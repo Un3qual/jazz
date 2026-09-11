@@ -17,6 +17,7 @@ module Jazz.Compiler.ModuleResolver
     resolveExprNames,
     resolvePreludeArtifact,
     resolveStandaloneExprNames,
+    resolveSourceUnitExprNames,
     resolveProgramWithAmbientExports,
   )
 where
@@ -71,6 +72,7 @@ import Jazz.Compiler.AST
   ( CorePhase (..),
     Expr (..),
   )
+import Jazz.Compiler.CoreIdentity (ResolvedReference)
 import Jazz.Compiler.DiagnosticCatalog
   ( ErrorCode (..),
   )
@@ -106,12 +108,14 @@ import Jazz.Compiler.ModuleExports
 import qualified Jazz.Compiler.ModuleGraph as ModuleGraph
 import Jazz.Compiler.ModuleIdentity
   ( ModulePath,
+    SourceUnitOwner (..),
     mkModulePath,
     mkSourceFile,
     moduleIdentity,
     modulePathRelativeFile,
     parseModulePathText,
     renderModulePath,
+    sourceUnitOwnerModulePath,
   )
 import Jazz.Compiler.ModuleResolver.Imports
   ( ResolverImport,
@@ -124,11 +128,15 @@ import Jazz.Compiler.ModuleResolver.Names
   ( ResolutionContext (..),
     resolveExprNames,
     resolveNode,
+    resolveSourceUnitExprNames,
     resolveStandaloneExprNames,
+    resolvedPublicReferences,
   )
 import Jazz.Compiler.Name
   ( IdentifierLike,
     NameNamespace (..),
+    ResolvedName,
+    ResolvedNameOrigin (..),
     identifierText,
     isOperatorBindingIdentifierText,
     mkIdentifier,
@@ -198,7 +206,8 @@ data ReferenceInventory = ReferenceInventory
 data ResolvedState = ResolvedState
   { resolvedSetState :: Set ModulePath,
     resolvedModulesState :: Seq (ModuleGraph.CoreModule 'Resolved),
-    resolvedExportInventoriesState :: Map ModulePath ModuleExportInventory
+    resolvedExportInventoriesState :: Map ModulePath ModuleExportInventory,
+    resolvedPublicReferencesState :: Map ResolvedName ResolvedReference
   }
 
 modulePathFromTextSegments :: [Text] -> Either Diagnostic ModulePath
@@ -223,6 +232,7 @@ resolveProgramWithAmbientExports config prelude ambientExports loadSource entryM
         resolveStateWithLookupAndVisibleSymbols
           config
           ambientExports
+          (maybe Map.empty (resolvedPublicReferences AmbientPrelude ambientExports . ModuleGraph.coreModuleStatements) (ModuleGraph.preludeModule prelude))
           loadSource
           nominalEntryPath
   where
@@ -241,17 +251,19 @@ resolveStateWithLookupAndVisibleSymbols ::
   (Monad m) =>
   ModuleResolutionConfig ->
   ModuleExportInventory ->
+  Map ResolvedName ResolvedReference ->
   (FilePath -> m (Maybe Text)) ->
   ModulePath ->
   m (Either Diagnostic ResolvedState)
-resolveStateWithLookupAndVisibleSymbols config ambientExports loadSource entryModulePath =
+resolveStateWithLookupAndVisibleSymbols config ambientExports ambientReferences loadSource entryModulePath =
   runExceptT (visitModule [] initialState entryModulePath)
   where
     initialState =
       ResolvedState
         { resolvedSetState = Set.empty,
           resolvedModulesState = Seq.empty,
-          resolvedExportInventoriesState = Map.empty
+          resolvedExportInventoriesState = Map.empty,
+          resolvedPublicReferencesState = ambientReferences
         }
 
     visitModule callStack state modulePath
@@ -284,6 +296,8 @@ resolveStateWithLookupAndVisibleSymbols config ambientExports loadSource entryMo
             except $
               first NonEmpty.head $
                 resolveCoreModuleNames
+                  (NamedSourceUnit modulePath)
+                  (resolvedPublicReferencesState stateAfterDeps)
                   ambientExports
                   (discoveryLocalInventory discovery)
                   (discoveryPublicInventory discovery)
@@ -294,7 +308,8 @@ resolveStateWithLookupAndVisibleSymbols config ambientExports loadSource entryMo
             stateAfterDeps
               { resolvedSetState = Set.insert modulePath (resolvedSetState stateAfterDeps),
                 resolvedModulesState = resolvedModulesState stateAfterDeps Seq.|> resolvedModule,
-                resolvedExportInventoriesState = Map.insert modulePath (discoveryPublicInventory discovery) (resolvedExportInventoriesState stateAfterDeps)
+                resolvedExportInventoriesState = Map.insert modulePath (discoveryPublicInventory discovery) (resolvedExportInventoriesState stateAfterDeps),
+                resolvedPublicReferencesState = Map.union (resolvedPublicReferences (ImportedModule modulePath) (discoveryPublicInventory discovery) (ModuleGraph.coreModuleStatements resolvedModule)) (resolvedPublicReferencesState stateAfterDeps)
               }
 
     ambientVisibleSymbols =
@@ -352,12 +367,12 @@ resolveStateWithLookupAndVisibleSymbols config ambientExports loadSource entryMo
                   )
               )
 
-resolveImportExposure :: ModulePath -> ResolverImport -> Either Diagnostic (ModuleGraph.ModuleImport 'Resolved)
-resolveImportExposure importerPath coreImport = do
+resolveImportExposure :: SourceUnitOwner -> ResolverImport -> Either Diagnostic (ModuleGraph.ModuleImport 'Resolved)
+resolveImportExposure owner coreImport = do
   resolvedExposure <- exposure
   pure
     ModuleGraph.ModuleImport
-      { ModuleGraph.moduleImportNode = resolveNode (ModuleGraph.moduleImportNode coreImport),
+      { ModuleGraph.moduleImportNode = resolveNode owner (ModuleGraph.moduleImportNode coreImport),
         ModuleGraph.importedModule = ModuleGraph.importedModule coreImport,
         ModuleGraph.importExposure = resolvedExposure
       }
@@ -367,7 +382,7 @@ resolveImportExposure importerPath coreImport = do
         ModuleGraph.DeclaredImportAll Nothing -> Right ModuleGraph.ImportAllUnqualified
         ModuleGraph.DeclaredImportOnly Nothing symbolNames -> Right (ModuleGraph.ImportOnlyUnqualified symbolNames)
         ModuleGraph.DeclaredImportAll (Just alias) -> Right (ModuleGraph.ImportQualifiedOnly alias)
-        ModuleGraph.DeclaredImportOnly (Just _) _ -> Left (mkImportExposureInvariantError importerPath coreImport)
+        ModuleGraph.DeclaredImportOnly (Just _) _ -> Left (mkImportExposureInvariantError (sourceUnitOwnerModulePath owner) coreImport)
 
 mkImportExposureInvariantError :: ModulePath -> ResolverImport -> Diagnostic
 mkImportExposureInvariantError importerPath coreImport =
@@ -614,6 +629,8 @@ collectImportPaths imports =
   ]
 
 resolveCoreModuleNames ::
+  SourceUnitOwner ->
+  Map ResolvedName ResolvedReference ->
   ModuleExportInventory ->
   ModuleExportInventory ->
   ModuleExportInventory ->
@@ -621,13 +638,13 @@ resolveCoreModuleNames ::
   [ModuleGraph.ModuleImport 'Lowered] ->
   ModuleGraph.CoreModule 'Lowered ->
   Either (NonEmpty Diagnostic) (ModuleGraph.CoreModule 'Resolved)
-resolveCoreModuleNames ambientExports localInventory publicInventory importScope imports coreModule = do
+resolveCoreModuleNames owner externalReferences ambientExports localInventory publicInventory importScope imports coreModule = do
   resolvedExpr <- resolveExprNames context (ModuleGraph.coreModuleExpr coreModule)
   resolvedImports <-
     either
       (Left . NonEmpty.singleton)
       Right
-      (traverse (resolveImportExposure (ModuleGraph.coreModulePath coreModule)) imports)
+      (traverse (resolveImportExposure owner) imports)
   case resolvedExpr of
     EBlock bodyNode statements ->
       pure
@@ -652,7 +669,10 @@ resolveCoreModuleNames ambientExports localInventory publicInventory importScope
   where
     context =
       ResolutionContext
-        { resolutionAmbientExports = ambientExports,
+        { resolutionSourceOwner = owner,
+          resolutionStatementOwners = Map.empty,
+          resolutionExternalReferences = externalReferences,
+          resolutionAmbientExports = ambientExports,
           resolutionLocalInventory = localInventory,
           resolutionImportScope = importScope
         }
@@ -666,6 +686,8 @@ resolvePreludeArtifact publicInventory artifact =
     Nothing -> Right (artifactWithoutModule artifact)
     Just loweredModule ->
       case resolveCoreModuleNames
+        (PreludeSourceUnit (ModuleGraph.coreModulePath loweredModule))
+        Map.empty
         (exportInventory [])
         publicInventory
         publicInventory

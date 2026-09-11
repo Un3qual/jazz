@@ -23,7 +23,6 @@ import Jazz.Compiler.ModuleAnalysis
     analyzeModule,
     dependencyImportInterface,
     importWholeInterface,
-    moduleBinderInventory,
     moduleEvidenceCandidates,
   )
 import Jazz.Compiler.ModuleGraph
@@ -91,15 +90,14 @@ analyzeProgram inputs resolvedProgram =
           modulePath = coreModulePath resolvedModule
       (inference, maybeAnalyzedModule) <-
         analyzeModule inputs NamedSourceUnit Set.empty importedInterface resolvedModule
-      let dependency analyzedModule =
+      let dependency =
             ( ModuleGraph.resolvedModuleExports (coreModuleFacts resolvedModule),
               inferredModuleInterface inference,
-              moduleBinderInventory analyzedModule,
               moduleEvidenceCandidates NamedSourceUnit resolvedModule
             )
       pure
         ( modules Seq.|> maybeAnalyzedModule,
-          maybe dependenciesByPath (\analyzedModule -> Map.insert modulePath (dependency analyzedModule) dependenciesByPath) maybeAnalyzedModule,
+          maybe dependenciesByPath (\_ -> Map.insert modulePath dependency dependenciesByPath) maybeAnalyzedModule,
           diagnostics <> Seq.fromList (inferredDiagnostics inference)
         )
 
@@ -122,7 +120,6 @@ analyzePrelude inputs prelude =
           ambientInterface =
             importWholeInterface
               AmbientPrelude
-              (maybe Map.empty moduleBinderInventory maybeAnalyzedModule)
               (moduleEvidenceCandidates PreludeSourceUnit resolvedPreludeModule)
               (inferredModuleInterface inference)
       pure

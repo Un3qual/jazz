@@ -21,6 +21,7 @@ import Jazz.Compiler.AST
     Expr (ELit),
     Literal (LInt),
   )
+import Jazz.Compiler.CoreIdentity (emptyResolvedNodeFacts)
 import Jazz.Compiler.DiagnosticCatalog (ErrorCode (E1001))
 import Jazz.Compiler.Diagnostics
   ( DiagnosticOrigin (CompilationOrigin),
@@ -37,6 +38,7 @@ import Jazz.Compiler.Force
 import Jazz.Compiler.ModuleExports
   ( ModuleExport (ModuleExport),
   )
+import Jazz.Compiler.ModuleIdentity (SourceUnitOwner (StandaloneSourceUnit), standaloneModulePath)
 import Jazz.Compiler.ModuleInterface
   ( ModuleInterface (..),
     emptyModuleInterface,
@@ -265,7 +267,7 @@ assertForcesMarker label marker action = do
     Right () -> ioError (userError (Text.unpack (label <> " stayed lazy")))
 
 resolvedZero :: Expr 'Resolved
-resolvedZero = ELit (CoreNode (CoreNodeId 0) (SourceSpan 1 1) ()) (LInt 0)
+resolvedZero = ELit (CoreNode (CoreNodeId 0) (SourceSpan 1 1) (emptyResolvedNodeFacts (StandaloneSourceUnit standaloneModulePath))) (LInt 0)
 
 testRuntimeResultForcingFollowsRendering :: IO ()
 testRuntimeResultForcingFollowsRendering = do
