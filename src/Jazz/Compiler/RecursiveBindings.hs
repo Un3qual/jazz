@@ -140,8 +140,25 @@ resolveLexicalScopes externalNames = expression Map.empty
       Just binder -> Map.insert name binder bound
       Nothing -> bound
     arm bound (CaseArm node pattern guard body) =
-      let visible = Map.union (patternBindings pattern) bound
-       in CaseArm node pattern (fmap (expression visible) guard) (expression visible body)
+      let resolvedPattern = resolvePattern bound Map.empty pattern
+          visible = Map.union (patternBindings resolvedPattern) bound
+       in CaseArm node resolvedPattern (fmap (expression visible) guard) (expression visible body)
+    resolvePattern bound shared pattern = case pattern of
+      PVariable node name -> PVariable (sharedBinder node name) name
+      PAs node name nested -> PAs (sharedBinder node name) name (recur nested)
+      PConstructor node name nested -> PConstructor (reference bound name node) name (map recur nested)
+      PList node nested -> PList node (map recur nested)
+      PTuple node nested -> PTuple node (map recur nested)
+      PConsList node first rest -> PConsList node (recur first) (recur rest)
+      POr node alternatives ->
+        let common = Map.union shared (patternBindings pattern)
+         in POr node (map (resolvePattern bound common) alternatives)
+      _ -> pattern
+      where
+        recur = resolvePattern bound shared
+        sharedBinder node name = case Map.lookup name shared of
+          Just binder -> node {coreNodeFacts = (coreNodeFacts node) {resolvedNodeBinder = Just binder}}
+          Nothing -> node
     patternBindings pattern = case pattern of
       PVariable node name -> insertBinder node name Map.empty
       PAs node name nested -> insertBinder node name (patternBindings nested)
