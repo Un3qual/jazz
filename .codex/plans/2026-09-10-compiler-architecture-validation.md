@@ -2,7 +2,9 @@
 
 Date: 2026-09-10. Scope: the active Haskell compiler and interpreter in `src/Jazz/Compiler`, with callers and tests inspected where they establish a boundary or observable behavior.
 
-This validates the three supplied audits against code. It does not treat agreement between auditors as corroborating implementation evidence. The reviewed checkout is `934802131e74f6833aabebf934cdaa0e179df81c`; compiler, runtime, CLI, hosted sources, and tests are unchanged from `2695289b1e9a7555855eb6b00147a478ae010c6d`, the first audit's source baseline. No compiler behavior was changed during validation.
+This is the final validation report for the three supplied audits. It preserves every finding and its disposition after withdrawing the two Luna drafts, whose unsupported claims and rejected recommendations should not remain standalone guidance. It does not treat agreement between auditors as corroborating implementation evidence. The compiler-source baseline is `2695289b1e9a7555855eb6b00147a478ae010c6d`, the main-branch parent of this documentation work. Compiler, runtime, CLI, hosted sources, and tests remain unchanged from that revision. No compiler behavior was changed during validation.
+
+Relative source links are live checkout links, with line numbers measured at the baseline; they are not immutable citations. The [pinned Jazz source tree](https://github.com/Un3qual/jazz/tree/2695289b1e9a7555855eb6b00147a478ae010c6d/src/Jazz/Compiler) provides the archival reference.
 
 The implementation proposal is in the [remediation plan](2026-09-10-compiler-architecture-remediation.md). This report records the evidence, qualifications, and rejected recommendations that constrain it.
 
@@ -17,8 +19,8 @@ The proposed direction is an interpreter with one authoritative analyzed express
 ## Audit identifiers and verdicts
 
 - **A**: [architecture-audit-2026-09-10.md](../../docs/compiler/architecture-audit-2026-09-10.md), findings 1–10.
-- **B**: [jazz-compiler-architecture-audit-luna.md](../../docs/compiler/jazz-compiler-architecture-audit-luna.md), numbered findings 1–12 and the six lower-severity bullets, numbered B13–B18 here in their original order.
-- **C**: [jazz-compiler-comparative-audit-luna.md](../../docs/compiler/jazz-compiler-comparative-audit-luna.md), ten ranked findings, numbered C1–C10 here in their original order.
+- **B**, withdrawn draft: [archived architecture audit](https://github.com/Un3qual/jazz/blob/41cc3a2df7000c3b145389591e7e4c7607fa5e12/docs/compiler/jazz-compiler-architecture-audit-luna.md), numbered findings 1–12 and the six lower-severity bullets, numbered B13–B18 here in their original order.
+- **C**, withdrawn draft: [archived comparative audit](https://github.com/Un3qual/jazz/blob/41cc3a2df7000c3b145389591e7e4c7607fa5e12/docs/compiler/jazz-compiler-comparative-audit-luna.md), ten ranked findings, numbered C1–C10 here in their original order.
 
 **Confirmed** means the architectural mechanism and useful remediation are supported. **Qualified** means a real mechanism exists but the scope, wording, proposed deletion, or implied cost needs correction. **Rejected** means the claimed defect or deletion is not supported. **Unsubstantiated** is used for estimates and causal claims that cannot be established by this inspection. These are architectural assessments, not claims that each item is a reproducible correctness bug.
 
@@ -32,7 +34,7 @@ Each evidence group is a set of current source locations, not a reference to ano
 | --- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | E01 | [Name.hs:134](../../src/Jazz/Compiler/Name.hs#L134), [Names.hs:100](../../src/Jazz/Compiler/ModuleResolver/Names.hs#L100), [SemanticFacts.hs:58](../../src/Jazz/Compiler/SemanticFacts.hs#L58): resolved names identify origin/namespace/spelling; lexical declaration IDs exist separately and are recovered during attachment.                                                                                                                                                                                                    |
 | E02 | [AST.hs:60](../../src/Jazz/Compiler/AST.hs#L60), [AST.hs:147](../../src/Jazz/Compiler/AST.hs#L147), [Parser/Lower.hs](../../src/Jazz/Compiler/Parser/Lower.hs): phases are typed, but the shared expression constructors retain operators, sections, signatures, and explicit application syntax.                                                                                                                                                                                                                                   |
-| E03 | [State.hs:99](../../src/Jazz/Compiler/TypeInference/State.hs#L99), [State.hs:128](../../src/Jazz/Compiler/TypeInference/State.hs#L128), [Analyzed.hs:223](../../src/Jazz/Compiler/TypeInference/Analyzed.hs#L223): four state domains, six node-keyed fact maps, later joins and semantic projection.                                                                                                                                                                                                                               |
+| E03 | [State.hs:99](../../src/Jazz/Compiler/TypeInference/State.hs#L99), [State.hs:128](../../src/Jazz/Compiler/TypeInference/State.hs#L128), [State.hs:173](../../src/Jazz/Compiler/TypeInference/State.hs#L173), [Analyzed.hs:223](../../src/Jazz/Compiler/TypeInference/Analyzed.hs#L223): four domains in `InferState` (line 173), six node-keyed fact maps in `InferenceOutput` (line 128), later joins and semantic projection.                                                                                                     |
 | E04 | [Scope.hs:433](../../src/Jazz/Compiler/TypeInference/Scope.hs#L433), [Scope.hs:1577](../../src/Jazz/Compiler/TypeInference/Scope.hs#L1577), [Pattern.hs:648](../../src/Jazz/Compiler/TypeInference/Pattern.hs#L648), [Capabilities.hs:312](../../src/Jazz/Compiler/TypeInference/Capabilities.hs#L312): scope state, distinct speculative restoration policies, allocation watermark retention, and diagnostic-preserving pattern rollback.                                                                                         |
 | E05 | [RecursiveBindings.hs:84](../../src/Jazz/Compiler/RecursiveBindings.hs#L84), [Analyzed.hs:591](../../src/Jazz/Compiler/TypeInference/Analyzed.hs#L591), [ScopePlan.hs:97](../../src/Jazz/Compiler/Runtime/ScopePlan.hs#L97), [UnusedBindings.hs](../../src/Jazz/Compiler/Analyzer/UnusedBindings.hs): common recursion algorithms exist, but scope discovery is invoked/reconstructed in several consumers.                                                                                                                         |
 | E06 | [ModuleInterface.hs:51](../../src/Jazz/Compiler/ModuleInterface.hs#L51), [ModuleCompiler.hs:94](../../src/Jazz/Compiler/ModuleCompiler.hs#L94), [ModuleAnalysis.hs:240](../../src/Jazz/Compiler/ModuleAnalysis.hs#L240), [ModuleAnalysis.hs:271](../../src/Jazz/Compiler/ModuleAnalysis.hs#L271), [ModuleAnalysis.hs:436](../../src/Jazz/Compiler/ModuleAnalysis.hs#L436): interface, four-part dependency bundle, imported views, and rebasing.                                                                                    |
@@ -133,7 +135,7 @@ Success should be measured by eliminated reconstruction paths, narrower dependen
 
 ## Independent comparator verification
 
-The four official repository snapshots were available locally under `/private/tmp/jazz-haskell-compilers-20260910`. Their HEADs match the hashes in C and their tracked working trees were clean. The verification used source files from those snapshots, not the other agents' narrative or old local audit notes. No claim here requires these snapshots to be the latest release.
+The four official repository snapshots were available locally under `/private/tmp/jazz-haskell-compilers-20260910`. Their HEADs match the explicit revisions below and their tracked working trees were clean. The verification used source files from those snapshots, not the other agents' narrative or old local audit notes. No claim here requires these snapshots to be the latest release.
 
 ### Counts
 
@@ -148,28 +150,43 @@ Counting `.hs` files and physical lines including comments/blanks reproduces the
 | Dhall `dhall/src/Dhall` + `dhall/ghc-src/Dhall` | 68 / 32,719   | 68 / 32,719                                | Confirmed; the `ghc-src` path is under `dhall`                               |
 | Futhark complete `src`                          | 348 / 140,695 | 348 / 140,695                              | Confirmed                                                                    |
 
-Reproduction, from the directory containing the four snapshot checkouts:
+Reproduction: run this from the Jazz checkout after placing clones of the official [PureScript](https://github.com/purescript/purescript), [Elm](https://github.com/elm/compiler), [Dhall](https://github.com/dhall-lang/dhall-haskell), and [Futhark](https://github.com/diku-dk/futhark) repositories in the configured comparator directory under the names below. Each clone must contain the specified commit. The script reads tracked files from those exact Git objects, so local edits, untracked files, and the checked-out branch do not affect the counts. It counts all `.hs` physical lines, including comments and blanks, using `bytes.splitlines()`; a final unterminated line counts as one line.
 
 ```python
 from pathlib import Path
+import subprocess
 
-scopes = {
-    "purescript": ["src"],
-    "elm": ["compiler/src", "builder/src"],
-    "dhall-haskell": ["dhall/src/Dhall", "dhall/ghc-src/Dhall"],
-    "futhark": ["src"],
+# Change this directory to the location of the four comparator clones.
+comparators = Path("/private/tmp/jazz-haskell-compilers-20260910")
+snapshots = {
+    "jazz": (Path.cwd(), "2695289b1e9a7555855eb6b00147a478ae010c6d",
+             ["src/Jazz/Compiler"]),
+    "purescript": (comparators / "purescript",
+                   "cb3c4965c8468d26c9b14cf0319db6dbd06ee4ff", ["src"]),
+    "elm": (comparators / "elm", "1bd5b36915a38335195ca7792fe3995f53d84d5e",
+            ["compiler/src", "builder/src"]),
+    "dhall-haskell": (comparators / "dhall-haskell",
+                     "bcfb3ddb17d4f55f7c4cf823c9d4072fa519edf2",
+                     ["dhall/src/Dhall", "dhall/ghc-src/Dhall"]),
+    "futhark": (comparators / "futhark",
+                "f0e6988f2e68620a53976606fedaed8edc856244", ["src"]),
 }
 excluded = {"Docs", "Ide", "Interactive", "Publish", "Linter"}
-for project, roots in scopes.items():
-    base = Path(project)
-    files = sorted(f for root in roots for f in (base / root).rglob("*.hs"))
-    print(project, len(files), sum(len(f.read_bytes().splitlines()) for f in files))
+for project, (repository, revision, roots) in snapshots.items():
+    def git(*args):
+        return subprocess.check_output(["git", "-C", str(repository), *args])
+
+    files = sorted(path.decode() for path in
+                   git("ls-tree", "-rz", "--name-only", revision, "--", *roots)
+                   .split(b"\0") if path.endswith(b".hs"))
+    counts = {path: len(git("show", f"{revision}:{path}").splitlines())
+              for path in files}
+    print(project, len(files), sum(counts.values()))
     if project == "purescript":
-        core = [f for f in files
-                if not (set(f.relative_to(base).parts) & excluded)
-                and f.stem not in excluded]
-        print("explicit core subset", len(core),
-              sum(len(f.read_bytes().splitlines()) for f in core))
+        core = [path for path in files
+                if not (set(Path(path).parts) & excluded)
+                and Path(path).stem not in excluded]
+        print("explicit core subset", len(core), sum(counts[path] for path in core))
 ```
 
 These scopes contain different products. Jazz is smaller than full PureScript/Elm/Futhark in this sample and larger than the stated Dhall library scope and the filtered PureScript scope. Neither relationship establishes architectural quality or comparable language completeness. Calling Jazz's current tree “code-generation-adjacent” does not demonstrate an active code generator.
@@ -204,4 +221,4 @@ Validation combined source tracing, caller searches, comparator source inspectio
 
 The baseline checks and final documentation checks are recorded in the remediation plan's validation record. Existing source-level checks are the initial semantic floor; they do not prove a future refactor equivalent. The implementation must rerun the relevant suites and add narrowly targeted cross-boundary cases only where coverage is missing.
 
-The two supplied Luna audits used `../src/...` links that resolved under `docs/src`, rather than the repository's source directory. Their link prefixes were repaired to `../../src/...`; their findings and estimates are preserved. Claims in the original files are not silently rewritten by this validation.
+The two Luna drafts have been removed from the maintained documentation. Their original text remains available through the explicitly archived links above; the ledgers retain all 38 findings, the code evidence, and the reasons for qualifying or rejecting recommendations. The remediation plan follows this final report, not the withdrawn drafts.

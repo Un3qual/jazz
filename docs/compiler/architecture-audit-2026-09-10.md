@@ -10,7 +10,7 @@ This report examines the compiler's representations, phase boundaries, and movem
 
 The findings come from the current implementation and its call sites. Previous audits, architecture documents, roadmaps, and design decisions were not used as evidence. The report explains structural causes visible in the code; it does not establish when those choices were introduced or attribute them to particular contributors.
 
-No compiler behavior was changed during the audit. Runtime and performance observations below describe code paths, not measured execution results. Source links and line numbers refer to the revision above and may move as the implementation changes.
+No compiler behavior was changed during the audit. Runtime and performance observations below describe code paths, not measured execution results. Relative source links below are live checkout links, with line numbers measured at the revision above; they are not immutable citations and may move as the implementation changes. Use the [pinned source tree](https://github.com/Un3qual/jazz/tree/2695289b1e9a7555855eb6b00147a478ae010c6d/src/Jazz/Compiler) for the archival snapshot.
 
 ## Assessment
 
@@ -97,7 +97,7 @@ Multiple passes are not inherently a problem. A compiler can have many simple pa
 
 ## Finding 1: local name resolution does not establish declaration identity
 
-### Evidence
+### Declaration identity evidence
 
 [`ResolvedUserName`](../../src/Jazz/Compiler/Name.hs#L134) contains an origin, namespace, and identifier:
 
@@ -114,7 +114,7 @@ The resolver's main traversal constructs `Right (resolveExpr ...)`. Its unqualif
 
 The runtime environment remains [`Map ResolvedName RuntimeCell`](../../src/Jazz/Compiler/Runtime/Types.hs#L392).
 
-### Architectural cost
+### Cost of rediscovering declarations
 
 The following components all participate in recovering binding relationships:
 
@@ -130,7 +130,7 @@ Some environments must remain separate: a type environment and a runtime-value e
 
 Consider two successive declarations named `x` with a closure defined between them. Every phase that reasons about that closure must reproduce the correct earlier-binding relationship. A resolved reference to a specific declaration would preserve the answer directly.
 
-### Recommended direction
+### Resolve references to declaration identities
 
 Allocate stable declaration identities during binding resolution and put those identities on resolved references. Keep source spelling, namespace, and source location as metadata for diagnostics and display.
 
@@ -140,7 +140,7 @@ This is the broadest simplification opportunity because it affects inference, di
 
 ## Finding 2: lowering preserves too much source-level structure
 
-### Evidence
+### Preserved surface forms
 
 The surface/core split performs useful transformations. Multiple lambda parameters and pattern lambdas become simpler forms. However, [`Expr`](../../src/Jazz/Compiler/AST.hs#L147) and [`Statement`](../../src/Jazz/Compiler/AST.hs#L184) preserve many source-level distinctions through the analyzed phase:
 
@@ -155,7 +155,7 @@ The lowerer converts infix `$` to application, but otherwise directly preserves 
 
 Expression inference recognizes ordinary applications, builtin operator application spines, operator aliases, section application fallbacks, and qualified-method applications. Runtime values and continuation frames retain corresponding distinctions.
 
-### Architectural cost
+### Cost of repeated syntax interpretation
 
 The same operation can reach later stages through several syntactic forms. Those stages repeatedly identify equivalent operations and account for aliases and partial application.
 
@@ -163,7 +163,7 @@ For an analyzed operator use, runtime code still decides whether the textual sym
 
 The problem is not the number of constructors alone. A primitive operation, a short-circuiting construct, or an explicit coercion can justify a dedicated core node. The issue is preserving distinctions without consistently resolving them into semantic operations.
 
-### Recommended direction
+### Normalize resolved execution forms
 
 Make the checked execution representation identify resolved callables, selected primitives, explicit representation adjustments, and the binding groups needed for execution.
 
@@ -173,7 +173,7 @@ This could be achieved by strengthening the existing analyzed representation. Ad
 
 ## Finding 3: capability dispatch is split between overlapping static and runtime systems
 
-### Evidence
+### Static and runtime selection evidence
 
 [`selectQualifiedMethodCandidate`](../../src/Jazz/Compiler/TypeInference/Capabilities.hs#L1256) tries implementations, computes compatible matches, prefers exact matches, and records selected evidence.
 
@@ -183,7 +183,7 @@ Runtime qualified-method values retain a method signature, a class type variable
 
 Compiler-selected evidence is used: runtime `SupplyEvidence` filters the candidate collection. The issue is therefore an incomplete handoff, not a complete absence of static information.
 
-### Architectural cost
+### Cost of overlapping dispatch
 
 Inference must understand runtime hint behavior, while runtime must understand signatures, compatibility, candidate precedence, evidence, and partial application.
 
@@ -191,7 +191,7 @@ The runtime representation of values becomes part of the static selection algori
 
 This is a particularly expensive form of coupling because behavior can depend on expression shape even after types have been inferred.
 
-### Recommended direction
+### Separate settled and dynamic dispatch
 
 Distinguish decisions that are settled statically from selection that intentionally remains dynamic.
 
@@ -201,7 +201,7 @@ Do not assume dictionary elaboration automatically preserves all current behavio
 
 ## Finding 4: semantic attachment reconstructs information instead of simply finalizing it
 
-### Evidence
+### Fact publication and attachment evidence
 
 [`InferenceOutput`](../../src/Jazz/Compiler/TypeInference/State.hs#L128) contains six semantic side tables keyed by node identity:
 
@@ -220,7 +220,7 @@ The 650-line [`TypeInference/Analyzed.hs`](../../src/Jazz/Compiler/TypeInference
 
 Production-consumer searches in `src/` and `app/` found the runtime reading `expressionRuntimePlan`, while several other expression fact fields had no separate field reads outside their construction machinery. Pattern facts are also attached without driving runtime pattern matching. This observation concerns direct field consumers; it does not exclude generic `Show`, equality, forcing, or test use.
 
-### Architectural cost
+### Cost of reconstructing checked meaning
 
 A final substitution/finalization pass is normal in type inference. Node-indexed fact tables can also be appropriate. Here, attachment goes further: it reconstructs semantic relationships that were not retained as the direct result of checking.
 
@@ -239,7 +239,7 @@ Runtime code splits callable preparation from result obligations, wraps values i
 
 Execution therefore depends on both an expression tree and an ordered annotation protocol. The invariants between them are a significant maintenance burden.
 
-### Recommended direction
+### Construct facts during checking
 
 Have checking produce an expression with its required semantic relationships already attached. Retain a straightforward finalization pass for substitutions and finalized schemes.
 
@@ -249,7 +249,7 @@ Do not delete fact validation merely because it is lengthy. First change the rep
 
 ## Finding 5: recursive binding semantics require expensive machinery, and the architecture repeats it
 
-### Evidence
+### Repeated recursive scope discovery
 
 [`inferRecursiveGroupsOrderedInternal`](../../src/Jazz/Compiler/RecursiveBindings.hs#L456) does substantially more than pass a graph to `stronglyConnComp`. Dependencies depend on earlier rebindings, outer bindings, forward references, alias-shaped initializers, and whether an expression can produce a function.
 
@@ -261,7 +261,7 @@ Scope inference adds support for recursive groups whose definitions are interlea
 
 Runtime introduces additional shape-sensitive work: following aliases through selected branches, evaluating conditions or guards during alias selection, building block-local alias environments, and attaching self references to returned closures. See [`attachSelfRecursiveBinding`](../../src/Jazz/Compiler/Runtime/Engine.hs#L703), [`selectedRecursiveAliasTarget`](../../src/Jazz/Compiler/Runtime/Engine.hs#L743), and [`blockLocalAliasEnv`](../../src/Jazz/Compiler/Runtime/Engine.hs#L890).
 
-### Architectural cost
+### Cost of repeated binding analysis
 
 This complexity has two sources that should not be conflated.
 
@@ -271,7 +271,7 @@ Second, the compiler repeatedly infers their relationships from names and syntax
 
 The existing `PreparedRecursiveScope` does share work between some analyzer and inference paths. That is a useful local improvement. It does not establish a single resolved representation of recursion for the entire pipeline.
 
-### Recommended direction
+### Publish resolved recursive structure
 
 Resolve declaration identities, dependency edges, and recursive groups once. Keep type-checking dependency order distinct from source evaluation order so a refactor does not accidentally reorder effects or rebindings.
 
@@ -281,7 +281,7 @@ Do not assume all preview inference can be deleted while retaining the current g
 
 ## Finding 6: runtime scope execution uses two different cell strategies
 
-### Evidence
+### Pure and host cell strategies
 
 The runtime has a shared explicit expression machine. Its [`EvaluationFrame`](../../src/Jazz/Compiler/Runtime/Engine.hs#L400) representation is a reasonable mechanism for keeping Jazz recursion off the Haskell call stack.
 
@@ -295,7 +295,7 @@ Host execution uses explicit deferred binding identities, evaluating/evaluated s
 
 Observation changes eligibility for pure chunks. Profiling and statistics are therefore connected to execution-strategy selection, not solely to recording events.
 
-### Architectural cost
+### Cost of parallel scope execution
 
 The runtime must preserve compatible behavior across two cell strategies and their transitions. This requires host-cell provenance flags, deferred-cell cache coordination, pure-chunk selection, and separate handling of several binding cases.
 
@@ -303,7 +303,7 @@ Supporting IO is not itself the problem. The cost comes from maintaining the pur
 
 There are not two completely independent expression interpreters; both paths use the shared machine. The scope and cell machinery is the duplication target.
 
-### Recommended direction
+### Share scope execution and measure storage
 
 Evaluate whether one explicit cell model can serve both paths: unevaluated, evaluating, and evaluated cells, with one memoization and recursive-forcing policy.
 
@@ -313,7 +313,7 @@ The existing fast paths may have performance value. Removing them requires repre
 
 ## Finding 7: standalone and module compilation use different program representations
 
-### Evidence
+### Standalone and module program paths
 
 [`mergePreparedPrelude`](../../src/Jazz/Compiler/Driver.hs#L643) prepends prelude statements to standalone source and records which statement positions came from the prelude. The combined source is reindexed, resolved, analyzed, and evaluated as an expression/source unit.
 
@@ -323,7 +323,7 @@ The distinction reaches [`SourceUnitOwnership`](../../src/Jazz/Compiler/SourceUn
 
 Module lowering removes module/import forms from executable statements and puts them in graph metadata. The standalone path retains statement forms that later capability and ownership folds must interpret.
 
-### Architectural cost
+### Cost of positional prelude ownership
 
 These are two internal models of a program, not just convenience wrappers around one operation.
 
@@ -331,7 +331,7 @@ Hidden-statement indices, prelude-statement indices, injected ownership, module-
 
 This also makes it harder to guarantee that compiling the same definitions through standalone and module entry points exercises the same semantic boundaries.
 
-### Recommended direction
+### Use one program construction path
 
 Represent standalone source as a synthetic module using the same program construction and prelude mechanism as named modules.
 
@@ -341,7 +341,7 @@ The unified representation must preserve existing standalone behavior; changing 
 
 ## Finding 8: module interfaces expose inference representations and incomplete identity
 
-### Evidence
+### Interface and dependency sidecar evidence
 
 [`ModuleInterface`](../../src/Jazz/Compiler/ModuleInterface.hs#L51) depends directly on `TypeInference.Types`. Its exported information includes inference bindings, class method signatures, implementation facts, and implementation method types.
 
@@ -368,7 +368,7 @@ Binder inventories and evidence candidates are obtained separately from module a
 
 Identity is represented inconsistently. Structured names coexist with textual class/method keys. [`ConcreteImplFact`](../../src/Jazz/Compiler/CapabilityFacts.hs#L102) equality and ordering use rendered names and rendered signature types. Semantic code must qualify, split, and prefix-match names.
 
-### Architectural cost
+### Cost of incomplete module publication
 
 Importers need knowledge of inference bookkeeping and signature representation. Adding a new field or form can require a new rebasing path, interface projection, or side inventory.
 
@@ -376,7 +376,7 @@ Relative identities force semantic objects to be rewritten when crossing module 
 
 The interface boundary therefore transports more implementation detail while failing to transport all the finalized facts an importer needs.
 
-### Recommended direction
+### Publish complete semantic interfaces
 
 Export normalized semantic declarations and schemes with stable defining-module identities. Include required binder and implementation evidence information in the actual interface product.
 
@@ -404,13 +404,13 @@ Signature type nodes do not retain all individual name spans. [`locateQualifiedC
 
 Unsupported signatures can survive parsing as token payloads. [`signaturePayloadConstraintType`](../../src/Jazz/Compiler/CapabilityFacts.hs#L157) includes recovery of type structure from some of these payloads, while other signature handling rejects unsupported forms later.
 
-### Architectural cost
+### Cost of mixed parser ownership
 
 Parser adapters and callback boundaries add mechanical complexity. Ambiguity adds real grammatical complexity. Missing location data causes additional passes, and signature fallbacks allow syntax processing to extend into semantic code.
 
 These are different problems. Replacing Megaparsec would not eliminate ambiguity or recover information the AST discards.
 
-### Recommended direction
+### Unify parser control and retain locations
 
 Use one parser control model consistently. Preserve required source spans in parsed nodes. Normalize accepted signature forms once, and keep diagnostic recovery separate from semantic type interpretation.
 
@@ -418,7 +418,7 @@ Treat grammatical simplification as a separate language decision. Changing separ
 
 ## Finding 10: navigation follows overlapping responsibilities rather than clear phase contracts
 
-### Evidence
+### Overlapping coordinator responsibilities
 
 The code is divided into modules, but module names do not identify a single clear owner for several central decisions:
 
@@ -433,13 +433,13 @@ The code is divided into modules, but module names do not identify a single clea
 
 There are smaller signs of unclear contracts. [`inferExprTypeDetailedWithMode`](../../src/Jazz/Compiler/TypeInference.hs#L631) ignores its mode argument while scope paths inspect the mode. Callers cannot infer the actual distinction from the signature alone.
 
-### Architectural cost
+### Cost of navigating ownership protocols
 
 Understanding a behavior requires following several modules whose names suggest stronger phase boundaries than they provide. A question such as "where is a reference finally resolved?" has no single satisfying answer.
 
 Large modules are a symptom, but file count is not a useful simplification target on its own. More small modules can preserve exactly the same conceptual coupling.
 
-### Recommended direction
+### Clarify phase ownership before moving files
 
 Give each semantic decision one owner and state its output invariant in the relevant type/API. Organize files around those responsibilities after the boundaries become real.
 

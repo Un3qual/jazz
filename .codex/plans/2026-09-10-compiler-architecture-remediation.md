@@ -8,13 +8,13 @@
 
 **Tech stack:** Haskell, GHC 9.14.1 through the repository Nix development shell, Cabal, Megaparsec, `containers`, existing test harness and `jazz-bench`. No new dependency is planned.
 
-**Spec:** [Validated audit findings](2026-09-10-compiler-architecture-validation.md), together with the target contracts and preservation rules below. The three input audits are linked there. They contain recommendations that this plan explicitly rejects or narrows.
+**Spec:** [Validated audit findings](2026-09-10-compiler-architecture-validation.md), together with the target contracts and preservation rules below. The report preserves the disposition of all three input audits. The two Luna drafts were withdrawn after validation; their rejected or qualified recommendations are not implementation guidance.
 
 **Status:** Proposed, not implementation-dispatched. The existing execution queue has no ready item. Keep it unchanged until implementation is requested; then curate the first bounded milestone rather than enqueueing this entire program as one task.
 
 **Existing architecture decision:** [RFC 0016](../../rfcs/accepted/0016-optional-backend-removal.md) explicitly says to keep “attached analysis facts, and runtime plans.” Direct construction still retains attached facts, but T11a proposes changing the retained runtime-plan contract. Approval of this plan should therefore include that specific architectural decision and a narrow amendment through the repository's RFC process before removal. This is a dependency of T11a, not a reason to block unrelated tasks or ask for another confirmation while preparing this plan. If runtime plans are to remain, retain the small sequence and pursue direct identity/ownership improvements around it; do not claim its deletion completed.
 
-**Baseline:** `934802131e74f6833aabebf934cdaa0e179df81c`, with compiler sources identical to `2695289b1e9a7555855eb6b00147a478ae010c6d`. Refresh the diff and tests if implementation begins from a newer checkout.
+**Baseline:** `2695289b1e9a7555855eb6b00147a478ae010c6d`, the main-branch source revision before this documentation work. Compiler sources remain identical to that revision. Refresh the diff and tests if implementation begins from a newer checkout.
 
 ## Global constraints
 
@@ -52,20 +52,20 @@ Tokens and surface syntax are temporary frontend products. Discovery may travers
 
 ### Ownership contracts
 
-| Concept                        | Authoritative owner                                              | Contract for consumers                                                                                                                                                                          |
-| ------------------------------ | ---------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Source identity/location       | `ModuleIdentity`, source spans, parser node construction         | Semantic phases receive locations and owners; they never find a name's location by rescanning tokens.                                                                                           |
-| Exported names before checking | Existing `ModuleExportInventory` from discovery                  | Resolver can validate imports before typed interfaces exist. This is deliberately a different product from a typed interface.                                                                   |
-| Import visibility              | A validated import scope produced in `ModuleResolver/Imports.hs` | Carries namespace-aware imported targets, aliases, import origins, and spans. Names and typed import selection consume this result instead of reimplementing exposure rules.                    |
-| Binding identity               | Resolution, using declaration/pattern/lambda nodes               | References carry the declaration ID they select. Display names and diagnostic origin remain separate from identity. Builtins retain their catalog identity.                                     |
-| Lexical scope                  | Resolved block facts                                             | Ordered declarations, visible-before relationships needed for rebinding, recursive group membership, and lexical capture candidates are computed once. Consumers use views of this one product. |
-| Declaration meaning            | Declaration checking                                             | Constructor templates, class/method signatures, implementation targets, and scheme binders use normalized semantic types and stable IDs. Raw signatures remain a frontend/diagnostic concern.   |
-| Checked expression facts       | The inference operation checking that expression                 | Returns a draft checked subtree; finalization substitutes solved types and validates completeness. It does not rediscover lexical binders or join six unrelated output maps.                    |
-| Module semantic interface      | Successful module checking                                       | Complete exported semantic declarations, binder identities, and evidence. An importer can typecheck from this artifact without a dependency body.                                               |
-| Local module environment       | Module checking, retained privately as needed                    | Includes private declarations required by exported types/method execution. Public projection is explicit and cannot publish private names accidentally.                                         |
-| Runtime specialization         | Interpreter consuming analyzed facts                             | Closed type applications, concrete method evidence, literal targets, and result constraints have one path. Genuinely unresolved polymorphic dispatch remains dynamic.                           |
-| Runtime lexical execution      | Shared scope executor                                            | Uses resolved scope groups and reference IDs. Cell state/value selection remain runtime concerns.                                                                                               |
-| Diagnostics/outcomes           | Artifact queries, compiler coordinator, runtime boundary         | Preserve ordered diagnostics on failed analysis, artifact-local diagnostics, normal completion, explicit exit, failure, and no execution.                                                       |
+| Concept                        | Authoritative owner                                                                | Contract for consumers                                                                                                                                                                          |
+| ------------------------------ | ---------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Source identity/location       | `ModuleIdentity`, source spans, parser node construction                           | Semantic phases receive locations and owners; they never find a name's location by rescanning tokens.                                                                                           |
+| Exported names before checking | Existing `ModuleExportInventory` from discovery                                    | Resolver can validate imports before typed interfaces exist. This is deliberately a different product from a typed interface.                                                                   |
+| Import visibility              | A validated import scope produced in `src/Jazz/Compiler/ModuleResolver/Imports.hs` | Carries namespace-aware imported targets, aliases, import origins, and spans. Names and typed import selection consume this result instead of reimplementing exposure rules.                    |
+| Binding identity               | Resolution, using declaration/pattern/lambda nodes                                 | References carry the declaration ID they select. Display names and diagnostic origin remain separate from identity. Builtins retain their catalog identity.                                     |
+| Lexical scope                  | Resolved block facts                                                               | Ordered declarations, visible-before relationships needed for rebinding, recursive group membership, and lexical capture candidates are computed once. Consumers use views of this one product. |
+| Declaration meaning            | Declaration checking                                                               | Constructor templates, class/method signatures, implementation targets, and scheme binders use normalized semantic types and stable IDs. Raw signatures remain a frontend/diagnostic concern.   |
+| Checked expression facts       | The inference operation checking that expression                                   | Returns a draft checked subtree; finalization substitutes solved types and validates completeness. It does not rediscover lexical binders or join six unrelated output maps.                    |
+| Module semantic interface      | Successful module checking                                                         | Complete exported semantic declarations, binder identities, and evidence. An importer can typecheck from this artifact without a dependency body.                                               |
+| Local module environment       | Module checking, retained privately as needed                                      | Includes private declarations required by exported types/method execution. Public projection is explicit and cannot publish private names accidentally.                                         |
+| Runtime specialization         | Interpreter consuming analyzed facts                                               | Closed type applications, concrete method evidence, literal targets, and result constraints have one path. Genuinely unresolved polymorphic dispatch remains dynamic.                           |
+| Runtime lexical execution      | Shared scope executor                                                              | Uses resolved scope groups and reference IDs. Cell state/value selection remain runtime concerns.                                                                                               |
+| Diagnostics/outcomes           | Artifact queries, compiler coordinator, runtime boundary                           | Preserve ordered diagnostics on failed analysis, artifact-local diagnostics, normal completion, explicit exit, failure, and no execution.                                                       |
 
 ### Binding identity details
 
@@ -101,21 +101,21 @@ The checked-tree migration uses a private draft form during solving, then finali
 
 Paths below are repository-relative; their existing implementations are indexed in the validation report. New files are limited to concrete ownership changes:
 
-| Files                                                                                                      | Intended responsibility/change                                                                                                                                                                               |
-| ---------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `Parser/{AST,Declaration,Signature,CapabilityDeclaration,ModuleDeclaration,TokenParser,Lower}.hs`          | Preserve source locations and use one parser-control protocol.                                                                                                                                               |
-| `ModuleResolver.hs`, `ModuleResolver/{Imports,Names}.hs`                                                   | Discovery product, validated import scope, and stable reference resolution.                                                                                                                                  |
-| New `CoreIdentity.hs`                                                                                      | Move node/binder/implementation/method identity primitives out of semantic output definitions so early resolution can use them without an import cycle. Keep `ModuleIdentity.hs` for source/module identity. |
-| `AST.hs`, `Name.hs`, `SemanticFacts.hs`, `RecursiveBindings.hs`                                            | Phase-specific resolved reference/scope facts and analyzed semantic facts. Do not create a parallel generic AST framework.                                                                                   |
-| `Analyzer.hs`, `Analyzer/UnusedBindings.hs`, `TypeInference/Scope.hs`, `Runtime/ScopePlan.hs`              | Consume lexical facts instead of each owning scope discovery.                                                                                                                                                |
-| `SourceProgram.hs`, `Prelude.hs`, `Driver.hs`, `ModuleGraph.hs`, `SourceUnitOwnership.hs`                  | One standalone/module construction path; retire injected positional ownership.                                                                                                                               |
-| New `SemanticDeclarations.hs`, existing `TypeRepresentation.hs`                                            | Inference-independent normalized declaration/scheme types; reuse the existing generic semantic type representation.                                                                                          |
-| `TypeInference/{Types,Signature,Capabilities,ImplChecking}.hs`, `CapabilityFacts.hs`                       | Construct/use normalized declarations and stable evidence identities.                                                                                                                                        |
-| `ModuleInterface.hs`, `ModuleAnalysis.hs`, `ModuleCompiler.hs`, `ModuleExports.hs`                         | Complete public semantic interfaces; private scope stays private; import views derived once.                                                                                                                 |
-| `TypeInference.hs`, `TypeInference/{State,Result,Analyzed,Pattern,Scope,Traversal}.hs`                     | Narrow speculative operations, construct checked subtrees, finalize solved types. `Analyzed.hs` becomes a finalizer or disappears if trivial.                                                                |
-| `Runtime/{Engine,Types,Semantics,Request,ScopePlan,HostEvaluation}.hs`, `ModuleRuntime.hs`                 | Direct checked-fact consumption, shared module walk, shared lexical scope execution.                                                                                                                         |
-| `Runtime/{Outcome,Observation}.hs`, `Driver.hs`, `src/Jazz/CLI/Main.hs`                                    | Preserve meaningful result/report boundaries and thin compatibility entrypoints.                                                                                                                             |
-| `jazz.cabal`, corresponding `test/Jazz/Compiler` suites, `benchmark/Jazz/Benchmark/{Stages,ScaleCases}.hs` | Register changed modules; maintain contract tests and use existing performance cases.                                                                                                                        |
+| Files                                                                                                                                                                               | Intended responsibility/change                                                                                                                                                                                                 |
+| ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `src/Jazz/Compiler/Parser/{AST,Declaration,Signature,CapabilityDeclaration,ModuleDeclaration,TokenParser,Lower}.hs`                                                                 | Preserve source locations and use one parser-control protocol.                                                                                                                                                                 |
+| `src/Jazz/Compiler/ModuleResolver.hs`, `src/Jazz/Compiler/ModuleResolver/{Imports,Names}.hs`                                                                                        | Discovery product, validated import scope, and stable reference resolution.                                                                                                                                                    |
+| New `src/Jazz/Compiler/CoreIdentity.hs`                                                                                                                                             | Move node/binder/implementation/method identity primitives out of semantic output definitions so early resolution can use them without an import cycle. Keep `src/Jazz/Compiler/ModuleIdentity.hs` for source/module identity. |
+| `src/Jazz/Compiler/AST.hs`, `src/Jazz/Compiler/Name.hs`, `src/Jazz/Compiler/SemanticFacts.hs`, `src/Jazz/Compiler/RecursiveBindings.hs`                                             | Phase-specific resolved reference/scope facts and analyzed semantic facts. Do not create a parallel generic AST framework.                                                                                                     |
+| `src/Jazz/Compiler/Analyzer.hs`, `src/Jazz/Compiler/Analyzer/UnusedBindings.hs`, `src/Jazz/Compiler/TypeInference/Scope.hs`, `src/Jazz/Compiler/Runtime/ScopePlan.hs`               | Consume lexical facts instead of each owning scope discovery.                                                                                                                                                                  |
+| `src/Jazz/Compiler/SourceProgram.hs`, `src/Jazz/Compiler/Prelude.hs`, `src/Jazz/Compiler/Driver.hs`, `src/Jazz/Compiler/ModuleGraph.hs`, `src/Jazz/Compiler/SourceUnitOwnership.hs` | One standalone/module construction path; retire injected positional ownership.                                                                                                                                                 |
+| New `src/Jazz/Compiler/SemanticDeclarations.hs`, existing `src/Jazz/Compiler/TypeRepresentation.hs`                                                                                 | Inference-independent normalized declaration/scheme types; reuse the existing generic semantic type representation.                                                                                                            |
+| `src/Jazz/Compiler/TypeInference/{Types,Signature,Capabilities,ImplChecking}.hs`, `src/Jazz/Compiler/CapabilityFacts.hs`                                                            | Construct/use normalized declarations and stable evidence identities.                                                                                                                                                          |
+| `src/Jazz/Compiler/ModuleInterface.hs`, `src/Jazz/Compiler/ModuleAnalysis.hs`, `src/Jazz/Compiler/ModuleCompiler.hs`, `src/Jazz/Compiler/ModuleExports.hs`                          | Complete public semantic interfaces; private scope stays private; import views derived once.                                                                                                                                   |
+| `src/Jazz/Compiler/TypeInference.hs`, `src/Jazz/Compiler/TypeInference/{State,Result,Analyzed,Pattern,Scope,Traversal}.hs`                                                          | Narrow speculative operations, construct checked subtrees, finalize solved types. `src/Jazz/Compiler/TypeInference/Analyzed.hs` becomes a finalizer or disappears if trivial.                                                  |
+| `src/Jazz/Compiler/Runtime/{Engine,Types,Semantics,Request,ScopePlan,HostEvaluation}.hs`, `src/Jazz/Compiler/ModuleRuntime.hs`                                                      | Direct checked-fact consumption, shared module walk, shared lexical scope execution.                                                                                                                                           |
+| `src/Jazz/Compiler/Runtime/{Outcome,Observation}.hs`, `src/Jazz/Compiler/Driver.hs`, `src/Jazz/CLI/Main.hs`                                                                         | Preserve meaningful result/report boundaries and thin compatibility entrypoints.                                                                                                                                               |
+| `jazz.cabal`, corresponding `test/Jazz/Compiler` suites, `benchmark/Jazz/Benchmark/{Stages,ScaleCases}.hs`                                                                          | Register changed modules; maintain contract tests and use existing performance cases.                                                                                                                                          |
 
 Do not create all proposed files as empty scaffolding. Each is introduced only when its task moves an existing responsibility and consumers to it.
 
@@ -157,11 +157,11 @@ The table is a dependency order, not a request for parallel agents. Work inline.
 
 ## T02 — Make discovery own locations and validated visibility
 
-**Files:** `Parser/AST.hs`, `Parser/Signature.hs`, `Parser/CapabilityDeclaration.hs`, `ModuleResolver.hs`, `ModuleResolver/Imports.hs`, `ModuleResolver/Names.hs`; tests `Parser/SourceRangesSpec.hs`, `Modules/ModuleResolutionSpec.hs`, `Modules/Loader/{VisibilityTests,AliasClassTests,DiagnosticsTests}.hs`.
+**Files:** `src/Jazz/Compiler/Parser/AST.hs`, `src/Jazz/Compiler/Parser/Signature.hs`, `src/Jazz/Compiler/Parser/CapabilityDeclaration.hs`, `src/Jazz/Compiler/ModuleResolver.hs`, `src/Jazz/Compiler/ModuleResolver/Imports.hs`, `src/Jazz/Compiler/ModuleResolver/Names.hs`; tests `test/Jazz/Compiler/Parser/SourceRangesSpec.hs`, `test/Jazz/Compiler/Modules/ModuleResolutionSpec.hs`, `test/Jazz/Compiler/Modules/Loader/{VisibilityTests,AliasClassTests,DiagnosticsTests}.hs`.
 
 - [ ] Preserve the qualifier/member spans required by qualified type/class diagnostics in the parsed declaration/reference representation. Carry them through lowering; do not assign a broad statement span when the current diagnostic points to a token.
 - [ ] Build one discovery result while the surface tree is authoritative: lowered body, declared exports/imports, referenced-name inventory, and located qualified references. Keep this internal to module discovery.
-- [ ] Delete token-rescanning location recovery in `ModuleResolver.hs` once all its consumers use retained spans. Release the token/surface products after discovery/lowering.
+- [ ] Delete token-rescanning location recovery in `src/Jazz/Compiler/ModuleResolver.hs` once all its consumers use retained spans. Release the token/surface products after discovery/lowering.
 - [ ] Change import validation to return a validated scope containing alias targets and per-namespace unqualified targets with origin spans. Keep collision/missing/hidden-reference diagnostic ordering unchanged.
 - [ ] Make name resolution consume that scope. Remove its independent exposure-selection and alias/origin reconstruction. Distinguish alias qualification from class qualification using existing namespace rules.
 - [ ] Run source-range, module-resolution, loader, and structured-diagnostics suites. Add one case only if necessary to distinguish repeated identical spellings at different source locations.
@@ -171,7 +171,7 @@ The table is a dependency order, not a request for parallel agents. Work inline.
 
 ## T03 — Standardize parser control without changing grammar
 
-**Files:** `Parser/Declaration.hs`, `Parser/DeclarationTokens.hs`, `Parser/TokenParser.hs`, `Parser/Failure.hs`, `Parser/Context.hs`, `Parser/Expression.hs`; tests `Parser/{DeclarationParserSpec,ExpressionParserSpec,ModuleImportParserSpec,OperatorInvalidSyntaxSpec,ParserFoundationSpec,TokenParserSpec}.hs`.
+**Files:** `src/Jazz/Compiler/Parser/Declaration.hs`, `src/Jazz/Compiler/Parser/DeclarationTokens.hs`, `src/Jazz/Compiler/Parser/TokenParser.hs`, `src/Jazz/Compiler/Parser/Failure.hs`, `src/Jazz/Compiler/Parser/Context.hs`, `src/Jazz/Compiler/Parser/Expression.hs`; tests `test/Jazz/Compiler/Parser/{DeclarationParserSpec,ExpressionParserSpec,ModuleImportParserSpec,OperatorInvalidSyntaxSpec,ParserFoundationSpec,TokenParserSpec}.hs`.
 
 - [ ] Migrate declaration parsing from manual `TokenStream -> Either ParserFailure` consumption/re-entry to the existing Megaparsec token parser, one declaration family at a time: imports/modules, signatures, then bindings/function heads. Reuse token utilities that only inspect/classify tokens.
 - [ ] Preserve commitment/backtracking behavior, known-alias context, accepted declaration ambiguity, and current diagnostic spans. Do not replace grammar decisions with a new global token preprocessor.
@@ -184,7 +184,7 @@ The table is a dependency order, not a request for parallel agents. Work inline.
 
 ## T04 — Establish declaration identity during resolution
 
-**Files:** New `CoreIdentity.hs`; `AST.hs`, `Name.hs`, `SemanticFacts.hs`, `ModuleResolver/Names.hs`, `RecursiveBindings.hs`, `TypeInference/Analyzed.hs`, `jazz.cabal`; tests `Semantics/NameSemanticsSpec.hs`, `Modules/ModulePipelineContractSpec.hs`, `Semantics/RecursiveBindingsSpec.hs`.
+**Files:** New `src/Jazz/Compiler/CoreIdentity.hs`; `src/Jazz/Compiler/AST.hs`, `src/Jazz/Compiler/Name.hs`, `src/Jazz/Compiler/SemanticFacts.hs`, `src/Jazz/Compiler/ModuleResolver/Names.hs`, `src/Jazz/Compiler/RecursiveBindings.hs`, `src/Jazz/Compiler/TypeInference/Analyzed.hs`, `jazz.cabal`; tests `test/Jazz/Compiler/Semantics/NameSemanticsSpec.hs`, `test/Jazz/Compiler/Modules/ModulePipelineContractSpec.hs`, `test/Jazz/Compiler/Semantics/RecursiveBindingsSpec.hs`.
 
 - [ ] Move early identity primitives out of semantic-output ownership, preserving compatibility re-exports during migration. Make binder identity source-unit-qualified; preserve `ImplId`/`MethodId` ownership distinctions.
 - [ ] Assign IDs from declaration, lambda, pattern, constructor, and method nodes. Handle multiple pattern/constructor binders without collisions. Retain source spelling separately.
@@ -198,7 +198,7 @@ The table is a dependency order, not a request for parallel agents. Work inline.
 
 ## T05 — Publish and consume resolved lexical scope facts
 
-**Files:** `AST.hs`, `RecursiveBindings.hs`, `ModuleResolver/Names.hs`, `Analyzer/UnusedBindings.hs`, `TypeInference/{Scope,Analyzed}.hs`, `Runtime/{ScopePlan,Engine,Types}.hs`; tests `Semantics/RecursiveBindingsSpec.hs`, `Semantics/BindingSignature/RecursionTests.hs`, `Semantics/RebindingWarningSpec.hs`, `Semantics/RuntimeSemanticsSpec.hs` and its component modules.
+**Files:** `src/Jazz/Compiler/AST.hs`, `src/Jazz/Compiler/RecursiveBindings.hs`, `src/Jazz/Compiler/ModuleResolver/Names.hs`, `src/Jazz/Compiler/Analyzer/UnusedBindings.hs`, `src/Jazz/Compiler/TypeInference/{Scope,Analyzed}.hs`, `src/Jazz/Compiler/Runtime/{ScopePlan,Engine,Types}.hs`; tests `test/Jazz/Compiler/Semantics/RecursiveBindingsSpec.hs`, `test/Jazz/Compiler/Semantics/BindingSignature/RecursionTests.hs`, `test/Jazz/Compiler/Semantics/RebindingWarningSpec.hs`, `test/Jazz/Compiler/Semantics/RuntimeSemanticsSpec.hs` and its component modules.
 
 - [ ] Publish ordered binder definitions, recursive-group membership, and lexical capture candidates with each resolved block/lambda. Keep references into existing nodes rather than copying complete subtrees or a full environment per statement.
 - [ ] Keep one ordered visibility algorithm in resolution. A consumer may build a lookup index from published IDs; it must not rerun SCC/name/alias discovery.
@@ -212,7 +212,7 @@ The table is a dependency order, not a request for parallel agents. Work inline.
 
 ## T06 — Unify program construction and retire positional prelude ownership
 
-**Files:** `SourceProgram.hs`, `Prelude.hs`, `Driver.hs`, `ModuleGraph.hs`, `ModuleCompiler.hs`, `ModuleAnalysis.hs`, `SourceUnitOwnership.hs`, `TypeInference.hs`, `Runtime/{Request,ScopePlan}.hs`; tests `Modules/PreludeLoadingSpec.hs`, `Modules/ModulePipelineContractSpec.hs`, `Modules/LoaderSpec.hs`, and `test/Jazz/CLI/CLISpec.hs` registered as `cli-spec`.
+**Files:** `src/Jazz/Compiler/SourceProgram.hs`, `src/Jazz/Compiler/Prelude.hs`, `src/Jazz/Compiler/Driver.hs`, `src/Jazz/Compiler/ModuleGraph.hs`, `src/Jazz/Compiler/ModuleCompiler.hs`, `src/Jazz/Compiler/ModuleAnalysis.hs`, `src/Jazz/Compiler/SourceUnitOwnership.hs`, `src/Jazz/Compiler/TypeInference.hs`, `src/Jazz/Compiler/Runtime/{Request,ScopePlan}.hs`; tests `test/Jazz/Compiler/Modules/PreludeLoadingSpec.hs`, `test/Jazz/Compiler/Modules/ModulePipelineContractSpec.hs`, `test/Jazz/Compiler/Modules/LoaderSpec.hs`, and `test/Jazz/CLI/CLISpec.hs` registered as `cli-spec`.
 
 - [ ] Wrap standalone source in a synthetic source unit using the existing standalone identity. Keep its standalone owner category even though it enters the same program coordinator.
 - [ ] Build/resolve the prelude as a separate artifact for both standalone and module inputs. Preserve bundled, explicit, disabled, and custom resolved-prelude options, including current name precedence and warnings.
@@ -226,7 +226,7 @@ The table is a dependency order, not a request for parallel agents. Work inline.
 
 ## T07 — Normalize declaration semantics once
 
-**Files:** New `SemanticDeclarations.hs`; `TypeRepresentation.hs`, `TypeInference/{Types,Signature,Capabilities,ImplChecking,Analyzed}.hs`, `CapabilityFacts.hs`, `ModuleInterface.hs`, `Runtime/{Semantics,Types}.hs`; tests `Semantics/BindingSignature/`, `Semantics/AdtPatternTypeSpec.hs`, `Diagnostics/SignatureRenderingSpec.hs`, `Modules/Loader/CapabilitiesTests.hs`.
+**Files:** New `src/Jazz/Compiler/SemanticDeclarations.hs`; `src/Jazz/Compiler/TypeRepresentation.hs`, `src/Jazz/Compiler/TypeInference/{Types,Signature,Capabilities,ImplChecking,Analyzed}.hs`, `src/Jazz/Compiler/CapabilityFacts.hs`, `src/Jazz/Compiler/ModuleInterface.hs`, `src/Jazz/Compiler/Runtime/{Semantics,Types}.hs`; tests `test/Jazz/Compiler/Semantics/BindingSignature/`, `test/Jazz/Compiler/Semantics/AdtPatternTypeSpec.hs`, `test/Jazz/Compiler/Diagnostics/SignatureRenderingSpec.hs`, `test/Jazz/Compiler/Modules/Loader/CapabilitiesTests.hs`.
 
 - [ ] Move interface-consumable schemes, constructor templates, class method types, and implementation descriptions into an inference-independent semantic owner. Reuse `SemanticType`; do not add a second semantic type algebra or replace identical type aliases just to reduce names.
 - [ ] Convert authored signatures once after name resolution with an explicit binder environment, preserving quantified-variable order, class-parameter identity, numeric constraints, and source locations for failures.
@@ -241,7 +241,7 @@ The table is a dependency order, not a request for parallel agents. Work inline.
 
 ## T08 — Publish complete semantic module interfaces
 
-**Files:** `ModuleInterface.hs`, `ModuleAnalysis.hs`, `ModuleCompiler.hs`, `ModuleExports.hs`, `ModuleResolver/{Imports,Names}.hs`, `TypeInference/{Result,State,Evidence}.hs`, `ModuleRuntime.hs`; tests `Modules/{ModulePipelineContractSpec,ModuleExportsSpec,ModuleResolutionSpec}.hs`, `Modules/Loader/{VisibilityTests,CapabilitiesTests,AliasClassTests}.hs`.
+**Files:** `src/Jazz/Compiler/ModuleInterface.hs`, `src/Jazz/Compiler/ModuleAnalysis.hs`, `src/Jazz/Compiler/ModuleCompiler.hs`, `src/Jazz/Compiler/ModuleExports.hs`, `src/Jazz/Compiler/ModuleResolver/{Imports,Names}.hs`, `src/Jazz/Compiler/TypeInference/{Result,State,Evidence}.hs`, `src/Jazz/Compiler/ModuleRuntime.hs`; tests `test/Jazz/Compiler/Modules/{ModulePipelineContractSpec,ModuleExportsSpec,ModuleResolutionSpec}.hs`, `test/Jazz/Compiler/Modules/Loader/{VisibilityTests,CapabilitiesTests,AliasClassTests}.hs`.
 
 - [ ] Define the successful module interface as exported semantic declarations plus stable binder/evidence identities. Keep private checking/runtime metadata owned by the module. Public projection is explicit and namespace-aware.
 - [ ] Include evidence produced/registered during checking in the exported interface. Remove the publication-time dependency-body scan and separate binder inventory argument.
@@ -256,7 +256,7 @@ The table is a dependency order, not a request for parallel agents. Work inline.
 
 ## T09 — Make inference speculation and diagnostic ownership explicit
 
-**Files:** `TypeInference.hs`, `TypeInference/{State,Scope,Pattern,Capabilities,ImplChecking,Result}.hs`, `Analyzer.hs`, `ModuleAnalysis.hs`; tests `Semantics/BindingSignature/{InferenceOwnershipTests,RecursionTests,DiagnosticsTests,GeneralizationTests}.hs`, `Semantics/{PatternSemanticsSpec,PatternCoverageSpec}.hs`, `Diagnostics/StructuredErrorDiagnosticsSpec.hs`.
+**Files:** `src/Jazz/Compiler/TypeInference.hs`, `src/Jazz/Compiler/TypeInference/{State,Scope,Pattern,Capabilities,ImplChecking,Result}.hs`, `src/Jazz/Compiler/Analyzer.hs`, `src/Jazz/Compiler/ModuleAnalysis.hs`; tests `test/Jazz/Compiler/Semantics/BindingSignature/{InferenceOwnershipTests,RecursionTests,DiagnosticsTests,GeneralizationTests}.hs`, `test/Jazz/Compiler/Semantics/{PatternSemanticsSpec,PatternCoverageSpec}.hs`, `test/Jazz/Compiler/Diagnostics/StructuredErrorDiagnosticsSpec.hs`.
 
 - [ ] Implement named preview and rejected-pattern operations with the distinct retention rules above. Replace field-by-field restoration at those call sites; keep lexical declaration restoration separately named.
 - [ ] Limit helper inputs to owned domains where this removes an actual cross-domain read/write. Retain the existing explicit state style where clear; do not rewrite the whole checker into a new monad stack.
@@ -270,7 +270,7 @@ The table is a dependency order, not a request for parallel agents. Work inline.
 
 ## T10 — Construct checked subtrees during checking
 
-**Files:** `TypeInference.hs`, `TypeInference/{State,Result,Analyzed,Scope,Pattern,Traversal,Instantiation,Evidence}.hs`, `AST.hs`, `SemanticFacts.hs`, `ModuleAnalysis.hs`; tests `Modules/ModulePipelineContractSpec.hs`, `Semantics/{BindingSignatureCoherenceSpec,AdtPatternTypeSpec,PatternCoverageSpec}.hs`.
+**Files:** `src/Jazz/Compiler/TypeInference.hs`, `src/Jazz/Compiler/TypeInference/{State,Result,Analyzed,Scope,Pattern,Traversal,Instantiation,Evidence}.hs`, `src/Jazz/Compiler/AST.hs`, `src/Jazz/Compiler/SemanticFacts.hs`, `src/Jazz/Compiler/ModuleAnalysis.hs`; tests `test/Jazz/Compiler/Modules/ModulePipelineContractSpec.hs`, `test/Jazz/Compiler/Semantics/{BindingSignatureCoherenceSpec,AdtPatternTypeSpec,PatternCoverageSpec}.hs`.
 
 - [ ] Change the expression-checking result to return the checked/draft subtree together with its type and state. Pattern/statement results likewise own their semantic payload. Keep draft types private to inference.
 - [ ] Migrate literals/references/applications first, then lambdas/pattern cases, then declarations/blocks/recursive groups. Temporary compatibility attachment is allowed only for unmigrated constructors and is removed before task completion.
@@ -286,7 +286,7 @@ The table is a dependency order, not a request for parallel agents. Work inline.
 
 ## T11a — Execute analyzed instantiation and representation facts directly
 
-**Files:** `SemanticFacts.hs`, `AST.hs`, `TypeInference/{Analyzed,Instantiation}.hs`, `Runtime/{Engine,Semantics,Types}.hs`; tests `Modules/ModulePipelineContractSpec.hs`, `Semantics/PrimitiveSemantics/`, `Semantics/BindingSignature/`, `Runtime/Observation/`.
+**Files:** `src/Jazz/Compiler/SemanticFacts.hs`, `src/Jazz/Compiler/AST.hs`, `src/Jazz/Compiler/TypeInference/{Analyzed,Instantiation}.hs`, `src/Jazz/Compiler/Runtime/{Engine,Semantics,Types}.hs`; tests `test/Jazz/Compiler/Modules/ModulePipelineContractSpec.hs`, `test/Jazz/Compiler/Semantics/PrimitiveSemantics/`, `test/Jazz/Compiler/Semantics/BindingSignature/`, `test/Jazz/Compiler/Runtime/Observation/`.
 
 - [ ] Record the approved narrow amendment of RFC 0016's runtime-plan retention decision through the repository's RFC process. Preserve its backend-removal and hosted-frontend boundaries. If that change is not approved, retain `RuntimePlan` and mark the removal work deferred; the other ownership tasks remain valid.
 - [ ] Represent checked explicit instantiation with its target kind and ordered arguments, including qualified methods that have no ordinary lexical binder. Consolidate the existing instantiation metadata instead of adding an equivalent second record.
@@ -301,7 +301,7 @@ The table is a dependency order, not a request for parallel agents. Work inline.
 
 ## T11b — Use selected method identity for concrete evidence
 
-**Files:** `Runtime/{Engine,Semantics,Types}.hs`, `TypeInference/{Capabilities,Evidence,Instantiation}.hs`, `ModuleInterface.hs`; tests `Modules/Loader/CapabilitiesTests.hs`, `Modules/Loader/AliasClassTests.hs`, `Semantics/BindingSignature/ConstraintsTests.hs`, `Semantics/PrimitiveSemantics/`.
+**Files:** `src/Jazz/Compiler/Runtime/{Engine,Semantics,Types}.hs`, `src/Jazz/Compiler/TypeInference/{Capabilities,Evidence,Instantiation}.hs`, `src/Jazz/Compiler/ModuleInterface.hs`; tests `test/Jazz/Compiler/Modules/Loader/CapabilitiesTests.hs`, `test/Jazz/Compiler/Modules/Loader/AliasClassTests.hs`, `test/Jazz/Compiler/Semantics/BindingSignature/ConstraintsTests.hs`, `test/Jazz/Compiler/Semantics/PrimitiveSemantics/`.
 
 - [ ] Index runtime implementation methods by the already-published `ImplId`/`MethodId`. For statically selected evidence, resolve that method directly instead of filtering a string-keyed candidate set and repeating identity normalization.
 - [ ] Preserve captured arguments and type annotations around partial methods. Validate the evidence target/type consistency at the analyzed/runtime boundary.
@@ -314,7 +314,7 @@ The table is a dependency order, not a request for parallel agents. Work inline.
 
 ## T11c — Normalize operator syntax where it removes duplicated handling
 
-**Files:** `AST.hs`, `ModuleResolver/Names.hs`, `TypeInference/{Operator,Traversal}.hs`, `Runtime/{Engine,Semantics}.hs`, `SemanticFacts.hs`; tests `Semantics/CoreNormalizationSpec.hs`, `Parser/{OperatorFixitySpec,OperatorSectionSpec}.hs`, `Semantics/PrimitiveSemantics/EqualityOperator.hs`, `Modules/Loader/OperatorsTests.hs`.
+**Files:** `src/Jazz/Compiler/AST.hs`, `src/Jazz/Compiler/ModuleResolver/Names.hs`, `src/Jazz/Compiler/TypeInference/{Operator,Traversal}.hs`, `src/Jazz/Compiler/Runtime/{Engine,Semantics}.hs`, `src/Jazz/Compiler/SemanticFacts.hs`; tests `test/Jazz/Compiler/Semantics/CoreNormalizationSpec.hs`, `test/Jazz/Compiler/Parser/{OperatorFixitySpec,OperatorSectionSpec}.hs`, `test/Jazz/Compiler/Semantics/PrimitiveSemantics/EqualityOperator.hs`, `test/Jazz/Compiler/Modules/Loader/OperatorsTests.hs`.
 
 - [ ] Normalize sections/operator values to resolved callable references and applications/lambdas once binding identity is known, within resolution before its final scope facts are published. Preserve generated binder freshness and source spans. Keep the parser's canonical `Lowered` representation unchanged so hosted structural parity remains meaningful.
 - [ ] Lower binary surface forms only where equivalent application semantics preserve short-circuiting, laziness, declared operator behavior, and operand promotion. Retain a dedicated checked primitive operation when evaluation semantics require it.
@@ -327,7 +327,7 @@ The table is a dependency order, not a request for parallel agents. Work inline.
 
 ## T12 — Share the module execution traversal
 
-**Files:** `ModuleRuntime.hs`, `Runtime.hs`, `Runtime/HostEvaluation.hs`, `RuntimeHost.hs`; tests `Modules/ModulePipelineContractSpec.hs`, `Modules/PreludeLoadingSpec.hs`, `Runtime/OutcomeTests.hs`, `test/Jazz/CLI/CLISpec.hs`.
+**Files:** `src/Jazz/Compiler/ModuleRuntime.hs`, `src/Jazz/Compiler/Runtime.hs`, `src/Jazz/Compiler/Runtime/HostEvaluation.hs`, `src/Jazz/Compiler/RuntimeHost.hs`; tests `test/Jazz/Compiler/Modules/ModulePipelineContractSpec.hs`, `test/Jazz/Compiler/Modules/PreludeLoadingSpec.hs`, `test/Jazz/Compiler/Runtime/OutcomeTests.hs`, `test/Jazz/CLI/CLISpec.hs`.
 
 - [ ] Extract one dependency-order program traversal that chooses entry/dependency mode, prepares imported environments, evaluates modules, publishes exports, and accumulates the terminal result.
 - [ ] Parameterize it only by the existing evaluation/host capability needed by pure and host callers. Keep the shared expression machine. Avoid a generic compiler-pass or plugin interface.
@@ -340,7 +340,7 @@ The table is a dependency order, not a request for parallel agents. Work inline.
 
 ## T13 — Consolidate scope execution, then choose cell storage from measurements
 
-**Files:** `Runtime/{Engine,ScopePlan,Types,Request,HostEvaluation}.hs`, `ModuleRuntime.hs`; tests `Semantics/{RuntimeSemanticsSpec,RecursiveBindingsSpec,PuritySemanticsSpec}.hs`, `Runtime/Observation/{StatisticsTests,ProfileTests}.hs`, `Modules/ModulePipelineContractSpec.hs`; existing runtime/scale benchmark cases.
+**Files:** `src/Jazz/Compiler/Runtime/{Engine,ScopePlan,Types,Request,HostEvaluation}.hs`, `src/Jazz/Compiler/ModuleRuntime.hs`; tests `test/Jazz/Compiler/Semantics/{RuntimeSemanticsSpec,RecursiveBindingsSpec,PuritySemanticsSpec}.hs`, `test/Jazz/Compiler/Runtime/Observation/{StatisticsTests,ProfileTests}.hs`, `test/Jazz/Compiler/Modules/ModulePipelineContractSpec.hs`; existing runtime/scale benchmark cases.
 
 - [ ] Make one scope traversal consume T05's resolved groups/IDs and preserve sequential expression execution, definition-site environments, recursive initialization, and lazy forcing.
 - [ ] Initially preserve the current lazy pure cells and explicit host deferred cells as small storage operations under that traversal. This isolates lexical-rule consolidation from a storage/performance change.
@@ -357,7 +357,7 @@ The table is a dependency order, not a request for parallel agents. Work inline.
 
 ## T14 — Remove obsolete adapters and make phase ownership navigable
 
-**Files:** `Driver.hs`, `ModuleGraph.hs`, `ModuleCompiler.hs`, `ModuleAnalysis.hs`, `ModuleRuntime.hs`, `TypeInference/{Result,State,Analyzed}.hs`, `Runtime/{Request,Outcome,Observation}.hs`, `src/Jazz/CLI/Main.hs`, `jazz.cabal`; affected tests and the compiler stage documentation.
+**Files:** `src/Jazz/Compiler/Driver.hs`, `src/Jazz/Compiler/ModuleGraph.hs`, `src/Jazz/Compiler/ModuleCompiler.hs`, `src/Jazz/Compiler/ModuleAnalysis.hs`, `src/Jazz/Compiler/ModuleRuntime.hs`, `src/Jazz/Compiler/TypeInference/{Result,State,Analyzed}.hs`, `src/Jazz/Compiler/Runtime/{Request,Outcome,Observation}.hs`, `src/Jazz/CLI/Main.hs`, `jazz.cabal`; affected tests and the compiler stage documentation.
 
 - [ ] Move analyzed-program diagnostic queries out of `ModuleCompiler` into the analyzed graph/artifact owner. Remove the runtime's import of the compiler coordinator.
 - [ ] Keep artifact-local diagnostics and an ordered failure-capable compilation result. Deduplicate projection/assembly code where present; do not lose diagnostics because a failed module has no analyzed artifact.
