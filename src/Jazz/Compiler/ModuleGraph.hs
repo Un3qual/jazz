@@ -13,6 +13,7 @@
 -- | Phase-indexed module and whole-program carriers.
 module Jazz.Compiler.ModuleGraph
   ( AnalyzedModuleFacts (..),
+    analyzedModuleDiagnostics,
     CoreModule (..),
     CoreProgram,
     DeclaredImportExposure (..),
@@ -56,7 +57,7 @@ import Jazz.Compiler.AST
     FactsAt,
     Statement,
   )
-import Jazz.Compiler.Diagnostics (Diagnostic, SourceSpan)
+import Jazz.Compiler.Diagnostics (CompilationDiagnostics, Diagnostic, SourceSpan, compilationDiagnostics)
 import Jazz.Compiler.ModuleExports
   ( ModuleExportInventory,
     ModuleExportSelector,
@@ -127,10 +128,13 @@ data AnalyzedModuleFacts = AnalyzedModuleFacts
   { analyzedModuleExports :: ModuleExportInventory,
     analyzedModuleExportSelectors :: Maybe [ModuleExportSelector],
     analyzedModuleInterface :: ModuleInterface,
-    analyzedModuleDiagnostics :: [Diagnostic]
+    analyzedModuleDiagnosticGroups :: CompilationDiagnostics
   }
   deriving stock (Eq, Generic, Show)
   deriving anyclass (NFData)
+
+analyzedModuleDiagnostics :: AnalyzedModuleFacts -> [Diagnostic]
+analyzedModuleDiagnostics = compilationDiagnostics . analyzedModuleDiagnosticGroups
 
 type family ModuleFactsAt (phase :: CorePhase) :: Type where
   ModuleFactsAt 'Lowered = DeclaredModuleFacts

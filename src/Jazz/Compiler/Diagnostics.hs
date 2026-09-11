@@ -7,7 +7,9 @@
 -- layers. Raw construction stays private so native errors and configurable
 -- warnings cannot be assembled in contradictory states.
 module Jazz.Compiler.Diagnostics
-  ( Diagnostic,
+  ( CompilationDiagnostics (..),
+    compilationDiagnostics,
+    Diagnostic,
     DiagnosticLabel,
     DiagnosticContext (..),
     appendDiagnosticContext,
@@ -118,6 +120,30 @@ data Diagnostic = Diagnostic
   }
   deriving stock (Eq, Generic, Ord, Show)
   deriving anyclass (NFData)
+
+-- | Keep diagnostic phases separate until the coordinator combines source
+-- artifacts. Coverage is meaningful only when all preceding phases succeed.
+data CompilationDiagnostics = CompilationDiagnostics
+  { compilationWarnings :: [Diagnostic],
+    compilationAnalysisErrors :: [Diagnostic],
+    compilationTypeErrors :: [Diagnostic],
+    compilationCoverageErrors :: [Diagnostic]
+  }
+  deriving stock (Eq, Generic, Show)
+  deriving anyclass (NFData)
+
+instance Semigroup CompilationDiagnostics where
+  CompilationDiagnostics w a t c <> CompilationDiagnostics w' a' t' c' =
+    CompilationDiagnostics (w <> w') (a <> a') (t <> t') (c <> c')
+
+instance Monoid CompilationDiagnostics where
+  mempty = CompilationDiagnostics [] [] [] []
+
+compilationDiagnostics :: CompilationDiagnostics -> [Diagnostic]
+compilationDiagnostics groups =
+  base <> [diagnostic | not (any isErrorDiagnostic base), diagnostic <- compilationCoverageErrors groups]
+  where
+    base = sortWarnings (compilationWarnings groups) <> compilationAnalysisErrors groups <> compilationTypeErrors groups
 
 mkErrorDiagnostic :: ErrorCode -> DiagnosticOrigin -> Text -> Diagnostic
 mkErrorDiagnostic code origin summary =

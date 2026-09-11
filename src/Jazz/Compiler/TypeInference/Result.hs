@@ -10,21 +10,25 @@
 -- orchestration module.
 module Jazz.Compiler.TypeInference.Result
   ( InferenceResult (..),
+    inferredDiagnostics,
   )
 where
 
 import Control.DeepSeq (NFData)
 import GHC.Generics (Generic)
 import Jazz.Compiler.AST (CorePhase (Resolved), Expr)
-import Jazz.Compiler.Diagnostics (Diagnostic)
+import Jazz.Compiler.Diagnostics (CompilationDiagnostics, Diagnostic, compilationDiagnostics)
 import Jazz.Compiler.ModuleInterface (ModuleInterface)
 
 -- | The canonicalized expression and the ordered diagnostics and metadata
 -- produced while inferring it.
 data InferenceResult = InferenceResult
   { inferredExpr :: Expr 'Resolved,
-    inferredDiagnostics :: [Diagnostic],
+    inferredDiagnosticGroups :: CompilationDiagnostics,
     inferredModuleInterface :: ModuleInterface
   }
   deriving stock (Eq, Generic, Show)
   deriving anyclass (NFData)
+
+inferredDiagnostics :: InferenceResult -> [Diagnostic]
+inferredDiagnostics = compilationDiagnostics . inferredDiagnosticGroups

@@ -7,6 +7,7 @@
 module Jazz.Compiler.TypeInference
   ( InferenceInputs (..),
     InferenceResult (..),
+    inferredDiagnostics,
     analyzeResolvedExpression,
     inferExpressionWithInputs,
     analyzeExpressionWithInputs,
@@ -14,10 +15,11 @@ module Jazz.Compiler.TypeInference
   )
 where
 
-import Data.List (sortOn)
+import Data.List (partition, sortOn)
 import qualified Data.List.NonEmpty as NonEmpty
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
+import Data.Maybe (isJust)
 import Data.Set (Set)
 import qualified Data.Set as Set
 import Data.Text (Text)
@@ -52,8 +54,10 @@ import Jazz.Compiler.BuiltinCatalog
   )
 import Jazz.Compiler.CoreIdentity (CoreBinderId, ResolvedNodeFacts (..), ResolvedReference (..), resolvedValueReference)
 import Jazz.Compiler.Diagnostics
-  ( Diagnostic,
+  ( CompilationDiagnostics (..),
+    Diagnostic,
     SourceSpan,
+    diagnosticWarningCategory,
     isErrorDiagnostic,
   )
 import Jazz.Compiler.Diagnostics.Strictness (forceDiagnostic)
@@ -120,7 +124,7 @@ import Jazz.Compiler.TypeInference.Operator
 import Jazz.Compiler.TypeInference.Pattern
   ( inferPatternCaseType,
   )
-import Jazz.Compiler.TypeInference.Result (InferenceResult (..))
+import Jazz.Compiler.TypeInference.Result (InferenceResult (..), inferredDiagnostics)
 import Jazz.Compiler.TypeInference.Scope
   ( inferExplicitTypeApplication,
     inferNestedScopeTypeWithMode,
@@ -387,17 +391,14 @@ finishInference mode inputs hideRootBindings subject inferredResult forwardBindi
           (analysisInputsForInference inputs (forwardAnalysisValues mode forwardBindings))
           hideRootBindings
           expr
-  let baseDiagnostics = analyzerDiagnostics <> finalizedTypeErrors finalizedInference
-      coverageDiagnostics
-        | any isErrorDiagnostic baseDiagnostics = []
-        | otherwise = finalizedPatternCoverageDiagnostics finalizedInference
-      diagnostics = baseDiagnostics <> coverageDiagnostics
+  let (warnings, analysisErrors) = partition (isJust . diagnosticWarningCategory) analyzerDiagnostics
+      diagnostics = CompilationDiagnostics warnings analysisErrors (finalizedTypeErrors finalizedInference) (finalizedPatternCoverageDiagnostics finalizedInference)
   expression `seq`
     inferredResult `seq`
       pure
         InferenceResult
           { inferredExpr = expression,
-            inferredDiagnostics = diagnostics,
+            inferredDiagnosticGroups = diagnostics,
             inferredModuleInterface = finalizedModuleInterface finalizedInference
           }
 

@@ -52,8 +52,8 @@ import Jazz.Compiler.StableSet
   )
 import Jazz.Compiler.TypeInference
   ( InferenceInputs (..),
-    InferenceResult (inferredDiagnostics),
     inferExpressionWithInputs,
+    inferredDiagnostics,
   )
 import Jazz.Compiler.TypeInference.Types
   ( ClassMethodType (ClassMethodType),

@@ -58,7 +58,7 @@ import Jazz.Compiler.TypeInference
   ( InferenceInputs (..),
     inferExpressionWithInputs,
   )
-import Jazz.Compiler.TypeInference.Result (InferenceResult (..))
+import Jazz.Compiler.TypeInference.Result (inferredDiagnostics)
 import Jazz.Compiler.TypeInference.Types
   ( ConstructorArgumentType (..),
     DataTypeBinding (..),

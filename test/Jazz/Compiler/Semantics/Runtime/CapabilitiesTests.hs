@@ -65,7 +65,7 @@ import Jazz.Compiler.SourceProgram (parseAndLowerStandaloneSource)
 import Jazz.Compiler.TypeInference
   ( analyzeResolvedExpression,
   )
-import Jazz.Compiler.TypeInference.Result (InferenceResult (..))
+import Jazz.Compiler.TypeInference.Result (inferredDiagnostics)
 import Jazz.Compiler.TypeRepresentation
   ( SemanticType (..),
     SignaturePayload (..),

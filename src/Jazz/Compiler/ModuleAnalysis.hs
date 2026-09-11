@@ -176,7 +176,7 @@ analyzedModuleFromExpression resolvedModule inference moduleStatementFacts analy
                   { ModuleGraph.analyzedModuleExports = ModuleGraph.resolvedModuleExports (coreModuleFacts resolvedModule),
                     ModuleGraph.analyzedModuleExportSelectors = ModuleGraph.resolvedModuleExportSelectors (coreModuleFacts resolvedModule),
                     ModuleGraph.analyzedModuleInterface = moduleInterface,
-                    ModuleGraph.analyzedModuleDiagnostics = inferredDiagnostics inference
+                    ModuleGraph.analyzedModuleDiagnosticGroups = inferredDiagnosticGroups inference
                   }
             }
         )

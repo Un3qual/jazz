@@ -82,6 +82,7 @@ import Jazz.Compiler.ModuleGraph
     ModuleImport (..),
     PreludeArtifact (..),
     ResolvedModuleFacts (..),
+    analyzedModuleDiagnostics,
     coreModuleBodyNode,
     coreModuleExpr,
     coreModuleFacts,
@@ -168,7 +169,7 @@ import Jazz.Compiler.SemanticFacts
   )
 import Jazz.Compiler.SourceProgram (parseAndLowerStandaloneSource)
 import Jazz.Compiler.TypeInference.Analyzed (attachAnalyzedExpression, projectAnalyzedMethodSignature)
-import Jazz.Compiler.TypeInference.Result (InferenceResult (..))
+import Jazz.Compiler.TypeInference.Result (inferredDiagnostics)
 import Jazz.Compiler.TypeInference.Solver (freshIntegerLiteralType)
 import Jazz.Compiler.TypeInference.State
   ( ExplicitInstantiationSeed (..),

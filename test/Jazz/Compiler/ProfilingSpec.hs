@@ -231,7 +231,7 @@ testDeepModuleInterfaceForcing =
       let inference =
             InferenceResult
               { inferredExpr = resolvedZero,
-                inferredDiagnostics = [],
+                inferredDiagnosticGroups = mempty,
                 inferredModuleInterface = interface
               }
       assertForcesMarker (label <> " payload") marker (evaluate (forceInferenceResult inference))

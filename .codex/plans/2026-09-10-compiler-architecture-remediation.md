@@ -1,5 +1,5 @@
 ---
-id: JN-COMPILER-PROGRAM-OWNERSHIP-001
+id: JN-COMPILER-SEMANTIC-DECLARATIONS-001
 status: ready
 priority: P1
 size: L
@@ -7,14 +7,14 @@ kind: impl
 autonomous_ready: yes
 depends_on: []
 last_verified: 2026-09-11
-plan_section: "T06 — Unify program construction and retire positional prelude ownership"
+plan_section: "T07 — Normalize declaration semantics once"
 target_paths:
-  - src/Jazz/Compiler/Driver.hs
-  - src/Jazz/Compiler/ModuleCompiler.hs
+  - src/Jazz/Compiler/TypeInference/Types.hs
+  - src/Jazz/Compiler/TypeInference/Signature.hs
 verification:
-  - cabal test prelude-loading-spec loader-spec module-pipeline-contract-spec cli-spec rebinding-warning-spec structured-error-diagnostics-spec --test-show-details=failures --jobs=4
+  - cabal test binding-signature-coherence-spec adt-pattern-type-spec loader-spec signature-rendering-spec primitive-semantics-spec module-pipeline-contract-spec --test-show-details=failures --jobs=4
   - bash scripts/check-execution-queue.sh
-deliverable: Route standalone and module inputs through one program coordinator and remove positional prelude ownership.
+deliverable: Normalize semantic declarations and close exported schemes over module-stable identities.
 supersedes: []
 ---
 
@@ -30,7 +30,7 @@ supersedes: []
 
 **Spec:** [Validated audit findings](2026-09-10-compiler-architecture-validation.md), together with the target contracts and preservation rules below. The report preserves the disposition of all three input audits. The two Luna drafts were withdrawn after validation; their rejected or qualified recommendations are not implementation guidance.
 
-**Status:** Execution requested on 2026-09-11. T06 is the active bounded milestone in the execution queue. Execute the remaining tasks inline in dependency order; promote the next milestone when its prerequisites pass.
+**Status:** Execution requested on 2026-09-11. T07 is the active bounded milestone in the execution queue. Execute the remaining tasks inline in dependency order; promote the next milestone when its prerequisites pass.
 
 **Existing architecture decision:** [RFC 0016](../../rfcs/accepted/0016-optional-backend-removal.md) explicitly says to keep “attached analysis facts, and runtime plans.” Direct construction still retains attached facts, but T11a proposes changing the retained runtime-plan contract. Approval of this plan should therefore include that specific architectural decision and a narrow amendment through the repository's RFC process before removal. This is a dependency of T11a, not a reason to block unrelated tasks or ask for another confirmation while preparing this plan. If runtime plans are to remain, retain the small sequence and pursue direct identity/ownership improvements around it; do not claim its deletion completed.
 
@@ -236,13 +236,13 @@ The table is a dependency order, not a request for parallel agents. Work inline.
 
 **Files:** `src/Jazz/Compiler/SourceProgram.hs`, `src/Jazz/Compiler/Prelude.hs`, `src/Jazz/Compiler/Driver.hs`, `src/Jazz/Compiler/ModuleGraph.hs`, `src/Jazz/Compiler/ModuleCompiler.hs`, `src/Jazz/Compiler/ModuleAnalysis.hs`, `src/Jazz/Compiler/SourceUnitOwnership.hs`, `src/Jazz/Compiler/TypeInference.hs`, `src/Jazz/Compiler/Runtime/{Request,ScopePlan}.hs`; tests `test/Jazz/Compiler/Modules/PreludeLoadingSpec.hs`, `test/Jazz/Compiler/Modules/ModulePipelineContractSpec.hs`, `test/Jazz/Compiler/Modules/LoaderSpec.hs`, and `test/Jazz/CLI/CLISpec.hs` registered as `cli-spec`.
 
-- [ ] Wrap standalone source in a synthetic source unit using the existing standalone identity. Keep its standalone owner category even though it enters the same program coordinator.
-- [ ] Build/resolve the prelude as a separate artifact for both standalone and module inputs. Preserve bundled, explicit, disabled, and custom resolved-prelude options, including current name precedence and warnings.
-- [ ] Route standalone compile/run entrypoints through the graph analysis/evaluation path. Adapt the optional terminal value/result at the driver boundary.
-- [ ] Retire prepending/reindexing for prelude composition. Remove hidden/prelude statement-index sets from analysis and runtime requests; derive visibility/warning policy from the artifact/source owner instead.
-- [ ] Remove `InjectedPreludeSourceUnit` once no production path constructs it. Retain `PreludeSourceUnit`, `StandaloneSourceUnit`, and `NamedSourceUnit`; distinguish semantic identity from display paths.
-- [ ] Run prelude, loader, module-pipeline, CLI, warning, and structured-diagnostics suites. Explicitly compare custom-prelude nominal types/implementations, rebinding, source paths, terminal values, dependency expression suppression, and effectful prelude behavior as currently accepted.
-- [ ] Commit route migration, then removal of the positional protocol.
+- [x] Wrap standalone source in a synthetic source unit using the existing standalone identity. Keep its standalone owner category even though it enters the same program coordinator.
+- [x] Build/resolve the prelude as a separate artifact for both standalone and module inputs. Preserve bundled, explicit, disabled, and custom resolved-prelude options, including current name precedence and warnings.
+- [x] Route standalone compile/run entrypoints through the graph analysis/evaluation path. Adapt the optional terminal value/result at the driver boundary.
+- [x] Retire prepending/reindexing for prelude composition. Remove hidden/prelude statement-index sets from analysis and runtime requests; derive visibility/warning policy from the artifact/source owner instead.
+- [x] Remove `InjectedPreludeSourceUnit` once no production path constructs it. Retain `PreludeSourceUnit`, `StandaloneSourceUnit`, and `NamedSourceUnit`; distinguish semantic identity from display paths.
+- [x] Run prelude, loader, module-pipeline, CLI, warning, and structured-diagnostics suites. Explicitly compare custom-prelude nominal types/implementations, rebinding, source paths, terminal values, dependency expression suppression, and effectful prelude behavior as currently accepted.
+- [x] Commit route migration, then removal of the positional protocol.
 
 **Deletion criterion:** One analyzed program path and one owner-based prelude policy; no execution request needs a set of injected-statement indexes. Removing list concatenation alone does not count.
 
@@ -592,3 +592,6 @@ Documentation verification at plan completion checks local evidence targets/line
 - Deleted `InjectedPreludeSourceUnit`, the source-unit ownership/index folds, resolver statement-owner maps, and the positional inference entrypoint. Resolved declaration facts now own implementation evidence IDs. Bundled-prelude warning visibility is chosen from the artifact identity and passed as a root-binding policy; no hidden/prelude statement-index sets remain in compiler requests.
 - Runtime, names, module pipeline, loader, binding/signature, prelude, rebinding-warning, CLI, and structured-diagnostic correctness suites pass (`/private/tmp/jazz-architecture-t06-artifact-warning-policy.log`, `...-final-boundaries.log`). All application/test targets compile: the broad compile found an old benchmark-stage API caller and synthetic node fixture, both adapted and compiled separately (`...-all-targets-build.log`, `...-stage-adapter-build.log`). No benchmark/performance tests were executed. HLint/Ormolu/whitespace checks pass.
 - Final T06 boundary still in progress: preserve cross-artifact diagnostic phase ordering, including independent source errors after prelude checking failures. The latter now has a passing regression case; phase grouping is the next slice.
+
+- T06 complete: compilation diagnostics retain warnings, scope errors, type errors, and coverage errors separately until the coordinator combines artifacts. Standalone prelude/source diagnostics preserve their previous phase order and coverage suppression; named graph ordering remains artifact-local. Added a cross-artifact scope/type error case to the existing prelude-failure test.
+- Final focused correctness verification: prelude, module pipeline, rebinding, structured diagnostics, and binding/signature coherence pass. Earlier T06 runs also passed loader, CLI, name semantics, and runtime correctness with performance disabled. All test targets compile, including compile-only observation/profiling/harness compatibility updates. No performance tests ran. Final logs: `/private/tmp/jazz-architecture-t06-diagnostic-order-prelude.log`, `/private/tmp/jazz-architecture-t06-diagnostic-phases-pipeline.log`, `/private/tmp/jazz-architecture-t06-diagnostic-phases.log` (three suites pass; the two build-only import/name warnings were fixed and verified in the final reruns). HLint and diff whitespace checks pass.
