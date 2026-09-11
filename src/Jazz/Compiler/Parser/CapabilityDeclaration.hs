@@ -30,6 +30,7 @@ import Jazz.Compiler.Parser.AST
   ( SurfaceClassMethodSignature (..),
     SurfaceExpr,
     SurfaceImplMethod (..),
+    SurfaceName (..),
     SurfaceSignatureType,
     SurfaceStatement (..),
   )
@@ -135,7 +136,7 @@ parseCapabilityDeclaration parseImplExpression declarationKind declarationToken 
       remaining <- consumeDot afterBody
       case capabilityBody of
         CapabilityClassBody methodSignatures ->
-          Right (SSClass (tokenSpan declarationToken) capabilityName classParameters methodSignatures, remaining)
+          Right (SSClass (tokenSpan declarationToken) (surfaceNameIdentifier capabilityName) classParameters methodSignatures, remaining)
         CapabilityImplBody {} ->
           rejectReservedAbstractionSyntax declarationToken
     "impl" -> do
@@ -156,7 +157,7 @@ parseCapabilityDeclaration parseImplExpression declarationKind declarationToken 
     _ ->
       rejectReservedAbstractionSyntax declarationToken
 
-parseCapabilityHeaderName :: Text -> Token -> TokenStream -> Either ParserFailure (Identifier, Maybe [SurfaceSignatureType], TokenStream)
+parseCapabilityHeaderName :: Text -> Token -> TokenStream -> Either ParserFailure (SurfaceName, Maybe [SurfaceSignatureType], TokenStream)
 parseCapabilityHeaderName declarationKind declarationToken tokensAfterKeyword =
   case tokensAfterKeyword of
     candidateToken@Token {tokenKind = TIdentifier candidateName, tokenSpan = nameSpan} :< rest ->
@@ -167,7 +168,7 @@ parseCapabilityHeaderName declarationKind declarationToken tokensAfterKeyword =
               if declarationKind == "impl"
                 then
                   if isConstructorIdentifierText className
-                    then parseCapabilityHeaderTail (mkQualifiedIdentifier candidateName className) afterClass
+                    then parseCapabilityHeaderTail (SurfaceName (mkQualifiedIdentifier candidateName className) (tokenSpan classToken) (Just nameSpan)) afterClass
                     else
                       Left
                         ( parserFailureAt
@@ -206,7 +207,7 @@ parseCapabilityHeaderName declarationKind declarationToken tokensAfterKeyword =
                 else rejectQualifiedClassDeclaration qualifierColon
         _
           | isConstructorIdentifierText candidateName ->
-              parseCapabilityHeaderTail (mkIdentifier candidateName) rest
+              parseCapabilityHeaderTail (SurfaceName (mkIdentifier candidateName) nameSpan Nothing) rest
           | otherwise ->
               Left
                 ( parserFailureAt
@@ -484,9 +485,9 @@ surfaceConcreteConstraintArgument signatureType =
   case signatureType of
     TypeVariable {} -> False
     TypeName name ->
-      not (surfaceIdentifierLooksLikeTypeVariable name)
+      not (surfaceIdentifierLooksLikeTypeVariable (surfaceNameIdentifier name))
     TypeApplication name arguments ->
-      not (surfaceIdentifierLooksLikeTypeVariable name) && all surfaceConcreteConstraintArgument arguments
+      not (surfaceIdentifierLooksLikeTypeVariable (surfaceNameIdentifier name)) && all surfaceConcreteConstraintArgument arguments
     TypeList innerType ->
       surfaceConcreteConstraintArgument innerType
     TypeTuple elementTypes ->

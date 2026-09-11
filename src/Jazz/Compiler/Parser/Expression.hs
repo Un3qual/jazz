@@ -387,6 +387,8 @@ parseQualifiedIdentifierExpr identifierToken qualifierName memberToken memberNam
                         (mkIdentifier qualifierName)
                         (mkIdentifier memberName)
                         (mkIdentifier methodName)
+                        (tokenSpan identifierToken)
+                        (tokenSpan memberToken)
                         (tokenSpan methodToken)
                     )
                 )

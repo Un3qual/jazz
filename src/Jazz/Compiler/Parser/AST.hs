@@ -14,6 +14,7 @@ module Jazz.Compiler.Parser.AST
     SurfaceLambdaParameter (..),
     SurfaceLiteral (..),
     SurfaceNumericType,
+    SurfaceName (..),
     SurfacePatternLambdaClause (..),
     SurfacePattern (..),
     SurfacePatternForm (..),
@@ -40,18 +41,33 @@ import Jazz.Compiler.ModuleExports
   )
 import Jazz.Compiler.Name
   ( Identifier,
+    IdentifierLike (..),
   )
 import qualified Jazz.Compiler.TypeRepresentation as TypeRepresentation
 
 type SurfaceNumericType = TypeRepresentation.NumericType
 
-type SurfaceSignatureType = TypeRepresentation.SignatureType Identifier Identifier
+type SurfaceSignatureType = TypeRepresentation.SignatureType SurfaceName Identifier
 
-type SurfaceSignatureConstraint = TypeRepresentation.SignatureConstraint Identifier Identifier
+type SurfaceSignatureConstraint = TypeRepresentation.SignatureConstraint SurfaceName Identifier
 
 type SurfaceSignatureToken = TypeRepresentation.SignatureToken Text
 
-type SurfaceSignaturePayload = TypeRepresentation.SignaturePayload Identifier Identifier Text
+type SurfaceSignaturePayload = TypeRepresentation.SignaturePayload SurfaceName Identifier Text
+
+-- | A named type or capability retains the exact component locations at parse
+-- time. The member span is also the name span for an unqualified name.
+data SurfaceName = SurfaceName
+  { surfaceNameIdentifier :: Identifier,
+    surfaceNameSpan :: SourceSpan,
+    surfaceNameQualifierSpan :: Maybe SourceSpan
+  }
+  deriving stock (Eq, Generic, Ord, Show)
+  deriving anyclass (NFData)
+
+instance IdentifierLike SurfaceName where
+  identifierText = identifierText . surfaceNameIdentifier
+  identifierPurity = identifierPurity . surfaceNameIdentifier
 
 -- | Literals as they appear in parsed source before lowering.
 data SurfaceLiteral
@@ -125,7 +141,7 @@ data SurfaceExprForm
   = SELit SurfaceLiteral
   | SEVar Identifier
   | SEQualifiedVar Identifier Identifier
-  | SEQualifiedMethod Identifier Identifier Identifier SourceSpan
+  | SEQualifiedMethod Identifier Identifier Identifier SourceSpan SourceSpan SourceSpan
   | SELambda (NonEmpty SurfaceLambdaParameter) SurfaceExpr
   | SEPatternLambda (NonEmpty SurfacePatternLambdaClause)
   | SEOperatorValue Text
@@ -156,7 +172,7 @@ data SurfaceStatement
   | SSSignature Identifier SourceSpan SurfaceSignaturePayload
   | SSData SourceSpan Identifier [Identifier] [SurfaceDataConstructor]
   | SSClass SourceSpan Identifier [Identifier] [SurfaceClassMethodSignature]
-  | SSImpl SourceSpan Identifier [SurfaceSignatureType] [SurfaceImplMethod]
+  | SSImpl SourceSpan SurfaceName [SurfaceSignatureType] [SurfaceImplMethod]
   | SSModule SourceSpan [Text] (Maybe [ModuleExportSelector])
   | SSImport SourceSpan [Text] (Maybe Text) (Maybe [Text])
   | SSExpr SourceSpan SurfaceExpr

@@ -159,7 +159,7 @@ unsupportedExpressions =
     seBlock [SSSignature "value" span1 (SignatureType TypeInt)],
     seBlock [SSData span1 "Thing" [] []],
     seBlock [SSClass span1 "Show" ["a"] []],
-    seBlock [SSImpl span1 "Show" [TypeText] []],
+    seBlock [SSImpl span1 (SurfaceName "Show" span1 Nothing) [TypeText] []],
     seBlock [SSModule span1 ["App", "Main"] Nothing],
     seBlock [SSImport span1 ["Core", "Text"] Nothing Nothing],
     seBlock [SSLet "$operator:2B" span1 (seVar "add")],

@@ -12,9 +12,9 @@ public behavior.
 
 | id  | title | priority | size | kind | autonomous_ready | depends_on | plan | plan_section | target_paths | deliverable | verification | last_verified |
 | --- | ----- | -------- | ---- | ---- | ---------------- | ---------- | ---- | ------------ | ------------ | ----------- | ------------ | ------------- |
-| `JN-COMPILER-ARCHITECTURE-BASELINE-001` | Record compiler architecture preservation baseline | `P1` | `M` | `coordination` | `yes` | `-` | [compiler architecture remediation](../plans/2026-09-10-compiler-architecture-remediation.md) | `T01 — Record the preservation baseline` | `test/Jazz/Compiler/Modules/ModulePipelineContractSpec.hs`, `benchmark/Jazz/Benchmark/ScaleCases.hs` | Record preservation coverage and matched benchmark baselines before compiler changes. | `cabal test all --test-show-details=failures --jobs=4`; `cabal bench jazz-bench`; `bash scripts/check-execution-queue.sh` | `2026-09-11` |
+| `JN-COMPILER-DISCOVERY-OWNERSHIP-001` | Own discovery locations and validated imports | `P1` | `L` | `impl` | `yes` | `-` | [compiler architecture remediation](../plans/2026-09-10-compiler-architecture-remediation.md) | `T02 — Make discovery own locations and validated visibility` | `src/Jazz/Compiler/ModuleResolver.hs`, `src/Jazz/Compiler/ModuleResolver/Imports.hs` | Retain parsed reference spans and consume one validated import visibility scope. | `cabal test source-ranges-spec module-resolution-spec loader-spec structured-error-diagnostics-spec --test-show-details=failures --jobs=4`; `bash scripts/check-execution-queue.sh` | `2026-09-11` |
 
-Current executor status (`2026-09-11`): Compiler architecture remediation execution is authorized. T01 records the existing behavior and performance before T02 changes discovery ownership. This bounded coordination item is the required measured unblocker for implementation. Further milestones will be promoted from the accepted remediation plan as their prerequisites pass. Hosted bootstrap feature work remains deferred.
+Current executor status (`2026-09-11`): T01 is recorded at `6fc288ee`; 61 of 62 baseline suites pass, with the ten existing RFC 0017 hosted-parser failures still maintainer-deferred. T02 is active. Further benchmarks are excluded by the maintainer; proceed with code and correctness tests.
 
 ## Next Curation Target
 

@@ -20,6 +20,7 @@ import Jazz.Compiler.Parser.AST
     SurfaceExpr (..),
     SurfaceExprForm (..),
     SurfaceLiteral (..),
+    SurfaceName (..),
     SurfaceStatement (..),
   )
 import Jazz.Compiler.Parser.Lower
@@ -104,7 +105,7 @@ testParseQualifiedResultTypes =
                 [ SSSignature
                     "f"
                     (SourceSpan 1 1)
-                    (SignatureType (TypeFunction TypeInt (TypeName (mkQualifiedIdentifier "Facts" "OnlyType"))))
+                    (SignatureType (TypeFunction TypeInt (TypeName (SurfaceName (mkQualifiedIdentifier "Facts" "OnlyType") (SourceSpan 1 20) (Just (SourceSpan 1 13))))))
                 ]
             )
         )
@@ -160,7 +161,7 @@ testParsesGenericNamedSignatures =
                   "maybeCharacter"
                   (SourceSpan 1 1)
                   ( SignatureType
-                      (TypeApplication "Maybe" [TypeChar])
+                      (TypeApplication (SurfaceName "Maybe" (SourceSpan 1 19) Nothing) [TypeChar])
                   ),
                 SSSignature
                   "map"
@@ -425,8 +426,8 @@ testParseConstrainedSignaturePayload =
                   "f"
                   (SourceSpan 1 1)
                   ( ConstrainedSignature
-                      [ SignatureConstraint "Eq" [TypeVariable "a"],
-                        SignatureConstraint "Ord" [TypeVariable "b"]
+                      [ SignatureConstraint (SurfaceName "Eq" (SourceSpan 1 8) Nothing) [TypeVariable "a"],
+                        SignatureConstraint (SurfaceName "Ord" (SourceSpan 1 15) Nothing) [TypeVariable "b"]
                       ]
                       ( TypeFunction
                           (TypeVariable "a")
@@ -464,7 +465,7 @@ testAliasQualifiedClassConstraint =
                     (SourceSpan 1 1)
                     ( ConstrainedSignature
                         [ SignatureConstraint
-                            (mkQualifiedIdentifier "Facts" "Eq")
+                            (SurfaceName (mkQualifiedIdentifier "Facts" "Eq") (SourceSpan 1 18) (Just (SourceSpan 1 11)))
                             [TypeVariable "a"]
                         ]
                         (TypeFunction (TypeVariable "a") (TypeFunction (TypeVariable "a") TypeBool))

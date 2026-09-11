@@ -21,6 +21,7 @@ import Jazz.Compiler.Parser.AST
     SurfaceExpr (..),
     SurfaceExprForm (..),
     SurfaceLiteral (..),
+    SurfaceName (..),
     SurfaceStatement (..),
   )
 import Jazz.Compiler.Parser.Lower
@@ -468,7 +469,7 @@ testParsesImplCapabilityDeclaration =
             SEBlock
               [ SSImpl
                   (SourceSpan 1 1)
-                  "Eq"
+                  (SurfaceName "Eq" (SourceSpan 1 6) Nothing)
                   [TypeInt]
                   []
               ]

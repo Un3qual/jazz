@@ -21,13 +21,13 @@ import Data.Char (isLower)
 import Data.Text (Text)
 import qualified Data.Text as Text
 import Jazz.Compiler.Name
-  ( Identifier,
-    identifierText,
+  ( identifierText,
     mkIdentifier,
     mkQualifiedIdentifier,
   )
 import Jazz.Compiler.Parser.AST
-  ( SurfaceNumericType,
+  ( SurfaceName (..),
+    SurfaceNumericType,
     SurfaceSignatureConstraint,
     SurfaceSignaturePayload,
     SurfaceSignatureToken,
@@ -245,7 +245,7 @@ namedSignatureTypeParser = do
     Nothing ->
       pure
         ( if identifierStartsLower typeMemberName
-            then TypeVariable typeNameIdentifier
+            then TypeVariable (surfaceNameIdentifier typeNameIdentifier)
             else TypeName typeNameIdentifier
         )
 
@@ -263,7 +263,7 @@ typeApplicationParser = do
         _ -> TypeApplication typeNameIdentifier arguments
     )
 
-signatureTypeHeadParser :: TokenParser.Parser (Token, Identifier)
+signatureTypeHeadParser :: TokenParser.Parser (Token, SurfaceName)
 signatureTypeHeadParser = do
   firstToken <- identifierTokenParser
   maybeQualifiedMember <-
@@ -281,10 +281,10 @@ signatureTypeHeadParser = do
     Just memberToken ->
       pure
         ( memberToken,
-          mkQualifiedIdentifier (tokenLexeme firstToken) (tokenLexeme memberToken)
+          SurfaceName (mkQualifiedIdentifier (tokenLexeme firstToken) (tokenLexeme memberToken)) (tokenSpan memberToken) (Just (tokenSpan firstToken))
         )
     Nothing ->
-      pure (firstToken, mkIdentifier (tokenLexeme firstToken))
+      pure (firstToken, SurfaceName (mkIdentifier (tokenLexeme firstToken)) (tokenSpan firstToken) Nothing)
 
 identifierTokenParser :: TokenParser.Parser Token
 identifierTokenParser =

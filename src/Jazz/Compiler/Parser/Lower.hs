@@ -101,6 +101,7 @@ import Jazz.Compiler.Parser.AST
     SurfaceImplMethod (..),
     SurfaceLambdaParameter (..),
     SurfaceLiteral (..),
+    SurfaceName (..),
     SurfacePattern (..),
     SurfacePatternForm (..),
     SurfacePatternLambdaClause (..),
@@ -435,7 +436,7 @@ lowerSurfaceExprWithoutCostCentre surfaceExpr = do
     SEVar name -> pure (EVar node (sourceName name))
     SEQualifiedVar qualifier member ->
       pure (EVar node (qualifiedName qualifier member))
-    SEQualifiedMethod moduleAlias capability method methodSpan ->
+    SEQualifiedMethod moduleAlias capability method _ _ methodSpan ->
       pure (EVar (node {coreNodeSpan = methodSpan}) (qualifiedMethodName moduleAlias capability method))
     SELambda parameters bodyExpr ->
       lowerSurfaceLambda node (surfaceExprSpan surfaceExpr) parameters bodyExpr
@@ -669,12 +670,12 @@ lowerSurfaceSignatureType :: SurfaceSignatureType -> SignatureType 'Lowered
 lowerSurfaceSignatureType =
   bimap lowerSurfaceSignatureName sourceName
 
-lowerSurfaceSignatureName :: Identifier -> UnresolvedName
+lowerSurfaceSignatureName :: SurfaceName -> UnresolvedName
 lowerSurfaceSignatureName name =
   case splitQualifiedIdentifierText (identifierText name) of
     Just (qualifier, member) ->
       qualifiedName (mkIdentifier qualifier) (mkIdentifier member)
-    Nothing -> sourceName name
+    Nothing -> sourceName (surfaceNameIdentifier name)
 
 lowerSurfaceSignatureToken :: SurfaceSignatureToken -> SignatureToken 'Lowered
 lowerSurfaceSignatureToken =

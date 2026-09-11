@@ -1,21 +1,20 @@
 ---
-id: JN-COMPILER-ARCHITECTURE-BASELINE-001
+id: JN-COMPILER-DISCOVERY-OWNERSHIP-001
 status: ready
 priority: P1
-size: M
-kind: coordination
+size: L
+kind: impl
 autonomous_ready: yes
 depends_on: []
 last_verified: 2026-09-11
-plan_section: "T01 — Record the preservation baseline"
+plan_section: "T02 — Make discovery own locations and validated visibility"
 target_paths:
-  - test/Jazz/Compiler/Modules/ModulePipelineContractSpec.hs
-  - benchmark/Jazz/Benchmark/ScaleCases.hs
+  - src/Jazz/Compiler/ModuleResolver.hs
+  - src/Jazz/Compiler/ModuleResolver/Imports.hs
 verification:
-  - cabal test all --test-show-details=failures --jobs=4
-  - cabal bench jazz-bench
+  - cabal test source-ranges-spec module-resolution-spec loader-spec structured-error-diagnostics-spec --test-show-details=failures --jobs=4
   - bash scripts/check-execution-queue.sh
-deliverable: Record preservation coverage and matched benchmark baselines before compiler changes.
+deliverable: Retain parsed reference spans and consume one validated import visibility scope.
 supersedes: []
 ---
 
@@ -31,7 +30,7 @@ supersedes: []
 
 **Spec:** [Validated audit findings](2026-09-10-compiler-architecture-validation.md), together with the target contracts and preservation rules below. The report preserves the disposition of all three input audits. The two Luna drafts were withdrawn after validation; their rejected or qualified recommendations are not implementation guidance.
 
-**Status:** Execution requested on 2026-09-11. T01 is the active bounded milestone in the execution queue. Execute the remaining tasks inline in dependency order; promote the next milestone when its prerequisites pass.
+**Status:** Execution requested on 2026-09-11. T02 is the active bounded milestone in the execution queue. Execute the remaining tasks inline in dependency order; promote the next milestone when its prerequisites pass.
 
 **Existing architecture decision:** [RFC 0016](../../rfcs/accepted/0016-optional-backend-removal.md) explicitly says to keep “attached analysis facts, and runtime plans.” Direct construction still retains attached facts, but T11a proposes changing the retained runtime-plan contract. Approval of this plan should therefore include that specific architectural decision and a narrow amendment through the repository's RFC process before removal. This is a dependency of T11a, not a reason to block unrelated tasks or ask for another confirmation while preparing this plan. If runtime plans are to remain, retain the small sequence and pursue direct identity/ownership improvements around it; do not claim its deletion completed.
 
@@ -180,13 +179,13 @@ The table is a dependency order, not a request for parallel agents. Work inline.
 
 **Files:** `src/Jazz/Compiler/Parser/AST.hs`, `src/Jazz/Compiler/Parser/Signature.hs`, `src/Jazz/Compiler/Parser/CapabilityDeclaration.hs`, `src/Jazz/Compiler/ModuleResolver.hs`, `src/Jazz/Compiler/ModuleResolver/Imports.hs`, `src/Jazz/Compiler/ModuleResolver/Names.hs`; tests `test/Jazz/Compiler/Parser/SourceRangesSpec.hs`, `test/Jazz/Compiler/Modules/ModuleResolutionSpec.hs`, `test/Jazz/Compiler/Modules/Loader/{VisibilityTests,AliasClassTests,DiagnosticsTests}.hs`.
 
-- [ ] Preserve the qualifier/member spans required by qualified type/class diagnostics in the parsed declaration/reference representation. Carry them through lowering; do not assign a broad statement span when the current diagnostic points to a token.
-- [ ] Build one discovery result while the surface tree is authoritative: lowered body, declared exports/imports, referenced-name inventory, and located qualified references. Keep this internal to module discovery.
-- [ ] Delete token-rescanning location recovery in `src/Jazz/Compiler/ModuleResolver.hs` once all its consumers use retained spans. Release the token/surface products after discovery/lowering.
-- [ ] Change import validation to return a validated scope containing alias targets and per-namespace unqualified targets with origin spans. Keep collision/missing/hidden-reference diagnostic ordering unchanged.
-- [ ] Make name resolution consume that scope. Remove its independent exposure-selection and alias/origin reconstruction. Distinguish alias qualification from class qualification using existing namespace rules.
-- [ ] Run source-range, module-resolution, loader, and structured-diagnostics suites. Add one case only if necessary to distinguish repeated identical spellings at different source locations.
-- [ ] Commit the frontend ownership change.
+- [x] Preserve the qualifier/member spans required by qualified type/class diagnostics in the parsed declaration/reference representation. Carry them through lowering; do not assign a broad statement span when the current diagnostic points to a token.
+- [x] Build one discovery result while the surface tree is authoritative: lowered body, declared exports/imports, referenced-name inventory, and located qualified references. Keep this internal to module discovery.
+- [x] Delete token-rescanning location recovery in `src/Jazz/Compiler/ModuleResolver.hs` once all its consumers use retained spans. Release the token/surface products after discovery/lowering.
+- [x] Change import validation to return a validated scope containing alias targets and per-namespace unqualified targets with origin spans. Keep collision/missing/hidden-reference diagnostic ordering unchanged.
+- [x] Make name resolution consume that scope. Remove its independent exposure-selection and alias/origin reconstruction. Distinguish alias qualification from class qualification using existing namespace rules.
+- [x] Run source-range, module-resolution, loader, and structured-diagnostics suites. Add one case only if necessary to distinguish repeated identical spellings at different source locations.
+- [x] Commit the frontend ownership change.
 
 **Deletion criterion:** No downstream token scan to recover qualified-class locations; one implementation of validated imported-name exposure. Discovery still has a cheap untyped export inventory.
 
@@ -511,3 +510,10 @@ Documentation verification at plan completion checks local evidence targets/line
 - Baseline result: 61 of 62 default suites pass. `jazz-parser-types-declarations-modules-spec` reports the same ten qualified-name/signature parity failures recorded in the RFC 0017 implementation plan's "Deferred hosted parity" section. No compiler or hosted source was modified. The initial `cabal test all` stopped after that failure; the 22 not-yet-completed suites then passed using `cabal test <remaining suites> --keep-going --test-show-details=failures --jobs=4`, with output in `/private/tmp/jazz-architecture-t01-remaining.log`.
 - These are explicitly pre-existing, maintainer-deferred bootstrap failures, not a new regression or a green full-suite claim. Preserve the exact failure set while executing the Haskell architecture work; do not change the hosted grammar to hide the baseline.
 - Initial capture completed: 44 benchmark leaves passed; CSV/environment are in `/private/tmp/jazz-architecture-bench/architecture-remediation/20260911T151658086430000000Z`. The maintainer then explicitly removed benchmarks from this rewrite. Skip all further benchmark work and focus on code and correctness tests; retain current cell storage while consolidating execution rather than introduce an unmeasured storage replacement.
+
+### T02 — discovery ownership (complete, 2026-09-11)
+
+- `2db6e807`: import validation now publishes a namespace-aware scope with alias targets and origin spans. Name resolution consumes that scope; its separate alias construction and exposure-selection code is removed.
+- Parser-owned `SurfaceName` retains type/capability member and qualifier spans. Three-component method syntax likewise retains its component spans. Discovery carries those exact locations with its lowered module and reference inventory; it no longer retains/rescans lexer tokens. The canonical Lowered schema and hosted grammar are unchanged.
+- Existing parser fixtures now include actual retained locations; the structured constructor fixture distinguishes repeated `Tree` occurrences. Existing alias-class diagnostic tests already cover same-spelled type arguments and class constraints, so no redundant test was added.
+- Verification: focused resolver, loader, source-range, structured-diagnostic and canonical compatibility suites passed. Full `cabal test all --keep-going --test-show-details=failures --jobs=4` plus the corrected ADT parser fixture rerun retains 61 passing suites and exactly the same ten deferred hosted-parser failures. Logs: `/private/tmp/jazz-architecture-t02-full.log`, `/private/tmp/jazz-architecture-t02-adt.log`. Ormolu, changed-file HLint and `git diff --check` pass.

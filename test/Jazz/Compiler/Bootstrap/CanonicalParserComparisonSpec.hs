@@ -251,7 +251,7 @@ surfaceInventory =
             "constrained"
             span1
             ( ConstrainedSignature
-                [SignatureConstraint "Comparable" [TypeVariable "a"]]
+                [SignatureConstraint (SurfaceName "Comparable" span1 Nothing) [TypeVariable "a"]]
                 (TypeFunction (TypeVariable "a") TypeBool)
             ),
           SSSignature "unsupported" span1 (UnsupportedSignature allSignatureTokens),
@@ -270,7 +270,7 @@ surfaceInventory =
             [SurfaceClassMethodSignature "show" span1 (SignatureType TypeText)],
           SSImpl
             span1
-            "Show"
+            (SurfaceName "Show" span1 Nothing)
             allSignatureTypes
             [SurfaceImplMethod "show" span1 (seText "shown")],
           SSModule span1 ["App", "Main"] (Just allModuleExports),
@@ -310,7 +310,7 @@ allExpressions =
     se (SEList [seInt 1]),
     se (SETuple [seInt 1, seInt 2]),
     se (SEApply (se (SEVar "identity")) (seInt 1)),
-    se (SETypeApplication (se (SEVar "identity")) span1 (TypeName "Int")),
+    se (SETypeApplication (se (SEVar "identity")) span1 (TypeName (SurfaceName "Int" span1 Nothing))),
     se (SEIf (se (SELit (SLBool True))) (seInt 1) (seInt 0)),
     patternInventory,
     se (SEBinary "+" (seInt 1) (seInt 2)),
@@ -345,8 +345,8 @@ allSignatureTypes =
     TypeChar,
     TypeText,
     TypeVariable "a",
-    TypeName "Point",
-    TypeApplication "Map" [TypeText, TypeInt],
+    TypeName (SurfaceName "Point" span1 Nothing),
+    TypeApplication (SurfaceName "Map" span1 Nothing) [TypeText, TypeInt],
     TypeList TypeInt,
     TypeTuple [TypeInt, TypeText],
     TypeFunction TypeInt TypeText

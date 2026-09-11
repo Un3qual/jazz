@@ -760,7 +760,7 @@ completeSpanExpression =
             [SurfaceClassMethodSignature "equals" span3 (SignatureType TypeBool)],
           SSImpl
             span3
-            "Eq"
+            (SurfaceName "Eq" span3 Nothing)
             [TypeInt]
             [SurfaceImplMethod "equals" span4 (e span4 (SEBlock [SSExpr span1 (e span1 (SELit (SLBool True)))]))],
           SSLet

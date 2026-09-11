@@ -24,6 +24,7 @@ import Jazz.Compiler.Parser.AST
   ( SurfaceExpr (..),
     SurfaceExprForm (..),
     SurfaceLiteral (..),
+    SurfaceName (..),
     SurfaceStatement (..),
   )
 import Jazz.Compiler.Parser.Lower
@@ -168,7 +169,7 @@ testLowersAliasQualifiedClassMethodReference =
                             ( SurfaceExpr
                                 _
                                 ( SEApply
-                                    (SurfaceExpr _ (SEQualifiedMethod aliasName className methodName _))
+                                    (SurfaceExpr _ (SEQualifiedMethod aliasName className methodName _ _ _))
                                     _
                                   )
                               )
@@ -211,7 +212,7 @@ testLowersAliasQualifiedImplHead =
               SEBlock
                 [ SSImpl
                     (SourceSpan 1 1)
-                    (mkQualifiedIdentifier "Facts" "Eq")
+                    (SurfaceName (mkQualifiedIdentifier "Facts" "Eq") (SourceSpan 1 13) (Just (SourceSpan 1 6)))
                     [TypeInt]
                     []
                 ]
@@ -232,7 +233,7 @@ testParsesCapabilityDeclarationsInModuleBody =
             SEBlock
               [ SSModule (SourceSpan 1 1) ["App", "Core"] Nothing,
                 SSClass (SourceSpan 2 1) "Eq" ["a"] [],
-                SSImpl (SourceSpan 3 1) "Eq" [TypeInt] []
+                SSImpl (SourceSpan 3 1) (SurfaceName "Eq" (SourceSpan 3 6) Nothing) [TypeInt] []
               ]
         )
     )

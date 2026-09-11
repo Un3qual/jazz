@@ -329,7 +329,7 @@ unsupportedFixtures =
     ( "impl-lambda-block",
       seLambda
         (SurfaceLambdaIdentifier span1 "value" :| [])
-        (seBlock [SSImpl span1 "Show" [TypeText] []])
+        (seBlock [SSImpl span1 (SurfaceName "Show" span1 Nothing) [TypeText] []])
     ),
     ( "operator-storage-nested-block",
       seBlock

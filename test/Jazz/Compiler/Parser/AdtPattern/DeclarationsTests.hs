@@ -17,6 +17,7 @@ import Jazz.Compiler.Parser.AST
     SurfaceExpr (..),
     SurfaceExprForm (..),
     SurfaceLiteral (..),
+    SurfaceName (..),
     SurfacePattern (..),
     SurfacePatternForm (..),
     SurfaceStatement (..),
@@ -379,7 +380,7 @@ testParsesStructuredDataConstructorFieldTypes =
         assertLoweredCoreEqual "structured constructor field lowered AST" expectedLoweredProgram (lowerSurfaceExpr surfaceProgram)
     )
   where
-    treeOfA = TypeApplication "Tree" [TypeVariable "a"]
+    treeOfA line column = TypeApplication (SurfaceName "Tree" (SourceSpan line column) Nothing) [TypeVariable "a"]
     loweredTreeOfA = TypeApplication "Tree" [TypeVariable "a"]
     expectedSurfaceProgram =
       e
@@ -391,7 +392,7 @@ testParsesStructuredDataConstructorFieldTypes =
                 "Tree"
                 ["a"]
                 [ SurfaceDataConstructor "Leaf" [TypeVariable "a"],
-                  SurfaceDataConstructor "Branch" [treeOfA, treeOfA]
+                  SurfaceDataConstructor "Branch" [treeOfA 3 12, treeOfA 3 20]
                 ],
               SSData
                 (SourceSpan 4 1)
@@ -405,7 +406,7 @@ testParsesStructuredDataConstructorFieldTypes =
                 (SourceSpan 6 1)
                 "Forest"
                 ["a"]
-                [SurfaceDataConstructor "Forest" [TypeList treeOfA]]
+                [SurfaceDataConstructor "Forest" [TypeList (treeOfA 7 13)]]
             ]
         )
     expectedLoweredProgram =

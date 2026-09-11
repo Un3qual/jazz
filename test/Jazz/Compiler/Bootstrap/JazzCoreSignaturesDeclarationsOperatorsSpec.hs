@@ -175,7 +175,7 @@ directFixtures =
                 ( SETypeApplication
                     (se (SEQualifiedVar "Alias" "map"))
                     span1
-                    (TypeApplication "Alias::Maybe" [TypeVariable "a"])
+                    (TypeApplication (SurfaceName "Alias::Maybe" span1 (Just span1)) [TypeVariable "a"])
                 )
             )
             span2
@@ -237,8 +237,8 @@ directFixtures =
     ( "signature-recursive-shapes",
       signatureBlock
         [ ("variable", TypeVariable "a"),
-          ("named", TypeName "Result"),
-          ("applied", TypeApplication "Result" [TypeVariable "a", TypeText]),
+          ("named", TypeName (SurfaceName "Result" span1 Nothing)),
+          ("applied", TypeApplication (SurfaceName "Result" span1 Nothing) [TypeVariable "a", TypeText]),
           ("list", TypeList (TypeVariable "a")),
           ("unit", TypeTuple []),
           ("tuple", TypeTuple [TypeInt, TypeBool]),
@@ -247,11 +247,11 @@ directFixtures =
     ),
     ( "signature-qualified-names",
       signatureBlock
-        [ ("qualified", TypeName "Alias::Result"),
-          ("qualifiedApplied", TypeApplication "Alias::Box" [TypeName "Other::Item"]),
-          ("multiQualified", TypeName "Alias::Nested::Result"),
-          ("missingQualifier", TypeName "::Result"),
-          ("missingMember", TypeName "Alias::")
+        [ ("qualified", TypeName (SurfaceName "Alias::Result" span1 (Just span1))),
+          ("qualifiedApplied", TypeApplication (SurfaceName "Alias::Box" span1 (Just span1)) [TypeName (SurfaceName "Other::Item" span1 (Just span1))]),
+          ("multiQualified", TypeName (SurfaceName "Alias::Nested::Result" span1 (Just span1))),
+          ("missingQualifier", TypeName (SurfaceName "::Result" span1 (Just span1))),
+          ("missingMember", TypeName (SurfaceName "Alias::" span1 (Just span1)))
         ]
     ),
     ( "signature-constraints",
@@ -261,8 +261,8 @@ directFixtures =
                 "constrained"
                 span1
                 ( ConstrainedSignature
-                    [ SignatureConstraint "Eq" [TypeVariable "a"],
-                      SignatureConstraint "Alias::Ord" [TypeList (TypeVariable "a")]
+                    [ SignatureConstraint (SurfaceName "Eq" span1 Nothing) [TypeVariable "a"],
+                      SignatureConstraint (SurfaceName "Alias::Ord" span1 (Just span1)) [TypeList (TypeVariable "a")]
                     ]
                     (TypeFunction (TypeVariable "a") (TypeList (TypeVariable "a")))
                 )
@@ -342,7 +342,7 @@ directFixtures =
                     "compare"
                     span1
                     ( ConstrainedSignature
-                        [SignatureConstraint "Alias::Ord" [TypeVariable "a"]]
+                        [SignatureConstraint (SurfaceName "Alias::Ord" span1 (Just span1)) [TypeVariable "a"]]
                         (TypeFunction (TypeVariable "a") TypeInt)
                     )
                 ]
@@ -350,15 +350,15 @@ directFixtures =
         )
     ),
     ( "impl-empty",
-      se (SEBlock [SSImpl span1 "Show" [TypeText] []])
+      se (SEBlock [SSImpl span1 (SurfaceName "Show" span1 Nothing) [TypeText] []])
     ),
     ( "impl-methods",
       se
         ( SEBlock
             [ SSImpl
                 span1
-                "Transform"
-                [TypeApplication "Alias::Box" [TypeInt]]
+                (SurfaceName "Transform" span1 Nothing)
+                [TypeApplication (SurfaceName "Alias::Box" span1 (Just span1)) [TypeInt]]
                 [ SurfaceImplMethod
                     "apply"
                     span2
@@ -379,7 +379,7 @@ directFixtures =
             [ SSSignature "convert" span1 (SignatureType (TypeFunction TypeInt TypeText)),
               SSData span1 "Wrapped" ["a"] [SurfaceDataConstructor "Wrapped" [TypeVariable "a"]],
               SSClass span1 "Render" ["a"] [SurfaceClassMethodSignature "render" span2 (SignatureType (TypeFunction (TypeVariable "a") TypeText))],
-              SSImpl span1 "Render" [TypeInt] [SurfaceImplMethod "render" span2 (se (SEBinary "$" (seVar "toText") (seVar "item")))],
+              SSImpl span1 (SurfaceName "Render" span1 Nothing) [TypeInt] [SurfaceImplMethod "render" span2 (se (SEBinary "$" (seVar "toText") (seVar "item")))],
               SSLet "convert" span2 (se (SETypeApplication (seVar "identity") span2 TypeText)),
               SSExpr span2 (seVar "convert")
             ]
@@ -525,7 +525,7 @@ deferredFixtures =
         ( SEBlock
             [ SSImpl
                 span1
-                "Render"
+                (SurfaceName "Render" span1 Nothing)
                 [TypeInt]
                 [ SurfaceImplMethod
                     "render"
