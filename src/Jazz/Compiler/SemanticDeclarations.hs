@@ -11,6 +11,8 @@ module Jazz.Compiler.SemanticDeclarations
     ImplMethodType (..),
     SignatureTypeFailure (..),
     instantiateDeclarationType,
+    concreteImplementationType,
+    implementationTargetSignature,
     normalizeSignatureType,
     semanticFunctionArguments,
   )
@@ -21,12 +23,13 @@ import Control.DeepSeq (NFData)
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
 import Data.Text (Text)
+import Data.Void (Void, absurd)
 import GHC.Generics (Generic)
 import Jazz.Compiler.BuiltinCatalog (numericTypeFromName)
 import Jazz.Compiler.CapabilityFacts (identifierLooksLikeTypeVariable)
 import Jazz.Compiler.CoreIdentity (CapabilityId, MethodId)
 import Jazz.Compiler.Name (ResolvedName, identifierText)
-import Jazz.Compiler.TypeRepresentation (SemanticType (..), SignatureType (..), substituteSemanticVariables)
+import Jazz.Compiler.TypeRepresentation (SemanticType (..), SignatureType (..), semanticTypeToSignature, substituteSemanticVariables)
 
 -- | A checked method type with its class parameter explicitly bound.
 data ClassMethodType = ClassMethodType Text (SemanticType ResolvedName Text)
@@ -35,7 +38,7 @@ data ClassMethodType = ClassMethodType Text (SemanticType ResolvedName Text)
 
 -- | The declaration selected by method checking also owns its evidence identity.
 data ImplMethodType = ImplMethodType
-  { implMethodTarget :: SignatureType ResolvedName ResolvedName,
+  { implMethodTarget :: SemanticType ResolvedName Void,
     implMethodCapability :: CapabilityId,
     implMethodIdentity :: MethodId
   }
@@ -125,3 +128,15 @@ semanticFunctionArguments (SemanticFunction argument result) =
   let (arguments, finalResult) = semanticFunctionArguments result
    in (argument : arguments, finalResult)
 semanticFunctionArguments result = ([], result)
+
+concreteImplementationType :: SemanticType name variable -> Bool
+concreteImplementationType target = case target of
+  SemanticVariable {} -> False
+  SemanticFunction {} -> False
+  SemanticList element -> concreteImplementationType element
+  SemanticTuple elements -> all concreteImplementationType elements
+  SemanticData _ arguments -> all concreteImplementationType arguments
+  _ -> True
+
+implementationTargetSignature :: SemanticType ResolvedName Void -> SignatureType ResolvedName ResolvedName
+implementationTargetSignature = semanticTypeToSignature . fmap absurd

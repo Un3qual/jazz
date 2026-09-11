@@ -455,7 +455,7 @@ rebaseClassMethod origin dataTypeNames _ (ClassMethodType parameter methodType) 
 
 rebaseImplMethod :: ResolvedNameOrigin -> Set.Set Text -> Set.Set Text -> ImplMethodType -> ImplMethodType
 rebaseImplMethod origin dataTypeNames _ method =
-  method {implMethodTarget = rebaseSignatureTypeNames origin dataTypeNames (implMethodTarget method)}
+  method {implMethodTarget = rebaseExpressionType origin dataTypeNames (implMethodTarget method)}
 
 rebaseConcreteImplFact ::
   ResolvedNameOrigin ->

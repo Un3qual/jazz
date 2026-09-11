@@ -697,8 +697,8 @@ testImplChecksPreserveRollback = do
           ELit _ _ -> ((Just (SemanticTuple [variable, SemanticBool]), resolveType current variable), current)
           _ -> ((Just expected, resolveType current variable), current)
   case resolvedProgram "class Probe(a) { first :: (Int, Int). second :: (Int, Int). }. impl Probe(Int) { first = 0. second = (1, 2). }." of
-    EBlock _ [SClass {}, SImpl _ capability arguments methods] -> do
-      let (finalState, results) = checkImplMethodBodies inferBody fst Map.empty initialState capability arguments methods
+    EBlock _ [SClass {}, SImpl _ capability _ methods] -> do
+      let (finalState, results) = checkImplMethodBodies inferBody fst Map.empty initialState capability [SemanticInt] methods
       assertEqual "both bodies checked in source order" [0, 1] (map fst results)
       assertEqual "failed tuple unification did not leak into next body" [variable, variable] (map (snd . snd) results)
       assertEqual "one mismatch survives the successful subsequent body" 1 (inferErrorCount finalState)

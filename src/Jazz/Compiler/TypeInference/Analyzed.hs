@@ -57,11 +57,9 @@ import Jazz.Compiler.SemanticFacts
     RuntimePlan (..),
     SemanticFactInvariantFailure (..),
     SemanticInstantiation (..),
-    StatementDeclarationFact (..),
     StatementFacts (..),
   )
 import Jazz.Compiler.TypeInference.Pattern (instantiateConstructorBinding)
-import qualified Jazz.Compiler.TypeInference.Signature as Signature
 import Jazz.Compiler.TypeInference.Solver (freshTypeVariable, resolveType)
 import Jazz.Compiler.TypeInference.State
   ( ExplicitInstantiationSeed (..),
@@ -344,7 +342,7 @@ attachStatementNode state statement =
     SSignature node name signature -> SSignature <$> facts node <*> pure name <*> pure signature
     SData node name parameters constructors -> SData <$> facts node <*> pure name <*> pure parameters <*> traverse attachConstructor constructors
     SClass node name parameters methods -> SClass <$> facts node <*> pure name <*> pure parameters <*> traverse attachClassMethod methods
-    SImpl node name arguments methods -> SImpl <$> attachImplementationFacts name arguments node <*> pure name <*> pure arguments <*> traverse attachImplMethod methods
+    SImpl node name arguments methods -> SImpl <$> facts node <*> pure name <*> pure arguments <*> traverse attachImplMethod methods
     SModule node path -> SModule <$> facts node <*> pure path
     SImport node path alias names -> SImport <$> facts node <*> pure path <*> pure alias <*> pure names
     SExpr node value -> SExpr <$> facts node <*> recur value
@@ -354,12 +352,6 @@ attachStatementNode state statement =
     attachConstructor (DataConstructor node name arguments) = DataConstructor <$> facts node <*> pure name <*> pure arguments
     attachClassMethod (ClassMethodSignature node name signature) =
       ClassMethodSignature <$> facts node <*> pure name <*> pure signature
-    attachImplementationFacts name arguments node =
-      case traverse (Signature.signatureTypeToExpressionType state Map.empty) arguments of
-        Left _ -> missing (InvalidAnalyzedImplementationTarget (coreNodeId node))
-        Right targets -> setDeclaration (ImplementationDeclaration name (map (resolveType state) targets)) <$> facts node
-    setDeclaration declaration node =
-      node {coreNodeFacts = (coreNodeFacts node) {statementDeclarationFact = declaration}}
     attachImplMethod (ImplMethod node name body) =
       ImplMethod
         <$> facts node

@@ -74,9 +74,6 @@ import Jazz.Compiler.TypeInference.Types
     SemanticType (..),
     TypeBinding (PlainTypeBinding),
   )
-import Jazz.Compiler.TypeRepresentation
-  ( SignatureType (..),
-  )
 import Jazz.TestHarness
   ( NamedTest,
     assertEqual,
@@ -219,13 +216,12 @@ testDeepModuleInterfaceForcing =
           { interfaceConcreteImplMethods =
               Map.singleton
                 "Capability::method"
-                [ImplMethodType (TypeList deferredSignatureType) (CapabilityId (resolvedLocalName CapabilityNamespace (mkIdentifier "Capability"))) (MethodId (ImplId (StandaloneSourceUnit standaloneModulePath, CoreNodeId 0), mkIdentifier "method"))]
+                [ImplMethodType (SemanticList (throw (userError "nested signature type was forced"))) (CapabilityId (resolvedLocalName CapabilityNamespace (mkIdentifier "Capability"))) (MethodId (ImplId (StandaloneSourceUnit standaloneModulePath, CoreNodeId 0), mkIdentifier "method"))]
           }
       )
     ]
   where
     deferredExpressionType = throw (userError "nested expression type was forced")
-    deferredSignatureType = throw (userError "nested signature type was forced")
     assertInterfaceForced (label, marker, interface) = do
       let inference =
             InferenceResult

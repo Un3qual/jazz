@@ -17,6 +17,7 @@ module Jazz.Compiler.TypeInference.Scope
   )
 where
 
+import Data.Bifunctor (first)
 import Data.Either (fromRight)
 import Data.List
   ( uncons,
@@ -36,6 +37,7 @@ import qualified Data.Set as Set
 import Data.Text
   ( Text,
   )
+import Data.Void (Void)
 import Jazz.Compiler.AST
   ( ClassMethodSignature (..),
     CoreNode (coreNodeFacts, coreNodeId, coreNodeSpan),
@@ -101,10 +103,10 @@ import Jazz.Compiler.TypeInference.Capabilities
     instantiateQualifiedMethodTypeWithExpected,
     newInferredClassConstraints,
     registerClassCapabilityFacts,
+    registerImplementation,
     resolveTypeEnvFreeVariables,
     resolveTypeSchemeConstraint,
     restoreCapabilityFacts,
-    seedStatementCapabilityFact,
     typeEnvFreeVariables,
     typeSchemeDefiningFactsFromState,
     updateRootModuleBaselineFacts,
@@ -268,17 +270,9 @@ inferExprTypeWithExpectedModeRaw inferExpression mode env state expectedType exp
                   (specializeExpectedType checkedState expectedType <$> inferred, checkedState)
             _ -> (inferred, nextState)
 
-firstInvalidImplTarget :: InferState -> SourceSpan -> [SignatureType 'Resolved] -> Maybe Diagnostic
-firstInvalidImplTarget state implSpan =
-  go
-  where
-    go signatureTypes =
-      case signatureTypes of
-        [] -> Nothing
-        signatureType : rest ->
-          case mkInvalidImplTargetError state implSpan signatureType of
-            Just diagnostic -> Just diagnostic
-            Nothing -> go rest
+checkImplementationTargets :: InferState -> SourceSpan -> [SignatureType 'Resolved] -> Either Diagnostic [SemanticType ResolvedName Void]
+checkImplementationTargets state implSpan =
+  traverse (first (mkInvalidImplTargetError implSpan) . normalizeSignatureType (inferDataTypes state) Map.empty)
 
 checkClassDeclaration :: InferState -> ResolvedName -> [ResolvedName] -> [ClassMethodSignature 'Resolved] -> Either Diagnostic InferState
 checkClassDeclaration state capabilityName parameters methods = do
@@ -520,11 +514,10 @@ inferScopeTypeInternal
                 ]
           SClass node capabilityName parameters _ ->
             [(coreNodeId node, [], CapabilityDeclaration capabilityName parameters)]
-          SImpl node capabilityName _ methods ->
-            (coreNodeId node, [], ImplementationDeclaration capabilityName [])
-              : [ (coreNodeId methodNode, bindingFor methodNode methodName, ValueDeclaration methodName)
-                | ImplMethod methodNode methodName _ <- methods
-                ]
+          SImpl _ _ _ methods ->
+            [ (coreNodeId methodNode, bindingFor methodNode methodName, ValueDeclaration methodName)
+            | ImplMethod methodNode methodName _ <- methods
+            ]
           SModule node modulePath -> [(coreNodeId node, [], ModuleDeclaration modulePath)]
           SImport node modulePath _ _ -> [(coreNodeId node, [], ImportDeclaration modulePath)]
           SExpr node _ -> [(coreNodeId node, [], ExpressionDeclaration)]
@@ -717,19 +710,19 @@ inferScopeTypeInternal
                             rest
                      in (scopeResultType, resultState)
                   SImpl implNode capabilityName arguments methods ->
-                    let maybeInvalidTarget = firstInvalidImplTarget stateForSource (coreNodeSpan implNode) arguments
+                    let checkedTargets = checkImplementationTargets stateForSource (coreNodeSpan implNode) arguments
                         (nextState, _) =
-                          case maybeInvalidTarget of
-                            Just diagnostic -> (addTypeError stateForSource diagnostic, [])
-                            Nothing ->
-                              let implSeededState = seedStatementCapabilityFact stateForSource statement
+                          case checkedTargets of
+                            Left diagnostic -> (addTypeError stateForSource diagnostic, [])
+                            Right targets ->
+                              let implSeededState = registerImplementation implNode capabilityName targets methods stateForSource
                                in checkImplMethodBodies
                                     (inferExprTypeWithExpectedMode inferExpression mode)
                                     id
                                     env
                                     implSeededState
                                     capabilityName
-                                    arguments
+                                    targets
                                     methods
                         nextModuleBaselineFacts =
                           updateRootModuleBaselineFacts moduleBaselineFacts state nextState
@@ -1665,11 +1658,11 @@ prepareScope forwardSignedFunctionsPolicy mode predeclaredDataTypes indexedState
                   updateRootModuleBaselineFacts moduleBaselineFacts state nextState,
                   nextState
                 )
-          SImpl implNode _capabilityName arguments _ ->
+          SImpl implNode capabilityName arguments methods ->
             let nextState =
-                  case firstInvalidImplTarget state (coreNodeSpan implNode) arguments of
-                    Just _ -> state
-                    Nothing -> seedStatementCapabilityFact state statement
+                  case checkImplementationTargets state (coreNodeSpan implNode) arguments of
+                    Left _ -> state
+                    Right targets -> registerImplementation implNode capabilityName targets methods state
              in ( bindingSeeds,
                   signatures,
                   forwardFunctions,

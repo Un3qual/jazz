@@ -12,6 +12,7 @@ module Jazz.Compiler.TypeRepresentation
     NumericType (..),
     SemanticType (..),
     substituteSemanticVariables,
+    semanticTypeToSignature,
     SignatureConstraint (..),
     SignaturePayload (..),
     SignatureToken (..),
@@ -123,6 +124,24 @@ substituteSemanticVariables replace typeValue = case typeValue of
   SemanticVariable variable -> replace variable
   where
     recur = substituteSemanticVariables replace
+
+-- | Reify a checked type for signature diagnostics and authored constraint views.
+semanticTypeToSignature :: SemanticType name variable -> SignatureType name variable
+semanticTypeToSignature semanticType = case semanticType of
+  SemanticInt -> TypeInt
+  SemanticFloat -> TypeFloat
+  SemanticNumeric numeric -> TypeNumeric numeric
+  SemanticBool -> TypeBool
+  SemanticChar -> TypeChar
+  SemanticText -> TypeText
+  SemanticVariable variable -> TypeVariable variable
+  SemanticList element -> TypeList (recur element)
+  SemanticTuple elements -> TypeTuple (map recur elements)
+  SemanticData name [] -> TypeName name
+  SemanticData name arguments -> TypeApplication name (map recur arguments)
+  SemanticFunction argument result -> TypeFunction (recur argument) (recur result)
+  where
+    recur = semanticTypeToSignature
 
 -- | Recursive syntax shared by surface and resolved signatures. The first
 -- parameter identifies named types; the second identifies type variables.

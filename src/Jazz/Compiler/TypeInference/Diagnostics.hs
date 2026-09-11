@@ -555,16 +555,9 @@ mkInvalidExplicitTypeApplicationArgumentError state spanValue signatureType =
           Nothing -> "invalid or unsupported explicit type application argument '" <> renderSignatureType signatureType <> "'"
       )
 
-mkInvalidImplTargetError :: InferState -> SourceSpan -> SignatureType 'Resolved -> Maybe Diagnostic
-mkInvalidImplTargetError state implSpan signatureType =
-  case signatureTypeFailureSummary state signatureType of
-    Just failureSummary ->
-      Just
-        ( setDiagnosticPrimarySpan
-            implSpan
-            (mkErrorDiagnostic E2009 CompilationOrigin ("invalid impl target: " <> failureSummary))
-        )
-    Nothing -> Nothing
+mkInvalidImplTargetError :: SourceSpan -> Signature.SignatureTypeFailure -> Diagnostic
+mkInvalidImplTargetError implSpan failure =
+  setDiagnosticPrimarySpan implSpan (mkErrorDiagnostic E2009 CompilationOrigin ("invalid impl target: " <> Signature.renderSignatureTypeFailure failure))
 
 signaturePayloadNamedTypeFailure :: InferState -> SignaturePayload 'Resolved -> Maybe Text
 signaturePayloadNamedTypeFailure state payload =

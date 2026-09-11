@@ -9,6 +9,7 @@ import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
 import Data.Text (Text)
 import qualified Data.Text as Text
+import Data.Void (Void)
 import Jazz.Compiler.AST
   ( Expr (EBlock, ELit),
     Literal (LInt),
@@ -240,11 +241,11 @@ testScopeCapabilityFacts = do
     (Map.lookup "compare" (scopeClassMethodSignatures combined))
   assertEqual
     "implementation methods preserve left-to-right order"
-    (Just [fixtureImplMethod TypeInt, fixtureImplMethod TypeBool])
+    (Just [fixtureImplMethod TypeRepresentation.SemanticInt, fixtureImplMethod TypeRepresentation.SemanticBool])
     (Map.lookup "Comparable" (scopeConcreteImplMethods combined))
   assertEqual
     "three-way implementation collisions preserve left-to-right order"
-    (Just [fixtureImplMethod TypeInt, fixtureImplMethod TypeBool, fixtureImplMethod TypeBool])
+    (Just [fixtureImplMethod TypeRepresentation.SemanticInt, fixtureImplMethod TypeRepresentation.SemanticBool, fixtureImplMethod TypeRepresentation.SemanticBool])
     (Map.lookup "Comparable" (scopeConcreteImplMethods (first <> second <> third)))
   where
     combined = first <> second
@@ -254,7 +255,7 @@ testScopeCapabilityFacts = do
           scopeClassMethodSignatures =
             Map.singleton "compare" (ClassMethodType "Left" TypeRepresentation.SemanticInt),
           scopeConcreteImplMethods =
-            Map.singleton "Comparable" [fixtureImplMethod TypeInt]
+            Map.singleton "Comparable" [fixtureImplMethod TypeRepresentation.SemanticInt]
         }
     second =
       mempty
@@ -262,7 +263,7 @@ testScopeCapabilityFacts = do
           scopeClassMethodSignatures =
             Map.singleton "compare" (ClassMethodType "Right" TypeRepresentation.SemanticBool),
           scopeConcreteImplMethods =
-            Map.singleton "Comparable" [fixtureImplMethod TypeBool]
+            Map.singleton "Comparable" [fixtureImplMethod TypeRepresentation.SemanticBool]
         }
     third =
       mempty
@@ -270,7 +271,7 @@ testScopeCapabilityFacts = do
           scopeClassMethodSignatures =
             Map.singleton "compare" (ClassMethodType "Third" TypeRepresentation.SemanticInt),
           scopeConcreteImplMethods =
-            Map.singleton "Comparable" [fixtureImplMethod TypeBool],
+            Map.singleton "Comparable" [fixtureImplMethod TypeRepresentation.SemanticBool],
           scopeGeneratedEqualityClassFacts = Set.singleton "Eq",
           scopeConcreteImplFacts = Set.singleton (ConcreteImplFact (localCapabilityName "Comparable") TypeInt)
         }
@@ -407,5 +408,5 @@ testModuleExportInventory = do
     third :: ModuleExportInventory
     third = exportInventory [ModuleExport ValueNamespace "other"]
 
-fixtureImplMethod :: AST.SignatureType 'AST.Resolved -> ImplMethodType
+fixtureImplMethod :: TypeRepresentation.SemanticType ResolvedName Void -> ImplMethodType
 fixtureImplMethod target = ImplMethodType target (CapabilityId (resolvedLocalName CapabilityNamespace (mkIdentifier "Comparable"))) (MethodId (ImplId (StandaloneSourceUnit standaloneModulePath, CoreNodeId 0), mkIdentifier "compare"))
