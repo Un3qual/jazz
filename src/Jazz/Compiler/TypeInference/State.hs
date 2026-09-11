@@ -21,7 +21,6 @@ module Jazz.Compiler.TypeInference.State
     inferDeferredExplicitConstraints,
     inferErrorCount,
     inferErrorsRev,
-    inferExpressionFactTypes,
     inferBinaryOperations,
     inferExpressionEvidenceSeeds,
     inferExplicitInstantiationSeeds,
@@ -33,7 +32,6 @@ module Jazz.Compiler.TypeInference.State
     inferNextTypeVar,
     inferNumericVars,
     inferPatternCoverageSites,
-    inferPatternFactSeeds,
     inferRigidTypeVars,
     inferStrictEqualityVars,
     inferStatementFactSeeds,
@@ -45,11 +43,9 @@ module Jazz.Compiler.TypeInference.State
     modifyDeclarationState,
     modifyInferenceOutput,
     modifyModuleInferenceState,
-    recordExpressionFactType,
     recordBinaryOperation,
     recordExpressionEvidenceSeed,
     recordExplicitInstantiationSeed,
-    recordPatternFactSeed,
     recordStatementFactSeed,
     recordPatternCoverageSite,
     reservePatternCoverageSite,
@@ -76,7 +72,6 @@ import Jazz.Compiler.SemanticFacts
     CoreNodeId,
     ImplId,
     MethodId,
-    PatternFacts,
     SemanticFactInvariantFailure (..),
     StatementDeclarationFact,
   )
@@ -124,11 +119,9 @@ data ModuleInferenceState = ModuleInferenceState
   deriving (Eq, Show)
 
 data InferenceOutput = InferenceOutput
-  { outputExpressionFactTypes :: Map CoreNodeId ExpressionType,
-    outputBinaryOperations :: Map CoreNodeId BinaryOperation,
+  { outputBinaryOperations :: Map CoreNodeId BinaryOperation,
     outputExpressionEvidenceSeeds :: Map CoreNodeId ExpressionEvidenceSeed,
     outputExplicitInstantiationSeeds :: Map CoreNodeId ExplicitInstantiationSeed,
-    outputPatternFactSeeds :: Map CoreNodeId PatternFacts,
     outputStatementFactSeeds :: Map CoreNodeId ([(ResolvedName, TypeBinding)], StatementDeclarationFact),
     outputFactInvariantFailures :: Seq SemanticFactInvariantFailure,
     outputDeferredConstraints :: Seq DeferredExplicitConstraint,
@@ -221,11 +214,9 @@ initialInferState =
           },
       inferOutput =
         InferenceOutput
-          { outputExpressionFactTypes = Map.empty,
-            outputBinaryOperations = Map.empty,
+          { outputBinaryOperations = Map.empty,
             outputExpressionEvidenceSeeds = Map.empty,
             outputExplicitInstantiationSeeds = Map.empty,
-            outputPatternFactSeeds = Map.empty,
             outputStatementFactSeeds = Map.empty,
             outputFactInvariantFailures = Seq.empty,
             outputDeferredConstraints = Seq.empty,
@@ -286,9 +277,6 @@ inferConstructorWitnessNames = inferenceConstructorWitnessNames . inferModule
 inferVisibleTypes :: InferState -> TypeEnv
 inferVisibleTypes = inferenceVisibleTypes . inferModule
 
-inferExpressionFactTypes :: InferState -> Map CoreNodeId ExpressionType
-inferExpressionFactTypes = outputExpressionFactTypes . inferOutput
-
 inferBinaryOperations :: InferState -> Map CoreNodeId BinaryOperation
 inferBinaryOperations = outputBinaryOperations . inferOutput
 
@@ -307,23 +295,11 @@ inferExpressionEvidenceSeeds = outputExpressionEvidenceSeeds . inferOutput
 inferExplicitInstantiationSeeds :: InferState -> Map CoreNodeId ExplicitInstantiationSeed
 inferExplicitInstantiationSeeds = outputExplicitInstantiationSeeds . inferOutput
 
-inferPatternFactSeeds :: InferState -> Map CoreNodeId PatternFacts
-inferPatternFactSeeds = outputPatternFactSeeds . inferOutput
-
 inferStatementFactSeeds :: InferState -> Map CoreNodeId ([(ResolvedName, TypeBinding)], StatementDeclarationFact)
 inferStatementFactSeeds = outputStatementFactSeeds . inferOutput
 
 inferFactInvariantFailures :: InferState -> [SemanticFactInvariantFailure]
 inferFactInvariantFailures = toList . outputFactInvariantFailures . inferOutput
-
-recordExpressionFactType :: CoreNodeId -> ExpressionType -> InferState -> InferState
-recordExpressionFactType nodeId expressionType =
-  recordFact
-    outputExpressionFactTypes
-    (\facts output -> output {outputExpressionFactTypes = facts})
-    DuplicateExpressionFacts
-    nodeId
-    expressionType
 
 recordExpressionEvidenceSeed :: CoreNodeId -> ExpressionEvidenceSeed -> InferState -> InferState
 recordExpressionEvidenceSeed nodeId seed =
@@ -342,15 +318,6 @@ recordExplicitInstantiationSeed nodeId seed =
     DuplicateExplicitInstantiationSeed
     nodeId
     seed
-
-recordPatternFactSeed :: CoreNodeId -> PatternFacts -> InferState -> InferState
-recordPatternFactSeed nodeId facts =
-  recordFact
-    outputPatternFactSeeds
-    (\seeds output -> output {outputPatternFactSeeds = seeds})
-    DuplicatePatternFacts
-    nodeId
-    facts
 
 recordStatementFactSeed :: CoreNodeId -> ([(ResolvedName, TypeBinding)], StatementDeclarationFact) -> InferState -> InferState
 recordStatementFactSeed nodeId facts =

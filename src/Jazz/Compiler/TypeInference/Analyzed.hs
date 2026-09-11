@@ -1,17 +1,14 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE KindSignatures #-}
 
--- | The single checked Resolved-to-Analyzed reconstruction. Inference records
--- facts in source-unit-local maps; this traversal consumes every entry through
--- the original node identity and span.
+-- | Finalize node-owned checked decisions by applying solved substitutions.
+-- Declaration and expression builders retain their checked children.
 module Jazz.Compiler.TypeInference.Analyzed
-  ( attachAnalyzedExpression,
-    draftExpressionNode,
+  ( draftExpressionNode,
     draftCaseArmNode,
     draftStatement,
     refineListPrependDraft,
     finalizeCheckedExpression,
-    legacyExpressionDraft,
     attachAnalyzedStatementFacts,
     projectAnalyzedMethodSignature,
   )
@@ -27,8 +24,7 @@ import qualified Data.Sequence as Seq
 import qualified Data.Set as Set
 import Data.Text (Text)
 import Jazz.Compiler.AST
-  ( CaseArm (..),
-    ClassMethodSignature (..),
+  ( ClassMethodSignature (..),
     CoreNode (..),
     CorePhase (..),
     CoreSort (..),
@@ -36,7 +32,6 @@ import Jazz.Compiler.AST
     Expr (..),
     ImplMethod (..),
     Literal (..),
-    Pattern (..),
     Statement (..),
     expressionNode,
   )
@@ -56,7 +51,6 @@ import Jazz.Compiler.SemanticFacts
     EvidenceReference (..),
     ExpressionFacts (..),
     InstantiationTarget (..),
-    PatternFacts (..),
     RuntimeObligation (..),
     RuntimePlan (..),
     SemanticFactInvariantFailure (..),
@@ -74,10 +68,8 @@ import Jazz.Compiler.TypeInference.State
     inferBinaryOperations,
     inferExplicitInstantiationSeeds,
     inferExpressionEvidenceSeeds,
-    inferExpressionFactTypes,
     inferFactInvariantFailures,
     inferNumericVars,
-    inferPatternFactSeeds,
     inferStatementFactSeeds,
   )
 import Jazz.Compiler.TypeInference.TypeOps (freeTypeVariables)
@@ -109,58 +101,8 @@ recordedFailures state = case inferFactInvariantFailures state of
   [] -> pure ()
   failure : failures -> AttachmentFailed failure (Seq.fromList failures)
 
-attachAnalyzedExpression :: InferState -> Expr 'Resolved -> Either (NonEmpty SemanticFactInvariantFailure) (Expr 'Analyzed)
-attachAnalyzedExpression state expression = attachmentResult (recordedFailures state *> attachExpr state expression)
-
 missing :: SemanticFactInvariantFailure -> Attachment value
 missing failure = AttachmentFailed failure Seq.empty
-
-attachExpr :: InferState -> Expr 'Resolved -> Attachment (Expr 'Analyzed)
-attachExpr state expression =
-  case expression of
-    ELit node literal -> ELit <$> attachNode expression node <*> pure literal
-    EVar node name -> EVar <$> attachNode expression node <*> pure name
-    ELambda node name body ->
-      ELambda
-        <$> attachNode expression node
-        <*> pure name
-        <*> attachExpr state body
-    EOperatorValue node name -> EOperatorValue <$> attachNode expression node <*> pure name
-    EList node elements -> EList <$> attachNode expression node <*> traverse recur elements
-    ETuple node elements -> ETuple <$> attachNode expression node <*> traverse recur elements
-    EApply node function argument -> EApply <$> attachNode expression node <*> recur function <*> recur argument
-    ETypeApplication node function argumentSpan argument ->
-      ETypeApplication
-        <$> attachNode expression node
-        <*> recur function
-        <*> pure argumentSpan
-        <*> pure argument
-    EIf node condition thenExpression elseExpression ->
-      EIf <$> attachNode expression node <*> recur condition <*> recur thenExpression <*> recur elseExpression
-    EPatternCase node scrutinee arms ->
-      EPatternCase <$> attachNode expression node <*> recur scrutinee <*> traverse attachArm arms
-    EBinary node operator left right -> EBinary <$> attachNode expression node <*> pure operator <*> recur left <*> recur right
-    ESectionLeft node left operator -> ESectionLeft <$> attachNode expression node <*> recur left <*> pure operator
-    ESectionRight node operator right -> ESectionRight <$> attachNode expression node <*> pure operator <*> recur right
-    EBlock node statements ->
-      EBlock
-        <$> attachNode expression node
-        <*> traverse (attachStatementNode state) statements
-  where
-    recur = attachExpr state
-    attachNode value = attachExpressionNode state (Just value)
-    attachPattern = attachPatternNode state
-    attachArm (CaseArm armNode pattern guard body) =
-      CaseArm
-        <$> attachExpressionNode state Nothing armNode
-        <*> attachPattern pattern
-        <*> traverse recur guard
-        <*> recur body
-
--- Transitional entry point for constructors not yet returning checked children.
--- Removed when the final constructor family owns its draft subtree.
-legacyExpressionDraft :: Expr 'Resolved -> Draft (Expr 'Analyzed)
-legacyExpressionDraft expression = Draft (\solved -> attachExpr solved expression)
 
 finalizeCheckedExpression :: InferState -> CheckedExpr -> Either (NonEmpty SemanticFactInvariantFailure) (Expr 'Analyzed)
 finalizeCheckedExpression solved checked = attachmentResult (recordedFailures solved *> runDraft (checkedExprTree checked) solved)
@@ -195,10 +137,6 @@ refineListPrependDraft state function elementType checked = case function of
           _ -> expression
      in rebuild <$> draftExpressionNode state (Just partialType) function <*> draftExpressionNode state (Just callableType) builtin <*> checked
   _ -> checked
-
-attachExpressionNode :: InferState -> Maybe (Expr 'Resolved) -> CoreNode 'Resolved 'ExpressionSort -> Attachment (CoreNode 'Analyzed 'ExpressionSort)
-attachExpressionNode state expression node =
-  finalizeExpressionNode state (prepareExpressionNode state expression (Map.lookup (coreNodeId node) (inferExpressionFactTypes state)) (coreNodeId node)) node
 
 prepareExpressionNode :: InferState -> Maybe (Expr 'Resolved) -> Maybe ExpressionType -> CoreNodeId -> ExpressionNodeDraft
 prepareExpressionNode checked expression result nodeId =
@@ -345,34 +283,6 @@ referencedName expression =
     ETypeApplication _ function _ _ -> referencedName function
     _ -> Nothing
 
-attachPatternNode :: InferState -> Pattern 'Resolved -> Attachment (Pattern 'Analyzed)
-attachPatternNode state pattern =
-  case pattern of
-    PWildcard node -> PWildcard <$> facts node
-    PVariable node name -> PVariable <$> facts node <*> pure name
-    PLiteral node literal -> PLiteral <$> facts node <*> pure literal
-    PConstructor node name patterns -> PConstructor <$> facts node <*> pure name <*> traverse recur patterns
-    PList node patterns -> PList <$> facts node <*> traverse recur patterns
-    PConsList node headPattern tailPattern -> PConsList <$> facts node <*> recur headPattern <*> recur tailPattern
-    PTuple node patterns -> PTuple <$> facts node <*> traverse recur patterns
-    PAs node name nested -> PAs <$> facts node <*> pure name <*> recur nested
-    POr node alternatives -> POr <$> facts node <*> traverse recur alternatives
-  where
-    recur = attachPatternNode state
-    facts (CoreNode nodeId spanValue resolution) =
-      case Map.lookup nodeId (inferPatternFactSeeds state) of
-        Nothing -> missing (MissingPatternFacts nodeId)
-        Just seed ->
-          pure
-            ( CoreNode
-                nodeId
-                spanValue
-                seed
-                  { patternResolution = resolution,
-                    patternBindingTypes = Map.map (resolveType state) (patternBindingTypes seed)
-                  }
-            )
-
 draftStatement :: InferState -> Statement 'Resolved -> Maybe CheckedExpr -> [(Int, CheckedExpr)] -> Draft (Statement 'Analyzed)
 draftStatement checked statement body methods = case statement of
   SLet node name value -> makeLet name <$> facts node <*> valueDraft value body
@@ -393,31 +303,6 @@ draftStatement checked statement body methods = case statement of
     classMethod (ClassMethodSignature node name signature) = ClassMethodSignature <$> facts node <*> pure name <*> pure signature
     implMethod (index, ImplMethod node name value) = ImplMethod <$> facts node <*> pure name <*> valueDraft value (lookup index methods)
     makeLet name node value = SLet node name (constrainBindingRuntimeResult (coreNodeFacts node) value)
-
-attachStatementNode :: InferState -> Statement 'Resolved -> Attachment (Statement 'Analyzed)
-attachStatementNode state statement =
-  case statement of
-    SLet node name value -> makeLet name <$> facts node <*> recur value
-    SSignature node name signature -> SSignature <$> facts node <*> pure name <*> pure signature
-    SData node name parameters constructors -> SData <$> facts node <*> pure name <*> pure parameters <*> traverse attachConstructor constructors
-    SClass node name parameters methods -> SClass <$> facts node <*> pure name <*> pure parameters <*> traverse attachClassMethod methods
-    SImpl node name arguments methods -> SImpl <$> facts node <*> pure name <*> pure arguments <*> traverse attachImplMethod methods
-    SModule node path -> SModule <$> facts node <*> pure path
-    SImport node path alias names -> SImport <$> facts node <*> pure path <*> pure alias <*> pure names
-    SExpr node value -> SExpr <$> facts node <*> recur value
-  where
-    recur = attachExpr state
-    facts = attachStatementFacts state
-    attachConstructor (DataConstructor node name arguments) = DataConstructor <$> facts node <*> pure name <*> pure arguments
-    attachClassMethod (ClassMethodSignature node name signature) =
-      ClassMethodSignature <$> facts node <*> pure name <*> pure signature
-    attachImplMethod (ImplMethod node name body) =
-      ImplMethod
-        <$> facts node
-        <*> pure name
-        <*> attachExpr state body
-    makeLet name analyzedNode analyzedValue =
-      SLet analyzedNode name (constrainBindingRuntimeResult (coreNodeFacts analyzedNode) analyzedValue)
 
 constrainBindingRuntimeResult :: StatementFacts -> Expr 'Analyzed -> Expr 'Analyzed
 constrainBindingRuntimeResult statementFacts =
@@ -460,10 +345,6 @@ mapExpressionFacts update expression =
     EBlock node statements -> EBlock (mapNode node) statements
   where
     mapNode (CoreNode nodeId spanValue facts) = CoreNode nodeId spanValue (update facts)
-
-attachStatementFacts :: InferState -> CoreNode 'Resolved 'StatementSort -> Attachment (CoreNode 'Analyzed 'StatementSort)
-attachStatementFacts state (CoreNode nodeId spanValue resolution) =
-  CoreNode nodeId spanValue <$> projectStatementFacts state nodeId resolution
 
 attachAnalyzedStatementFacts :: InferState -> [CoreNode 'Resolved 'StatementSort] -> Either (NonEmpty SemanticFactInvariantFailure) (Map CoreNodeId StatementFacts)
 attachAnalyzedStatementFacts state nodes =

@@ -169,20 +169,13 @@ import Jazz.Compiler.SemanticFacts
     StatementFacts (..),
   )
 import Jazz.Compiler.SourceProgram (parseAndLowerStandaloneSource)
-import Jazz.Compiler.TypeInference (InferenceInputs (..), inferExpressionWork)
-import Jazz.Compiler.TypeInference.Analyzed (attachAnalyzedExpression, finalizeCheckedExpression, projectAnalyzedMethodSignature)
+import Jazz.Compiler.TypeInference (CheckedExpr (..), InferenceInputs (..), inferExpressionWork)
+import Jazz.Compiler.TypeInference.Analyzed (draftExpressionNode, draftStatement, finalizeCheckedExpression, projectAnalyzedMethodSignature)
 import Jazz.Compiler.TypeInference.Result (inferredDiagnostics)
 import Jazz.Compiler.TypeInference.Solver (freshIntegerLiteralType)
 import Jazz.Compiler.TypeInference.State
-  ( ExplicitInstantiationSeed (..),
-    ExplicitInstantiationTarget (..),
-    ExpressionEvidenceSeed (..),
-    InferState (..),
+  ( InferState (..),
     initialInferState,
-    recordExplicitInstantiationSeed,
-    recordExpressionEvidenceSeed,
-    recordExpressionFactType,
-    recordPatternFactSeed,
     recordStatementFactSeed,
   )
 import Jazz.Compiler.TypeInference.Types
@@ -232,7 +225,7 @@ tests =
     ("successful inference attaches complete analyzed facts", testAnalyzedProgramFactsAreComplete),
     ("analyzed methods identify used and unused class parameters", testAnalyzedMethodParameterIdentity),
     ("method projection rejects variables outside the class binder", testAnalyzedMethodParameterBoundary),
-    ("analyzed fact attachment rejects missing and duplicate entries", testAnalyzedFactInvariantFailures),
+    ("checked-tree finalization rejects incomplete semantic nodes", testAnalyzedFactInvariantFailures),
     ("dependency expressions are checked but not executed", testDependencyExpressionContract),
     ("analyzed interfaces expose only declared exports", testAnalyzedInterfacesExposeOnlyDeclaredExports),
     ("runtime modules publish only declared exports", testRuntimeModulePublishesDeclaredExports),
@@ -479,8 +472,8 @@ testAnalyzedLiteralRangeFacts = do
   let nodeId = CoreNodeId 17
       expression = ELit (CoreNode nodeId (SourceSpan 1 1) (emptyResolvedNodeFacts (NamedSourceUnit (nominalModulePath ("App" :| ["Main"]))))) (LInt 255)
       (literalType, literalState) = freshIntegerLiteralType (IntegerLiteralRange 0 255) initialInferState
-      state = recordExpressionFactType nodeId literalType literalState
-  case attachAnalyzedExpression state expression of
+      checked = CheckedExpr (Just literalType) (ELit <$> draftExpressionNode literalState (Just literalType) expression <*> pure (LInt 255))
+  case finalizeCheckedExpression literalState checked of
     Right (ELit (CoreNode _ _ facts) _) -> do
       assertEqual "uncommitted numeric representation" literalType (expressionSemanticType facts)
       assertEqual
@@ -656,231 +649,44 @@ testCheckedSubtreeOwnership = do
 
 testAnalyzedFactInvariantFailures :: IO ()
 testAnalyzedFactInvariantFailures = do
-  let expressionId = CoreNodeId 41
-      expression = ELit (CoreNode expressionId (SourceSpan 1 1) (emptyResolvedNodeFacts (NamedSourceUnit modulePath))) (LInt 1)
-      expressionOnce = recordExpressionFactType expressionId SemanticInt initialInferState
-      expressionTwice = recordExpressionFactType expressionId SemanticInt expressionOnce
-      modulePath = nominalModulePath ("Fact" :| [])
-  assertEqual
-    "missing expression fact"
-    (Left (MissingExpressionFacts expressionId :| []))
-    (attachAnalyzedExpression initialInferState expression)
-  assertEqual
-    "duplicate expression fact"
-    (Left (DuplicateExpressionFacts expressionId :| []))
-    (attachAnalyzedExpression expressionTwice expression)
+  let modulePath = nominalModulePath ("Fact" :| [])
+      owner = NamedSourceUnit modulePath
+      node :: Int -> CoreNode 'Resolved 'ExpressionSort
+      node number = CoreNode (CoreNodeId number) (SourceSpan 1 1) (emptyResolvedNodeFacts owner)
+      expression = ELit (node 41) (LInt 1)
+      unchecked = CheckedExpr Nothing (ELit <$> draftExpressionNode initialInferState Nothing expression <*> pure (LInt 1))
+  assertEqual "an incomplete checked node fails finalization" (Left (MissingExpressionFacts (CoreNodeId 41) :| [])) (finalizeCheckedExpression initialInferState unchecked)
+  let unknown = BuiltinName (mkIdentifier "unknown")
+      unresolvedNode = (node 42) {coreNodeFacts = (emptyResolvedNodeFacts owner) {resolvedNodeReference = Just (UnresolvedReference unknown)}}
+      unresolved = EVar unresolvedNode unknown
+      checkedUnresolved = CheckedExpr (Just SemanticInt) (EVar <$> draftExpressionNode initialInferState (Just SemanticInt) unresolved <*> pure unknown)
+  assertEqual "an unresolved reference cannot become analyzed" (Left (UnresolvedExpressionReference (CoreNodeId 42) unknown :| [])) (finalizeCheckedExpression initialInferState checkedUnresolved)
 
-  let leftId = CoreNodeId 42
-      rightId = CoreNodeId 43
-      pair =
-        ETuple
-          (CoreNode expressionId (SourceSpan 1 1) (emptyResolvedNodeFacts (NamedSourceUnit modulePath)))
-          [ ELit (CoreNode leftId (SourceSpan 1 2) (emptyResolvedNodeFacts (NamedSourceUnit modulePath))) (LInt 1),
-            ELit (CoreNode rightId (SourceSpan 1 3) (emptyResolvedNodeFacts (NamedSourceUnit modulePath))) (LInt 2)
-          ]
-  assertEqual
-    "recorded failures precede independent missing child facts in source order"
-    (Left (DuplicateExpressionFacts expressionId :| [MissingExpressionFacts leftId, MissingExpressionFacts rightId]))
-    (attachAnalyzedExpression expressionTwice pair)
+  let statementId = CoreNodeId 51
+      binder = CoreBinderId (owner, statementId)
+      name = BuiltinName (mkIdentifier "value")
+      statementNode = CoreNode statementId (SourceSpan 1 1) ((emptyResolvedNodeFacts owner) {resolvedNodeBinder = Just binder})
+      statement = SLet statementNode name expression
+      block = EBlock (node 50) [statement]
+      checkedValue = CheckedExpr (Just SemanticInt) (ELit <$> draftExpressionNode initialInferState (Just SemanticInt) expression <*> pure (LInt 1))
+      finalizeBinding state = finalizeCheckedExpression state (CheckedExpr (Just SemanticInt) (EBlock <$> draftExpressionNode state (Just SemanticInt) block <*> sequenceA [draftStatement state statement (Just checkedValue) []]))
+      aliasState = recordStatementFactSeed statementId ([(name, BuiltinAliasTypeBinding BuiltinToInt8)], ValueDeclaration name) initialInferState
+  assertEqual "an unprojected binding cannot silently lose its scheme" (Left (MissingStatementScheme statementId binder :| [])) (finalizeBinding aliasState)
 
-  let implementationId = ImplId (NamedSourceUnit modulePath, CoreNodeId 100)
-      evidenceSeed =
-        ExpressionEvidenceSeed
-          { evidenceSeedCapability = CapabilityId (BuiltinName (mkIdentifier "Eq")),
-            evidenceSeedImplementation = implementationId,
-            evidenceSeedMethod = MethodId (implementationId, mkIdentifier "equals"),
-            evidenceSeedType = SemanticInt
-          }
-      evidenceOnce = recordExpressionEvidenceSeed expressionId evidenceSeed expressionOnce
-      evidenceTwice = recordExpressionEvidenceSeed expressionId evidenceSeed evidenceOnce
-  assertEqual
-    "duplicate expression evidence fact"
-    (Left (DuplicateExpressionFacts expressionId :| []))
-    (attachAnalyzedExpression evidenceTwice expression)
-
-  let typeApplicationId = CoreNodeId 53
-      typeApplicationFunctionId = CoreNodeId 54
-      missingBinderName = BuiltinName (mkIdentifier "identity")
-      mismatchedBinderName = BuiltinName (mkIdentifier "otherIdentity")
-      lexicalBinderId = CoreBinderId (NamedSourceUnit modulePath, CoreNodeId 52)
-      typeApplication =
-        ETypeApplication
-          (CoreNode typeApplicationId (SourceSpan 1 1) (emptyResolvedNodeFacts (NamedSourceUnit modulePath)))
-          (EVar (CoreNode typeApplicationFunctionId (SourceSpan 1 1) ((emptyResolvedNodeFacts (NamedSourceUnit modulePath)) {resolvedNodeReference = Just (LexicalReference lexicalBinderId)})) missingBinderName)
-          (SourceSpan 1 10)
-          TypeInt
-      typeApplicationState =
-        recordExpressionFactType
-          typeApplicationId
-          SemanticBool
-          (recordExpressionFactType typeApplicationFunctionId SemanticBool initialInferState)
-      explicitSeed =
-        ExplicitInstantiationSeed
-          { explicitInstantiationSeedTarget = ExplicitBinderInstantiation missingBinderName,
-            explicitInstantiationSeedArguments = SemanticBool :| []
-          }
-      seededTypeApplicationState =
-        recordExplicitInstantiationSeed typeApplicationId explicitSeed typeApplicationState
-  assertEqual
-    "explicit type application requires a recorded inference decision"
-    (Left (MissingExplicitInstantiationSeed typeApplicationId :| []))
-    (attachAnalyzedExpression typeApplicationState typeApplication)
-  case attachAnalyzedExpression
-    seededTypeApplicationState
-    typeApplication of
-    Right (ETypeApplication (CoreNode _ _ facts) _ _ _) ->
-      assertEqual
-        "attachment trusts the final solver argument rather than reconstructing common source syntax"
-        [SemanticInstantiation (LexicalInstantiation lexicalBinderId) (SemanticBool :| [])]
-        (expressionInstantiations facts)
-    result -> fail ("expected a seeded analyzed explicit type application, got " <> show result)
-  assertEqual
-    "explicit type application seed is unique per node"
-    (Left (DuplicateExplicitInstantiationSeed typeApplicationId :| []))
-    ( attachAnalyzedExpression
-        (recordExplicitInstantiationSeed typeApplicationId explicitSeed seededTypeApplicationState)
-        typeApplication
-    )
-  let mismatchedSeed =
-        explicitSeed
-          { explicitInstantiationSeedTarget = ExplicitBinderInstantiation mismatchedBinderName
-          }
-  assertEqual
-    "explicit type application seed target matches the resolved expression"
-    (Left (MismatchedExplicitInstantiationSeed typeApplicationId missingBinderName mismatchedBinderName :| []))
-    ( attachAnalyzedExpression
-        (recordExplicitInstantiationSeed typeApplicationId mismatchedSeed typeApplicationState)
-        typeApplication
-    )
-  assertEqual
-    "explicit type application still requires a lexical binder identity"
-    (Left (MissingExplicitInstantiationBinder typeApplicationId missingBinderName :| []))
-    ( attachAnalyzedExpression
-        seededTypeApplicationState
-        ( ETypeApplication
-            (CoreNode typeApplicationId (SourceSpan 1 1) (emptyResolvedNodeFacts (NamedSourceUnit modulePath)))
-            (EVar (CoreNode typeApplicationFunctionId (SourceSpan 1 1) (emptyResolvedNodeFacts (NamedSourceUnit modulePath))) missingBinderName)
-            (SourceSpan 1 10)
-            TypeInt
-        )
-    )
-
-  let caseId = CoreNodeId 42
-      scrutineeId = CoreNodeId 43
-      armId = CoreNodeId 44
-      patternId = CoreNodeId 45
-      bodyId = CoreNodeId 46
-      patternValue = PWildcard (CoreNode patternId (SourceSpan 1 5) (emptyResolvedNodeFacts (NamedSourceUnit modulePath)))
-      caseExpression =
-        EPatternCase
-          (CoreNode caseId (SourceSpan 1 1) (emptyResolvedNodeFacts (NamedSourceUnit modulePath)))
-          (ELit (CoreNode scrutineeId (SourceSpan 1 3) (emptyResolvedNodeFacts (NamedSourceUnit modulePath))) (LInt 1))
-          [CaseArm (CoreNode armId (SourceSpan 1 5) (emptyResolvedNodeFacts (NamedSourceUnit modulePath))) patternValue Nothing (ELit (CoreNode bodyId (SourceSpan 1 10) (emptyResolvedNodeFacts (NamedSourceUnit modulePath))) (LInt 1))]
-      expressionCompleteState =
-        foldr
-          (\nodeId -> recordExpressionFactType nodeId SemanticInt)
-          initialInferState
-          [caseId, scrutineeId, armId, bodyId]
-      patternFacts = PatternFacts (emptyResolvedNodeFacts (NamedSourceUnit modulePath)) Map.empty PatternHasNoConstructor IrrefutablePattern
-      patternOnce = recordPatternFactSeed patternId patternFacts expressionCompleteState
-      patternTwice = recordPatternFactSeed patternId patternFacts patternOnce
-  assertEqual
-    "missing pattern fact"
-    (Left (MissingPatternFacts patternId :| []))
-    (attachAnalyzedExpression expressionCompleteState caseExpression)
-  assertEqual
-    "duplicate pattern fact"
-    (Left (DuplicatePatternFacts patternId :| []))
-    (attachAnalyzedExpression patternTwice caseExpression)
-
-  let blockId = CoreNodeId 47
-      statementId = CoreNodeId 48
-      statementExpressionId = CoreNodeId 49
-      blockExpression =
-        EBlock
-          (CoreNode blockId (SourceSpan 1 1) (emptyResolvedNodeFacts (NamedSourceUnit modulePath)))
-          [SExpr (CoreNode statementId (SourceSpan 1 3) (emptyResolvedNodeFacts (NamedSourceUnit modulePath))) (ELit (CoreNode statementExpressionId (SourceSpan 1 3) (emptyResolvedNodeFacts (NamedSourceUnit modulePath))) (LInt 1))]
-      blockExpressionState =
-        recordExpressionFactType
-          blockId
-          SemanticInt
-          (recordExpressionFactType statementExpressionId SemanticInt initialInferState)
-      statementOnce = recordStatementFactSeed statementId ([], ExpressionDeclaration) blockExpressionState
-      statementTwice = recordStatementFactSeed statementId ([], ExpressionDeclaration) statementOnce
-  assertEqual
-    "missing statement fact"
-    (Left (MissingStatementFacts statementId :| []))
-    (attachAnalyzedExpression blockExpressionState blockExpression)
-  assertEqual
-    "duplicate statement fact"
-    (Left (DuplicateStatementFacts statementId :| []))
-    (attachAnalyzedExpression statementTwice blockExpression)
-
-  let aliasBlockId = CoreNodeId 55
-      aliasStatementId = CoreNodeId 56
-      aliasExpressionId = CoreNodeId 57
-      aliasName = BuiltinName (mkIdentifier "alias")
-      aliasExpression = EVar (CoreNode aliasExpressionId (SourceSpan 1 9) (emptyResolvedNodeFacts (NamedSourceUnit modulePath))) (BuiltinName (mkIdentifier "__kernel_toInt8"))
-      aliasBlock =
-        EBlock
-          (CoreNode aliasBlockId (SourceSpan 1 1) (emptyResolvedNodeFacts (NamedSourceUnit modulePath)))
-          [SLet (CoreNode aliasStatementId (SourceSpan 1 1) ((emptyResolvedNodeFacts (NamedSourceUnit modulePath)) {resolvedNodeBinder = Just (CoreBinderId (NamedSourceUnit modulePath, aliasStatementId))})) aliasName aliasExpression]
-      aliasState =
-        recordStatementFactSeed
-          aliasStatementId
-          ([(aliasName, BuiltinAliasTypeBinding BuiltinToInt8)], ValueDeclaration aliasName)
-          ( recordExpressionFactType
-              aliasBlockId
-              (SemanticFunction SemanticInt (SemanticNumeric NumericInt8))
-              ( recordExpressionFactType
-                  aliasExpressionId
-                  (SemanticFunction SemanticInt (SemanticNumeric NumericInt8))
-                  initialInferState
-              )
-          )
-  assertEqual
-    "statement binders cannot silently drop an unprojected scheme"
-    (Left (MissingStatementScheme aliasStatementId (CoreBinderId (NamedSourceUnit modulePath, aliasStatementId)) :| []))
-    (attachAnalyzedExpression aliasState aliasBlock)
-
-  let rangeBlockId = CoreNodeId 50
-      rangeStatementId = CoreNodeId 51
-      rangeExpressionId = CoreNodeId 52
-      rangeName = BuiltinName (mkIdentifier "range")
-      rangeVariable = InferenceVariable 0
-      rangeScheme =
+  let variable = InferenceVariable 0
+      scheme =
         SemanticScheme
-          { schemeQuantifiedVariables = quantifiedVariablesFromPreferred [rangeVariable] (Set.singleton rangeVariable),
+          { schemeQuantifiedVariables = quantifiedVariablesFromPreferred [variable] (Set.singleton variable),
             schemeClassConstraints = [],
-            schemePrimitiveConstraints =
-              [ TypeSchemeNumericConstraint
-                  (IntegralLiteralNumericConstraint (IntegerLiteralRange 1 1))
-                  (SemanticVariable rangeVariable)
-              ],
+            schemePrimitiveConstraints = [TypeSchemeNumericConstraint (IntegralLiteralNumericConstraint (IntegerLiteralRange 1 1)) (SemanticVariable variable)],
             schemeDefiningCapabilities = emptyScopeCapabilityFacts,
-            schemeResultType = SemanticVariable rangeVariable
+            schemeResultType = SemanticVariable variable
           }
-      rangeExpression = ELit (CoreNode rangeExpressionId (SourceSpan 1 9) (emptyResolvedNodeFacts (NamedSourceUnit modulePath))) (LInt 1)
-      rangeBlock =
-        EBlock
-          (CoreNode rangeBlockId (SourceSpan 1 1) (emptyResolvedNodeFacts (NamedSourceUnit modulePath)))
-          [SLet (CoreNode rangeStatementId (SourceSpan 1 1) ((emptyResolvedNodeFacts (NamedSourceUnit modulePath)) {resolvedNodeBinder = Just (CoreBinderId (NamedSourceUnit modulePath, rangeStatementId))})) rangeName rangeExpression]
-      rangeState =
-        recordStatementFactSeed
-          rangeStatementId
-          ([(rangeName, SchemeTypeBinding rangeScheme)], ValueDeclaration rangeName)
-          ( recordExpressionFactType
-              rangeBlockId
-              (SemanticVariable rangeVariable)
-              (recordExpressionFactType rangeExpressionId (SemanticVariable rangeVariable) initialInferState)
-          )
-  case attachAnalyzedExpression rangeState rangeBlock of
+      rangeState = recordStatementFactSeed statementId ([(name, SchemeTypeBinding scheme)], ValueDeclaration name) initialInferState
+  case finalizeBinding rangeState of
     Right (EBlock _ [SLet (CoreNode _ _ facts) _ _]) ->
-      assertEqual
-        "generalized schemes preserve integral literal ranges"
-        True
-        (any schemeHasLiteralRange (Map.elems (statementGeneralizedSchemes facts)))
-    result -> fail ("failed to attach literal-range scheme facts: " <> show result)
+      assertEqual "generalized schemes preserve integral literal ranges" True (any schemeHasLiteralRange (Map.elems (statementGeneralizedSchemes facts)))
+    result -> fail ("failed to finalize literal-range scheme: " <> show result)
 
 type NodeIdentity = (CoreNodeId, SourceSpan)
 

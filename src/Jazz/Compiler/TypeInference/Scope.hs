@@ -27,7 +27,8 @@ import Data.Map.Strict
   )
 import qualified Data.Map.Strict as Map
 import Data.Maybe
-  ( isNothing,
+  ( fromMaybe,
+    isNothing,
   )
 import Data.Set
   ( Set,
@@ -48,7 +49,6 @@ import Jazz.Compiler.AST
     Literal (..),
     SignatureType,
     Statement (..),
-    expressionNode,
   )
 import Jazz.Compiler.BuiltinCatalog
   ( lookupKernelBuiltinSymbol,
@@ -152,7 +152,6 @@ import Jazz.Compiler.TypeInference.State
     SolverState (..),
     inferDataTypes,
     inferErrorCount,
-    inferExpressionFactTypes,
     inferInferredClassConstraintCount,
     inferInferredClassConstraints,
     inferNumericVars,
@@ -161,7 +160,6 @@ import Jazz.Compiler.TypeInference.State
     modifyDeclarationState,
     modifyInferenceOutput,
     previewInference,
-    recordExpressionFactType,
     recordStatementFactSeed,
   )
 import Jazz.Compiler.TypeInference.Traversal
@@ -249,7 +247,7 @@ inferExprTypeWithExpectedMode inferExpression mode env state expectedType expr =
   where
     finish result checkedState build =
       ( CheckedExpr result (build (draftExpressionNode checkedState result expr)),
-        maybe checkedState (\value -> recordExpressionFactType (coreNodeId (expressionNode expr)) value checkedState) result
+        checkedState
       )
 
 checkImplementationTargets :: InferState -> SourceSpan -> [SignatureType 'Resolved] -> Either Diagnostic [SemanticType ResolvedName Void]
@@ -453,29 +451,29 @@ inferScopeTypeInternal
       initialEnv = scopeInitialEnv
       initialState = scopeInitialState
 
-      recordStatementSemanticFacts :: TypeEnv -> Statement 'Resolved -> InferState -> InferState
-      recordStatementSemanticFacts visibleTypes statement state =
+      recordStatementSemanticFacts :: Maybe ExpressionType -> TypeEnv -> Statement 'Resolved -> InferState -> InferState
+      recordStatementSemanticFacts valueType visibleTypes statement state =
         foldl'
           (\stateAcc (nodeId, bindings, declarationFact) -> recordStatementFactSeed nodeId (bindings, declarationFact) stateAcc)
           state
-          (statementSemanticFactSeeds (statementFactVisibleTypes state visibleTypes statement) statement)
+          (statementSemanticFactSeeds (statementFactVisibleTypes state valueType visibleTypes statement) statement)
 
-      statementFactVisibleTypes :: InferState -> TypeEnv -> Statement 'Resolved -> TypeEnv
-      statementFactVisibleTypes state visibleTypes statement =
+      statementFactVisibleTypes :: InferState -> Maybe ExpressionType -> TypeEnv -> Statement 'Resolved -> TypeEnv
+      statementFactVisibleTypes state valueType visibleTypes statement =
         case statement of
-          SLet node name valueExpr ->
-            Map.adjust (semanticFactBinding state valueExpr) (typeEnvBindingKey (coreNodeFacts node) name) visibleTypes
+          SLet node name _ ->
+            Map.adjust (semanticFactBinding state valueType) (typeEnvBindingKey (coreNodeFacts node) name) visibleTypes
           _ -> visibleTypes
 
-      semanticFactBinding :: InferState -> Expr 'Resolved -> TypeBinding -> TypeBinding
-      semanticFactBinding state valueExpr binding =
+      semanticFactBinding :: InferState -> Maybe ExpressionType -> TypeBinding -> TypeBinding
+      semanticFactBinding state valueType binding =
         case binding of
           BuiltinAliasTypeBinding {} -> generalizedAliasBinding
           BuiltinOperatorAliasTypeBinding {} -> generalizedAliasBinding
           _ -> binding
         where
           generalizedAliasBinding =
-            case Map.lookup (coreNodeId (expressionNode valueExpr)) (inferExpressionFactTypes state) of
+            case valueType of
               Nothing -> binding
               Just inferredType ->
                 let resolvedType = resolveType state inferredType
@@ -518,7 +516,7 @@ inferScopeTypeInternal
           bindingAt reference name = maybe [] (\binding -> [(name, binding)]) (reference >>= (\target -> Map.lookup (TypeEnvKey target name) visibleTypes))
           constructorName (DataConstructor _ name _) = name
 
-      recordCommittedLetFacts pendingSignatures statementIndex visibleTypes state =
+      recordCommittedLetFacts pendingSignatures checkedValues statementIndex visibleTypes state =
         (foldl' recordDefinition state committedStatementIndices, committedStatementIndices)
         where
           committedStatementIndices =
@@ -546,6 +544,7 @@ inferScopeTypeInternal
                             )
                             visibleTypes
                  in recordStatementSemanticFacts
+                      (checkedExprType =<< Map.lookup definitionIndex checkedValues)
                       definitionVisibleTypes
                       definition
                       (recordCommittedSignature definitionVisibleTypes stateAcc definitionIndex)
@@ -554,7 +553,7 @@ inferScopeTypeInternal
             | Map.member definitionIndex pendingSignatures =
                 case Map.lookup (definitionIndex - 1) statementsByIndex of
                   Just signature@SSignature {} ->
-                    recordStatementSemanticFacts definitionVisibleTypes signature stateAcc
+                    recordStatementSemanticFacts Nothing definitionVisibleTypes signature stateAcc
                   _ -> stateAcc
             | otherwise = stateAcc
 
@@ -674,10 +673,10 @@ inferScopeTypeInternal
                 stateForSource = state
              in case statement of
                   SModule moduleNode _ ->
-                    let next = recordStatementSemanticFacts env statement (enterModuleCapabilityScope moduleBaselineFacts (sourceUnitOwnerModulePath (resolvedNodeOwner (coreNodeFacts moduleNode))) state)
+                    let next = recordStatementSemanticFacts Nothing env statement (enterModuleCapabilityScope moduleBaselineFacts (sourceUnitOwnerModulePath (resolvedNodeOwner (coreNodeFacts moduleNode))) state)
                      in go (retainStatement statementIndex statement next Nothing [] walkState {scopeWalkRecursiveGroupPreviewCache = Map.empty}) rest
                   SImport importNode _ maybeAlias maybeSymbolNames ->
-                    let next = recordStatementSemanticFacts env statement (importModuleCapabilityFacts (resolvedImportTarget (coreNodeFacts importNode)) maybeAlias maybeSymbolNames state)
+                    let next = recordStatementSemanticFacts Nothing env statement (importModuleCapabilityFacts (resolvedImportTarget (coreNodeFacts importNode)) maybeAlias maybeSymbolNames state)
                      in go (retainStatement statementIndex statement next Nothing [] walkState {scopeWalkRecursiveGroupPreviewCache = Map.empty}) rest
                   SClass _ capabilityName parameters _ ->
                     let nextState = case preparedDeclarations scopePreparation Map.! statementIndex of
@@ -691,7 +690,7 @@ inferScopeTypeInternal
                             ( retainStatement
                                 statementIndex
                                 statement
-                                (recordStatementSemanticFacts env statement nextState)
+                                (recordStatementSemanticFacts Nothing env statement nextState)
                                 Nothing
                                 []
                                 walkState
@@ -727,7 +726,7 @@ inferScopeTypeInternal
                             ( retainStatement
                                 statementIndex
                                 statement
-                                (recordStatementSemanticFacts env statement nextState)
+                                (recordStatementSemanticFacts Nothing env statement nextState)
                                 Nothing
                                 methodChecks
                                 walkState
@@ -756,7 +755,7 @@ inferScopeTypeInternal
                             ( retainStatement
                                 statementIndex
                                 statement
-                                (recordStatementSemanticFacts nextEnv statement nextState)
+                                (recordStatementSemanticFacts Nothing nextEnv statement nextState)
                                 Nothing
                                 []
                                 walkState
@@ -786,11 +785,11 @@ inferScopeTypeInternal
                               { scopeWalkPendingSignature = nextPendingSignature,
                                 scopeWalkRecursiveGroupPreviewCache = Map.empty,
                                 scopeWalkStatements = case nextPendingSignature of
-                                  Nothing -> Map.insert statementIndex (draftStatement (recordStatementSemanticFacts env statement nextState) statement Nothing []) (scopeWalkStatements walkState)
+                                  Nothing -> Map.insert statementIndex (draftStatement (recordStatementSemanticFacts Nothing env statement nextState) statement Nothing []) (scopeWalkStatements walkState)
                                   Just _ -> scopeWalkStatements walkState,
                                 scopeWalkInferState =
                                   case nextPendingSignature of
-                                    Nothing -> recordStatementSemanticFacts env statement nextState
+                                    Nothing -> recordStatementSemanticFacts Nothing env statement nextState
                                     Just _ -> nextState
                               }
                             rest
@@ -1008,6 +1007,7 @@ inferScopeTypeInternal
                         (stateAfterCommittedFacts, committedIndices) =
                           recordCommittedLetFacts
                             nextPendingSignaturesByStatement
+                            pendingValues
                             statementIndex
                             nextEnv
                             stateAfterRecursiveGroupPrune
@@ -1063,12 +1063,13 @@ inferScopeTypeInternal
                         (scopeResultType, resultState) =
                           go
                             walkState
-                              { scopeWalkStatements = Map.insert statementIndex (draftStatement (recordStatementSemanticFacts envForStatement statement stateAfterDroppedInferredMethodCheck) statement (Just exprResult) []) (scopeWalkStatements walkState),
+                              { scopeWalkStatements = Map.insert statementIndex (draftStatement (recordStatementSemanticFacts Nothing envForStatement statement stateAfterDroppedInferredMethodCheck) statement (Just exprResult) []) (scopeWalkStatements walkState),
                                 scopeWalkLastExprType = exprType,
                                 scopeWalkPendingSignature = Nothing,
                                 scopeWalkRecursiveGroupPreviewCache = Map.empty,
                                 scopeWalkInferState =
                                   recordStatementSemanticFacts
+                                    Nothing
                                     envForStatement
                                     statement
                                     stateAfterDroppedInferredMethodCheck

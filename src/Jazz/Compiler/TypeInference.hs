@@ -21,9 +21,8 @@ import qualified Data.Set as Set
 import Data.Text (Text)
 import Jazz.Compiler.AST
   ( CoreNode,
-    CoreNodeId,
     CorePhase (..),
-    CoreSort (ExpressionSort, StatementSort),
+    CoreSort (StatementSort),
     DataConstructor (..),
     Expr (..),
     Literal (..),
@@ -127,7 +126,6 @@ import Jazz.Compiler.TypeInference.State
     initialInferState,
     modifyInferenceOutput,
     recordBinaryOperation,
-    recordExpressionFactType,
     recordPatternCoverageSite,
     recordStatementFactSeed,
     reservePatternCoverageSite,
@@ -195,14 +193,7 @@ inferExpressionWork inputs moduleStatementFacts expr =
                   initialState
               blockResult = checkedScopeType blockCheck
               blockType = fromMaybe unitType blockResult
-              blockState =
-                recordExpressionFactType
-                  (coreNodeId (expressionNode expr))
-                  ( case blockResult of
-                      Just expressionType -> expressionType
-                      Nothing -> unitType
-                  )
-                  rawBlockState
+              blockState = rawBlockState
            in (CheckedExpr blockResult (EBlock <$> draftExpressionNode blockState (Just blockType) expr <*> checkedScopeTree blockCheck), blockState, InferencePreparedScope expr preparedScope)
         _ ->
           let (result, resultState) =
@@ -298,7 +289,7 @@ inferExprTypeWithMode mode env state expr = case expr of
   EBlock node statements ->
     let (scope, inferredState) = inferNestedScopeTypeWithMode inferExprTypeWithMode mode env state (prepareResolvedScope node statements)
         result = checkedScopeType scope
-        finalState = maybe inferredState (\value -> recordExpressionFactType (coreNodeId node) value inferredState) result
+        finalState = inferredState
      in (CheckedExpr result (EBlock <$> draftExpressionNode finalState result expr <*> checkedScopeTree scope), finalState)
   _ -> inferExprTypeDetailed env state expr
 
@@ -349,13 +340,13 @@ inferExprTypeDetailed env state expr = case expr of
     | Just (methodName, methodSpan, methodKey, arguments) <- qualifiedMethodApplicationSpine expr state,
       Map.notMember methodName env ->
         let (result, afterArguments, argumentChecks) = inferQualifiedMethodApplicationWithResults inferLocatedMethodArgument env state (coreNodeId (expressionNode expr)) methodKey arguments
-            (tree, finalState) = case (result, traverse checkedExprType argumentChecks) of
+            tree = case (result, traverse checkedExprType argumentChecks) of
               (Just resultType, Just argumentTypes) -> draftQualifiedMethodSpine expr (foldr (SemanticFunction . resolveType afterArguments) (resolveType afterArguments resultType) argumentTypes) argumentChecks afterArguments
-              _ -> (rejectedDraft (MissingExpressionFacts (coreNodeId (expressionNode expr))), afterArguments)
-         in (CheckedExpr result tree, recordType result (annotateNewErrorsWithPrimarySpan methodSpan state finalState))
+              _ -> rejectedDraft (MissingExpressionFacts (coreNodeId (expressionNode expr)))
+         in (CheckedExpr result tree, annotateNewErrorsWithPrimarySpan methodSpan state afterArguments)
     | otherwise ->
         let (checked, finalState) = inferCheckedApplication env state expr function argument
-         in (checked, recordType (checkedExprType checked) finalState)
+         in (checked, finalState)
   ETypeApplication node function argumentSpan argument ->
     let (result, finalState) = inferExplicitTypeApplication inferExprTypeDetailed env state (coreNodeId node) function argumentSpan argument
         target = case function of
@@ -374,8 +365,7 @@ inferExprTypeDetailed env state expr = case expr of
       let (result, finalState) = inferLeafExpression env state expr
        in finish result finalState (fmap make)
     finish result finalState make =
-      (CheckedExpr result (make (draftExpressionNode finalState result expr)), recordType result finalState)
-    recordType result finalState = maybe finalState (\value -> recordExpressionFactType (coreNodeId (expressionNode expr)) value finalState) result
+      (CheckedExpr result (make (draftExpressionNode finalState result expr)), finalState)
 
     selectedBinaryOperation operatorSymbol leftExpr rightExpr operandTyping =
       BinaryOperation
@@ -524,15 +514,15 @@ inferExprTypeDetailed env state expr = case expr of
               _ -> stateAfterBinary
           operation = selectedBinaryOperation operatorSymbol leftExpr rightExpr <$> operandTyping
           stateWithOperation = recordSelectedBinaryOperation operation finalState
-          (tree, stateWithSpine) = case (leftResult, rightResult, expressionType) of
+          tree = case (leftResult, rightResult, expressionType) of
             (Just leftType, Just rightType, Just resultType) -> draftBuiltinApplication env operatorSymbol expr leftCheck rightCheck leftType rightType resultType stateWithOperation
-            _ -> (rejectedDraft (MissingExpressionFacts (coreNodeId (expressionNode expr))), stateWithOperation)
-       in (CheckedExpr expressionType tree, recordType expressionType stateWithSpine)
+            _ -> rejectedDraft (MissingExpressionFacts (coreNodeId (expressionNode expr)))
+       in (CheckedExpr expressionType tree, stateWithOperation)
 
     inferSectionApplicationWithFallback function argument symbol left right =
       let (generic, genericState) = inferCheckedApplication env state expr function argument
        in case checkedExprType generic of
-            Just _ -> (generic, recordType (checkedExprType generic) genericState)
+            Just _ -> (generic, genericState)
             Nothing ->
               let builtin@(checked, _) = inferBuiltinOperatorApplication symbol Nothing left right
                in case checkedExprType checked of
@@ -570,36 +560,11 @@ inferLeafExpression env state expr = case expr of
 -- callable spine from the tail here when it carries the more specific
 -- Int64/Float64 representation behind an Int/Float alias.
 specializeListPrependRawResult :: Expr 'Resolved -> Maybe ExpressionType -> Maybe ExpressionType -> InferState -> (Maybe ExpressionType, InferState)
-specializeListPrependRawResult functionExpr argumentResult expressionType finalState =
+specializeListPrependRawResult functionExpr argumentResult expressionType state =
   case (functionExpr, argumentResult, expressionType) of
-    (EApply applicationNode builtinExpr _, Just (SemanticList tailElementType), Just _)
-      | builtinListPrependRawExpr builtinExpr ->
-          let resolvedElementType = resolveType finalState tailElementType
-              listType = SemanticList resolvedElementType
-              partialType = SemanticFunction listType listType
-              callableType = SemanticFunction resolvedElementType partialType
-              stateWithPartialFact =
-                replaceExpressionFactType
-                  (coreNodeId applicationNode)
-                  partialType
-                  finalState
-              stateWithCallableFact =
-                replaceExpressionFactType
-                  (coreNodeId (expressionNode builtinExpr))
-                  callableType
-                  stateWithPartialFact
-           in (Just listType, stateWithCallableFact)
-    _ -> (expressionType, finalState)
-
-replaceExpressionFactType :: CoreNodeId -> ExpressionType -> InferState -> InferState
-replaceExpressionFactType nodeId expressionType =
-  modifyInferenceOutput
-    ( \output ->
-        output
-          { outputExpressionFactTypes =
-              Map.insert nodeId expressionType (outputExpressionFactTypes output)
-          }
-    )
+    (EApply _ builtinExpr _, Just (SemanticList elementType), Just _)
+      | builtinListPrependRawExpr builtinExpr -> (Just (SemanticList (resolveType state elementType)), state)
+    _ -> (expressionType, state)
 
 builtinListPrependRawExpr :: Expr 'Resolved -> Bool
 builtinListPrependRawExpr expression =
@@ -747,43 +712,30 @@ applicationSpine expr =
         _ ->
           Nothing
 
--- Wrapper nodes skipped by specialized checking receive the type chosen by
--- that check immediately, alongside the operand drafts. No wrapper is inferred
--- or reconstructed from an output map during finalization.
-draftSpineNode :: Expr 'Resolved -> Expr 'Resolved -> ExpressionType -> InferState -> (Draft (CoreNode 'Analyzed 'ExpressionSort), InferState)
-draftSpineNode root expression result state =
-  ( draftExpressionNode state (Just result) expression,
-    if coreNodeId (expressionNode expression) == coreNodeId (expressionNode root)
-      then state
-      else recordExpressionFactType (coreNodeId (expressionNode expression)) result state
-  )
-
-draftQualifiedMethodSpine :: Expr 'Resolved -> ExpressionType -> [CheckedExpr] -> InferState -> (Draft (Expr 'Analyzed), InferState)
-draftQualifiedMethodSpine root methodType arguments initialState =
-  let (_, tree, remaining, finalState) = walk root arguments initialState
-   in if null remaining then (tree, finalState) else (rejected root, finalState)
+-- Specialized checks construct skipped callable wrappers from their selected
+-- types and owned argument trees. These builders do not mutate solver output.
+draftQualifiedMethodSpine :: Expr 'Resolved -> ExpressionType -> [CheckedExpr] -> InferState -> Draft (Expr 'Analyzed)
+draftQualifiedMethodSpine root methodType arguments state =
+  let (_, tree, remaining) = walk root arguments
+   in if null remaining then tree else rejected root
   where
+    facts expression result = draftExpressionNode state (Just result) expression
     rejected expression = rejectedDraft (MissingExpressionFacts (coreNodeId (expressionNode expression)))
-    walk expression remaining state = case expression of
+    walk expression remaining = case expression of
       EApply _ dollar@(EOperatorValue _ "$") function ->
-        let (functionType, functionTree, rest, afterFunction) = walk function remaining state
-            (dollarNode, afterDollar) = draftSpineNode root dollar (SemanticFunction functionType functionType) afterFunction
-            (node, finalState) = draftSpineNode root expression functionType afterDollar
-         in (functionType, EApply <$> node <*> (EOperatorValue <$> dollarNode <*> pure "$") <*> functionTree, rest, finalState)
+        let (functionType, functionTree, rest) = walk function remaining
+            dollarTree = EOperatorValue <$> facts dollar (SemanticFunction functionType functionType) <*> pure "$"
+         in (functionType, EApply <$> facts expression functionType <*> dollarTree <*> functionTree, rest)
       EApply _ function _ ->
-        let (functionType, functionTree, rest, afterFunction) = walk function remaining state
+        let (functionType, functionTree, rest) = walk function remaining
             result = case functionType of SemanticFunction _ value -> value; _ -> functionType
          in case rest of
-              argument : later ->
-                let (node, finalState) = draftSpineNode root expression result afterFunction
-                 in (result, EApply <$> node <*> functionTree <*> checkedExprTree argument, later, finalState)
-              [] -> (result, rejected expression, [], afterFunction)
-      EVar _ name ->
-        let (node, finalState) = draftSpineNode root expression methodType state
-         in (methodType, EVar <$> node <*> pure name, remaining, finalState)
-      _ -> (methodType, rejected expression, remaining, state)
+              argument : later -> (result, EApply <$> facts expression result <*> functionTree <*> checkedExprTree argument, later)
+              [] -> (result, rejected expression, [])
+      EVar _ name -> (methodType, EVar <$> facts expression methodType <*> pure name, remaining)
+      _ -> (methodType, rejected expression, remaining)
 
-draftBuiltinApplication :: TypeEnv -> Text -> Expr 'Resolved -> CheckedExpr -> CheckedExpr -> ExpressionType -> ExpressionType -> ExpressionType -> InferState -> (Draft (Expr 'Analyzed), InferState)
+draftBuiltinApplication :: TypeEnv -> Text -> Expr 'Resolved -> CheckedExpr -> CheckedExpr -> ExpressionType -> ExpressionType -> ExpressionType -> InferState -> Draft (Expr 'Analyzed)
 draftBuiltinApplication env selectedSymbol root left right leftType rightType resultType state =
   case root of
     EApply _ partial@(EApply _ operator _) _
@@ -791,49 +743,35 @@ draftBuiltinApplication env selectedSymbol root left right leftType rightType re
         symbol == selectedSymbol ->
           let partialType = SemanticFunction resolvedRight resolvedResult
               operatorType = SemanticFunction resolvedLeft partialType
-              (operatorTree, afterOperator) = callable operator operatorType state
-              (partialNode, afterPartial) = draftSpineNode root partial partialType afterOperator
-              partialTree = EApply <$> partialNode <*> operatorTree <*> checkedExprTree left
-              (node, finalState) = draftSpineNode root root resolvedResult afterPartial
-           in (EApply <$> node <*> partialTree <*> checkedExprTree right, finalState)
+              partialTree = EApply <$> facts partial partialType <*> callable operator operatorType <*> checkedExprTree left
+           in EApply <$> facts root resolvedResult <*> partialTree <*> checkedExprTree right
     EApply _ function _ ->
       let (argument, argumentType) = case sectionDirection function of
             Just True -> (right, resolvedRight)
             Just False -> (left, resolvedLeft)
             Nothing -> (right, resolvedRight)
           sectionType = SemanticFunction argumentType resolvedResult
-          (functionTree, afterFunction) = section function sectionType state
-          (node, finalState) = draftSpineNode root root resolvedResult afterFunction
-       in (EApply <$> node <*> functionTree <*> checkedExprTree argument, finalState)
-    _ -> (rejected root, state)
+       in EApply <$> facts root resolvedResult <*> section function sectionType <*> checkedExprTree argument
+    _ -> rejected root
   where
     resolvedLeft = resolveType state leftType
     resolvedRight = resolveType state rightType
     resolvedResult = resolveType state resultType
+    facts expression result = draftExpressionNode state (Just result) expression
     rejected expression = rejectedDraft (MissingExpressionFacts (coreNodeId (expressionNode expression)))
-    leaf expression result current =
-      let (node, next) = draftSpineNode root expression result current
-       in case expression of
-            EVar _ name -> (EVar <$> node <*> pure name, next)
-            EOperatorValue _ symbol -> (EOperatorValue <$> node <*> pure symbol, next)
-            _ -> (rejected expression, current)
-    callable expression result current = case expression of
-      EApply _ dollar nested -> wrapper expression dollar nested result callable current
-      _ -> leaf expression result current
-    section expression result current = case expression of
-      ESectionLeft _ _ symbol ->
-        let (node, next) = draftSpineNode root expression result current
-         in (ESectionLeft <$> node <*> checkedExprTree left <*> pure symbol, next)
-      ESectionRight _ symbol _ ->
-        let (node, next) = draftSpineNode root expression result current
-         in (ESectionRight <$> node <*> pure symbol <*> checkedExprTree right, next)
-      EApply _ dollar nested -> wrapper expression dollar nested result section current
-      _ -> (rejected expression, current)
-    wrapper expression dollar nested result build current =
-      let (dollarTree, afterDollar) = leaf dollar (SemanticFunction result result) current
-          (nestedTree, afterNested) = build nested result afterDollar
-          (node, next) = draftSpineNode root expression result afterNested
-       in (EApply <$> node <*> dollarTree <*> nestedTree, next)
+    leaf expression result = case expression of
+      EVar _ name -> EVar <$> facts expression result <*> pure name
+      EOperatorValue _ symbol -> EOperatorValue <$> facts expression result <*> pure symbol
+      _ -> rejected expression
+    callable expression result = case expression of
+      EApply _ dollar nested -> wrapper expression dollar nested result callable
+      _ -> leaf expression result
+    section expression result = case expression of
+      ESectionLeft _ _ symbol -> ESectionLeft <$> facts expression result <*> checkedExprTree left <*> pure symbol
+      ESectionRight _ symbol _ -> ESectionRight <$> facts expression result <*> pure symbol <*> checkedExprTree right
+      EApply _ dollar nested -> wrapper expression dollar nested result section
+      _ -> rejected expression
+    wrapper expression dollar nested result build = EApply <$> facts expression result <*> leaf dollar (SemanticFunction result result) <*> build nested result
     sectionDirection expression = case expression of
       ESectionLeft {} -> Just True
       ESectionRight {} -> Just False

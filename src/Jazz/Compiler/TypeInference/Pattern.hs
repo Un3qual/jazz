@@ -53,8 +53,6 @@ import Jazz.Compiler.TypeInference.Solver
 import Jazz.Compiler.TypeInference.State
   ( InferState,
     inferErrorCount,
-    recordExpressionFactType,
-    recordPatternFactSeed,
     rejectPatternAttempt,
   )
 import Jazz.Compiler.TypeInference.Traversal (InferExprFn)
@@ -91,7 +89,7 @@ inferPatternCaseType inferExpression env scrutineeType initialState caseArms =
                   (guardDraft, afterGuard) = checkGuard armEnv afterPattern guardExpr
                   (bodyCheck, afterBody) = inferExpression armEnv afterGuard bodyExpr
                   bodyType = checkedExprType bodyCheck
-                  afterBodyFacts = maybe afterBody (\value -> recordExpressionFactType (coreNodeId armNode) value afterBody) bodyType
+                  afterBodyFacts = afterBody
                   (result, finalState) = mergeArmTypes expected bodyType afterBodyFacts
                   arm = CaseArm <$> draftCaseArmNode afterBodyFacts bodyType armNode <*> checkedPattern typing pattern <*> guardDraft <*> checkedExprTree bodyCheck
                in (result, arm : arms, finalState)
@@ -250,7 +248,7 @@ inferPatternType env scrutineeType pattern state =
             patternRefutability = patternRefutabilityFact pattern
           }
       draft = draftPattern pattern facts (reverse (toList (patternDrafts typing)))
-   in (typing {patternDrafts = Seq.singleton draft}, recordPatternFactSeed (coreNodeId (patternNode pattern)) facts inferredState)
+   in (typing {patternDrafts = Seq.singleton draft}, inferredState)
 
 -- Each constructor consumes only the children returned by its own checks.
 -- The finalizer substitutes binding types; it does not revisit pattern typing.

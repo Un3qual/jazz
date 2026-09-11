@@ -14,7 +14,7 @@ import Data.List.NonEmpty
   )
 import qualified Data.Map.Strict as Map
 import Jazz.Compiler.AST
-  ( CoreNode (coreNodeFacts, coreNodeId, coreNodeSpan),
+  ( CoreNode (coreNodeFacts, coreNodeSpan),
     CoreNodeId,
     CorePhase (..),
     Expr (..),
@@ -56,7 +56,6 @@ import Jazz.Compiler.TypeInference.State
     ExplicitInstantiationTarget (..),
     InferState (..),
     recordExplicitInstantiationSeed,
-    recordExpressionFactType,
   )
 import Jazz.Compiler.TypeInference.Traversal
   ( InferExprFn,
@@ -162,11 +161,7 @@ inferExplicitTypeApplication inferExpression env state applicationNodeId functio
                   (ExplicitQualifiedMethodInstantiation targetName)
                   explicitArgumentType
                   maybeInstantiatedType
-                  ( recordExplicitFunctionFact
-                      functionExpr
-                      maybeInstantiatedType
-                      (annotateNewErrorsWithPrimarySpan (coreNodeSpan (expressionNode functionExpr)) state nextState)
-                  )
+                  (annotateNewErrorsWithPrimarySpan (coreNodeSpan (expressionNode functionExpr)) state nextState)
               )
     (Just typeScheme, Just explicitArgumentType)
       | Just targetName <- explicitTypeApplicationTargetName functionExpr ->
@@ -178,7 +173,7 @@ inferExplicitTypeApplication inferExpression env state applicationNodeId functio
                   (ExplicitBinderInstantiation targetName)
                   explicitArgumentType
                   maybeInstantiatedType
-                  (recordExplicitFunctionFact functionExpr maybeInstantiatedType nextState)
+                  nextState
               )
     (Just _, Just _) ->
       (Nothing, addTypeError state mkExplicitTypeApplicationTargetError)
@@ -191,15 +186,6 @@ inferExplicitTypeApplication inferExpression env state applicationNodeId functio
             Just _ ->
               (Nothing, addTypeError stateAfterFunction mkExplicitTypeApplicationTargetError)
             Nothing -> (Nothing, stateAfterFunction)
-
-recordExplicitFunctionFact :: Expr 'Resolved -> Maybe ExpressionType -> InferState -> InferState
-recordExplicitFunctionFact functionExpr maybeExpressionType state =
-  case (functionExpr, maybeExpressionType) of
-    (EVar node _, Just expressionType) ->
-      recordExpressionFactType (coreNodeId node) expressionType state
-    (EOperatorValue node _, Just expressionType) ->
-      recordExpressionFactType (coreNodeId node) expressionType state
-    _ -> state
 
 recordExplicitInstantiationDecision ::
   CoreNodeId ->
