@@ -81,6 +81,7 @@ import Jazz.Compiler.Name
     identifierText,
     mkIdentifier,
     operatorBindingName,
+    qualifiedMemberName,
     resolvedAmbientName,
     resolvedImportedName,
   )
@@ -385,7 +386,8 @@ resolveExprNames context rootExpression = Right (publishResolvedCaptures (resolv
         PVariable node name -> PVariable (resolveBinderNode owner node) (resolveBinder ValueNamespace name)
         PLiteral node literal -> PLiteral (resolveNode owner node) literal
         PConstructor node name patterns ->
-          PConstructor (resolveNode owner node) (resolveName Map.empty ConstructorNamespace name) (map (resolvePattern owner) patterns)
+          let target = resolveName Map.empty ConstructorNamespace name
+           in PConstructor (resolveReferenceNode owner target node) target (map (resolvePattern owner) patterns)
         PList node patterns -> PList (resolveNode owner node) (map (resolvePattern owner) patterns)
         PConsList node headPattern tailPattern ->
           PConsList (resolveNode owner node) (resolvePattern owner headPattern) (resolvePattern owner tailPattern)
@@ -403,10 +405,10 @@ resolveExprNames context rootExpression = Right (publishResolvedCaptures (resolv
         SData node name parameters constructors ->
           SData (resolveNode owner node) (resolveBinder TypeNamespace name) (map (resolveBinder TypeNamespace) parameters) (map (resolveDataConstructor owner) constructors)
         SClass node name parameters methods ->
-          SClass (resolveNode owner node) (resolveBinder CapabilityNamespace name) (map (resolveBinder TypeNamespace) parameters) (map (resolveClassMethod owner) methods)
+          SClass (resolveNode owner node) (resolveBinder CapabilityNamespace name) (map (resolveBinder TypeNamespace) parameters) (map (resolveClassMethod owner (resolveBinder CapabilityNamespace name)) methods)
         SImpl node name arguments methods ->
           let methodBindings = foldl' (\acc (ImplMethod _ methodName _) -> insertVisibleName ValueNamespace methodName acc) boundValues methods
-           in SImpl (resolveNode owner node) (resolveName Map.empty CapabilityNamespace name) (map resolveSignatureType arguments) (map (resolveImplMethod owner methodBindings) methods)
+           in SImpl (resolveNode owner node) (resolveName Map.empty CapabilityNamespace name) (map resolveSignatureType arguments) (map (resolveImplMethod owner methodBindings (resolveName Map.empty CapabilityNamespace name)) methods)
         SModule node path -> SModule (resolveNode owner node) path
         SImport node path alias symbols -> SImport (resolveNode owner node) path alias symbols
         SExpr node value -> SExpr (resolveNode owner node) (resolveExpr owner boundValues value)
@@ -424,11 +426,16 @@ resolveExprNames context rootExpression = Right (publishResolvedCaptures (resolv
     resolveDataConstructor owner (DataConstructor node name fieldTypes) =
       DataConstructor (resolveBinderNode owner node) (resolveBinder ConstructorNamespace name) (map resolveSignatureType fieldTypes)
 
-    resolveClassMethod owner (ClassMethodSignature node name payload) =
-      ClassMethodSignature (resolveBinderNode owner node) (resolveBinder ValueNamespace name) (resolveSignaturePayload payload)
+    resolveClassMethod owner capability (ClassMethodSignature node name payload) =
+      ClassMethodSignature (resolveMethodNode owner capability name node) (resolveBinder ValueNamespace name) (resolveSignaturePayload payload)
 
-    resolveImplMethod owner boundValues (ImplMethod node name body) =
-      ImplMethod (resolveBinderNode owner node) (resolveBinder ValueNamespace name) (resolveExpr owner boundValues body)
+    resolveImplMethod owner boundValues capability (ImplMethod node name body) =
+      ImplMethod (resolveMethodNode owner capability name node) (resolveBinder ValueNamespace name) (resolveExpr owner boundValues body)
+
+    resolveMethodNode owner capability method node =
+      let resolved = resolveBinderNode owner node
+          target = referenceTarget owner (qualifiedMemberName capability (resolveBinder ValueNamespace method))
+       in resolved {coreNodeFacts = (coreNodeFacts resolved) {resolvedNodeReference = Just target}}
 
     resolveSignaturePayload payload =
       case payload of

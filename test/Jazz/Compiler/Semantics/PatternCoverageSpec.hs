@@ -19,6 +19,7 @@ import Jazz.Compiler.AST
     Literal (..),
     Pattern (..),
   )
+import Jazz.Compiler.CoreIdentity (ResolvedReference (UnresolvedReference))
 import Jazz.Compiler.DiagnosticCatalog (diagnosticCodeText)
 import Jazz.Compiler.Diagnostics
   ( Diagnostic,
@@ -64,6 +65,8 @@ import Jazz.Compiler.TypeInference.Types
     ExpressionType,
     SemanticType (..),
     TypeBinding (..),
+    TypeEnv,
+    TypeEnvKey (..),
     emptyScopeCapabilityFacts,
   )
 import Jazz.Compiler.WarningConfig
@@ -76,10 +79,13 @@ import Jazz.TestHarness
     assertEqual,
     runTestSuite,
   )
+import System.Environment (getArgs)
 import System.Timeout (timeout)
 
 main :: IO ()
-main = runTestSuite "PatternCoverage" tests
+main = do
+  args <- getArgs
+  runTestSuite "PatternCoverage" (tests <> if "--skip-performance" `elem` args then [] else performanceTests)
 
 tests :: [NamedTest]
 tests =
@@ -87,7 +93,6 @@ tests =
     ("both Bool constructors are exhaustive", testCompleteBoolMatch),
     ("duplicate Bool arm is unreachable", testDuplicateBoolArm),
     ("open integer literals require a fallback", testOpenIntegerDomain),
-    ("large repeated integer arms preserve diagnostic order", testLargeRepeatedIntegerArmOrder),
     ("unguarded wildcard makes a later arm unreachable", testWildcardShadowing),
     ("guarded arms do not contribute coverage", testGuardedArmDoesNotCover),
     ("guarded arms do not shadow later arms", testGuardedArmDoesNotShadow),
@@ -102,11 +107,6 @@ tests =
     ("exact lists specialize through cons cells", testExactListShadowing),
     ("as-patterns contribute their inner coverage", testAsPatternCoverage),
     ("or-pattern alternatives form a coverage union", testOrPatternCoverage),
-    ("nested or-pattern products stay symbolic", testNestedOrPatternProductCoverage),
-    ("jointly exhaustive product alternatives stay symbolic", testJointlyExhaustiveProductAlternatives),
-    ("duplicate non-total alternatives stay symbolic", testDuplicateNonTotalAlternatives),
-    ("repeated distinct non-total alternatives stay symbolic", testRepeatedDistinctNonTotalAlternatives),
-    ("reordered non-total alternatives share canonical coverage", testReorderedNonTotalAlternatives),
     ("partly useful or-pattern arm stays reachable", testPartlyUsefulOrPattern),
     ("wholly covered or-pattern arm is unreachable", testCoveredOrPattern),
     ("source pipeline accepts an exhaustive match", testCompleteSourceMatch),
@@ -123,7 +123,17 @@ tests =
     ("source reachability covers every strict arm case", testStrictSourceReachability),
     ("repeated guarded arms remain reachable", testRepeatedGuardedSourceArms),
     ("warning-only diagnostics do not suppress coverage", testWarningsDoNotSuppressCoverage),
-    ("hidden imported constructors stay out of witnesses", testHiddenImportedConstructorCoverage),
+    ("hidden imported constructors stay out of witnesses", testHiddenImportedConstructorCoverage)
+  ]
+
+performanceTests :: [NamedTest]
+performanceTests =
+  [ ("large repeated integer arms preserve diagnostic order", testLargeRepeatedIntegerArmOrder),
+    ("nested or-pattern products stay symbolic", testNestedOrPatternProductCoverage),
+    ("jointly exhaustive product alternatives stay symbolic", testJointlyExhaustiveProductAlternatives),
+    ("duplicate non-total alternatives stay symbolic", testDuplicateNonTotalAlternatives),
+    ("repeated distinct non-total alternatives stay symbolic", testRepeatedDistinctNonTotalAlternatives),
+    ("reordered non-total alternatives share canonical coverage", testReorderedNonTotalAlternatives),
     ("constructor inventories materialize only reachable data types", testTypeScopedConstructorInventory)
   ]
 
@@ -411,7 +421,7 @@ testTypeScopedConstructorInventory = do
         ( and
             [ null
                 ( analyzePatternCoverage
-                    (constructorInventoryFromBindings dataTypes (environment siteIndex))
+                    (constructorInventoryFromBindings dataTypes (fixtureTypes (environment siteIndex)))
                     targetType
                     [arm (constructorPattern "Only" [])]
                 )
@@ -609,7 +619,7 @@ testImportedWitnessRendering =
       constructorInventoryFromBindingsWithWitnessNames
         (Map.singleton importedName sourceWitness)
         (Map.singleton "Choice" (DataTypeBinding [] [[]]))
-        (Map.singleton importedName (ConstructorTypeBinding (resolvedTypeName "Choice") [] []))
+        (fixtureTypes (Map.singleton importedName (ConstructorTypeBinding (resolvedTypeName "Choice") [] [])))
 
 testStrictSourceReachability :: IO ()
 testStrictSourceReachability =
@@ -679,10 +689,11 @@ hiddenConstructorInputs =
   InferenceInputs
     { inferenceWarningSettings = defaultWarningSettings,
       inferenceImportedTypes =
-        Map.fromList
-          [ (resolvedLocalName ValueNamespace (mkIdentifier "subject"), PlainTypeBinding maybeIntType),
-            (resolvedLocalName ConstructorNamespace (mkIdentifier "Nothing"), ConstructorTypeBinding (resolvedTypeName "Maybe") [resolvedLocalName TypeNamespace (mkIdentifier "a")] [])
-          ],
+        fixtureTypes $
+          Map.fromList
+            [ (resolvedLocalName ValueNamespace (mkIdentifier "subject"), PlainTypeBinding maybeIntType),
+              (resolvedLocalName ConstructorNamespace (mkIdentifier "Nothing"), ConstructorTypeBinding (resolvedTypeName "Maybe") [resolvedLocalName TypeNamespace (mkIdentifier "a")] [])
+            ],
       inferenceImportedDataTypes =
         Map.singleton
           "Maybe"
@@ -811,10 +822,11 @@ maybeInventory =
             ]
         )
     )
-    ( Map.fromList
-        [ (resolvedLocalName ConstructorNamespace (mkIdentifier "Nothing"), ConstructorTypeBinding (resolvedTypeName "Maybe") [maybeTypeParameter] []),
-          (resolvedLocalName ConstructorNamespace (mkIdentifier "Just"), ConstructorTypeBinding (resolvedTypeName "Maybe") [maybeTypeParameter] [ConstructorArgumentParameter "a"])
-        ]
+    ( fixtureTypes $
+        Map.fromList
+          [ (resolvedLocalName ConstructorNamespace (mkIdentifier "Nothing"), ConstructorTypeBinding (resolvedTypeName "Maybe") [maybeTypeParameter] []),
+            (resolvedLocalName ConstructorNamespace (mkIdentifier "Just"), ConstructorTypeBinding (resolvedTypeName "Maybe") [maybeTypeParameter] [ConstructorArgumentParameter "a"])
+          ]
     )
 
 hiddenMaybeInventory :: ConstructorInventory
@@ -829,10 +841,15 @@ hiddenMaybeInventory =
             ]
         )
     )
-    (Map.singleton (resolvedLocalName ConstructorNamespace (mkIdentifier "Nothing")) (ConstructorTypeBinding (resolvedTypeName "Maybe") [maybeTypeParameter] []))
+    (fixtureTypes $ Map.singleton (resolvedLocalName ConstructorNamespace (mkIdentifier "Nothing")) (ConstructorTypeBinding (resolvedTypeName "Maybe") [maybeTypeParameter] []))
 
 maybeTypeParameter :: ResolvedName
 maybeTypeParameter = resolvedLocalName TypeNamespace (mkIdentifier "a")
 
 resolvedTypeName :: Text -> ResolvedName
 resolvedTypeName = resolvedLocalName TypeNamespace . mkIdentifier
+
+-- These partial inference inputs intentionally have no defining source unit;
+-- the expected results are diagnostics, never a successful analyzed tree.
+fixtureTypes :: Map.Map ResolvedName TypeBinding -> TypeEnv
+fixtureTypes = Map.mapKeys (\name -> TypeEnvKey (UnresolvedReference name) name)

@@ -12,7 +12,6 @@ module Jazz.Compiler.Runtime.Semantics
     runtimeDiagnostic,
     runtimeDefinitionName,
     runtimeDefinitionNameIn,
-    runtimeMethodReference,
     qualifyRuntimeType,
     literalRuntimeValue,
     runtimeValueMatchesLiteral,
@@ -80,7 +79,7 @@ import Jazz.Compiler.BuiltinCatalog
     numericTypeIntegerBounds,
     renderNumericTypeName,
   )
-import Jazz.Compiler.CoreIdentity (CapabilityId (..), ResolvedReference (..), resolvedBinderReference)
+import Jazz.Compiler.CoreIdentity (resolvedBinderReference)
 import Jazz.Compiler.DiagnosticCatalog
   ( ErrorCode (..),
   )
@@ -101,7 +100,6 @@ import Jazz.Compiler.Name
     ResolvedNameOrigin (..),
     ResolvedUserName (..),
     identifierText,
-    mkIdentifier,
   )
 import Jazz.Compiler.Runtime.Types
   ( RuntimeAnnotation (..),
@@ -219,10 +217,6 @@ runtimeDefinitionNameIn namespace maybeOwner name =
     (Just (PreludeSourceUnit _), UserName (ResolvedUserName CurrentModule _ identifier)) ->
       UserName (ResolvedUserName AmbientPrelude namespace identifier)
     _ -> runtimeDefinitionName maybeOwner name
-
-runtimeMethodReference :: Maybe SourceUnitOwner -> ResolvedName -> ResolvedName -> ResolvedReference
-runtimeMethodReference owner capability method =
-  CapabilityMethodReference (CapabilityId (runtimeDefinitionNameIn CapabilityNamespace owner capability)) (mkIdentifier (identifierText method))
 
 qualifyRuntimeType :: Maybe SourceUnitOwner -> AnalyzedType -> AnalyzedType
 qualifyRuntimeType modulePath = bimap (runtimeDefinitionNameIn TypeNamespace modulePath) id

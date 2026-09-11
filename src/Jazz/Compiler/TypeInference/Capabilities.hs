@@ -68,6 +68,7 @@ import qualified Data.Text as Text
 import Jazz.Compiler.AST
   ( CaseArm (..),
     ClassMethodSignature (..),
+    CoreNode (coreNodeFacts),
     CoreNodeId,
     CorePhase (..),
     Expr (..),
@@ -199,11 +200,14 @@ import Jazz.Compiler.TypeInference.Types
     SemanticType (..),
     TypeBinding (..),
     TypeEnv,
+    TypeEnvKey,
     TypeScheme (..),
     TypeSchemeConstraint,
     TypeSchemePrimitiveConstraint,
     emptyScopeCapabilityFacts,
     quantifiedVariablesMembershipSet,
+    typeEnvBindingKey,
+    typeEnvReferenceKey,
   )
 import Jazz.Compiler.TypeRepresentation
   ( NumericType (..),
@@ -501,8 +505,8 @@ builtinDollarOperatorExpr :: TypeEnv -> Expr 'Resolved -> Bool
 builtinDollarOperatorExpr env expr =
   case expr of
     EOperatorValue _ "$" -> True
-    EVar _ name ->
-      case Map.lookup name env of
+    EVar node name ->
+      case Map.lookup (typeEnvReferenceKey (coreNodeFacts node) name) env of
         Just (BuiltinOperatorAliasTypeBinding "$") -> True
         Just (OperatorAliasSchemeTypeBinding "$" _) -> True
         _ -> False
@@ -1456,14 +1460,14 @@ constraintSignatureExpressionRuntimeHint state env argumentExpr =
 constraintSignatureExpressionRuntimeHintWithLocalHints ::
   InferState ->
   TypeEnv ->
-  Map Text (SignatureType 'Resolved) ->
+  Map TypeEnvKey (SignatureType 'Resolved) ->
   Expr 'Resolved ->
   Maybe (SignatureType 'Resolved)
 constraintSignatureExpressionRuntimeHintWithLocalHints state env localHints argumentExpr =
   case argumentExpr of
-    EVar _ referencedName ->
-      Map.lookup (identifierText referencedName) localHints
-        <|> (Map.lookup referencedName env >>= typeBindingRuntimeHint state)
+    EVar node referencedName ->
+      Map.lookup (typeEnvReferenceKey (coreNodeFacts node) referencedName) localHints
+        <|> (Map.lookup (typeEnvReferenceKey (coreNodeFacts node) referencedName) env >>= typeBindingRuntimeHint state)
     EApply _ (EApply _ dollarExpr functionExpr) _
       | builtinDollarOperatorExpr env dollarExpr ->
           case constraintSignatureExpressionRuntimeHintWithLocalHints state env localHints functionExpr of
@@ -1484,7 +1488,7 @@ constraintSignatureExpressionRuntimeHintWithLocalHints state env localHints argu
 commonConstraintSignatureExpressionRuntimeHint ::
   InferState ->
   TypeEnv ->
-  Map Text (SignatureType 'Resolved) ->
+  Map TypeEnvKey (SignatureType 'Resolved) ->
   [Expr 'Resolved] ->
   Maybe (SignatureType 'Resolved)
 commonConstraintSignatureExpressionRuntimeHint _ _ _ [] = Nothing
@@ -1499,7 +1503,7 @@ commonConstraintSignatureExpressionRuntimeHint state env localHints (firstExpr :
 constraintSignatureBlockRuntimeHint ::
   InferState ->
   TypeEnv ->
-  Map Text (SignatureType 'Resolved) ->
+  Map TypeEnvKey (SignatureType 'Resolved) ->
   [Statement 'Resolved] ->
   Maybe (SignatureType 'Resolved)
 constraintSignatureBlockRuntimeHint state env initialLocalHints statements =
@@ -1518,14 +1522,14 @@ constraintSignatureBlockRuntimeHint state env initialLocalHints statements =
                   Just runtimeHint -> Map.insert nameText runtimeHint pendingHints
                   Nothing -> Map.delete nameText pendingHints
            in go localHints nextPendingHints rest
-        SLet _ name valueExpr ->
+        SLet node name valueExpr ->
           let nameText = identifierText name
               bindingHint =
                 Map.lookup nameText pendingHints
                   <|> constraintSignatureExpressionRuntimeHintWithLocalHints state env localHints valueExpr
               nextLocalHints =
                 case bindingHint of
-                  Just runtimeHint -> Map.insert nameText runtimeHint localHints
+                  Just runtimeHint -> Map.insert (typeEnvBindingKey (coreNodeFacts node) name) runtimeHint localHints
                   Nothing -> localHints
            in go nextLocalHints (Map.delete nameText pendingHints) rest
         _ ->
@@ -1592,7 +1596,7 @@ constructorApplicationExpressionHasExactEvidence state env typeName typeArgument
         _ -> False
     Nothing -> False
 
-constructorExpressionSpine :: Expr 'Resolved -> Maybe (ResolvedName, [Expr 'Resolved])
+constructorExpressionSpine :: Expr 'Resolved -> Maybe (TypeEnvKey, [Expr 'Resolved])
 constructorExpressionSpine expr =
   go [] expr
   where
@@ -1600,8 +1604,8 @@ constructorExpressionSpine expr =
       case currentExpr of
         EApply _ functionExpr argumentExpr ->
           go (argumentExpr : argumentExprs) functionExpr
-        EVar _ constructorName ->
-          Just (constructorName, argumentExprs)
+        EVar node constructorName ->
+          Just (typeEnvReferenceKey (coreNodeFacts node) constructorName, argumentExprs)
         _ ->
           Nothing
 

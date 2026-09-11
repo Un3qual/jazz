@@ -33,6 +33,7 @@ import Jazz.Compiler.CapabilityFacts
   ( ConcreteImplFact (..),
     concreteImplFactClassName,
   )
+import Jazz.Compiler.CoreIdentity (ResolvedReference (LexicalReference))
 import Jazz.Compiler.ModuleExports
   ( ModuleExportInventory,
     exportNamesInNamespace,
@@ -96,6 +97,7 @@ import Jazz.Compiler.TypeInference.Types
     SemanticType (..),
     TypeBinding (..),
     TypeEnv,
+    TypeEnvKey (..),
     TypeScheme (..),
   )
 import qualified Jazz.Compiler.TypeRepresentation as TypeRepresentation
@@ -296,10 +298,10 @@ importSelectedInterface origin maybeAlias maybeSymbols publicInventory evidenceC
   ImportedInterface
     { importedTypes =
         Map.fromList
-          [ ( UserName (ResolvedUserName origin (moduleExportNamespace export) (mkIdentifier (moduleExportName export))),
+          [ ( TypeEnvKey (LexicalReference binder) (UserName (ResolvedUserName origin (moduleExportNamespace export) (mkIdentifier (moduleExportName export)))),
               rebaseTypeBinding origin dataTypeNames classNames binding
             )
-          | (export, ModuleValueBinding _ binding) <- Map.toList selectedValueTypes
+          | (export, ModuleValueBinding binder binding) <- Map.toList selectedValueTypes
           ],
       importedDataTypes =
         Map.fromList

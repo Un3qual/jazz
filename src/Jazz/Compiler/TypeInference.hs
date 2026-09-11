@@ -50,7 +50,7 @@ import Jazz.Compiler.BuiltinCatalog
     numericTypeIntegerBounds,
     numericTypeLiteralIntegerBounds,
   )
-import Jazz.Compiler.CoreIdentity (CoreBinderId, ResolvedNodeFacts (resolvedNodeBinder))
+import Jazz.Compiler.CoreIdentity (CoreBinderId, ResolvedNodeFacts (..), ResolvedReference (..), resolvedValueReference)
 import Jazz.Compiler.Diagnostics
   ( Diagnostic,
     SourceSpan,
@@ -107,6 +107,7 @@ import Jazz.Compiler.TypeInference.Analyzed
   )
 import Jazz.Compiler.TypeInference.Capabilities
 import Jazz.Compiler.TypeInference.Diagnostics
+import Jazz.Compiler.TypeInference.Environment (insertResolvedTypeBinding)
 import Jazz.Compiler.TypeInference.Evidence (implementationEvidenceCandidatesInSourceUnit)
 import Jazz.Compiler.TypeInference.Operator
   ( applyOperatorAliasSchemeConstraints,
@@ -168,8 +169,10 @@ import Jazz.Compiler.TypeInference.Types
     SemanticType (..),
     TypeBinding (..),
     TypeEnv,
+    TypeEnvKey (..),
     TypeScheme (..),
     emptyScopeCapabilityFacts,
+    typeEnvReferenceKey,
   )
 import Jazz.Compiler.TypeRepresentation (NumericType (..))
 import Jazz.Compiler.WarningConfig
@@ -474,7 +477,7 @@ analysisInputsForInference inputs forwardValues =
   AnalysisInputs
     { analysisWarningSettings = inferenceWarningSettings inputs,
       analysisImportedValues =
-        Map.map (const (AnalysisBinding Nothing True)) (inferenceImportedTypes inputs),
+        Map.mapKeys typeEnvName (Map.map (const (AnalysisBinding Nothing True)) (inferenceImportedTypes inputs)),
       analysisForwardFunctions = forwardValues,
       analysisImportedClasses =
         Set.map
@@ -518,7 +521,7 @@ moduleInterfaceFromState inputs expr state =
         Map.fromList
           [ (moduleExportForBinding (renderName name) binding, ModuleValueBinding binder binding)
           | (name, binder) <- Map.toList declaredValues,
-            Just binding <- [Map.lookup name (inferVisibleTypes state)]
+            Just binding <- [Map.lookup (TypeEnvKey (LexicalReference binder) name) (inferVisibleTypes state)]
           ],
       interfaceDataTypes = Map.restrictKeys (inferDataTypes state) declaredDataTypes,
       interfaceClassFacts = scopeClassFacts localCapabilities,
@@ -678,11 +681,11 @@ inferExprTypeDetailedRaw env state expr =
     ETuple _ elements -> inferTupleElements state elements
     EBlock node statements -> inferNestedScopeTypeWithMode (inferExprTypeWithMode False) InferConcreteFunctions env state (prepareResolvedScope node statements)
     EVar node name ->
-      let (expressionType, finalState) = inferVariableType (coreNodeId node) name state
+      let (expressionType, finalState) = inferVariableType node name state
        in (expressionType, annotateNewErrorsWithPrimarySpan (coreNodeSpan node) state finalState)
-    ELambda _ name body ->
+    ELambda node name body ->
       let (parameterType, stateAfterParameter) = freshTypeVar state
-          (bodyResult, finalState) = inferExprTypeDetailed (Map.insert name (PlainTypeBinding parameterType) env) stateAfterParameter body
+          (bodyResult, finalState) = inferExprTypeDetailed (insertResolvedTypeBinding (coreNodeFacts node) name (PlainTypeBinding parameterType) env) stateAfterParameter body
           expressionType = SemanticFunction (resolveType finalState parameterType) <$> bodyResult
        in (expressionType, finalState)
     EOperatorValue {} ->
@@ -708,14 +711,14 @@ inferExprTypeDetailedRaw env state expr =
       let (argumentType, nextState) = inferExprTypeDetailedWithMode mode argumentEnv priorState argumentExpr
        in (argumentType, annotateNewErrorsWithPrimarySpan (coreNodeSpan (expressionNode argumentExpr)) priorState nextState)
 
-    inferVariableType nodeId name initialState =
-      case Map.lookup name env of
+    inferVariableType node name initialState =
+      case Map.lookup (typeEnvReferenceKey (coreNodeFacts node) name) env of
         Just localType -> instantiateEnvBinding localType initialState
         Nothing ->
-          case instantiateBuiltinType (identifierText name) initialState of
+          case instantiateBuiltinType (resolvedValueReference (coreNodeFacts node)) initialState of
             Just (builtinType, nextState) -> (Just builtinType, nextState)
             Nothing ->
-              case instantiateQualifiedMethodType nodeId (identifierText name) initialState of
+              case instantiateQualifiedMethodType (coreNodeId node) (identifierText name) initialState of
                 Just qualifiedMethodResult -> qualifiedMethodResult
                 Nothing -> (Nothing, initialState)
 
@@ -724,14 +727,14 @@ inferExprTypeDetailedRaw env state expr =
         ELit _ literal ->
           let (literalType, stateAfterLiteral) = literalExpressionType literal initialState
            in (Just literalType, checkLiteralType stateAfterLiteral literal)
-        EVar node name -> inferVariableType (coreNodeId node) name initialState
-        EOperatorValue _ operatorSymbol ->
+        EVar node name -> inferVariableType node name initialState
+        EOperatorValue node operatorSymbol ->
           case instantiateOperatorType operatorSymbol initialState of
             Just (operatorType, nextState) -> (Just operatorType, nextState)
             Nothing
               | isBuiltinOperatorSymbol operatorSymbol ->
                   (Nothing, addTypeError initialState (mkUnsupportedOperatorValueError operatorSymbol))
-            Nothing -> instantiateDeclaredOperatorBindingType env operatorSymbol initialState
+            Nothing -> instantiateDeclaredOperatorBindingType env (coreNodeFacts node) operatorSymbol initialState
         _ -> (Nothing, initialState)
 
     inferBuiltinOperatorApplication operatorSymbol maybeAliasScheme (_, leftExpr) (_, rightExpr) =
@@ -1027,7 +1030,7 @@ inferExprTypeDetailedRaw env state expr =
 
     inferDeclaredBinaryExpression currentEnv initialState operatorSymbol leftExpr rightExpr =
       let (operatorType, stateAfterOperator) =
-            instantiateDeclaredOperatorBindingType currentEnv operatorSymbol initialState
+            instantiateDeclaredOperatorBindingType currentEnv (coreNodeFacts (expressionNode expr)) operatorSymbol initialState
           operatorResult = operatorType
           (leftResult, stateAfterLeft) =
             inferExprTypeDetailed currentEnv stateAfterOperator leftExpr
@@ -1060,7 +1063,7 @@ inferExprTypeDetailedRaw env state expr =
            in (expressionType, finalState)
       | otherwise =
           let (operatorType, stateAfterOperator) =
-                instantiateDeclaredOperatorBindingType env operatorSymbol state
+                instantiateDeclaredOperatorBindingType env (coreNodeFacts (expressionNode expr)) operatorSymbol state
               operatorResult = operatorType
               (leftResult, stateAfterLeft) =
                 inferExprTypeDetailed env stateAfterOperator leftExpr
@@ -1085,7 +1088,7 @@ inferExprTypeDetailedRaw env state expr =
       | otherwise =
           let (leftType, stateAfterLeftType) = freshTypeVar state
               (operatorType, stateAfterOperator) =
-                instantiateDeclaredOperatorBindingType env operatorSymbol stateAfterLeftType
+                instantiateDeclaredOperatorBindingType env (coreNodeFacts (expressionNode expr)) operatorSymbol stateAfterLeftType
               operatorResult = operatorType
               leftResult = Just leftType
               (intermediateType, stateAfterFirstApplication) =
@@ -1180,16 +1183,16 @@ discardFailedFunctionApplicationConstraints stateBeforeFunction stateAfterApplic
     )
     stateAfterApplication
 
-qualifiedMethodApplicationSpine :: Expr 'Resolved -> InferState -> Maybe (ResolvedName, SourceSpan, Text, [Expr 'Resolved])
+qualifiedMethodApplicationSpine :: Expr 'Resolved -> InferState -> Maybe (TypeEnvKey, SourceSpan, Text, [Expr 'Resolved])
 qualifiedMethodApplicationSpine expr state =
   case applicationSpine expr of
     Just (methodName, methodSpan, argumentExprs)
-      | let methodKey = identifierText methodName,
+      | let methodKey = identifierText (typeEnvName methodName),
         qualifiedMethodClassIsVisible methodKey state ->
           Just (methodName, methodSpan, methodKey, argumentExprs)
     _ -> Nothing
 
-applicationSpine :: Expr 'Resolved -> Maybe (ResolvedName, SourceSpan, [Expr 'Resolved])
+applicationSpine :: Expr 'Resolved -> Maybe (TypeEnvKey, SourceSpan, [Expr 'Resolved])
 applicationSpine expr =
   go [] expr
   where
@@ -1200,7 +1203,7 @@ applicationSpine expr =
         EApply _ functionExpr argumentExpr ->
           go (argumentExpr : argumentExprs) functionExpr
         EVar node name ->
-          Just (name, coreNodeSpan node, argumentExprs)
+          Just (typeEnvReferenceKey (coreNodeFacts node) name, coreNodeSpan node, argumentExprs)
         _ ->
           Nothing
 
@@ -1272,8 +1275,8 @@ builtinOperatorSymbolExpr env expr =
     EApply _ dollarExpr operatorExpr
       | builtinDollarOperatorExpr env dollarExpr ->
           builtinOperatorSymbolExpr env operatorExpr
-    EVar _ name ->
-      case Map.lookup name env of
+    EVar node name ->
+      case Map.lookup (typeEnvReferenceKey (coreNodeFacts node) name) env of
         Just (BuiltinOperatorAliasTypeBinding operatorSymbol) -> Just (operatorSymbol, Nothing)
         Just (OperatorAliasSchemeTypeBinding operatorSymbol typeScheme) -> Just (operatorSymbol, Just typeScheme)
         _ -> Nothing
@@ -1305,8 +1308,8 @@ checkLiteralType state literal =
 numericConversionLiteralDiagnostic :: TypeEnv -> Expr 'Resolved -> Expr 'Resolved -> Maybe Diagnostic
 numericConversionLiteralDiagnostic env functionExpr argumentExpr =
   case (functionExpr, argumentExpr) of
-    (EVar _ functionName, ELit _ (LInt literalValue)) ->
-      case numericConversionTargetFromCallable env functionName of
+    (EVar node functionName, ELit _ (LInt literalValue)) ->
+      case numericConversionTargetFromCallable env (typeEnvReferenceKey (coreNodeFacts node) functionName) of
         Just targetType ->
           case numericTypeLiteralIntegerBounds targetType of
             Just bounds@(lowerBound, upperBound)
@@ -1314,8 +1317,8 @@ numericConversionLiteralDiagnostic env functionExpr argumentExpr =
                   Just (mkNumericConversionLiteralTypeError (identifierText functionName) literalValue targetType bounds)
             _ -> Nothing
         Nothing -> Nothing
-    (EVar _ functionName, ELit _ (LFloat literalValue literalSource _)) ->
-      case numericConversionTargetFromCallable env functionName of
+    (EVar node functionName, ELit _ (LFloat literalValue literalSource _)) ->
+      case numericConversionTargetFromCallable env (typeEnvReferenceKey (coreNodeFacts node) functionName) of
         Just targetType ->
           numericConversionFloatLiteralDiagnostic
             (identifierText functionName)
@@ -1349,9 +1352,9 @@ numericConversionFloatLiteralDiagnostic conversionName targetType literalValue l
 finiteFloat :: Double -> Bool
 finiteFloat value = not (isNaN value) && not (isInfinite value)
 
-numericConversionTargetFromCallable :: TypeEnv -> ResolvedName -> Maybe NumericType
+numericConversionTargetFromCallable :: TypeEnv -> TypeEnvKey -> Maybe NumericType
 numericConversionTargetFromCallable env functionName =
-  let nameText = identifierText functionName
+  let nameText = identifierText (typeEnvName functionName)
    in case Map.lookup functionName env of
         Just (BuiltinAliasTypeBinding builtinSymbol) ->
           builtinSymbolNumericConversionTarget builtinSymbol
@@ -1363,15 +1366,13 @@ numericConversionTargetFromCallable env functionName =
 singletonIntegerLiteralRange :: Integer -> IntegerLiteralRange
 singletonIntegerLiteralRange value = IntegerLiteralRange value value
 
-instantiateBuiltinType :: Text -> InferState -> Maybe (ExpressionType, InferState)
-instantiateBuiltinType name state =
-  case lookupKernelBuiltinSymbol name of
-    Just builtinSymbol -> instantiateBuiltinSymbolType builtinSymbol state
-    Nothing -> Nothing
+instantiateBuiltinType :: ResolvedReference -> InferState -> Maybe (ExpressionType, InferState)
+instantiateBuiltinType (BuiltinReference name) state = lookupKernelBuiltinSymbol (identifierText name) >>= (`instantiateBuiltinSymbolType` state)
+instantiateBuiltinType _ _ = Nothing
 
-instantiateDeclaredOperatorBindingType :: TypeEnv -> Text -> InferState -> (Maybe ExpressionType, InferState)
-instantiateDeclaredOperatorBindingType env operatorSymbol state =
-  case Map.lookup (operatorBindingName operatorSymbol) env of
+instantiateDeclaredOperatorBindingType :: TypeEnv -> ResolvedNodeFacts -> Text -> InferState -> (Maybe ExpressionType, InferState)
+instantiateDeclaredOperatorBindingType env facts operatorSymbol state =
+  case Map.lookup (typeEnvReferenceKey facts (operatorBindingName operatorSymbol)) env of
     Just binding ->
       instantiateEnvBinding binding state
     Nothing ->

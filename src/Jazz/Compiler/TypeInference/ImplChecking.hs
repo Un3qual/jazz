@@ -10,7 +10,7 @@ import qualified Data.Map.Strict as Map
 import Data.Maybe (catMaybes)
 import qualified Data.Set as Set
 import Jazz.Compiler.AST
-  ( CoreNode (coreNodeSpan),
+  ( CoreNode (coreNodeFacts, coreNodeSpan),
     CorePhase (Resolved),
     Expr,
     ImplMethod (..),
@@ -39,6 +39,7 @@ import Jazz.Compiler.TypeInference.Types
     ImplMethodType (..),
     TypeBinding (PlainTypeBinding),
     TypeEnv,
+    typeEnvReferenceKey,
   )
 
 checkImplMethodBodies ::
@@ -106,8 +107,8 @@ checkImplMethodBodies inferExpected resultType env initialState capabilityName a
     implMethodEnv implTarget stateForBindings =
       Map.union env $
         Map.fromList
-          [ (qualifiedMemberName capabilityName methodName, PlainTypeBinding methodType)
-          | ImplMethod _ methodName _ <- methods,
+          [ (typeEnvReferenceKey (coreNodeFacts node) (qualifiedMemberName capabilityName methodName), PlainTypeBinding methodType)
+          | ImplMethod node methodName _ <- methods,
             let methodKey = qualifiedMethodKey capabilityName methodName,
             Just (ClassMethodType classParameter methodSignature) <- [Map.lookup methodKey (inferClassMethodSignatures stateForBindings)],
             Just methodType <- [classMethodPayloadToExpressionType stateForBindings classParameter implTarget methodSignature]

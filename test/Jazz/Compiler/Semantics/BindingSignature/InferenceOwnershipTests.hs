@@ -13,10 +13,12 @@ import qualified Data.Sequence as Seq
 import qualified Data.Set as Set
 import Data.Text (Text)
 import Jazz.Compiler.AST
-  ( CorePhase (Resolved),
+  ( CoreNode (coreNodeFacts),
+    CorePhase (Resolved),
     Expr (..),
     Statement (..),
   )
+import Jazz.Compiler.CoreIdentity (ResolvedReference (UnresolvedReference))
 import Jazz.Compiler.Name
   ( NameNamespace (CapabilityNamespace, TypeNamespace, ValueNamespace),
     ResolvedName,
@@ -99,8 +101,10 @@ import Jazz.Compiler.TypeInference.Types
     ScopeCapabilityFacts,
     SemanticType (..),
     TypeBinding (..),
+    TypeEnvKey (..),
     emptyScopeCapabilityFacts,
     schemeResultType,
+    typeEnvReferenceKey,
   )
 import Jazz.Compiler.TypeRepresentation
   ( InferenceVariable,
@@ -443,8 +447,8 @@ testProductionScopeElaboratesSignatureOnce = do
       case mode of
         InferConcreteFunctions ->
           case expression of
-            EVar _ name ->
-              case Map.lookup name env of
+            EVar node name ->
+              case Map.lookup (typeEnvReferenceKey (coreNodeFacts node) name) env of
                 Just (PlainTypeBinding expressionType) ->
                   ((Just expressionType), state)
                 _ -> (Nothing, state)
@@ -505,22 +509,22 @@ testRecursivePreviewRefreshesAfterSolverChange =
     (_, finalState) =
       TypeInferenceScope.inferScopeType
         syntheticPreviewInfer
-        (Map.singleton (valueName "shared") (PlainTypeBinding (SemanticVariable sharedTypeVar)))
+        (Map.singleton (TypeEnvKey (UnresolvedReference (valueName "shared")) (valueName "shared")) (PlainTypeBinding (SemanticVariable sharedTypeVar)))
         initialInferState
-        (programScope (resolvedProgram "left = right.\nadvance = advanceSolver.\nprobe = probeLeft.\nright = left shared."))
+        (programScope (resolvedProgram "left = right.\nadvance = advanceSolver.\nprobe = left.\nright = left shared."))
 
     syntheticPreviewInfer :: InferExprWithModeFn
     syntheticPreviewInfer mode env state expression =
       case expression of
-        EVar _ name
+        EVar node name
           | name == valueName "right" ->
-              inferenceOnlyResult mode (bindingType =<< Map.lookup (valueName "right") env) state
-        EApply _ (EVar _ functionName) (EVar _ argumentName)
+              inferenceOnlyResult mode (bindingType =<< Map.lookup (typeEnvReferenceKey (coreNodeFacts node) name) env) state
+        EApply _ (EVar _ functionName) (EVar argumentNode argumentName)
           | functionName == valueName "left",
             argumentName == valueName "shared" ->
               inferenceOnlyResult
                 mode
-                (resolveType state <$> (bindingType =<< Map.lookup (valueName "shared") env))
+                (resolveType state <$> (bindingType =<< Map.lookup (typeEnvReferenceKey (coreNodeFacts argumentNode) argumentName) env))
                 state
         EVar _ name
           | name == valueName "advanceSolver" ->
@@ -531,12 +535,12 @@ testRecursivePreviewRefreshesAfterSolverChange =
                     Just nextState -> nextState
                     Nothing -> state
                 )
-        EVar _ name
-          | name == valueName "probeLeft" ->
+        EVar node name
+          | name == valueName "left" ->
               inferenceOnlyResult
                 mode
                 (Just SemanticBool)
-                ( case Map.lookup (valueName "left") env of
+                ( case Map.lookup (typeEnvReferenceKey (coreNodeFacts node) name) env of
                     Just (PlainTypeBinding SemanticBool) -> state
                     _ ->
                       modifyInferenceOutput
@@ -580,16 +584,16 @@ assertRecursivePreviewRefreshesAfterConstraintChange label addConstraint hasCons
     (_, finalState) =
       TypeInferenceScope.inferScopeType
         syntheticPreviewInfer
-        (Map.singleton (valueName "shared") (PlainTypeBinding (SemanticVariable sharedTypeVar)))
+        (Map.singleton (TypeEnvKey (UnresolvedReference (valueName "shared")) (valueName "shared")) (PlainTypeBinding (SemanticVariable sharedTypeVar)))
         initialInferState
-        (programScope (resolvedProgram "left = right.\nadvance = advanceConstraint.\nprobe = probeLeft.\nright = left constraintSensitive."))
+        (programScope (resolvedProgram "left = right.\nadvance = advanceConstraint.\nprobe = left.\nright = left constraintSensitive."))
 
     syntheticPreviewInfer :: InferExprWithModeFn
     syntheticPreviewInfer mode env state expression =
       case expression of
-        EVar _ name
+        EVar node name
           | name == valueName "right" ->
-              inferenceOnlyResult mode (bindingType =<< Map.lookup (valueName "right") env) state
+              inferenceOnlyResult mode (bindingType =<< Map.lookup (typeEnvReferenceKey (coreNodeFacts node) name) env) state
         EApply _ (EVar _ functionName) (EVar _ argumentName)
           | functionName == valueName "left",
             argumentName == valueName "constraintSensitive" ->
@@ -605,12 +609,12 @@ assertRecursivePreviewRefreshesAfterConstraintChange label addConstraint hasCons
         EVar _ name
           | name == valueName "advanceConstraint" ->
               inferenceOnlyResult mode (Just SemanticBool) (addConstraint sharedTypeVar state)
-        EVar _ name
-          | name == valueName "probeLeft" ->
+        EVar node name
+          | name == valueName "left" ->
               inferenceOnlyResult
                 mode
                 (Just SemanticBool)
-                ( case Map.lookup (valueName "left") env of
+                ( case Map.lookup (typeEnvReferenceKey (coreNodeFacts node) name) env of
                     Just (PlainTypeBinding SemanticBool) -> state
                     _ ->
                       modifyInferenceOutput

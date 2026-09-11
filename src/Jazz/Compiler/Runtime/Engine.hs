@@ -67,7 +67,7 @@ import Jazz.Compiler.BuiltinCatalog
 import Jazz.Compiler.CapabilityFacts
   ( qualifiedMethodKey,
   )
-import Jazz.Compiler.CoreIdentity (ResolvedNodeFacts (resolvedNodeCaptures, resolvedNodeOwner, resolvedNodeReference), ResolvedReference (..), resolvedBinderReference, resolvedValueReference)
+import Jazz.Compiler.CoreIdentity (ResolvedNodeFacts (resolvedNodeCaptures, resolvedNodeReference), ResolvedReference (..), resolvedBinderReference, resolvedValueReference)
 import Jazz.Compiler.DiagnosticCatalog
   ( ErrorCode (..),
   )
@@ -183,7 +183,6 @@ import Jazz.Compiler.Runtime.Semantics
     runtimeDefinitionNameIn,
     runtimeDiagnostic,
     runtimeFunctionArguments,
-    runtimeMethodReference,
     runtimeQualifiedMethodIsFullyApplied,
     runtimeValueExactlyMatchesConstraint,
     substituteRuntimeVariable,
@@ -956,7 +955,7 @@ evaluateRuntimeScopePureRequest request = go Nothing indexedStatements
       where
         insertMethod envAcc (ClassMethodSignature node methodName _) =
           let methodKey = qualifiedMethodKey capabilityName methodName
-              methodName' = runtimeMethodReference (Just (resolvedNodeOwner (statementResolution (coreNodeFacts node)))) capabilityName methodName
+              methodName' = resolvedValueReference (statementResolution (coreNodeFacts node))
               methodValue = case statementDeclarationFact (coreNodeFacts node) of
                 MethodDeclaration _ signature ->
                   Right
@@ -980,14 +979,14 @@ evaluateRuntimeScopePureRequest request = go Nothing indexedStatements
             methodEnv = foldl' insertCandidate env methodCandidates
             methodExprsByKey =
               Map.fromList
-                [ (runtimeMethodReference (Just (resolvedNodeOwner (statementResolution (coreNodeFacts implementationNode)))) capabilityName methodName, methodExpr)
-                | ImplMethod _ methodName methodExpr <- methods
+                [ (resolvedValueReference (statementResolution (coreNodeFacts methodNode)), methodExpr)
+                | ImplMethod methodNode _ methodExpr <- methods
                 ]
             methodCandidates =
               map
-                ( \(ImplMethod _ methodName methodExpr) ->
+                ( \(ImplMethod methodNode methodName methodExpr) ->
                     let methodKey = qualifiedMethodKey capabilityName methodName
-                        methodName' = runtimeMethodReference (Just (resolvedNodeOwner (statementResolution (coreNodeFacts implementationNode)))) capabilityName methodName
+                        methodName' = resolvedValueReference (statementResolution (coreNodeFacts methodNode))
                         evidence = runtimeEvidence methodModulePath (coreNodeId implementationNode) capabilityName methodName runtimeImplTarget
                      in ( methodName',
                           methodKey,
@@ -2389,14 +2388,14 @@ evalScopeWithHostInstance observationEnabled scopeId host preludePath preludeSta
                 ( \(ImplMethod methodNode methodName methodExpr) ->
                     let qualifiedMethodName = qualifiedMemberName capabilityName methodName
                         evidence = runtimeEvidence methodModulePath (coreNodeId implementationNode) capabilityName methodName runtimeImplTarget
-                     in ( runtimeMethodReference (Just (resolvedNodeOwner (statementResolution (coreNodeFacts implementationNode)))) capabilityName methodName,
+                     in ( resolvedValueReference (statementResolution (coreNodeFacts methodNode)),
                           RuntimeMethodCandidate
                             evidence
                             ( attachRuntimeMethodSignature
                                 methodModulePath
                                 methodEnv
                                 runtimeImplTarget
-                                (runtimeMethodReference (Just (resolvedNodeOwner (statementResolution (coreNodeFacts implementationNode)))) capabilityName methodName)
+                                (resolvedValueReference (statementResolution (coreNodeFacts methodNode)))
                                 ( VDeferredHostBinding
                                     (DeferredHostBindingKey scopeId (coreNodeId methodNode) qualifiedMethodName)
                                     (runtimeDiagnostic E3021 "runtime recursive host binding has no concrete value")

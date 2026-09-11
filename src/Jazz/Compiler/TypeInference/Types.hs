@@ -22,6 +22,9 @@ module Jazz.Compiler.TypeInference.Types
     SemanticType (..),
     TypeBinding (..),
     TypeEnv,
+    TypeEnvKey (..),
+    typeEnvBindingKey,
+    typeEnvReferenceKey,
     TypeScheme (..),
     TypeSchemeConstraint,
     SchemeConstraint (..),
@@ -52,6 +55,7 @@ import Jazz.Compiler.BuiltinCatalog
     numericTypeFromName,
   )
 import Jazz.Compiler.CapabilityFacts (ConcreteImplFact)
+import Jazz.Compiler.CoreIdentity (ResolvedNodeFacts, ResolvedReference, resolvedBinderReference, resolvedValueReference)
 import Jazz.Compiler.Name
   ( ResolvedName,
     identifierText,
@@ -193,7 +197,28 @@ data SchemeConstraint typeValue
   deriving stock (Eq, Foldable, Functor, Generic, Ord, Show, Traversable)
   deriving anyclass (NFData)
 
-type TypeEnv = Map ResolvedName TypeBinding
+-- The spelling is retained for diagnostic and public-interface projection.
+-- Environment equality and ordering use only the selected reference identity.
+data TypeEnvKey = TypeEnvKey
+  { typeEnvReference :: ResolvedReference,
+    typeEnvName :: ResolvedName
+  }
+  deriving stock (Generic, Show)
+  deriving anyclass (NFData)
+
+instance Eq TypeEnvKey where
+  left == right = typeEnvReference left == typeEnvReference right
+
+instance Ord TypeEnvKey where
+  compare left right = compare (typeEnvReference left) (typeEnvReference right)
+
+type TypeEnv = Map TypeEnvKey TypeBinding
+
+typeEnvBindingKey :: ResolvedNodeFacts -> ResolvedName -> TypeEnvKey
+typeEnvBindingKey facts = TypeEnvKey (resolvedBinderReference facts)
+
+typeEnvReferenceKey :: ResolvedNodeFacts -> ResolvedName -> TypeEnvKey
+typeEnvReferenceKey facts = TypeEnvKey (resolvedValueReference facts)
 
 data DataTypeBinding = DataTypeBinding [ResolvedName] [[ConstructorArgumentType]]
   deriving stock (Eq, Generic, Show)

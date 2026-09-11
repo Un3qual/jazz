@@ -18,7 +18,7 @@ import qualified Jazz.Compiler.AST as AST
 import Jazz.Compiler.CapabilityFacts
   ( ConcreteImplFact (ConcreteImplFact),
   )
-import Jazz.Compiler.CoreIdentity (emptyResolvedNodeFacts)
+import Jazz.Compiler.CoreIdentity (CoreBinderId (..), ResolvedNodeFacts (..), emptyResolvedNodeFacts)
 import Jazz.Compiler.Diagnostics
   ( SourceSpan (SourceSpan),
     isErrorDiagnostic,
@@ -37,6 +37,7 @@ import Jazz.Compiler.Name
     resolvedImportedName,
     resolvedLocalName,
   )
+import Jazz.Compiler.RecursiveBindings (publishResolvedCaptures, resolveLexicalScopes)
 import Jazz.Compiler.StableSet
   ( StableSet,
     stableSetDelete,
@@ -344,23 +345,29 @@ assertImportedConstraintFactAccepted label sourceArgument importedArgument = do
         }
 
     constrainedProgram constraintArgument =
-      EBlock
-        fixtureExpressionNode
-        [ SSignature
-            (fixtureStatementNode (SourceSpan 1 1))
-            (localValueName "value")
-            (ConstrainedSignature [SignatureConstraint (localCapabilityName "Marked") [constraintArgument]] TypeInt),
-          SLet
-            (fixtureStatementNode (SourceSpan 2 1))
-            (localValueName "value")
-            (ELit fixtureExpressionNode (LInt 1))
-        ]
+      publishResolvedCaptures . resolveLexicalScopes Set.empty $
+        EBlock
+          (fixtureExpressionNode 0)
+          [ SSignature
+              (fixtureStatementNode 1 (SourceSpan 1 1))
+              (localValueName "value")
+              (ConstrainedSignature [SignatureConstraint (localCapabilityName "Marked") [constraintArgument]] TypeInt),
+            SLet
+              (fixtureStatementNode 2 (SourceSpan 2 1))
+              (localValueName "value")
+              (ELit (fixtureExpressionNode 3) (LInt 1))
+          ]
 
-fixtureExpressionNode :: AST.CoreNode 'AST.Resolved sort
-fixtureExpressionNode = AST.CoreNode (AST.CoreNodeId 0) (SourceSpan 1 1) (emptyResolvedNodeFacts (StandaloneSourceUnit standaloneModulePath))
+fixtureExpressionNode :: Int -> AST.CoreNode 'AST.Resolved sort
+fixtureExpressionNode index = AST.CoreNode (AST.CoreNodeId index) (SourceSpan 1 1) (emptyResolvedNodeFacts fixtureOwner)
 
-fixtureStatementNode :: SourceSpan -> AST.CoreNode 'AST.Resolved sort
-fixtureStatementNode spanValue = AST.CoreNode (AST.CoreNodeId 0) spanValue (emptyResolvedNodeFacts (StandaloneSourceUnit standaloneModulePath))
+fixtureStatementNode :: Int -> SourceSpan -> AST.CoreNode 'AST.Resolved sort
+fixtureStatementNode index spanValue = AST.CoreNode nodeId spanValue ((emptyResolvedNodeFacts fixtureOwner) {resolvedNodeBinder = Just (CoreBinderId (fixtureOwner, nodeId))})
+  where
+    nodeId = AST.CoreNodeId index
+
+fixtureOwner :: SourceUnitOwner
+fixtureOwner = StandaloneSourceUnit standaloneModulePath
 
 localValueName :: Text -> ResolvedName
 localValueName = resolvedLocalName ValueNamespace . mkIdentifier

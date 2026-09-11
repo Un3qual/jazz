@@ -23,6 +23,7 @@ import Jazz.Compiler.AST
     Pattern (..),
     patternNode,
   )
+import Jazz.Compiler.CoreIdentity (ResolvedNodeFacts)
 import Jazz.Compiler.Name (ResolvedName, identifierText)
 import Jazz.Compiler.Pattern
   ( commonPatternBinderNames,
@@ -35,6 +36,7 @@ import Jazz.Compiler.SemanticFacts
   )
 import Jazz.Compiler.TypeInference.Capabilities (defaultLiteralTypes)
 import Jazz.Compiler.TypeInference.Diagnostics
+import Jazz.Compiler.TypeInference.Environment (insertResolvedTypeBinding)
 import Jazz.Compiler.TypeInference.Solver
   ( freshIntegerLiteralType,
     freshTypeVar,
@@ -60,6 +62,7 @@ import Jazz.Compiler.TypeInference.Types
     TypeBinding (..),
     TypeEnv,
     instantiateConstructorFieldType,
+    typeEnvReferenceKey,
   )
 
 inferPatternCaseType ::
@@ -135,20 +138,24 @@ inferPatternCaseType inferExpression mode env scrutineeType initialState caseArm
                     stateAfterGuard
            in checkedState
 
-newtype PatternBindings = PatternBindings (Map ResolvedName ExpressionType)
+newtype PatternBindings = PatternBindings (Map ResolvedName (ResolvedNodeFacts, ExpressionType))
   deriving stock (Eq, Show)
   deriving newtype (Semigroup, Monoid)
 
-singletonPatternBinding :: ResolvedName -> ExpressionType -> PatternBindings
-singletonPatternBinding name expressionType =
-  PatternBindings (Map.singleton name expressionType)
+singletonPatternBinding :: ResolvedNodeFacts -> ResolvedName -> ExpressionType -> PatternBindings
+singletonPatternBinding facts name expressionType =
+  PatternBindings (Map.singleton name (facts, expressionType))
 
 lookupPatternBinding :: ResolvedName -> PatternBindings -> Maybe ExpressionType
-lookupPatternBinding name (PatternBindings bindings) = Map.lookup name bindings
+lookupPatternBinding name (PatternBindings bindings) = snd <$> Map.lookup name bindings
 
-insertPatternBinding :: ResolvedName -> ExpressionType -> PatternBindings -> PatternBindings
-insertPatternBinding name expressionType (PatternBindings bindings) =
-  PatternBindings (Map.insert name expressionType bindings)
+insertPatternBinding :: ResolvedNodeFacts -> ResolvedName -> ExpressionType -> PatternBindings -> PatternBindings
+insertPatternBinding facts name expressionType (PatternBindings bindings) =
+  PatternBindings (Map.insert name (facts, expressionType) bindings)
+
+updatePatternBinding :: ResolvedName -> ExpressionType -> PatternBindings -> PatternBindings
+updatePatternBinding name expressionType (PatternBindings bindings) =
+  PatternBindings (Map.adjust (\(facts, _) -> (facts, expressionType)) name bindings)
 
 patternBindingNames :: PatternBindings -> Set ResolvedName
 patternBindingNames (PatternBindings bindings) = Map.keysSet bindings
@@ -156,8 +163,8 @@ patternBindingNames (PatternBindings bindings) = Map.keysSet bindings
 extendTypeEnvWithPatternBindings :: PatternBindings -> TypeEnv -> TypeEnv
 extendTypeEnvWithPatternBindings (PatternBindings bindings) env =
   Map.foldlWithKey'
-    ( \extended name expressionType ->
-        Map.insert name (PlainTypeBinding expressionType) extended
+    ( \extended name (facts, expressionType) ->
+        insertResolvedTypeBinding facts name (PlainTypeBinding expressionType) extended
     )
     env
     bindings
@@ -261,10 +268,11 @@ inferPatternType env scrutineeType pattern state =
 inferPatternTypeRaw :: TypeEnv -> ExpressionType -> Pattern 'Resolved -> InferState -> (PatternTyping, InferState)
 inferPatternTypeRaw env scrutineeType pattern state =
   case pattern of
-    PVariable _ name ->
+    PVariable node name ->
       ( mempty
           { patternBindings =
               singletonPatternBinding
+                (coreNodeFacts node)
                 name
                 (resolveType state scrutineeType)
           },
@@ -284,15 +292,15 @@ inferPatternTypeRaw env scrutineeType pattern state =
                       (diagnosticType stateAfterLiteral literalType)
                   )
               )
-    PConstructor _ constructorName patterns ->
-      inferConstructorPatternType env scrutineeType constructorName patterns state
+    PConstructor node constructorName patterns ->
+      inferConstructorPatternType env scrutineeType (coreNodeFacts node) constructorName patterns state
     PList _ patterns ->
       inferListPatternType env scrutineeType patterns state
     PConsList _ headPattern tailPattern ->
       inferConsListPatternType env scrutineeType headPattern tailPattern state
     PTuple _ patterns ->
       inferTuplePatternType env scrutineeType patterns state
-    PAs _ name nestedPattern ->
+    PAs node name nestedPattern ->
       let (typing, stateAfterPattern) =
             inferPatternType env scrutineeType nestedPattern state
        in if patternSkipsBranchType typing
@@ -301,6 +309,7 @@ inferPatternTypeRaw env scrutineeType pattern state =
               ( typing
                   { patternBindings =
                       insertPatternBinding
+                        (coreNodeFacts node)
                         name
                         (resolveType stateAfterPattern scrutineeType)
                         (patternBindings typing)
@@ -311,7 +320,7 @@ inferPatternTypeRaw env scrutineeType pattern state =
       inferOrPatternType env scrutineeType alternatives state
 
 resolvedPatternBindingMap :: InferState -> PatternBindings -> Map ResolvedName ExpressionType
-resolvedPatternBindingMap state (PatternBindings bindings) = Map.map (resolveType state) bindings
+resolvedPatternBindingMap state (PatternBindings bindings) = Map.map (resolveType state . snd) bindings
 
 patternConstructor :: Pattern 'Resolved -> PatternConstructorFact
 patternConstructor pattern =
@@ -414,7 +423,7 @@ inferOrPatternType env scrutineeType alternatives initialState =
                   case unifyTypes leftType rightType stateForBinder of
                     Just unifiedState ->
                       Right
-                        ( insertPatternBinding
+                        ( updatePatternBinding
                             binderName
                             (resolveType unifiedState leftType)
                             mergedBindings,
@@ -439,17 +448,18 @@ inferOrPatternType env scrutineeType alternatives initialState =
 
 resolvePatternBindings :: InferState -> PatternBindings -> PatternBindings
 resolvePatternBindings state (PatternBindings bindings) =
-  PatternBindings (Map.map (resolveType state) bindings)
+  PatternBindings (Map.map (fmap (resolveType state)) bindings)
 
 inferConstructorPatternType ::
   TypeEnv ->
   ExpressionType ->
+  ResolvedNodeFacts ->
   ResolvedName ->
   [Pattern 'Resolved] ->
   InferState ->
   (PatternTyping, InferState)
-inferConstructorPatternType env scrutineeType constructorName patterns state =
-  case Map.lookup constructorName env of
+inferConstructorPatternType env scrutineeType facts constructorName patterns state =
+  case Map.lookup (typeEnvReferenceKey facts constructorName) env of
     Just constructorBinding ->
       case instantiateConstructorBinding constructorBinding state of
         Just (argumentTypes, constructorResultType, stateAfterConstructor) ->

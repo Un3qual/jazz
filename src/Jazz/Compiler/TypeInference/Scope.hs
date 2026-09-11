@@ -37,7 +37,7 @@ import Data.Text
   )
 import Jazz.Compiler.AST
   ( ClassMethodSignature (..),
-    CoreNode (coreNodeId, coreNodeSpan),
+    CoreNode (coreNodeFacts, coreNodeId, coreNodeSpan),
     CorePhase (..),
     DataConstructor (..),
     Expr (..),
@@ -55,7 +55,7 @@ import Jazz.Compiler.CapabilityFacts
   ( constraintSignatureTypeVariableNamesInOrder,
     signaturePayloadConstraintType,
   )
-import Jazz.Compiler.CoreIdentity (CoreBinderId, ResolvedScopeFacts (..))
+import Jazz.Compiler.CoreIdentity (CoreBinderId, ResolvedNodeFacts (..), ResolvedReference (..), ResolvedScopeFacts (..))
 import Jazz.Compiler.Diagnostics
   ( Diagnostic,
     DiagnosticContext (CheckingBinding),
@@ -121,6 +121,7 @@ import Jazz.Compiler.TypeInference.Diagnostics
     mkUnknownConstructorPayloadTypeError,
     targetedFloatLiteralDiagnostic,
   )
+import Jazz.Compiler.TypeInference.Environment (insertResolvedTypeBinding, insertResolvedTypeEnvFreeVariables)
 import Jazz.Compiler.TypeInference.ImplChecking (checkImplMethodBodies)
 import Jazz.Compiler.TypeInference.Instantiation
   ( inferExplicitTypeApplication,
@@ -177,11 +178,14 @@ import Jazz.Compiler.TypeInference.Types
     SemanticType (..),
     TypeBinding (..),
     TypeEnv,
+    TypeEnvKey (..),
     TypeScheme (..),
     TypeSchemeConstraint,
     TypeSchemePrimitiveConstraint,
     quantifiedVariablesFromPreferred,
     quantifiedVariablesMembershipSet,
+    typeEnvBindingKey,
+    typeEnvReferenceKey,
   )
 import Jazz.Compiler.TypeRepresentation
   ( NumericType (..),
@@ -220,7 +224,7 @@ inferExprTypeWithExpectedModeRaw ::
 inferExprTypeWithExpectedModeRaw inferExpression mode env state expectedType expr =
   case (resolveType state expectedType, expr) of
     (_, EVar node name)
-      | Map.notMember name env,
+      | Map.notMember (typeEnvReferenceKey (coreNodeFacts node) name) env,
         Just result <-
           instantiateQualifiedMethodTypeWithExpected
             (coreNodeId node)
@@ -228,8 +232,8 @@ inferExprTypeWithExpectedModeRaw inferExpression mode env state expectedType exp
             expectedType
             state ->
           result
-    (SemanticFunction argumentType resultType, ELambda _ parameterName bodyExpr) ->
-      let extendedEnv = Map.insert parameterName (PlainTypeBinding argumentType) env
+    (SemanticFunction argumentType resultType, ELambda node parameterName bodyExpr) ->
+      let extendedEnv = insertResolvedTypeBinding (coreNodeFacts node) parameterName (PlainTypeBinding argumentType) env
           (bodyResult, stateAfterBody) =
             inferExprTypeWithExpectedMode inferExpression mode extendedEnv state resultType bodyExpr
           checkedResult = case mode of
@@ -452,6 +456,8 @@ inferScopeTypeInternal
       bindingNamesByStatement = preparedRecursiveScopeBindingNames preparedScope
       recursiveGroupsByStatement = preparedRecursiveScopeGroups preparedScope
       lexicalFacts = preparedRecursiveScopeFacts preparedScope
+      bindingKeysByStatement = Map.mapWithKey (\index name -> TypeEnvKey (LexicalReference (resolvedScopeBinderIds lexicalFacts Map.! index)) name) bindingNamesByStatement
+      bindingKeyAt index = bindingKeysByStatement Map.! index
       inferExpression = scopeInferExpression
       mode = scopeInferenceMode
       initialEnv = scopeInitialEnv
@@ -467,8 +473,8 @@ inferScopeTypeInternal
       statementFactVisibleTypes :: InferState -> TypeEnv -> Statement 'Resolved -> TypeEnv
       statementFactVisibleTypes state visibleTypes statement =
         case statement of
-          SLet _ name valueExpr ->
-            Map.adjust (semanticFactBinding state valueExpr) name visibleTypes
+          SLet node name valueExpr ->
+            Map.adjust (semanticFactBinding state valueExpr) (typeEnvBindingKey (coreNodeFacts node) name) visibleTypes
           _ -> visibleTypes
 
       semanticFactBinding :: InferState -> Expr 'Resolved -> TypeBinding -> TypeBinding
@@ -500,12 +506,12 @@ inferScopeTypeInternal
       statementSemanticFactSeeds visibleTypes statement =
         case statement of
           SLet node name _ ->
-            [(coreNodeId node, bindingFor name, ValueDeclaration name)]
+            [(coreNodeId node, bindingFor node name, ValueDeclaration name)]
           SSignature node name _ ->
-            [(coreNodeId node, bindingFor name, SignatureDeclaration name)]
+            [(coreNodeId node, bindingAt (resolvedNodeReference (coreNodeFacts node)) name, SignatureDeclaration name)]
           SData node typeName _ constructors ->
             (coreNodeId node, [], DataDeclaration typeName (map constructorName constructors))
-              : [ (coreNodeId constructorNode, bindingFor name, ValueDeclaration name)
+              : [ (coreNodeId constructorNode, bindingFor constructorNode name, ValueDeclaration name)
                 | DataConstructor constructorNode name _ <- constructors
                 ]
           SClass node capabilityName parameters methods ->
@@ -515,14 +521,15 @@ inferScopeTypeInternal
                 ]
           SImpl node capabilityName _ methods ->
             (coreNodeId node, [], ImplementationDeclaration capabilityName [])
-              : [ (coreNodeId methodNode, bindingFor methodName, ValueDeclaration methodName)
+              : [ (coreNodeId methodNode, bindingFor methodNode methodName, ValueDeclaration methodName)
                 | ImplMethod methodNode methodName _ <- methods
                 ]
           SModule node modulePath -> [(coreNodeId node, [], ModuleDeclaration modulePath)]
           SImport node modulePath _ _ -> [(coreNodeId node, [], ImportDeclaration modulePath)]
           SExpr node _ -> [(coreNodeId node, [], ExpressionDeclaration)]
         where
-          bindingFor name = maybe [] (\binding -> [(name, binding)]) (Map.lookup name visibleTypes)
+          bindingFor node name = bindingAt (LexicalReference <$> resolvedNodeBinder (coreNodeFacts node)) name
+          bindingAt reference name = maybe [] (\binding -> [(name, binding)]) (reference >>= (\target -> Map.lookup (TypeEnvKey target name) visibleTypes))
           constructorName (DataConstructor _ name _) = name
 
       recordCommittedLetFacts pendingSignatures statementIndex visibleTypes state =
@@ -538,15 +545,16 @@ inferScopeTypeInternal
                 | otherwise -> []
           recordDefinition stateAcc definitionIndex =
             case Map.lookup definitionIndex statementsByIndex of
-              Just definition@(SLet _ name _) ->
-                let definitionVisibleTypes =
+              Just definition@(SLet node name _) ->
+                let key = typeEnvBindingKey (coreNodeFacts node) name
+                    definitionVisibleTypes =
                       case Map.lookup definitionIndex pendingSignatures of
                         Nothing -> visibleTypes
                         Just pendingSignature ->
                           Map.insert
-                            name
+                            key
                             ( generalizedExplicitSignatureBinding
-                                (freeTypeVariablesInEnv state (Map.delete name visibleTypes))
+                                (freeTypeVariablesInEnv state (Map.delete key visibleTypes))
                                 state
                                 pendingSignature
                             )
@@ -792,7 +800,8 @@ inferScopeTypeInternal
                             rest
                      in (scopeResultType, resultState)
                   SLet bindingNode name valueExpr ->
-                    let nameText = identifierText name
+                    let key = typeEnvBindingKey (coreNodeFacts bindingNode) name
+                        nameText = identifierText name
                         bindingSpan = coreNodeSpan bindingNode
                         (envForStatement, stateForStatement, recursiveGroupPreviewCacheForStatement) =
                           exposeVisibleRecursiveGroupSchemes statementIndex env envFreeVariables stateForSource recursiveGroupPreviewCache
@@ -809,14 +818,14 @@ inferScopeTypeInternal
                             statementIndex
                             envForStatement
                             recursiveGroupsByStatement
-                            bindingNamesByStatement
+                            bindingKeysByStatement
                             bindingSeedsByStatement
                         envWithBindingSeed =
-                          case ( shouldSeedSelfRecursiveBinding statementIndex name envForStatement,
+                          case ( shouldSeedSelfRecursiveBinding statementIndex key envForStatement,
                                  Map.lookup statementIndex bindingSeedsByStatement
                                ) of
                             (True, Just bindingSeed) ->
-                              Map.insert name (PlainTypeBinding bindingSeed) envWithRecursiveBindings
+                              Map.insert key (PlainTypeBinding bindingSeed) envWithRecursiveBindings
                             _ -> envWithRecursiveBindings
                         envWithForwardSignedBindings =
                           case Map.lookup statementIndex forwardFunctionBindings of
@@ -828,8 +837,8 @@ inferScopeTypeInternal
                                       then
                                         Map.insertWith
                                           (\_ existing -> existing)
-                                          (forwardFunctionName forwardBinding)
-                                          (PlainTypeBinding (forwardFunctionType forwardBinding))
+                                          (bindingKeyAt forwardStatementIndex)
+                                          (PlainTypeBinding forwardBinding)
                                           currentEnv
                                       else currentEnv
                                 )
@@ -839,7 +848,7 @@ inferScopeTypeInternal
                           case matchingPendingSignature of
                             Just pendingSignature ->
                               Map.insert
-                                name
+                                key
                                 (PlainTypeBinding (pendingSignatureDeclaredType pendingSignature))
                                 envWithForwardSignedBindings
                             Nothing -> envWithForwardSignedBindings
@@ -980,11 +989,11 @@ inferScopeTypeInternal
                             Nothing -> pendingSignaturesByStatement
                         nextEnvBeforeRecursiveGroupGeneralization =
                           case maybeNextBinding of
-                            Just binding -> Map.insert name binding env
+                            Just binding -> insertResolvedTypeBinding (coreNodeFacts bindingNode) name binding env
                             Nothing -> env
                         nextEnvFreeVariablesBeforeRecursiveGroupGeneralization =
                           case maybeNextBinding of
-                            Just binding -> insertTypeEnvFreeVariables name binding envFreeVariables
+                            Just binding -> insertResolvedTypeEnvFreeVariables (coreNodeFacts bindingNode) name binding envFreeVariables
                             Nothing -> envFreeVariables
                         (nextEnv, stateAfterRecursiveGroupPrune) =
                           generalizeCompletedRecursiveGroup
@@ -1068,8 +1077,8 @@ inferScopeTypeInternal
           EApply _ dollarExpr operatorExpr
             | builtinDollarOperatorExpr currentEnv dollarExpr ->
                 builtinOperatorSymbolExpr currentEnv operatorExpr
-          EVar _ name ->
-            case Map.lookup name currentEnv of
+          EVar node name ->
+            case Map.lookup (typeEnvReferenceKey (coreNodeFacts node) name) currentEnv of
               Just (BuiltinOperatorAliasTypeBinding operatorSymbol) ->
                 Just (operatorSymbol, Nothing)
               Just (OperatorAliasSchemeTypeBinding operatorSymbol typeScheme) ->
@@ -1104,9 +1113,9 @@ inferScopeTypeInternal
                 | isNothing maybePendingSignature,
                   Just (operatorSymbol, maybeAliasScheme) <- builtinOperatorSymbolExpr currentEnv valueExpr ->
                     Just (operatorAliasBinding operatorSymbol (SchemeTypeBinding <$> maybeAliasScheme))
-              EVar _ builtinName ->
+              EVar node builtinName ->
                 let referencedName = identifierText builtinName
-                 in case Map.lookup builtinName currentEnv of
+                 in case Map.lookup (typeEnvReferenceKey (coreNodeFacts node) builtinName) currentEnv of
                       Just (BuiltinAliasTypeBinding builtinSymbol) ->
                         Just (BuiltinAliasTypeBinding builtinSymbol)
                       Just (BuiltinOperatorAliasTypeBinding operatorSymbol)
@@ -1187,12 +1196,12 @@ inferScopeTypeInternal
           Nothing ->
             currentEnv
 
-      recursiveGroupBindingNames :: [Int] -> Set ResolvedName
+      recursiveGroupBindingNames :: [Int] -> Set TypeEnvKey
       recursiveGroupBindingNames groupMembers =
         Set.fromList
           [ bindingName
           | memberIndex <- groupMembers,
-            Just bindingName <- [Map.lookup memberIndex bindingNamesByStatement]
+            Just bindingName <- [Map.lookup memberIndex bindingKeysByStatement]
           ]
 
       rememberRecursiveGroupStart :: Int -> InferState -> Map Int InferState -> Map Int InferState
@@ -1215,7 +1224,7 @@ inferScopeTypeInternal
                       Set.fromList
                         [ bindingName
                         | memberIndex <- groupMembers,
-                          Just bindingName <- [Map.lookup memberIndex bindingNamesByStatement]
+                          Just bindingName <- [Map.lookup memberIndex bindingKeysByStatement]
                         ]
                     envOutsideGroup =
                       foldl' (flip Map.delete) currentEnv groupBindingNames
@@ -1229,7 +1238,7 @@ inferScopeTypeInternal
                     groupBindings =
                       [ binding
                       | memberIndex <- groupMembers,
-                        Just bindingName <- [Map.lookup memberIndex bindingNamesByStatement],
+                        Just bindingName <- [Map.lookup memberIndex bindingKeysByStatement],
                         Just binding <- [Map.lookup bindingName nextEnv]
                       ]
                  in ( nextEnv,
@@ -1246,7 +1255,7 @@ inferScopeTypeInternal
           _ -> currentSummary
         where
           refreshMember summary memberIndex =
-            case Map.lookup memberIndex bindingNamesByStatement of
+            case Map.lookup memberIndex bindingKeysByStatement of
               Just bindingName ->
                 case Map.lookup bindingName currentEnv of
                   Just binding -> insertTypeEnvFreeVariables bindingName binding summary
@@ -1304,7 +1313,7 @@ inferScopeTypeInternal
                                       Set.fromList
                                         [ bindingName
                                         | memberIndex <- groupMembers,
-                                          Just bindingName <- [Map.lookup memberIndex bindingNamesByStatement]
+                                          Just bindingName <- [Map.lookup memberIndex bindingKeysByStatement]
                                         ]
                                     envOutsideGroup =
                                       foldl' (flip Map.delete) envAcc groupBindingNames
@@ -1325,7 +1334,7 @@ inferScopeTypeInternal
                                         [ (memberIndex, binding)
                                         | memberIndex <- processedMembers,
                                           bindingIsVisibleBefore statementIndex memberIndex,
-                                          Just bindingName <- [Map.lookup memberIndex bindingNamesByStatement],
+                                          Just bindingName <- [Map.lookup memberIndex bindingKeysByStatement],
                                           Just binding <- [Map.lookup bindingName nextEnv]
                                         ]
                                     previewDependencies =
@@ -1355,7 +1364,7 @@ inferScopeTypeInternal
               (Map.toAscList (recursiveGroupPreviewBindings cachedPreview))
             where
               applyBinding (bindingEnv, freeVariables) (memberIndex, binding) =
-                case Map.lookup memberIndex bindingNamesByStatement of
+                case Map.lookup memberIndex bindingKeysByStatement of
                   Just bindingName
                     | bindingIsVisibleBefore currentStatementIndex memberIndex ->
                         ( Map.insert bindingName binding bindingEnv,
@@ -1449,21 +1458,22 @@ inferScopeTypeInternal
           previewMember stateAcc memberIndex =
             case Map.lookup memberIndex statementsByIndex of
               Just (SLet bindingNode bindingName valueExpr) ->
-                let nameText = identifierText bindingName
+                let key = typeEnvBindingKey (coreNodeFacts bindingNode) bindingName
+                    nameText = identifierText bindingName
                     bindingSpan = coreNodeSpan bindingNode
                     envWithRecursiveBindings =
                       recursiveBindingEnv
                         memberIndex
                         currentEnv
                         recursiveGroupsByStatement
-                        bindingNamesByStatement
+                        bindingKeysByStatement
                         bindingSeedsByStatement
                     envWithBindingSeed =
-                      case ( shouldSeedSelfRecursiveBinding memberIndex bindingName currentEnv,
+                      case ( shouldSeedSelfRecursiveBinding memberIndex key currentEnv,
                              Map.lookup memberIndex bindingSeedsByStatement
                            ) of
                         (True, Just bindingSeed) ->
-                          Map.insert bindingName (PlainTypeBinding bindingSeed) envWithRecursiveBindings
+                          Map.insert key (PlainTypeBinding bindingSeed) envWithRecursiveBindings
                         _ -> envWithRecursiveBindings
                     (valueResult, rawStateAfterValue) =
                       inferExpression InferenceOnly envWithBindingSeed stateAcc valueExpr
@@ -1513,12 +1523,12 @@ inferScopeTypeInternal
                 }
           }
 
-      shouldSeedSelfRecursiveFunction :: Int -> ResolvedName -> TypeEnv -> Bool
+      shouldSeedSelfRecursiveFunction :: Int -> TypeEnvKey -> TypeEnv -> Bool
       shouldSeedSelfRecursiveFunction statementIndex bindingName visibleEnv =
         Set.member statementIndex selfRecursiveFunctionStatements
           && Map.notMember bindingName visibleEnv
 
-      shouldSeedSelfRecursiveBinding :: Int -> ResolvedName -> TypeEnv -> Bool
+      shouldSeedSelfRecursiveBinding :: Int -> TypeEnvKey -> TypeEnv -> Bool
       shouldSeedSelfRecursiveBinding statementIndex bindingName visibleEnv =
         ( Set.member statementIndex selfRecursiveTypeStatements
             || shouldSeedSelfRecursiveFunction statementIndex bindingName visibleEnv
@@ -1527,7 +1537,7 @@ inferScopeTypeInternal
 
       exposePreviewRecursiveGroupMember :: Int -> TypeEnv -> Set InferenceVariable -> InferState -> (TypeEnv, TypeEnvFreeVariables) -> Int -> (TypeEnv, TypeEnvFreeVariables)
       exposePreviewRecursiveGroupMember statementIndex envOutsideGroup environmentVariables state (currentEnv, currentFreeVariables) memberIndex =
-        case Map.lookup memberIndex bindingNamesByStatement of
+        case Map.lookup memberIndex bindingKeysByStatement of
           Just bindingName
             | bindingIsVisibleBefore statementIndex memberIndex ->
                 let nextEnv =
@@ -1563,7 +1573,7 @@ inferScopeTypeInternal
 
       generalizeRecursiveGroupMemberWithVariables :: Map Int PendingSignatureType -> TypeEnv -> Set InferenceVariable -> InferState -> TypeEnv -> Int -> TypeEnv
       generalizeRecursiveGroupMemberWithVariables pendingSignatures envOutsideGroup environmentVariables state currentEnv memberIndex =
-        case (Map.lookup memberIndex statementsByIndex, Map.lookup memberIndex bindingNamesByStatement) of
+        case (Map.lookup memberIndex statementsByIndex, Map.lookup memberIndex bindingKeysByStatement) of
           (Just (SLet _ _ _), Just bindingName)
             | Just pendingSignature <- Map.lookup memberIndex pendingSignatures,
               shouldGeneralizeExplicitSignatureBinding pendingSignature ->
@@ -1582,11 +1592,6 @@ inferScopeTypeInternal
                   _ -> currentEnv
           _ -> currentEnv
 
-data ForwardFunctionBinding = ForwardFunctionBinding
-  { forwardFunctionName :: ResolvedName,
-    forwardFunctionType :: ExpressionType
-  }
-
 data RecursiveGroupPreview = RecursiveGroupPreview
   { recursiveGroupPreviewBindings :: Map Int TypeBinding,
     recursiveGroupPreviewNextTypeVar :: InferenceVariable,
@@ -1603,7 +1608,7 @@ data PreparedSignature
 data ScopePreparation = ScopePreparation
   { preparedBindingSeeds :: Map Int ExpressionType,
     preparedSignatures :: Map Int PreparedSignature,
-    preparedForwardFunctions :: Map Int ForwardFunctionBinding,
+    preparedForwardFunctions :: Map Int ExpressionType,
     preparedScopeState :: InferState
   }
 
@@ -1745,7 +1750,7 @@ prepareScope forwardSignedFunctionsPolicy mode predeclaredDataTypes indexedState
                         concreteForwardFunctionType (pendingSignatureDeclaredType signature) ->
                           Map.insert
                             statementIndex
-                            (ForwardFunctionBinding bindingName (pendingSignatureDeclaredType signature))
+                            (pendingSignatureDeclaredType signature)
                             forwardFunctions
                     _ -> forwardFunctions
              in ( Map.insert statementIndex bindingSeed bindingSeeds,
@@ -1815,7 +1820,7 @@ recursiveBindingEnv ::
   Int ->
   TypeEnv ->
   Map Int [Int] ->
-  Map Int ResolvedName ->
+  Map Int TypeEnvKey ->
   Map Int ExpressionType ->
   TypeEnv
 recursiveBindingEnv statementIndex env recursiveGroupsByStatement bindingNamesByStatement bindingSeedsByStatement =
@@ -1847,8 +1852,8 @@ collectSignedBindingStatements statements =
 isDirectConstructorAlias :: TypeEnv -> Expr 'Resolved -> Bool
 isDirectConstructorAlias env expr =
   case expr of
-    EVar _ referencedName ->
-      case Map.lookup referencedName env of
+    EVar node referencedName ->
+      case Map.lookup (typeEnvReferenceKey (coreNodeFacts node) referencedName) env of
         Just ConstructorTypeBinding {} -> True
         _ -> False
     _ -> False
@@ -2168,9 +2173,9 @@ concreteFloatNumericType expressionType =
     _ -> Nothing
 
 insertRegisteredConstructorFreeVariables :: TypeEnv -> TypeEnvFreeVariables -> DataConstructor 'Resolved -> TypeEnvFreeVariables
-insertRegisteredConstructorFreeVariables env summary (DataConstructor _ constructorName _) =
-  case Map.lookup constructorName env of
-    Just binding -> insertTypeEnvFreeVariables constructorName binding summary
+insertRegisteredConstructorFreeVariables env summary (DataConstructor node constructorName _) =
+  case Map.lookup (typeEnvBindingKey (coreNodeFacts node) constructorName) env of
+    Just binding -> insertResolvedTypeEnvFreeVariables (coreNodeFacts node) constructorName binding summary
     Nothing -> summary
 
 registerDataConstructors :: Map Text DataTypeBinding -> SourceSpan -> ResolvedName -> [ResolvedName] -> [DataConstructor 'Resolved] -> TypeEnv -> InferState -> (TypeEnv, InferState)
@@ -2203,11 +2208,11 @@ registerDataConstructors predeclaredDataTypes spanValue typeName typeParameters 
               nextState
           )
 
-    register (envAcc, stateAcc, constructorPayloadsAcc) (DataConstructor _ constructorName constructorArguments) =
+    register (envAcc, stateAcc, constructorPayloadsAcc) (DataConstructor node constructorName constructorArguments) =
       let (argumentTypes, nextState) =
             constructorArgumentTypes predeclaredDataTypes typeParameters constructorArguments stateAcc
           binding = ConstructorTypeBinding typeName typeParameters argumentTypes
-       in ( Map.insert constructorName binding envAcc,
+       in ( insertResolvedTypeBinding (coreNodeFacts node) constructorName binding envAcc,
             nextState,
             argumentTypes : constructorPayloadsAcc
           )

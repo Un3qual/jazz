@@ -16,7 +16,7 @@ import Data.Text
   ( Text,
   )
 import Jazz.Compiler.AST
-  ( CoreNode (coreNodeId, coreNodeSpan),
+  ( CoreNode (coreNodeFacts, coreNodeId, coreNodeSpan),
     CoreNodeId,
     CorePhase (..),
     Expr (..),
@@ -75,6 +75,7 @@ import Jazz.Compiler.TypeInference.Types
     TypeEnv,
     TypeScheme (..),
     quantifiedVariablesOrderedList,
+    typeEnvReferenceKey,
   )
 
 typeBindingScheme :: TypeBinding -> Maybe TypeScheme
@@ -231,8 +232,8 @@ explicitTypeApplicationTargetName functionExpr =
 explicitQualifiedMethodTypeApplicationKey :: TypeEnv -> InferState -> Expr 'Resolved -> Maybe Text
 explicitQualifiedMethodTypeApplicationKey env state functionExpr =
   case functionExpr of
-    EVar _ name
-      | Map.notMember name env,
+    EVar node name
+      | Map.notMember (typeEnvReferenceKey (coreNodeFacts node) name) env,
         qualifiedMethodClassIsVisible methodKey state ->
           Just methodKey
       where
@@ -242,10 +243,10 @@ explicitQualifiedMethodTypeApplicationKey env state functionExpr =
 explicitTypeApplicationScheme :: TypeEnv -> Expr 'Resolved -> Maybe TypeScheme
 explicitTypeApplicationScheme env functionExpr =
   case functionExpr of
-    EVar _ name ->
-      Map.lookup name env >>= typeBindingScheme
-    EOperatorValue _ operatorSymbol ->
-      Map.lookup (operatorBindingName operatorSymbol) env >>= typeBindingScheme
+    EVar node name ->
+      Map.lookup (typeEnvReferenceKey (coreNodeFacts node) name) env >>= typeBindingScheme
+    EOperatorValue node operatorSymbol ->
+      Map.lookup (typeEnvReferenceKey (coreNodeFacts node) (operatorBindingName operatorSymbol)) env >>= typeBindingScheme
     _ -> Nothing
 
 instantiateTypeSchemeWithExplicitArgument ::

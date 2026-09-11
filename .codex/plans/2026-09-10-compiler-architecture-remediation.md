@@ -1,5 +1,5 @@
 ---
-id: JN-COMPILER-LEXICAL-FACTS-001
+id: JN-COMPILER-PROGRAM-OWNERSHIP-001
 status: ready
 priority: P1
 size: L
@@ -7,14 +7,14 @@ kind: impl
 autonomous_ready: yes
 depends_on: []
 last_verified: 2026-09-11
-plan_section: "T05 — Publish and consume resolved lexical scope facts"
+plan_section: "T06 — Unify program construction and retire positional prelude ownership"
 target_paths:
-  - src/Jazz/Compiler/ModuleResolver/Names.hs
-  - src/Jazz/Compiler/RecursiveBindings.hs
+  - src/Jazz/Compiler/Driver.hs
+  - src/Jazz/Compiler/ModuleCompiler.hs
 verification:
-  - cabal test recursive-bindings-spec binding-signature-coherence-spec runtime-semantics-spec rebinding-warning-spec module-pipeline-contract-spec --test-options=--skip-performance --test-show-details=failures --jobs=4
+  - cabal test prelude-loading-spec loader-spec module-pipeline-contract-spec cli-spec rebinding-warning-spec structured-error-diagnostics-spec --test-show-details=failures --jobs=4
   - bash scripts/check-execution-queue.sh
-deliverable: Publish lexical groups and capture candidates during resolution and migrate scope consumers to these facts.
+deliverable: Route standalone and module inputs through one program coordinator and remove positional prelude ownership.
 supersedes: []
 ---
 
@@ -30,7 +30,7 @@ supersedes: []
 
 **Spec:** [Validated audit findings](2026-09-10-compiler-architecture-validation.md), together with the target contracts and preservation rules below. The report preserves the disposition of all three input audits. The two Luna drafts were withdrawn after validation; their rejected or qualified recommendations are not implementation guidance.
 
-**Status:** Execution requested on 2026-09-11. T05 is the active bounded milestone in the execution queue. Execute the remaining tasks inline in dependency order; promote the next milestone when its prerequisites pass.
+**Status:** Execution requested on 2026-09-11. T06 is the active bounded milestone in the execution queue. Execute the remaining tasks inline in dependency order; promote the next milestone when its prerequisites pass.
 
 **Existing architecture decision:** [RFC 0016](../../rfcs/accepted/0016-optional-backend-removal.md) explicitly says to keep “attached analysis facts, and runtime plans.” Direct construction still retains attached facts, but T11a proposes changing the retained runtime-plan contract. Approval of this plan should therefore include that specific architectural decision and a narrow amendment through the repository's RFC process before removal. This is a dependency of T11a, not a reason to block unrelated tasks or ask for another confirmation while preparing this plan. If runtime plans are to remain, retain the small sequence and pursue direct identity/ownership improvements around it; do not claim its deletion completed.
 
@@ -222,13 +222,13 @@ The table is a dependency order, not a request for parallel agents. Work inline.
 
 **Files:** `src/Jazz/Compiler/AST.hs`, `src/Jazz/Compiler/RecursiveBindings.hs`, `src/Jazz/Compiler/ModuleResolver/Names.hs`, `src/Jazz/Compiler/Analyzer/UnusedBindings.hs`, `src/Jazz/Compiler/TypeInference/{Scope,Analyzed}.hs`, `src/Jazz/Compiler/Runtime/{ScopePlan,Engine,Types}.hs`; tests `test/Jazz/Compiler/Semantics/RecursiveBindingsSpec.hs`, `test/Jazz/Compiler/Semantics/BindingSignature/RecursionTests.hs`, `test/Jazz/Compiler/Semantics/RebindingWarningSpec.hs`, `test/Jazz/Compiler/Semantics/RuntimeSemanticsSpec.hs` and its component modules.
 
-- [ ] Publish ordered binder definitions, recursive-group membership, and lexical capture candidates with each resolved block/lambda. Keep references into existing nodes rather than copying complete subtrees or a full environment per statement.
-- [ ] Keep one ordered visibility algorithm in resolution. A consumer may build a lookup index from published IDs; it must not rerun SCC/name/alias discovery.
-- [ ] Migrate unused-binding analysis and semantic attachment first, then inference scope preparation and runtime scope planning. Keep type-generalization decisions in inference and value-dependent callable selection in runtime.
-- [ ] Replace name-keyed local environments with resolved reference keys at those boundaries. Retain display-name maps only where diagnostics or public export lookup requires them.
-- [ ] Delete duplicated lexical reconstruction and repeated capture discovery after the last consumer migrates. Retain a shared utility only if it still owns a real production transformation.
-- [ ] Run recursion, binding-signature, runtime, rebinding-warning, pattern, and module-pipeline suites. Compare recursive-preview/interleaving/rebinding and deep-lambda scale cases against T01.
-- [ ] Commit consumer migrations in small slices, then delete obsolete discovery entrypoints.
+- [x] Publish ordered binder definitions, recursive-group membership, and lexical capture candidates with each resolved block/lambda. Keep references into existing nodes rather than copying complete subtrees or a full environment per statement.
+- [x] Keep one ordered visibility algorithm in resolution. A consumer may build a lookup index from published IDs; it must not rerun SCC/name/alias discovery.
+- [x] Migrate unused-binding analysis and semantic attachment first, then inference scope preparation and runtime scope planning. Keep type-generalization decisions in inference and value-dependent callable selection in runtime.
+- [x] Replace name-keyed local environments with resolved reference keys at those boundaries. Retain display-name maps only where diagnostics or public export lookup requires them.
+- [x] Delete duplicated lexical reconstruction and repeated capture discovery after the last consumer migrates. Retain a shared utility only if it still owns a real production transformation.
+- [x] Run recursion, binding-signature, runtime, rebinding-warning, pattern, and module-pipeline suites. Performance comparisons deferred by the maintainer override until the entire plan is complete.
+- [x] Commit consumer migrations in small slices, then delete obsolete discovery entrypoints.
 
 **Deletion criterion:** Analyzed attachment, unused analysis, and runtime do not independently infer lexical groups from source names. Runtime can still select conditional callable values; inference can still preview types where current semantics require it.
 
@@ -539,7 +539,7 @@ Documentation verification at plan completion checks local evidence targets/line
 - Logs: `/private/tmp/jazz-architecture-t04-correctness.log`, `/private/tmp/jazz-architecture-t04-runtime-correctness.log`. No benchmark or performance tests are authorized during the remaining implementation milestones; always pass `--skip-performance` when running runtime semantics and leave parser scale/resource-statistics suites until the ENTIRE plan is complete.
 
 
-### T05 — lexical consumers (in progress, 2026-09-11)
+### T05 — lexical consumers (complete, 2026-09-11)
 
 - First consumer slice: unused-binding accounting reads selected declaration IDs. Deleted its active-binding environment and recursive-peer reconstruction. Retained display-name tracking only for rebinding diagnostics and the existing own-spelling warning exclusion. Synthetic analyzer fixtures now use the normal node reindexer before resolution.
 - Verification: `rebinding-warning-spec`, `binding-signature-coherence-spec`, and `module-pipeline-contract-spec` pass; changed-file Ormolu/HLint and diff whitespace checks pass. Log: `/private/tmp/jazz-architecture-t05-unused.log`. No performance tests ran for this slice.
@@ -572,3 +572,8 @@ Documentation verification at plan completion checks local evidence targets/line
 - Removed the remaining runtime alias-cycle name lookup: block-local aliases and qualified-method alias edges now follow resolved reference IDs. Conditional and pattern-guard branch selection remains runtime-owned. Runtime semantics (`--skip-performance`), module pipeline, and loader suites pass (`/private/tmp/jazz-architecture-t05-runtime-alias-references.log`); Ormolu, HLint, and whitespace checks pass.
 
 - Resolution now records the prior declaration replaced by each lexical binder, the next replacing statement for block declarations, and the declaration selected by an adjacent signature. Inference recursive previews consume the replacement relation; deleted their same-spelled declaration index and latest-name search. Existing name-identity assertions cover rebinding and lambda shadowing. Name semantics, binding/signature, module pipeline, recursive binding, and runtime correctness suites pass (`/private/tmp/jazz-architecture-t05-shadowed-identities.log`, `/private/tmp/jazz-architecture-t05-rebinding-visibility.log`); Ormolu, HLint, and whitespace checks pass.
+
+- Final T05 slice: inference environments and free-variable summaries use resolved reference identities; published replacement relationships retire earlier same-namespace bindings at generalization boundaries. Pattern constructor lookup, operator calls, recursive previews, explicit instantiation, and module value imports consume the same keys. Names remain metadata for diagnostics and public projection.
+- Method declaration references are published once and consumed by both inference and runtime. Removed the last runtime method-key reconstruction helper and the unused self-reference discovery entrypoint. Synthetic typeclass/inference fixtures now satisfy the resolved boundary contract.
+- Correctness verification passes: binding signatures, runtime semantics, pattern semantics/coverage, loader, module pipeline, ADT types, names, operator fixity/sections, prelude, rebinding warnings, recursive bindings, and Haskell typeclass contracts. Evidence: `/private/tmp/jazz-architecture-t05-type-env-tests.log`, `...-type-env-bindings.log`, `...-type-env-boundaries.log` (typeclass fixture failure superseded), and `...-final-identities.log`. Observation/profiling suites compiled only (`...-observation-build.log`). Changed-file Ormolu, HLint, and whitespace checks pass.
+- Pattern coverage now supports `--skip-performance`, separating its seven timed/scale cases from correctness checks. Runtime and pattern coverage executions used that flag; no additional performance tests were executed.

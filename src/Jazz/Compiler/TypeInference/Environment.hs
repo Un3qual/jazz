@@ -6,6 +6,8 @@ module Jazz.Compiler.TypeInference.Environment
     insertTypeEnvFreeVariables,
     deleteTypeEnvFreeVariables,
     resolveTypeEnvFreeVariables,
+    insertResolvedTypeBinding,
+    insertResolvedTypeEnvFreeVariables,
   )
 where
 
@@ -17,6 +19,7 @@ import Data.Set
   ( Set,
   )
 import qualified Data.Set as Set
+import Jazz.Compiler.CoreIdentity (ResolvedNodeFacts (resolvedNodeShadowedReference))
 import Jazz.Compiler.Name
   ( ResolvedName,
   )
@@ -37,8 +40,10 @@ import Jazz.Compiler.TypeInference.Types
     SemanticType (..),
     TypeBinding (..),
     TypeEnv,
+    TypeEnvKey (..),
     TypeScheme (..),
     quantifiedVariablesMembershipSet,
+    typeEnvBindingKey,
   )
 
 freeTypeVariablesInEnv :: InferState -> TypeEnv -> Set InferenceVariable
@@ -46,7 +51,7 @@ freeTypeVariablesInEnv state =
   Set.unions . map (freeTypeVariablesInBinding state) . Map.elems
 
 data TypeEnvFreeVariables = TypeEnvFreeVariables
-  { typeEnvBindingFreeVariables :: Map ResolvedName (Set InferenceVariable),
+  { typeEnvBindingFreeVariables :: Map TypeEnvKey (Set InferenceVariable),
     typeEnvFreeVariableReferenceCounts :: Map InferenceVariable Int
   }
 
@@ -57,7 +62,7 @@ typeEnvFreeVariables =
 emptyTypeEnvFreeVariables :: TypeEnvFreeVariables
 emptyTypeEnvFreeVariables = TypeEnvFreeVariables Map.empty Map.empty
 
-insertTypeEnvFreeVariables :: ResolvedName -> TypeBinding -> TypeEnvFreeVariables -> TypeEnvFreeVariables
+insertTypeEnvFreeVariables :: TypeEnvKey -> TypeBinding -> TypeEnvFreeVariables -> TypeEnvFreeVariables
 insertTypeEnvFreeVariables name binding summary =
   TypeEnvFreeVariables
     { typeEnvBindingFreeVariables =
@@ -73,7 +78,7 @@ insertTypeEnvFreeVariables name binding summary =
       Set.foldl' decrementTypeEnvFreeVariableReference (typeEnvFreeVariableReferenceCounts summary) priorVariables
     incrementReference counts typeVar = Map.insertWith (+) typeVar 1 counts
 
-deleteTypeEnvFreeVariables :: ResolvedName -> TypeEnvFreeVariables -> TypeEnvFreeVariables
+deleteTypeEnvFreeVariables :: TypeEnvKey -> TypeEnvFreeVariables -> TypeEnvFreeVariables
 deleteTypeEnvFreeVariables name summary =
   TypeEnvFreeVariables
     { typeEnvBindingFreeVariables =
@@ -87,6 +92,16 @@ deleteTypeEnvFreeVariables name summary =
   where
     priorVariables =
       Map.findWithDefault Set.empty name (typeEnvBindingFreeVariables summary)
+
+insertResolvedTypeBinding :: ResolvedNodeFacts -> ResolvedName -> TypeBinding -> TypeEnv -> TypeEnv
+insertResolvedTypeBinding facts name binding =
+  Map.insert (typeEnvBindingKey facts name) binding
+    . maybe id (Map.delete . (`TypeEnvKey` name)) (resolvedNodeShadowedReference facts)
+
+insertResolvedTypeEnvFreeVariables :: ResolvedNodeFacts -> ResolvedName -> TypeBinding -> TypeEnvFreeVariables -> TypeEnvFreeVariables
+insertResolvedTypeEnvFreeVariables facts name binding =
+  insertTypeEnvFreeVariables (typeEnvBindingKey facts name) binding
+    . maybe id (deleteTypeEnvFreeVariables . (`TypeEnvKey` name)) (resolvedNodeShadowedReference facts)
 
 decrementTypeEnvFreeVariableReference :: Map InferenceVariable Int -> InferenceVariable -> Map InferenceVariable Int
 decrementTypeEnvFreeVariableReference counts typeVar =

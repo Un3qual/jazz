@@ -48,6 +48,7 @@ import Jazz.Compiler.TypeInference.Types
     SemanticType (..),
     TypeBinding (..),
     TypeEnv,
+    TypeEnvKey (..),
     instantiateConstructorFieldType,
   )
 
@@ -192,7 +193,7 @@ prepareConstructorInventory source expressionType =
     (visibleConstructorsByType, localConstructorNames) =
       Map.foldlWithKey' indexBinding (Map.empty, Set.empty) (constructorInventoryEnvironment source)
 
-    indexBinding (constructorsByType, localNames) constructorName binding =
+    indexBinding (constructorsByType, localNames) (TypeEnvKey _ constructorName) binding =
       case binding of
         ConstructorTypeBinding declaredTypeName _ argumentTypes ->
           ( Map.insertWith

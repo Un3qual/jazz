@@ -75,9 +75,9 @@ resolveRuntimeFixtureWith owner external fixture =
     allocatePattern binder target (CoreNode _ spanValue facts) = state $ \(next, es, ps, ss) ->
       let index = CoreNodeId next
        in (CoreNode index spanValue (nodeFacts index binder target), (next + 1, es, Map.insert index facts ps, ss))
-    allocateStatement binder _ (CoreNode _ spanValue facts) = state $ \(next, es, ps, ss) ->
+    allocateStatement binder target (CoreNode _ spanValue facts) = state $ \(next, es, ps, ss) ->
       let index = CoreNodeId next
-       in (CoreNode index spanValue (nodeFacts index binder Nothing), (next + 1, es, ps, Map.insert index facts ss))
+       in (CoreNode index spanValue (nodeFacts index binder target), (next + 1, es, ps, Map.insert index facts ss))
     restoreExpression _ _ (CoreNode index spanValue facts) = pure (CoreNode index spanValue ((expressions Map.! index) {expressionResolution = facts}))
     restorePattern _ _ (CoreNode index spanValue facts) = pure (CoreNode index spanValue ((patterns Map.! index) {patternResolution = facts}))
     restoreStatement _ _ (CoreNode index spanValue facts) = pure (CoreNode index spanValue ((statements Map.! index) {statementResolution = facts}))
@@ -132,11 +132,11 @@ traverseFixture expressionNodeVisit patternNodeVisit statementNodeVisit = expres
       SLet n name body -> SLet <$> bindingStatement n <*> pure name <*> expression body
       SSignature n name signature -> SSignature <$> bindingStatement n <*> pure name <*> pure signature
       SData n name parameters constructors -> SData <$> plainStatement n <*> pure name <*> pure parameters <*> traverse constructor constructors
-      SClass n name parameters methods -> SClass <$> plainStatement n <*> pure name <*> pure parameters <*> traverse classMethod methods
-      SImpl n name targets methods -> SImpl <$> plainStatement n <*> pure name <*> pure targets <*> traverse implMethod methods
+      SClass n name parameters methods -> SClass <$> plainStatement n <*> pure name <*> pure parameters <*> traverse (classMethod name) methods
+      SImpl n name targets methods -> SImpl <$> plainStatement n <*> pure name <*> pure targets <*> traverse (implMethod name) methods
       SExpr n body -> SExpr <$> plainStatement n <*> expression body
       SModule n path -> SModule <$> plainStatement n <*> pure path
       SImport n path alias symbols -> SImport <$> plainStatement n <*> pure path <*> pure alias <*> pure symbols
     constructor (DataConstructor n name fields) = DataConstructor <$> bindingStatement n <*> pure name <*> pure fields
-    classMethod (ClassMethodSignature n name signature) = ClassMethodSignature <$> bindingStatement n <*> pure name <*> pure signature
-    implMethod (ImplMethod n name body) = ImplMethod <$> bindingStatement n <*> pure name <*> expression body
+    classMethod capability (ClassMethodSignature n name signature) = ClassMethodSignature <$> statementNodeVisit True (Just (qualifiedMemberName capability name)) n <*> pure name <*> pure signature
+    implMethod capability (ImplMethod n name body) = ImplMethod <$> statementNodeVisit True (Just (qualifiedMemberName capability name)) n <*> pure name <*> expression body
