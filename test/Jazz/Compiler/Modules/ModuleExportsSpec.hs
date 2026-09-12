@@ -31,8 +31,10 @@ import Jazz.Compiler.ModuleInterface
     ModuleValueBinding (..),
     emptyModuleInterface,
     moduleInterfaceExportInventory,
+    publishModuleInterface,
   )
 import Jazz.Compiler.Name (NameNamespace (..), mkIdentifier, resolvedLocalName)
+import Jazz.Compiler.SemanticDeclarations (ConstructorArgumentType (..), DataTypeBinding (..))
 import Jazz.Compiler.TypeInference.Types
   ( SemanticBinding (PlainTypeBinding),
     SemanticType (..),
@@ -56,7 +58,8 @@ tests =
     ("drops constructor ownership when filtering its constructor or type", testFilteredConstructorOwnership),
     ("combines conflicting constructor owners without bias", testConflictingConstructorOwnership),
     ("finds the first requested namespace deterministically", testFirstNamespace),
-    ("derives compiled interface exports by namespace", testInterfaceInventory)
+    ("derives compiled interface exports by namespace", testInterfaceInventory),
+    ("publication retains reachable private types through cycles", testPublicationRetainsReachablePrivateTypes)
   ]
 
 sampleInventory :: ModuleExportInventory
@@ -283,3 +286,15 @@ testInterfaceInventory =
               (ModuleValueBinding (CoreBinderId (StandaloneSourceUnit standaloneModulePath, CoreNodeId 1)) (PlainTypeBinding SemanticInt)),
           interfaceClassFacts = Map.singleton (CapabilityId (resolvedLocalName CapabilityNamespace (mkIdentifier "Eq"))) 1
         }
+
+testPublicationRetainsReachablePrivateTypes :: IO ()
+testPublicationRetainsReachablePrivateTypes = do
+  let published = publishModuleInterface (Just exports) definitions declarations
+  assertEqual "reachable definitions include the private cycle" (Map.delete (name "Unused") definitions) (interfaceDataTypes published)
+  assertEqual "supporting definitions do not become public exports" exports (interfacePublicExports published)
+  where
+    name = resolvedLocalName TypeNamespace . mkIdentifier
+    references target = DataTypeBinding [] [[ConstructorArgumentType (SemanticData (name target) [])]]
+    definitions = Map.fromList [(name "Root", references "Middle"), (name "Middle", references "Leaf"), (name "Leaf", references "Middle"), (name "Unused", DataTypeBinding [] [[]])]
+    exports = exportInventory [ModuleExport TypeNamespace "Root"]
+    declarations = emptyModuleInterface {interfaceDataTypes = definitions}

@@ -9,6 +9,7 @@ module Jazz.Compiler.ModuleCompiler
 where
 
 import Control.Monad (foldM)
+import Data.Containers.ListUtils (nubOrdOn)
 import Data.Foldable (toList)
 import qualified Data.List.NonEmpty as NonEmpty
 import qualified Data.Map.Strict as Map
@@ -79,7 +80,7 @@ analyzeProgram inputs resolvedProgram =
               <> foldMap
                 (uncurry (dependencyImportInterface (ModuleGraph.resolvedModuleImportScope (coreModuleFacts resolvedModule))))
                 [ (ModuleGraph.importedModule importDecl, dependency)
-                | importDecl <- coreModuleImports resolvedModule,
+                | importDecl <- nubOrdOn ModuleGraph.importedModule (coreModuleImports resolvedModule),
                   Just dependency <- [Map.lookup (ModuleGraph.importedModule importDecl) dependenciesByPath]
                 ]
           modulePath = coreModulePath resolvedModule

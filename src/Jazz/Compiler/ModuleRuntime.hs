@@ -17,6 +17,7 @@ import Control.Monad.Trans.Except
   ( ExceptT (..),
     runExceptT,
   )
+import Data.Containers.ListUtils (nubOrdOn)
 import Data.Foldable (toList)
 import Data.Functor.Identity (runIdentity)
 import Data.List (find)
@@ -24,6 +25,8 @@ import qualified Data.List.NonEmpty as NonEmpty
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
 import qualified Data.Sequence as Seq
+import Data.Set (Set)
+import qualified Data.Set as Set
 import Data.Text (Text)
 import Jazz.Compiler.AST
   ( CorePhase (..),
@@ -35,7 +38,7 @@ import Jazz.Compiler.Diagnostics
   )
 import Jazz.Compiler.ModuleExports
   ( ModuleExport (..),
-    inventoryHasExport,
+    exportInventoryEntries,
   )
 import Jazz.Compiler.ModuleGraph
   ( AnalyzedModuleFacts (..),
@@ -252,7 +255,7 @@ prepareModuleEvaluation entryPath analyzedProgram ambientEnv runtimeModules anal
         foldr
           (importRuntimeModule (analyzedModuleImportScope (coreModuleFacts analyzedModule)) analyzedProgram (accumulatedRuntimeModulesByPath runtimeModules))
           ambientEnv
-          (coreModuleImports analyzedModule)
+          (nubOrdOn ModuleGraph.importedModule (coreModuleImports analyzedModule))
     }
   where
     modulePath = coreModulePath analyzedModule
@@ -296,10 +299,11 @@ importRuntimeModule :: ValidatedImportScope -> CoreProgram 'Analyzed -> Map Modu
 importRuntimeModule scope analyzedProgram runtimeModules importDecl env =
   case (lookupCoreModule dependencyPath analyzedProgram, Map.lookup dependencyPath runtimeModules) of
     (Just analyzedDependency, Just runtimeDependency) ->
-      let selectedExports =
+      let visibleExports = foldMap (exportInventoryEntries . snd) (dependencyImportViews dependencyPath scope)
+          selectedExports =
             [ (runtimeExport, cell)
             | (runtimeExport, cell) <- Map.toList (runtimeModuleExports runtimeDependency),
-              runtimeExportSelected scope dependencyPath runtimeExport
+              runtimeExportSelected visibleExports runtimeExport
             ]
           insertExport (runtimeExport, cell) importedEnv =
             case exportReference (coreModuleInterface analyzedDependency) runtimeExport of
@@ -368,9 +372,9 @@ interfaceExports interface =
   map RuntimeBindingExport (Map.keys (interfaceValueBindings interface))
     <> map (uncurry RuntimeCapabilityMethodExport) (Map.keys (interfaceClassMethods interface))
 
-runtimeExportSelected :: ValidatedImportScope -> ModulePath -> RuntimeExport -> Bool
-runtimeExportSelected scope path runtimeExport =
-  any (inventoryHasExport export . snd) (dependencyImportViews path scope)
+runtimeExportSelected :: Set ModuleExport -> RuntimeExport -> Bool
+runtimeExportSelected visibleExports runtimeExport =
+  Set.member export visibleExports
   where
     export = case runtimeExport of
       RuntimeBindingExport binding -> binding

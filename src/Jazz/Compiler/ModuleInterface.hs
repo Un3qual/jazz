@@ -122,10 +122,13 @@ publishModuleInterface requested typeDefinitions declarations =
           foldMap (\(ConcreteImplFact _ value) -> typeNames value) (interfaceConcreteImplFacts public),
           foldMap (foldMap (typeNames . implMethodTarget)) (interfaceConcreteImplMethods public)
         ]
-    reachableTypes names =
-      let definitions = Map.restrictKeys typeDefinitions names
-          expanded = Set.union names (foldMap (\(DataTypeBinding _ constructors) -> foldMap (foldMap fieldNames) constructors) definitions)
-       in if names == expanded then definitions else reachableTypes expanded
+    reachableTypes = visitTypes Set.empty
+    visitTypes seen pending = case Set.minView pending of
+      Nothing -> Map.restrictKeys typeDefinitions seen
+      Just (name, remaining) ->
+        let visited = Set.insert name seen
+            dependencies = maybe Set.empty (\(DataTypeBinding _ constructors) -> foldMap (foldMap fieldNames) constructors) (Map.lookup name typeDefinitions)
+         in visitTypes visited (remaining <> Set.difference dependencies visited)
 
     typeNames = bifoldMap Set.singleton (const Set.empty)
     fieldNames (ConstructorArgumentType value) = typeNames value
