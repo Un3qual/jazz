@@ -211,7 +211,7 @@ tests =
     ("runtime consumes analyzed declarations after source types are erased", testRuntimeUsesAnalyzedDeclarations),
     ("operation facts retain the numeric rule decision across equivalent aliases", testBinaryOperandAliasSelection),
     ("analyzed operations retain operand typing and alias selection", testAnalyzedBinaryOperations),
-    ("analyzed expressions preserve literal-range constraints for backend specialization", testAnalyzedLiteralRangeFacts),
+    ("analyzed expressions preserve literal-range constraints for numeric specialization", testAnalyzedLiteralRangeFacts),
     ("checked subtrees own their facts before finalization", testCheckedSubtreeOwnership),
     ("successful inference attaches complete analyzed facts", testAnalyzedProgramFactsAreComplete),
     ("analyzed methods identify used and unused class parameters", testAnalyzedMethodParameterIdentity),
@@ -472,7 +472,7 @@ testAnalyzedLiteralRangeFacts = do
     Right (ELit (CoreNode _ _ facts) _) -> do
       assertEqual "uncommitted numeric representation" literalType (expressionSemanticType facts)
       assertEqual
-        "backend retains the solver's complete literal range"
+        "analyzed facts retain the solver's complete literal range"
         [AnalyzedIntegralLiteralNumericConstraint 0 255]
         (Map.elems (expressionNumericConstraints facts))
     result -> fail ("literal fact attachment failed: " <> show result)

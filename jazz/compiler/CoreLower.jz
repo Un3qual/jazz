@@ -470,6 +470,8 @@ module CoreLower (
       (FoundationProfile, CoreVariableExpression (CoreSourceName name))
     | QualifiedVariableExpression qualifier member ->
       (FoundationProfile, CoreVariableExpression (CoreQualifiedName qualifier member))
+    | QualifiedMethodExpression qualifier capability method ->
+      (FoundationProfile, CoreVariableExpression (CoreQualifiedMethodName qualifier capability method))
     | LambdaExpression parameters body -> case lowerProfiledExpression body {
       | (bodyRequired, loweredBody) ->
         ( maximumProfile ControlFlowPatternsProfile bodyRequired,

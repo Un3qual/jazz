@@ -10,13 +10,13 @@ Existing specifications containing implementation snippets are outside scope.
 - [x] Share type-inference operator checking and capability candidate handling.
 - [x] Consolidate runtime numeric dispatch, constructor matching and guards.
 - [x] Replace analyzer tuple rebuilding with named scope updates; share binding
-  registration, duplicate-method diagnostics and warning promotion.
+      registration, duplicate-method diagnostics and warning promotion.
 - [x] Review the remaining compiler modules for concrete duplication and use
-  existing library operations where they remove custom code.
+      existing library operations where they remove custom code.
 - [x] Run existing focused and broad correctness suites with GHC 9.14.1,
-  formatting and HLint; compare unexpected failures against `dfd0bde6`.
+      formatting and HLint; compare unexpected failures against `dfd0bde6`.
 - [x] Independently review the combined changes, fix confirmed regressions,
-  record net production-code reduction and commit verified batches.
+      record net production-code reduction and commit verified batches.
 
 The repository dispatcher has no ready implementation item; this explicit
 maintainer request supplies the scope. Hosted feature work remains deferred.
@@ -46,14 +46,14 @@ maintainer request supplies the scope. Hosted feature work remains deferred.
 
 ## Implemented findings
 
-| Area | Shared operation or simplification | Net lines removed |
-| --- | --- | ---: |
-| Analyzer and module boundaries | Named scope state and incremental updates; one binding registration/rebinding policy, duplicate-method scan, warning-promotion helper, capability filter and inference request path; standard stable deduplication | 219 |
-| Parser | One precedence-climbing loop for ordinary expressions, case bodies and guards; shared pattern dispatch with explicit head/constructor-argument context | 124 |
-| Runtime | Numeric dispatch by operand shape; shared promotion and predicates, Bool validation, guarded-arm matching and constructor-field traversal | 227 |
-| Type inference | Shared operand/section checking, alias lookup, candidate preference, scheme construction and existing type traversal operations | 195 |
-| Recursive bindings | Shared recursive environment, indexed eager-child traversal and executable-statement summary | 79 |
-| **Total in `src/Jazz`** | **17 files; no added dependency or test scaffolding** | **844** |
+| Area                           | Shared operation or simplification                                                                                                                                                                                 | Net lines removed |
+| ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ----------------: |
+| Analyzer and module boundaries | Named scope state and incremental updates; one binding registration/rebinding policy, duplicate-method scan, warning-promotion helper, capability filter and inference request path; standard stable deduplication |               219 |
+| Parser                         | One precedence-climbing loop for ordinary expressions, case bodies and guards; shared pattern dispatch with explicit head/constructor-argument context                                                             |               124 |
+| Runtime                        | Numeric dispatch by operand shape; shared promotion and predicates, Bool validation, guarded-arm matching and constructor-field traversal                                                                          |               227 |
+| Type inference                 | Shared operand/section checking, alias lookup, candidate preference, scheme construction and existing type traversal operations                                                                                    |               195 |
+| Recursive bindings             | Shared recursive environment, indexed eager-child traversal and executable-statement summary                                                                                                                       |                79 |
+| **Total in `src/Jazz`**        | **17 files; no added dependency or test scaffolding**                                                                                                                                                              |           **844** |
 
 The existing phase-indexed compiler and interpreter remain. No generic pass
 framework was needed. Exact/compatible matching callbacks, parser boundaries,

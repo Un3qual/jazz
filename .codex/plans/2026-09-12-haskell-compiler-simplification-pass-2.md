@@ -10,19 +10,19 @@ request scopes the audit to files not investigated in the first pass. Keep
 hosted feature work deferred; do not execute benchmarks or scale suites.
 
 - [x] Share compiler/CLI setup, result handling and required-file loading in
-  `Driver.hs` and `CLI/Main.hs`; retain early exits and profiling boundaries.
+      `Driver.hs` and `CLI/Main.hs`; retain early exits and profiling boundaries.
 - [x] Inspect declaration parsing and lowering for duplicated traversal and
-  signature operations; retain parser commitment, source spans and node order.
+      signature operations; retain parser commitment, source spans and node order.
 - [x] Simplify pattern checking, coverage witnesses and diagnostic construction
-  in the remaining inference/checking files; retain rollback and error priority.
+      in the remaining inference/checking files; retain rollback and error priority.
 - [x] Share import validation, name-resolution operations and bundled-prelude
-  construction where their semantic rules agree.
+      construction where their semantic rules agree.
 - [x] Inspect analyzed representations, runtime scope preparation and observation
-  support; remove repeated operations without adding a generic pass framework.
+      support; remove repeated operations without adding a generic pass framework.
 - [x] Independently review each change, run relevant existing correctness suites,
-  then the eligible correctness matrix and pinned Haskell quality gate.
+      then the eligible correctness matrix and pinned Haskell quality gate.
 - [x] Record inspected-but-retained areas, exact reductions and verification;
-  commit reviewed batches along the way.
+      commit reviewed batches along the way.
 
 Use GHC 9.14.1 / Cabal 3.16.1.0 from the pinned Nix shell. The first-pass
 baseline has ten known hosted qualification failures in
@@ -31,14 +31,14 @@ the second-pass base rather than treating a baseline mismatch as a regression.
 
 ## Implemented reductions
 
-| Area | Change | Net lines removed |
-| --- | --- | ---: |
-| Driver and CLI | Use existing `ExceptT` for ordered early exits; share analyzed-program preparation, result construction, compile/run selection and required-file loading | 135 |
-| Declaration parsing and lowering | Share nested-declaration errors, class-header failures, signature-variable folding, span qualification and lambda-body lowering | 100 |
-| Module imports, names, exports and prelude | Share dependency lookup, collision rules, qualified reference validation, namespace projections and numeric impl construction | 148 |
-| Pattern checking, coverage and inference support | Share list checks, subpattern traversal, witness specialization, diagnostics and existing fresh-variable/type folds | 173 |
-| Runtime observations | Share conditional statistics updates and the ordered JSON/human field inventory | 69 |
-| **Total** | **19 previously unchanged files; no dependency or test scaffolding added** | **625** |
+| Area                                             | Change                                                                                                                                                   | Net lines removed |
+| ------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------: |
+| Driver and CLI                                   | Use existing `ExceptT` for ordered early exits; share analyzed-program preparation, result construction, compile/run selection and required-file loading |               135 |
+| Declaration parsing and lowering                 | Share nested-declaration errors, class-header failures, signature-variable folding, span qualification and lambda-body lowering                          |               100 |
+| Module imports, names, exports and prelude       | Share dependency lookup, collision rules, qualified reference validation, namespace projections and numeric impl construction                            |               148 |
+| Pattern checking, coverage and inference support | Share list checks, subpattern traversal, witness specialization, diagnostics and existing fresh-variable/type folds                                      |               173 |
+| Runtime observations                             | Share conditional statistics updates and the ordered JSON/human field inventory                                                                          |                69 |
+| **Total**                                        | **19 previously unchanged files; no dependency or test scaffolding added**                                                                               |           **625** |
 
 ## Review and verification
 

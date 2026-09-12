@@ -48,8 +48,7 @@ tests =
     ("treats if and else as reserved keywords", testRejectsKeywordAsBindingName),
     ("rejects True as binding name", testRejectsTrueAsBindingName),
     ("rejects False as signature name", testRejectsFalseAsSignatureName),
-    ("lowers parsed if surface nodes into analyzer AST", testLowerIfExpression),
-    ("keeps lowered if nodes in canonical if form", testLoweredIfIsCanonical)
+    ("lowers parsed if surface nodes into canonical core", testLowerIfExpression)
   ]
 
 testParsesBasicIfExpression :: IO ()
@@ -200,26 +199,6 @@ testLowerIfExpression =
     "parse + lower if"
     (parseSurfaceProgramPoints "x = if True then 1 else 2.")
     (\surfaceProgram -> assertLoweredCoreEqual "lowered if AST" expectedProgram (lowerSurfaceExpr surfaceProgram))
-  where
-    expectedProgram =
-      loweredBlock
-        [ loweredLet
-            "x"
-            (SourceSpan 1 1)
-            (loweredIf (loweredLiteral (LBool True)) (loweredLiteral (LInt 1)) (loweredLiteral (LInt 2)))
-        ]
-
-testLoweredIfIsCanonical :: IO ()
-testLoweredIfIsCanonical =
-  assertRight
-    "parse + canonical lower if"
-    (parseSurfaceProgramPoints "x = if True then 1 else 2.")
-    ( \surfaceProgram ->
-        assertLoweredCoreEqual
-          "canonical lowered if AST"
-          expectedProgram
-          (lowerSurfaceExpr surfaceProgram)
-    )
   where
     expectedProgram =
       loweredBlock

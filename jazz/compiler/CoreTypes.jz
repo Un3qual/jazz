@@ -11,6 +11,7 @@ module CoreTypes {
   data CoreName
     = CoreSourceName Text
     | CoreQualifiedName Text Text
+    | CoreQualifiedMethodName Text Text Text
     | CoreGeneratedName CoreGeneratedNameKind.
 
   data CoreSpan = CoreSpan Maybe(CanonicalSourcePath) Int Int.

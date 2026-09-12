@@ -179,24 +179,63 @@ module ParserExpression (
       (tokenLookAhead (fractionalCandidate wholeToken)))
     (tokenSucceed (LiteralExpression (IntegerLiteral whole))).
 
-  parseQualifiedMember :: CanonicalToken -> Text -> TokenParser(SurfaceExpr).
-  parseQualifiedMember = \(separatorToken, qualifier) -> tokenAndThen
+  parseQualifiedNamePart :: Text -> CanonicalToken -> TokenParser(CanonicalToken).
+  parseQualifiedNamePart = \(part, separatorToken) -> tokenAndThen
     (\(current) -> case current {
-      | Nothing -> tokenFailAt Nothing (ExpectedSyntax "member name" (EndOfInputAfter "'::'"))
+      | Nothing -> tokenFailAt Nothing
+        (ExpectedSyntax (textAppend part " name") (EndOfInputAfter "'::'"))
       | Just memberToken -> case canonicalTokenKind memberToken {
         | IdentifierKind member -> if tokensAreAdjacent separatorToken memberToken then
-          tokenKeepRight
-            tokenIdentifier
-            (tokenSucceed (QualifiedVariableExpression qualifier member))
+          tokenIdentifier
           else tokenFailAtSpan
             (canonicalTokenSpan memberToken)
-            (ExpectedSyntax "adjacent member name after '::'" (canonicalTokenEncountered current))
+            (ExpectedSyntax
+              (textAppend "adjacent " (textAppend part " name after '::'"))
+              (canonicalTokenEncountered current))
         | other -> tokenFailAtSpan
           (canonicalTokenSpan memberToken)
-          (ExpectedSyntax "member name after '::'" (canonicalTokenEncountered current))
+          (ExpectedSyntax (textAppend part " name after '::'") (canonicalTokenEncountered current))
       }
     })
     tokenPeek.
+
+  parseQualifiedMember :: CanonicalToken -> Text -> TokenParser(SurfaceExpr).
+  parseQualifiedMember = \(separatorToken, qualifier) -> tokenAndThen
+    (\(memberToken) -> {
+      member = canonicalTokenLexeme memberToken.
+      expression = QualifiedVariableExpression qualifier member.
+      tokenAndThen
+        (\(current) -> case current {
+          | Just methodSeparator -> case canonicalTokenKind methodSeparator {
+            | PunctuationKind DoubleColonPunctuation -> if tokensAreAdjacent memberToken methodSeparator then
+              tokenKeepRight
+                (tokenPunctuation DoubleColonPunctuation)
+                (tokenAndThen
+                  (\(methodToken) -> tokenAndThen
+                    (\(afterMethod) -> {
+                      methodExpression = QualifiedMethodExpression qualifier member (canonicalTokenLexeme methodToken).
+                      case afterMethod {
+                        | Just extraSeparator -> case canonicalTokenKind extraSeparator {
+                          | PunctuationKind DoubleColonPunctuation -> if tokensAreAdjacent methodToken extraSeparator then
+                            tokenFailAtSpan
+                              (canonicalTokenSpan extraSeparator)
+                              (UnexpectedSyntaxIn (canonicalTokenEncountered afterMethod) "qualified class method name")
+                            else tokenSucceed methodExpression
+                          | other -> tokenSucceed methodExpression
+                        }
+                        | Nothing -> tokenSucceed methodExpression
+                      }.
+                    })
+                    tokenPeek)
+                  (parseQualifiedNamePart "method" methodSeparator))
+              else tokenSucceed expression
+            | other -> tokenSucceed expression
+          }
+          | Nothing -> tokenSucceed expression
+        })
+        tokenPeek.
+    })
+    (parseQualifiedNamePart "member" separatorToken).
 
   parseName :: CanonicalToken -> Text -> TokenParser(SurfaceExpr).
   parseName = \(identifierToken, name) -> tokenAndThen

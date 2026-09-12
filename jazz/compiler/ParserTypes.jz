@@ -71,6 +71,7 @@ module ParserTypes (
     = LiteralExpression SurfaceLiteral
     | VariableExpression Text
     | QualifiedVariableExpression Text Text
+    | QualifiedMethodExpression Text Text Text
     | LambdaExpression NonEmpty(SurfaceLambdaParameter) SurfaceExpr
     | PatternLambdaExpression NonEmpty(SurfacePatternLambdaClause)
     | OperatorValueExpression Text
