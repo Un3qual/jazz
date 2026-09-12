@@ -514,13 +514,14 @@ testHostDependencyBindingIsShared = do
             (SourceSpan 2 1)
             (expressionTuple [expressionVariable "token!", expressionVariable "token!"])
         ]
+      dependencyFixture = resolveRuntimeFixtureWith dependencyOwner Map.empty (expressionBlock dependencyStatements)
       action = do
         dependencyResult <-
           evaluateModuleScopeWithRequiredHost
             statefulHost
             EvaluateDependencyModule
             Map.empty
-            (resolveRuntimeFixtureWith dependencyOwner Map.empty (expressionBlock dependencyStatements))
+            dependencyFixture
         case dependencyResult of
           Left diagnostic -> pure (Left diagnostic)
           Right dependencyScope ->
@@ -528,7 +529,7 @@ testHostDependencyBindingIsShared = do
               statefulHost
               EvaluateEntryModule
               (scopeResultEnvironment dependencyScope)
-              (resolveRuntimeFixtureWith entryOwner (fixtureDeclarations (resolveRuntimeFixtureWith dependencyOwner Map.empty (expressionBlock dependencyStatements))) (expressionBlock entryStatements))
+              (resolveRuntimeFixtureWith entryOwner (fixtureDeclarations dependencyFixture) (expressionBlock entryStatements))
       (result, calls) = runState action []
   assertEqual "shared dependency binding result" True (isRight result)
   assertEqual "shared dependency host call" [ReadStdinCall] calls
@@ -559,6 +560,7 @@ testHostMapCallbackPreservesActiveHostCacheAndEffectOrder = do
                 (expressionList [expressionLiteral (LText "first"), expressionLiteral (LText "second")])
             )
         ]
+      dependencyFixture = resolveRuntimeFixtureWith dependencyOwner Map.empty (expressionBlock dependencyStatements)
       action =
         runRuntimeHostEvaluation statefulHost $ \evaluationHost -> do
           dependencyResult <-
@@ -566,7 +568,7 @@ testHostMapCallbackPreservesActiveHostCacheAndEffectOrder = do
               evaluationHost
               EvaluateDependencyModule
               Map.empty
-              (resolveRuntimeFixtureWith dependencyOwner Map.empty (expressionBlock dependencyStatements))
+              dependencyFixture
           case dependencyResult of
             Left diagnostic -> pure (Left diagnostic)
             Right dependencyScope ->
@@ -574,7 +576,7 @@ testHostMapCallbackPreservesActiveHostCacheAndEffectOrder = do
                 evaluationHost
                 EvaluateEntryModule
                 (scopeResultEnvironment dependencyScope)
-                (resolveRuntimeFixtureWith entryOwner (fixtureDeclarations (resolveRuntimeFixtureWith dependencyOwner Map.empty (expressionBlock dependencyStatements))) (expressionBlock entryStatements))
+                (resolveRuntimeFixtureWith entryOwner (fixtureDeclarations dependencyFixture) (expressionBlock entryStatements))
       (result, calls) = runState action []
   case result of
     Right scopeResult ->
@@ -597,13 +599,14 @@ testPublicHostScopeKeepsImportedDeferredCellOnActiveHost = do
             (hostCall "__kernel_readStdinRaw!" [expressionTuple []])
         ]
       entryStatements = [statementExpression (SourceSpan 2 1) (expressionVariable "token!")]
+      dependencyFixture = resolveRuntimeFixtureWith dependencyOwner Map.empty (expressionBlock dependencyStatements)
       action = do
         dependencyResult <-
           evaluateModuleScopeWithRequiredHost
             statefulHost
             EvaluateDependencyModule
             Map.empty
-            (resolveRuntimeFixtureWith dependencyOwner Map.empty (expressionBlock dependencyStatements))
+            dependencyFixture
         case dependencyResult of
           Left diagnostic -> pure (Left diagnostic)
           Right dependencyScope ->
@@ -611,7 +614,7 @@ testPublicHostScopeKeepsImportedDeferredCellOnActiveHost = do
               statefulHost
               EvaluateEntryModule
               (scopeResultEnvironment dependencyScope)
-              (resolveRuntimeFixtureWith entryOwner (fixtureDeclarations (resolveRuntimeFixtureWith dependencyOwner Map.empty (expressionBlock dependencyStatements))) (expressionBlock entryStatements))
+              (resolveRuntimeFixtureWith entryOwner (fixtureDeclarations dependencyFixture) (expressionBlock entryStatements))
       (result, calls) = runState action []
   case result of
     Right scopeResult ->
@@ -641,13 +644,14 @@ testHostDependencyScopeKeepsDeferredCellsOnActiveHost = do
             (expressionVariable "selected"),
           statementExpression (SourceSpan 4 1) (expressionVariable "selected")
         ]
+      dependencyFixture = resolveRuntimeFixtureWith dependencyOwner Map.empty (expressionBlock dependencyStatements)
       action = do
         dependencyResult <-
           evaluateModuleScopeWithRequiredHost
             statefulHost
             EvaluateDependencyModule
             Map.empty
-            (resolveRuntimeFixtureWith dependencyOwner Map.empty (expressionBlock dependencyStatements))
+            dependencyFixture
         case dependencyResult of
           Left diagnostic -> pure (Left diagnostic)
           Right dependencyScope ->
@@ -655,7 +659,7 @@ testHostDependencyScopeKeepsDeferredCellsOnActiveHost = do
               statefulHost
               EvaluateEntryModule
               (scopeResultEnvironment dependencyScope)
-              (resolveRuntimeFixtureWith entryOwner (fixtureDeclarations (resolveRuntimeFixtureWith dependencyOwner Map.empty (expressionBlock dependencyStatements))) (expressionBlock entryStatements))
+              (resolveRuntimeFixtureWith entryOwner (fixtureDeclarations dependencyFixture) (expressionBlock entryStatements))
       (result, calls) = runState action []
   case result of
     Right scopeResult ->

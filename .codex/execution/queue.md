@@ -13,7 +13,7 @@ public behavior.
 | id  | title | priority | size | kind | autonomous_ready | depends_on | plan | plan_section | target_paths | deliverable | verification | last_verified |
 | --- | ----- | -------- | ---- | ---- | ---------------- | ---------- | ---- | ------------ | ------------ | ----------- | ------------ | ------------- |
 
-Current executor status (`2026-09-12`): Ready Now is empty. All six [architecture review](../plans/2026-09-12-architecture-review.md) findings and the approved `VQualifiedMethod` retirement are implemented in local commit `3e20b7a9`; [the fixes plan](../plans/2026-09-12-architecture-review-fixes.md) records 12 passing correctness suites, complete clean builds, HLint, both Weeder checks, and documentation/queue verification. There is no source-backed next curation target selected for execution and no named candidate currently promoted. Nothing was pushed. Hosted frontend and Bootstrap tests remain retained; benchmark, performance, profiling, scale, and corpus-budget execution remains excluded.
+Current executor status (`2026-09-12`): Ready Now is empty. The [local CodeRabbit fixes](../plans/2026-09-12-coderabbit-local-fixes.md) are implemented and verified: the operator diagnostic-location bug, three small cleanups, and two explanatory comments. Six correctness suites, the clean Haskell quality gate, formatting, and documentation checks passed. Publication to existing PR 158 is authorized. There is no source-backed next curation target selected for execution and no named candidate currently promoted. Hosted frontend and Bootstrap tests remain retained; benchmark, performance, profiling, scale, and corpus-budget execution remains excluded.
 
 ## Next Curation Target
 

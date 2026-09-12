@@ -17,6 +17,7 @@ module Jazz.Compiler.ModuleAnalysis
   )
 where
 
+import Control.DeepSeq (rnf)
 import Data.List (partition, sortOn, union)
 import qualified Data.List.NonEmpty as NonEmpty
 import Data.Map.Strict (Map)
@@ -40,7 +41,6 @@ import Jazz.Compiler.CapabilityFacts
   )
 import Jazz.Compiler.CoreIdentity (CapabilityMethodKey, ResolvedReference (LexicalReference), capabilityExportName, capabilityResolvedName, resolvedNodeOwner)
 import Jazz.Compiler.Diagnostics (CompilationDiagnostics (..), Diagnostic, diagnosticWarningCategory, isErrorDiagnostic)
-import Jazz.Compiler.Diagnostics.Strictness (forceDiagnostic)
 import Jazz.Compiler.ModuleExports
   ( ModuleExportInventory,
     exportNamesInNamespace,
@@ -446,8 +446,8 @@ finishInference inputs hideRootBindings subject inferredResult finalizedInferenc
 -- remaining result containers are materialized only to WHNF.
 forceFinalizedInferenceContainers :: FinalizedInference -> ()
 forceFinalizedInferenceContainers finalizedInference =
-  forceListWith forceDiagnostic (finalizedTypeErrors finalizedInference) `seq`
-    forceListWith forceDiagnostic (finalizedPatternCoverageDiagnostics finalizedInference) `seq`
+  rnf (finalizedTypeErrors finalizedInference) `seq`
+    rnf (finalizedPatternCoverageDiagnostics finalizedInference) `seq`
       forceModuleInterfaceContainers (finalizedModuleInterface finalizedInference)
 
 patternCoverageDiagnostics :: InferState -> PatternCoverageSite -> [Diagnostic]
@@ -485,12 +485,6 @@ forceMapEntriesWhnf = Map.foldrWithKey (\key value forced -> key `seq` value `se
 
 forceSetEntriesWhnf :: Set value -> ()
 forceSetEntriesWhnf = Set.foldr (\value forced -> value `seq` forced) ()
-
-forceListWith :: (value -> ()) -> [value] -> ()
-forceListWith forceValue values =
-  case values of
-    [] -> ()
-    value : remaining -> forceValue value `seq` forceListWith forceValue remaining
 
 emptyInferenceInputs :: WarningSettings -> InferenceInputs
 emptyInferenceInputs settings =

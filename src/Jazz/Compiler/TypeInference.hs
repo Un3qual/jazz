@@ -447,11 +447,10 @@ inferLeafExpression env state expr = case expr of
   ETuple _ [] -> (Just (SemanticTuple []), Nothing, state)
   EVar node _
     | Just (BuiltinOperatorReference symbol) <- resolvedNodeReference (coreNodeFacts node) ->
-        ordinary
-          ( case instantiateOperatorType symbol state of
+        let (result, finalState) = case instantiateOperatorType symbol state of
               Just (operatorType, next) -> (Just operatorType, next)
               Nothing -> (Nothing, addTypeError state (mkUnsupportedOperatorValueError symbol))
-          )
+         in (result, Nothing, annotateNewErrorsWithPrimarySpan (coreNodeSpan node) state finalState)
   EVar node name ->
     let (result, evidence, finalState) = case Map.lookup (typeEnvReferenceKey (coreNodeFacts node) name) env of
           Just binding -> ordinary (instantiateEnvBinding binding state)

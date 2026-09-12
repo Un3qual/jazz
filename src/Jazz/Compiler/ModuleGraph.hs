@@ -319,6 +319,8 @@ analyzedProgramDiagnostics program =
     preludeDiagnostics = maybe mempty moduleDiagnostics (preludeModule (coreProgramPrelude program))
     moduleDiagnostics = analyzedModuleDiagnosticGroups . coreModuleFacts
 
+-- Merge standalone prelude/source groups before sorting warnings and gating
+-- coverage; module graphs preserve each artifact's diagnostic order.
 orderedProgramDiagnostics :: CoreProgram phase -> [CompilationDiagnostics] -> [Diagnostic]
 orderedProgramDiagnostics program
   | any isStandaloneSourceModule (coreProgramModules program) = compilationDiagnostics . mconcat

@@ -18,6 +18,7 @@ import Jazz.Compiler.AST
 import Jazz.Compiler.BundledPrelude
   ( bundledPreludeSource,
   )
+import Jazz.Compiler.Diagnostics (SourceSpan (SourceRange), diagnosticPrimarySpan)
 import Jazz.Compiler.Diagnostics.Render
   ( renderDiagnostic,
   )
@@ -96,6 +97,7 @@ operatorTests =
   [ ("source pipeline rejects equality section mismatched application", testSourcePipelineRejectsEqualitySectionTypeMismatch),
     ("source pipeline rejects deferred equality section constrained to unresolved list", testSourcePipelineRejectsDeferredEqualitySectionUnresolvedListConstraint),
     ("source pipeline rejects unsupported section operator", testSourcePipelineRejectsUnsupportedSectionOperator),
+    ("unsupported operator values retain their own source spans", testUnsupportedOperatorValueSpans),
     ("source pipeline accepts bare operator value", testSourcePipelineAcceptsBareOperatorValue),
     ("source pipeline accepts bare operator value application", testSourcePipelineAcceptsBareOperatorValueApplication),
     ("source pipeline accepts explicit partial application of bare operator value", testSourcePipelineAcceptsExplicitPartialOperatorApplication),
@@ -410,6 +412,22 @@ testSourcePipelineRejectsUnsupportedSectionOperator =
 testSourcePipelineAcceptsBareOperatorValue :: IO ()
 testSourcePipelineAcceptsBareOperatorValue =
   assertCompiles "x = (+)."
+
+testUnsupportedOperatorValueSpans :: IO ()
+testUnsupportedOperatorValueSpans =
+  mapM_
+    check
+    [ ("\n  (1, (|)).", SourceRange 2 7 2 10),
+      ("\n  invalid = (|).", SourceRange 2 13 2 16)
+    ]
+  where
+    check (source, expectedSpan) = do
+      result <- compileSourceWithPrelude defaultWarningSettings Nothing source
+      case compileErrors result of
+        [diagnostic] -> do
+          assertContains "unsupported operator code" "E2003" (renderDiagnostic diagnostic)
+          assertEqual "unsupported operator span" (Just expectedSpan) (diagnosticPrimarySpan diagnostic)
+        _ -> failTest "expected exactly one unsupported operator value diagnostic"
 
 testSourcePipelineAcceptsBareOperatorValueApplication :: IO ()
 testSourcePipelineAcceptsBareOperatorValueApplication =

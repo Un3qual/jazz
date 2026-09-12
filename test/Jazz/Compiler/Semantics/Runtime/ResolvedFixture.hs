@@ -48,6 +48,8 @@ resolveRuntimeFixture :: Expr 'Analyzed -> Expr 'Analyzed
 resolveRuntimeFixture = resolveRuntimeFixtureWith (StandaloneSourceUnit standaloneModulePath) Map.empty
 
 resolveRuntimeFixtureWith :: SourceUnitOwner -> Map.Map ResolvedName ResolvedReference -> Expr 'Analyzed -> Expr 'Analyzed
+-- Only a synthetic root uses -1. Any other root is treated as fully resolved,
+-- so repeated calls preserve its existing identities and semantic facts.
 resolveRuntimeFixtureWith _ _ fixture | coreNodeId (expressionNode fixture) /= CoreNodeId (-1) = fixture
 resolveRuntimeFixtureWith owner external fixture =
   runIdentity (traverseFixture restoreExpression restorePattern restoreStatement resolved)

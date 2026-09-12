@@ -89,8 +89,7 @@ inferPatternCaseType inferExpression env scrutineeType initialState caseArms =
                   (guardDraft, afterGuard) = checkGuard armEnv afterPattern guardExpr
                   (bodyCheck, afterBody) = inferExpression armEnv afterGuard bodyExpr
                   bodyType = checkedExprType bodyCheck
-                  afterBodyFacts = afterBody
-                  (result, finalState) = mergeArmTypes expected bodyType afterBodyFacts
+                  (result, finalState) = mergeArmTypes expected bodyType afterBody
                   arm = CaseArm <$> draftCaseArmNode bodyType armNode <*> checkedPattern typing pattern <*> guardDraft <*> checkedExprTree bodyCheck
                in (result, arm : arms, finalState)
 
