@@ -4,7 +4,7 @@ description: See the implemented, partial, and planned Jazz language and compile
 sidebar_position: 1
 ---
 
-Updated: 2026-09-09
+Updated: 2026-09-12
 
 Jazz is experimental and pre-1.0. This matrix separates implemented behavior
 from partial areas and planned work.
@@ -34,5 +34,7 @@ Haskell compiler and analyzed-core interpreter; native compilation remains
 planned.
 
 The Haskell compiler supports alias-qualified class methods, constraints, and
-impl heads. Hosted frontend support is deferred, including existing parser
-parity comparisons affected by the new qualification grammar and diagnostics.
+impl heads. Hosted parsing and canonical lowering now preserve three-component
+qualified method names, and hosted signature parsing matches the current
+qualification boundaries and diagnostics. Broader hosted class and impl
+qualification support remains deferred.
