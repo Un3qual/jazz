@@ -508,11 +508,9 @@ resolveExprNames context rootExpression = Right (publishResolvedCaptures (resolv
            in SImpl (resolveNode owner node) (resolveDeclarationReference owner (resolveName Map.empty CapabilityNamespace name)) (map (resolveSignatureType owner) arguments) (map (resolveImplMethod owner methodBindings (resolveDeclarationReference owner (resolveName Map.empty CapabilityNamespace name))) methods)
         SModule node path -> SModule (resolveNode owner node) path
         SImport node path alias symbols ->
-          let target = case NonEmpty.nonEmpty (map mkIdentifier path) of
-                Just segments -> mkModulePath segments
-                Nothing -> error "lowered import has an empty module path"
+          let target = mkModulePath <$> NonEmpty.nonEmpty (map mkIdentifier path)
               resolved = resolveNode owner node
-           in SImport (resolved {coreNodeFacts = (coreNodeFacts resolved) {resolvedNodeImportTarget = Just target}}) path alias symbols
+           in SImport (resolved {coreNodeFacts = (coreNodeFacts resolved) {resolvedNodeImportTarget = target}}) path alias symbols
         SExpr node value -> SExpr (resolveNode owner node) (resolveExpr owner boundValues value)
 
     resolveBindingValue owner boundValues bindingName value =

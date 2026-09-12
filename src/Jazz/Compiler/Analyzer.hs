@@ -51,7 +51,7 @@ import Jazz.Compiler.CapabilityFacts
     renderConcreteImplFact,
     splitQualifiedMethodKey,
   )
-import Jazz.Compiler.CoreIdentity (CoreBinderId, ResolvedReference (..), resolvedImportTarget, resolvedNodeOwner, resolvedNodeReference, resolvedOperatorSpelling)
+import Jazz.Compiler.CoreIdentity (CoreBinderId, ResolvedReference (..), resolvedNodeImportTarget, resolvedNodeOwner, resolvedNodeReference, resolvedOperatorSpelling)
 import Jazz.Compiler.DiagnosticCatalog
   ( ErrorCode (..),
     WarningCategory (..),
@@ -103,7 +103,6 @@ data AnalysisResult = AnalysisResult
   { analysisResolvedExpr :: Expr 'Resolved,
     analysisDiagnostics :: [Diagnostic]
   }
-  deriving (Eq, Show)
 
 data AnalysisBinding = AnalysisBinding
   { analysisBindingSpan :: Maybe SourceSpan,
@@ -163,7 +162,7 @@ analyzeProgramWithInputs inputs hideRootBindings expr =
     collectedDiagnostics =
       case expr of
         EBlock node statements ->
-          collectScopeDiagnostics (analysisExternalUses inputs) hideRootBindings settings importedBindings forwardBindings importedClasses topLevelContext (prepareResolvedScope node statements)
+          either (const mempty) (collectScopeDiagnostics (analysisExternalUses inputs) hideRootBindings settings importedBindings forwardBindings importedClasses topLevelContext) (prepareResolvedScope node statements)
         _ ->
           collectExprDiagnostics settings importedBindings importedClasses topLevelContext expr
     settings = analysisWarningSettings inputs
@@ -371,7 +370,7 @@ collectExprDiagnostics settings visibleBindings visibleClassNames context expr =
       collectExprDiagnostics settings visibleBindings visibleClassNames context leftExpr
     ESectionRight _ _ rightExpr ->
       collectExprDiagnostics settings visibleBindings visibleClassNames context rightExpr
-    EBlock node statements -> collectScopeDiagnostics Set.empty False settings visibleBindings Map.empty visibleClassNames context (prepareResolvedScope node statements)
+    EBlock node statements -> either (const mempty) (collectScopeDiagnostics Set.empty False settings visibleBindings Map.empty visibleClassNames context) (prepareResolvedScope node statements)
 
 collectExprListDiagnostics ::
   WarningSettings ->
@@ -482,7 +481,7 @@ collectScopeDiagnosticsWithPreparedScope (PreparedAnalysisScope statements rawRe
               nextImportedClassNames =
                 Set.union
                   importedClassNames
-                  (visibleImportedClassNames (resolvedImportTarget (coreNodeFacts node)) maybeAlias maybeSymbolNames)
+                  (maybe Set.empty (\target -> visibleImportedClassNames target maybeAlias maybeSymbolNames) (resolvedNodeImportTarget (coreNodeFacts node)))
            in ( scopeBindings,
                 classDeclarations,
                 nextImportedClassNames,

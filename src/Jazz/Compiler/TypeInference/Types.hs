@@ -1,5 +1,3 @@
-{-# LANGUAGE DeriveAnyClass #-}
-{-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DerivingStrategies #-}
 
 -- | Internal type model shared by inference subsystems.
@@ -35,9 +33,7 @@ module Jazz.Compiler.TypeInference.Types
   )
 where
 
-import Control.DeepSeq (NFData)
 import Data.Map.Strict (Map)
-import GHC.Generics (Generic)
 import Jazz.Compiler.CoreIdentity (ResolvedNodeFacts, ResolvedReference, resolvedBinderReference, resolvedValueReference)
 import Jazz.Compiler.Name
   ( ResolvedName,
@@ -79,8 +75,7 @@ data TypeEnvKey = TypeEnvKey
   { typeEnvReference :: ResolvedReference,
     typeEnvName :: ResolvedName
   }
-  deriving stock (Generic, Show)
-  deriving anyclass (NFData)
+  deriving stock (Show)
 
 instance Eq TypeEnvKey where
   left == right = typeEnvReference left == typeEnvReference right
@@ -91,7 +86,7 @@ instance Ord TypeEnvKey where
 type TypeEnv = Map TypeEnvKey TypeBinding
 
 typeEnvBindingKey :: ResolvedNodeFacts -> ResolvedName -> TypeEnvKey
-typeEnvBindingKey facts = TypeEnvKey (resolvedBinderReference facts)
+typeEnvBindingKey facts name = TypeEnvKey (resolvedBinderReference facts name) name
 
 typeEnvReferenceKey :: ResolvedNodeFacts -> ResolvedName -> TypeEnvKey
-typeEnvReferenceKey facts = TypeEnvKey (resolvedValueReference facts)
+typeEnvReferenceKey facts name = TypeEnvKey (resolvedValueReference facts name) name

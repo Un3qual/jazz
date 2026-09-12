@@ -96,6 +96,7 @@ import Jazz.Compiler.Name
     ResolvedNameOrigin (..),
     ResolvedUserName (..),
     identifierText,
+    mkIdentifier,
   )
 import Jazz.Compiler.SemanticDeclarations (concreteImplementationType, implementationTargetSignature, semanticFunctionArguments)
 import Jazz.Compiler.SemanticFacts (AnalyzedScheme (..), ExpressionFacts (expressionResolution), StatementFacts (..))
@@ -413,16 +414,15 @@ seedImplMethodFacts implementationNode capabilityName arguments methods facts =
                   methods
             }
       where
-        insertImplMethod acc (ImplMethod methodNode methodName _) =
+        insertImplMethod acc (ImplMethod _ methodName _) =
           Map.insertWith
             (\newMethods existingMethods -> existingMethods ++ newMethods)
             (qualifiedMethodKey capabilityName methodName)
             [ImplMethodType implTarget capability identity]
             acc
           where
-            (capability, member) = case resolvedNodeReference (coreNodeFacts methodNode) of
-              Just (CapabilityMethodReference target name) -> (target, name)
-              _ -> error "implementation method has no resolved capability target"
+            capability = CapabilityId capabilityName
+            member = mkIdentifier (identifierText methodName)
             identity = MethodId (ImplId (resolvedNodeOwner (coreNodeFacts implementationNode), coreNodeId implementationNode), member)
     _ -> facts
 

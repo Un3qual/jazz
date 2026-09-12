@@ -87,7 +87,7 @@ resolveRuntimeFixtureWith owner external fixture =
     restoreStatement _ _ (CoreNode index spanValue facts) = pure (CoreNode index spanValue ((statements Map.! index) {statementResolution = facts}))
 
 fixtureDeclarations :: Expr 'Analyzed -> Map.Map ResolvedName ResolvedReference
-fixtureDeclarations (EBlock _ statements) = Map.fromList [(name, resolvedBinderReference (statementResolution (coreNodeFacts node))) | SLet node name _ <- statements]
+fixtureDeclarations (EBlock _ statements) = Map.fromList [(name, resolvedBinderReference (statementResolution (coreNodeFacts node)) name) | SLet node name _ <- statements]
 fixtureDeclarations _ = Map.empty
 
 -- This test-only traversal changes node facts and identities, preserving the

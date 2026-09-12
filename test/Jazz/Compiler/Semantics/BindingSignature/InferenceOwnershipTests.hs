@@ -48,7 +48,6 @@ import qualified Jazz.Compiler.TypeInference.Scope as TypeInferenceScope
 import Jazz.Compiler.TypeInference.Signature
   ( SignaturePayloadType (..),
     duplicateConstraintName,
-    expressionTypeToConcreteSignature,
     signaturePayloadToSignatureType,
   )
 import Jazz.Compiler.TypeInference.Solver
@@ -129,7 +128,6 @@ import Jazz.TestHarness
 inferenceOwnershipTests :: [NamedTest]
 inferenceOwnershipTests =
   [ ("impl checks roll back failed unification before subsequent bodies", testImplChecksPreserveRollback),
-    ("concrete signature projection rejects variable children", testConcreteSignatureChildFailuresPropagate),
     ("duplicate constraints report the first repeated name", testDuplicateConstraintsReportFirstRepeatedName),
     ("state record modifiers update only their owned partitions", testStateRecordModifiers),
     ("inference output preserves constraint order and explicit cursors", testInferenceOutputConstraintCursors),
@@ -154,17 +152,6 @@ inferenceOwnershipTests =
     ("recursive previews are reused at an unchanged group frontier", testRecursivePreviewReuseAtSameFrontier),
     ("operator rule presence remains distinct from section support", testOperatorRulePresenceAndSectionSupport)
   ]
-
-testConcreteSignatureChildFailuresPropagate :: IO ()
-testConcreteSignatureChildFailuresPropagate = do
-  assertEqual
-    "list child failure"
-    Nothing
-    (expressionTypeToConcreteSignature (SemanticList (SemanticVariable 1)))
-  assertEqual
-    "function child failure"
-    Nothing
-    (expressionTypeToConcreteSignature (SemanticFunction SemanticInt (SemanticVariable 1)))
 
 testDuplicateConstraintsReportFirstRepeatedName :: IO ()
 testDuplicateConstraintsReportFirstRepeatedName =
@@ -668,7 +655,7 @@ testRecursivePreviewReuseAtSameFrontier =
        in inferenceOnlyResult mode (Just SemanticBool) nextState
 
 programScope :: Expr 'Resolved -> PreparedRecursiveScope 'Resolved
-programScope (EBlock node statements) = prepareResolvedScope node statements
+programScope (EBlock node statements) = either (error . show) id (prepareResolvedScope node statements)
 programScope expression = error ("expected resolved block, got " <> show expression)
 
 valueName :: Text -> ResolvedName

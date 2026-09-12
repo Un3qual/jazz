@@ -2,9 +2,8 @@
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DerivingStrategies #-}
 
--- | Phase-local semantic identities and the complete facts attached by
--- analysis. This module is intentionally neutral: syntax imports it, while
--- inference and runtime populate or consume it in later phases.
+-- | Complete semantic decisions owned by analyzed nodes. Syntax imports this
+-- neutral vocabulary; checking constructs the facts and execution consumes them.
 module Jazz.Compiler.SemanticFacts
   ( AnalyzedType,
     AnalyzedMethodSignature (..),
@@ -150,7 +149,8 @@ data StatementDeclarationFact
 -- | Violations detected while finalizing checked facts. These are
 -- compiler invariant failures, not source diagnostics.
 data SemanticFactInvariantFailure
-  = MissingExpressionFacts CoreNodeId
+  = MissingScopeFacts CoreNodeId
+  | MissingExpressionFacts CoreNodeId
   | UnresolvedExpressionReference CoreNodeId ResolvedName
   | MissingExpressionEvidence CoreNodeId
   | AmbiguousExpressionEvidence CoreNodeId

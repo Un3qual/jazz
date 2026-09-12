@@ -111,7 +111,7 @@ testPreparedRecursiveScope = do
   assertEqual "prepared recursive groups" (Map.fromList [(0, [0, 2]), (2, [0, 2])]) (preparedRecursiveScopeGroups preparedScope)
   where
     preparedScope :: PreparedRecursiveScope 'Resolved
-    preparedScope = prepareResolvedScope (expressionNode program) statements
+    preparedScope = either (error . show) id (prepareResolvedScope (expressionNode program) statements)
     statements = case program of
       EBlock _ values -> values
       _ -> error "expected resolved block"

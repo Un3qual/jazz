@@ -6,7 +6,7 @@ module Jazz.Compiler.TypeInference.Interface
   )
 where
 
-import Control.Monad (foldM)
+import Control.Monad.Trans.Class (lift)
 import qualified Control.Monad.Trans.State.Strict as State
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
@@ -18,6 +18,7 @@ import Jazz.Compiler.SemanticDeclarations
     bindingQuantifiedVariables,
     bindingVariableOrder,
     mapBindingTypes,
+    traverseBindingTypes,
   )
 import Jazz.Compiler.TypeInference.Solver (freshTypeVariable, resolveType)
 import Jazz.Compiler.TypeInference.State (InferState (..), ModuleInferenceState (..))
@@ -44,10 +45,19 @@ closeModuleBindings state bindings =
               (\allocated (index, variable) -> Map.insertWith (\_ existing -> existing) variable (DeclarationParameter binder index) allocated)
               shared
               (zip [0 ..] newVariables)
-          parameters = Map.union quantified withShared
-          parameter variable = parameters Map.! variable
+          parameter variable = case Map.lookup variable quantified of
+            Just value -> pure value
+            Nothing -> do
+              allocated <- State.get
+              case Map.lookup variable allocated of
+                Just value -> pure value
+                Nothing -> do
+                  let value = DeclarationParameter binder (Map.size allocated)
+                  State.put (Map.insert variable value allocated)
+                  pure value
       State.put withShared
-      pure (export, ModuleValueBinding binder (mapBindingTypes parameter (fmap parameter) binding))
+      closed <- traverseBindingTypes parameter (traverse parameter) binding
+      pure (export, ModuleValueBinding binder closed)
 
 importBindingTypes :: Map TypeEnvKey (SemanticBinding DeclarationVariable) -> InferState -> (TypeEnv, InferState)
 importBindingTypes bindings initialState =
@@ -61,22 +71,23 @@ importBindingTypes bindings initialState =
           }
       )
   where
-    importBinding binding = do
-      parameters <- foldM allocate Map.empty (bindingQuantifiedVariables binding <> bindingVariableOrder binding)
-      let parameter variable = parameters Map.! variable
-      pure (mapBindingTypes parameter (fmap parameter) binding)
+    importBinding binding =
+      State.evalStateT (traverseBindingTypes allocate (traverse allocate) binding) Map.empty
 
-    allocate parameters parameter =
+    allocate parameter = do
+      parameters <- State.get
       case Map.lookup parameter parameters of
-        Just _ -> pure parameters
+        Just variable -> pure variable
         Nothing -> do
-          (shared, state) <- State.get
-          case Map.lookup parameter shared of
-            Just variable -> pure (Map.insert parameter variable parameters)
-            Nothing -> do
-              let (variable, _, nextState) = freshTypeVariable state
-                  nextShared = case parameter of
-                    SchemeParameter _ -> shared
-                    DeclarationParameter {} -> Map.insert parameter variable shared
-              State.put (nextShared, nextState)
-              pure (Map.insert parameter variable parameters)
+          (shared, state) <- lift State.get
+          let (variable, nextShared, nextState) = case Map.lookup parameter shared of
+                Just existing -> (existing, shared, state)
+                Nothing ->
+                  let (fresh, _, allocatedState) = freshTypeVariable state
+                      allocatedShared = case parameter of
+                        SchemeParameter _ -> shared
+                        DeclarationParameter {} -> Map.insert parameter fresh shared
+                   in (fresh, allocatedShared, allocatedState)
+          lift (State.put (nextShared, nextState))
+          State.put (Map.insert parameter variable parameters)
+          pure variable

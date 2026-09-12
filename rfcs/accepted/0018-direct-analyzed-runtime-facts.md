@@ -2,7 +2,7 @@
 
 Status: Accepted
 Date: 2026-09-11
-Amends: RFC 0016's retention of runtime plans only.
+Supersedes: RFC 0016's retention of runtime plans only.
 
 ## Decision
 

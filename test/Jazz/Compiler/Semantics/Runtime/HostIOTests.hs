@@ -665,7 +665,9 @@ testStackedResultObligationsPreserveRecursiveUnwindOrder = do
   let identityClosure = case evaluateFixture (expressionLambda "itemValue" (expressionVariable "itemValue")) of
         Right (Just value) -> value
         _ -> error "identity fixture did not produce a closure"
-      convertReference = resolvedBinderReference (expressionResolution (AST.coreNodeFacts (AST.expressionNode (resolveRuntimeFixture (expressionLambda "convert" (expressionLiteral (LInt 0)))))))
+      convertReference = case resolveRuntimeFixture (expressionLambda "convert" (expressionLiteral (LInt 0))) of
+        AST.ELambda node name _ -> resolvedBinderReference (expressionResolution (AST.coreNodeFacts node)) name
+        _ -> error "convert fixture did not produce a lambda"
       stackedFunction =
         VAnnotated
           (RuntimeTypeHint (SemanticFunction SemanticInt SemanticInt))

@@ -7,10 +7,8 @@
 module Jazz.Compiler.TypeInference.Signature
   ( SignaturePayloadType (..),
     SignatureTypeFailure (..),
-    constraintSignatureTypeToExpressionType,
     constraintSignatureTypeToExpressionTypeWithState,
     duplicateConstraintName,
-    expressionTypeToConcreteSignature,
     renderSignatureTypeFailure,
     signaturePayloadToSignatureType,
     signatureTypeToExpressionType,
@@ -46,7 +44,6 @@ import Jazz.Compiler.TypeInference.State
     inferClassFacts,
     inferConcreteImplFacts,
     inferDataTypes,
-    initialInferState,
   )
 import Jazz.Compiler.TypeInference.Types
   ( ExpressionType,
@@ -59,17 +56,6 @@ import Jazz.Compiler.TypeRepresentation
     pattern ConstrainedSignature,
     pattern SignatureConstraint,
     pattern SignatureType,
-    pattern TypeApplication,
-    pattern TypeBool,
-    pattern TypeChar,
-    pattern TypeFloat,
-    pattern TypeFunction,
-    pattern TypeInt,
-    pattern TypeList,
-    pattern TypeName,
-    pattern TypeNumeric,
-    pattern TypeText,
-    pattern TypeTuple,
     pattern TypeVariable,
     pattern UnsupportedSignature,
   )
@@ -173,13 +159,6 @@ signaturePayloadToSignatureType signaturePayload state =
 
     unaryCapability capability = Map.lookup (CapabilityId capability) (inferClassFacts state) == Just 1
 
-constraintSignatureTypeToExpressionType :: SignatureType 'Resolved -> Maybe ExpressionType
-constraintSignatureTypeToExpressionType signatureType =
-  either
-    (const Nothing)
-    Just
-    (signatureTypeToExpressionType initialInferState Map.empty signatureType)
-
 allocateSignatureTypeVariables :: [Text] -> InferState -> (Map Text ExpressionType, InferState)
 allocateSignatureTypeVariables variableNames state =
   foldl' allocate (Map.empty, state) variableNames
@@ -200,34 +179,6 @@ duplicateConstraintName constraints =
            in if Set.member (CapabilityId constraintName) seen
                 then Just constraintNameText
                 else go (Set.insert (CapabilityId constraintName) seen) rest
-
--- | Project a concrete inferred type for the signature-based capability rules.
--- Quantified variables have no concrete signature and propagate failure.
-expressionTypeToConcreteSignature :: ExpressionType -> Maybe (SignatureType 'Resolved)
-expressionTypeToConcreteSignature expressionType =
-  case expressionType of
-    SemanticInt -> Just TypeInt
-    SemanticFloat -> Just TypeFloat
-    SemanticNumeric numericType -> Just (TypeNumeric numericType)
-    SemanticBool -> Just TypeBool
-    SemanticChar -> Just TypeChar
-    SemanticText -> Just TypeText
-    SemanticList elementType ->
-      TypeList <$> convert elementType
-    SemanticTuple elementTypes ->
-      TypeTuple <$> traverse convert elementTypes
-    SemanticData typeName typeArguments ->
-      case traverse convert typeArguments of
-        Just [] -> Just (TypeName typeName)
-        Just argumentTemplates -> Just (TypeApplication typeName argumentTemplates)
-        Nothing -> Nothing
-    SemanticFunction inputType outputType ->
-      TypeFunction
-        <$> convert inputType
-        <*> convert outputType
-    SemanticVariable _ -> Nothing
-  where
-    convert = expressionTypeToConcreteSignature
 
 tshow :: (Show a) => a -> Text
 tshow = Text.pack . show

@@ -37,9 +37,8 @@ roots = [
   # Benchmark forcing and profiling tooling API.
   # src/Jazz/Compiler/Profiling.hs
   '^Jazz\.Compiler\.Profiling\.(compilerProfilingEnabled)$',
-  # Retained legacy compiler adapter/inspection API; review before deletion.
-  # src/Jazz/Compiler/Runtime.hs
-  '^Jazz\.Compiler\.Runtime\.(evaluateRuntimeExprWithSourceUnitStatements)$',
+  # Shared resolved runtime fixtures are used by three separate components.
+  '^Jazz\.Compiler\.Semantics\.Runtime\.ResolvedFixture\.(observeFixture|evaluateFixture|evaluateFixtureWithHost|fixtureDeclarations)$',
   # Shared test-support API; each Cabal component uses only a subset.
   # test/Jazz/Compiler/Bootstrap/CanonicalCoreComparison.hs
   '^Jazz\.Compiler\.Bootstrap\.CanonicalCoreComparison\.(canonicalCoreModuleResultRuntimeValue|canonicalCoreModuleRuntimeValue|canonicalCoreSourceResultRuntimeValue)$',
@@ -126,13 +125,12 @@ root-instances = [
   { module = '^src/Jazz/Compiler/Runtime/Observation\.hs$', instance = '(^|=> )(Eq|Ord|Show|Generic|NFData|Enum|Bounded|Functor|Foldable|Traversable) (\(RuntimeObservationResult value\)|RuntimeApplicationKind|RuntimeBuiltinKind|RuntimeConstructionKind|RuntimeDeferredCacheKind|RuntimeHostOperationKind|RuntimeObservationRequest|RuntimeProfileEvent|RuntimeProfileFrame|RuntimeTermination)$' },
   { module = '^src/Jazz/Compiler/Runtime/Types\.hs$', instance = '(^|=> )(Eq|Ord|Show|Generic|NFData|Enum|Bounded|Functor|Foldable|Traversable) (DeferredHostBindingKey|DeferredHostScopeId|ModuleEvaluationMode|RuntimeConstructorShape|RuntimeExplicitResultHints|RuntimeFloatMetadata|RuntimeIntMetadata)$' },
   { module = '^src/Jazz/Compiler/RuntimeHost\.hs$', instance = '(^|=> )(Eq|Ord|Show|Generic|NFData|Enum|Bounded|Functor|Foldable|Traversable) (HostIOCategory|RuntimeHostExit)$' },
-  { module = '^src/Jazz/Compiler/SemanticFacts\.hs$', instance = '(^|=> )(Eq|Ord|Show|Generic|NFData|Enum|Bounded|Functor|Foldable|Traversable) (AnalyzedMethodSignature|AnalyzedNumericConstraint|AnalyzedPrimitiveConstraint|AnalyzedScheme|AnalyzedSchemeConstraint|CapabilityId|EvidenceReference|ImplId|MethodId|PatternConstructorFact|PatternRefutability|SemanticFactInvariantFailure|SemanticInstantiation)$' },
+  { module = '^src/Jazz/Compiler/SemanticFacts\.hs$', instance = '(^|=> )(Eq|Ord|Show|Generic|NFData|Enum|Bounded|Functor|Foldable|Traversable) (AnalyzedMethodSignature|AnalyzedNumericConstraint|AnalyzedPrimitiveConstraint|AnalyzedScheme|AnalyzedSchemeConstraint|EvidenceReference|PatternConstructorFact|PatternRefutability|SemanticFactInvariantFailure|SemanticInstantiation)$' },
   { module = '^src/Jazz/Compiler/TypeInference/DiagnosticCause\.hs$', instance = '(^|=> )(Eq|Ord|Show|Generic|NFData|Enum|Bounded|Functor|Foldable|Traversable) (\(TypeErrorCause typeValue\))$' },
   { module = '^src/Jazz/Compiler/TypeInference/Pattern\.hs$', instance = '(^|=> )(Eq|Ord|Show|Generic|NFData|Enum|Bounded|Functor|Foldable|Traversable) (PatternBindings)$' },
   { module = '^src/Jazz/Compiler/TypeInference/Result\.hs$', instance = '(^|=> )(Eq|Ord|Show|Generic|NFData|Enum|Bounded|Functor|Foldable|Traversable) (InferenceResult)$' },
-  { module = '^src/Jazz/Compiler/TypeInference/Signature\.hs$', instance = '(^|=> )(Eq|Ord|Show|Generic|NFData|Enum|Bounded|Functor|Foldable|Traversable) (SignatureTypeFailure)$' },
+  { module = '^src/Jazz/Compiler/SemanticDeclarations\.hs$', instance = '(^|=> )(Eq|Ord|Show|Generic|NFData|Enum|Bounded|Functor|Foldable|Traversable) (SignatureTypeFailure)$' },
   { module = '^src/Jazz/Compiler/TypeInference/Traversal\.hs$', instance = '(^|=> )(Eq|Ord|Show|Generic|NFData|Enum|Bounded|Functor|Foldable|Traversable) (InferenceMode)$' },
-  { module = '^src/Jazz/Compiler/TypeInference/Types\.hs$', instance = '(^|=> )(Eq|Ord|Show|Generic|NFData|Enum|Bounded|Functor|Foldable|Traversable) (IntegerLiteralRange|SchemePrimitiveConstraint)$' },
   { module = '^src/Jazz/Compiler/TypeRepresentation\.hs$', instance = '(^|=> )(Eq|Ord|Show|Generic|NFData|Enum|Bounded|Functor|Foldable|Traversable) (\(SignatureConstraint typeName variable\)|\(SignatureConstraint typeName\)|\(SignaturePayload typeName variable tokenName\)|\(SignatureToken name\)|\(SignatureType typeName variable\)|\(SignatureType typeName\)|SignatureToken)$' },
   { module = '^src/Jazz/Compiler/WarningConfig\.hs$', instance = '(^|=> )(Eq|Ord|Show|Generic|NFData|Enum|Bounded|Functor|Foldable|Traversable) (WarningSettings)$' },
   { module = '^test/Jazz/Compiler/Bootstrap/CanonicalLexerComparison\.hs$', instance = '(^|=> )(Eq|Ord|Show|Generic|NFData|Enum|Bounded|Functor|Foldable|Traversable) (CanonicalKeyword|CanonicalLexError|CanonicalLexErrorReason|CanonicalLexResult|CanonicalLiteralKind|CanonicalPunctuation|CanonicalToken|CanonicalTokenKind)$' },
@@ -141,11 +139,10 @@ root-instances = [
   { module = '^test/Jazz/Compiler/Bootstrap/JazzCoreModulesCorpusClosureSpec\.hs$', instance = '(^|=> )(Eq|Ord|Show|Generic|NFData|Enum|Bounded|Functor|Foldable|Traversable) (CoreCorpusManifestEntry)$' },
   { module = '^test/Jazz/Compiler/Parser/FixtureCorpus\.hs$', instance = '(^|=> )(Eq|Ord|Show|Generic|NFData|Enum|Bounded|Functor|Foldable|Traversable) (ParserFixture|ParserFixtureExpectation|ParserFixtureFamily|ParserFixtureManifestViolation)$' },
   { module = '^test/Jazz/Repository/SourceLayout\.hs$', instance = '(^|=> )(Eq|Ord|Show|Generic|NFData|Enum|Bounded|Functor|Foldable|Traversable) (JazzSourceModule|JazzSourceRole|SourceLayoutViolation)$' },
+  { module = '^src/Jazz/Compiler/SemanticDeclarations\.hs$', instance = '(^|=> )(Ord IntegerLiteralRange|Traversable SchemePrimitiveConstraint)$' },
   # Literal construction interfaces used by test/tooling clients.
   { instance = '^IsString (Identifier|UnresolvedName)$' },
   # Megaparsec stream/error interfaces, including its optional default renderer.
   { instance = '^ShowErrorComponent (LexerError|ParserError)$' },
   { instance = '^(VisualStream|TraversableStream) TokenStream$' },
-  # RuntimePlan's composition contract is retained and covered by law tests.
-  { instance = '^(Semigroup|Monoid) RuntimePlan$' },
 ]

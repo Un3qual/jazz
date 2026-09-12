@@ -1,7 +1,6 @@
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DerivingStrategies #-}
-{-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 -- | Declaration and reference identities shared from resolution onwards.
@@ -22,12 +21,12 @@ module Jazz.Compiler.CoreIdentity
     emptyResolvedNodeFacts,
     resolvedBinderReference,
     resolvedValueReference,
-    resolvedImportTarget,
   )
 where
 
 import Control.DeepSeq (NFData)
 import Data.Map.Strict (Map)
+import Data.Maybe (fromMaybe)
 import Data.Set (Set)
 import Data.Text (Text)
 import GHC.Generics (Generic)
@@ -36,7 +35,6 @@ import Jazz.Compiler.Name (Identifier, Name (..), ResolvedName, ResolvedUserName
 
 newtype CoreNodeId = CoreNodeId Int
   deriving stock (Eq, Generic, Ord, Show)
-  deriving newtype (Enum)
   deriving anyclass (NFData)
 
 newtype CoreBinderId = CoreBinderId (SourceUnitOwner, CoreNodeId)
@@ -101,26 +99,18 @@ data ResolvedNodeFacts = ResolvedNodeFacts
 emptyResolvedNodeFacts :: SourceUnitOwner -> ResolvedNodeFacts
 emptyResolvedNodeFacts owner = ResolvedNodeFacts owner Nothing Nothing Nothing Nothing Nothing Nothing []
 
-resolvedBinderReference :: ResolvedNodeFacts -> ResolvedReference
-resolvedBinderReference facts = case resolvedNodeBinder facts of
-  Just binder -> LexicalReference binder
-  Nothing -> error "declaration has no resolved binder identity"
+-- Missing facts retain an unresolved name during diagnostic recovery. The
+-- checked-tree boundary rejects these nodes before they can become executable.
+resolvedBinderReference :: ResolvedNodeFacts -> ResolvedName -> ResolvedReference
+resolvedBinderReference facts name = maybe (UnresolvedReference name) LexicalReference (resolvedNodeBinder facts)
 
-resolvedValueReference :: ResolvedNodeFacts -> ResolvedReference
-resolvedValueReference facts = case resolvedNodeReference facts of
-  Just reference -> reference
-  Nothing -> error "value use has no resolved reference"
-
-resolvedImportTarget :: ResolvedNodeFacts -> ModulePath
-resolvedImportTarget facts = case resolvedNodeImportTarget facts of
-  Just target -> target
-  Nothing -> error "import has no resolved module target"
+resolvedValueReference :: ResolvedNodeFacts -> ResolvedName -> ResolvedReference
+resolvedValueReference facts name = fromMaybe (UnresolvedReference name) (resolvedNodeReference facts)
 
 -- | Lexical facts for the exact, source-ordered statements of a resolved block.
 -- Statement indices are local views; binding identities remain source-owned.
 data ResolvedScopeFacts = ResolvedScopeFacts
-  { resolvedScopeOuterBindingNames :: Set ResolvedName,
-    resolvedScopeBindingNames :: Map Int ResolvedName,
+  { resolvedScopeBindingNames :: Map Int ResolvedName,
     resolvedScopeBinderIds :: Map Int CoreBinderId,
     resolvedScopeBindingReplacements :: Map Int Int,
     resolvedScopeRecursiveGroups :: Map Int [Int],

@@ -26,7 +26,7 @@ import Jazz.Compiler.AST
     Pattern (..),
     patternNode,
   )
-import Jazz.Compiler.CoreIdentity (ResolvedNodeFacts)
+import Jazz.Compiler.CoreIdentity (ResolvedNodeFacts, resolvedNodeBinder)
 import Jazz.Compiler.Name (ResolvedName, identifierText)
 import Jazz.Compiler.Pattern
   ( commonPatternBinderNames,
@@ -259,14 +259,15 @@ draftPattern pattern facts children =
       missing = Draft (const (AttachmentFailed (MissingPatternFacts nodeId) Seq.empty))
    in case pattern of
         PWildcard _ -> PWildcard <$> node
-        PVariable _ name -> PVariable <$> node <*> pure name
+        PVariable _ name | Just _ <- resolvedNodeBinder (patternResolution facts) -> PVariable <$> node <*> pure name
+        PVariable {} -> missing
         PLiteral _ literal -> PLiteral <$> node <*> pure literal
         PConstructor _ name _ -> PConstructor <$> node <*> pure name <*> sequenceA children
         PList _ _ -> PList <$> node <*> sequenceA children
         PTuple _ _ -> PTuple <$> node <*> sequenceA children
         POr _ _ -> POr <$> node <*> sequenceA children
         PAs _ name _ -> case children of
-          [child] -> PAs <$> node <*> pure name <*> child
+          [child] | Just _ <- resolvedNodeBinder (patternResolution facts) -> PAs <$> node <*> pure name <*> child
           _ -> missing
         PConsList {} -> case children of
           [headPattern, tailPattern] -> PConsList <$> node <*> headPattern <*> tailPattern

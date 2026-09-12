@@ -83,9 +83,6 @@
     name: "Use isNothing"
     within: ["Jazz.CLI.Main.parseCliOptions", "Jazz.Compiler.Analyzer.analysisBindingToVisibleBinding", "Jazz.Compiler.ModuleResolver.Names.resolveExprNames", "Jazz.Compiler.Parser.Lexer.unicodeScalarEscape", "Jazz.Compiler.Runtime.Semantics.attachDefaultBindingIntegerTarget", "Jazz.Compiler.Runtime.Semantics.runtimeValueExactlyMatchesConstraint", "Jazz.Compiler.TypeInference.Capabilities.inferredEqualityConstraintCanUseStructuralRuntimeEquality"]
 - ignore:
-    name: "Use lambda-case"
-    within: ["Jazz.Compiler.Driver.runExprWithSourceUnitStatementsAndHostObserved"]
-- ignore:
     name: "Use list literal pattern"
     within: ["Jazz.CLI.Main.parseCliOptions", "Main.testMinusAdjacency"]
 # Retain data constructor strictness/evaluation behavior during this migration.

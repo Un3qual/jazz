@@ -17,7 +17,6 @@ module Jazz.Compiler.Runtime
     prependRuntimeExplicitResultHint,
     runtimeExplicitResultHintsInOrder,
     ScopeResult (..),
-    evaluateModuleScope,
     evaluateModuleScopePure,
     evaluateRuntimeExpr,
     evaluateRuntimeExprObserved,
@@ -41,12 +40,12 @@ import Jazz.Compiler.AST
     Expr,
   )
 import Jazz.Compiler.Diagnostics (Diagnostic)
-import Jazz.Compiler.RecursiveBindings (prepareAnalyzedScope)
 import Jazz.Compiler.Runtime.Engine
   ( evaluateRuntimeExpressionObserved,
     evaluateRuntimeScopePureRequest,
     evaluateRuntimeScopeWithHostRequest,
     evaluateRuntimeScopeWithRequiredHostRequest,
+    prepareRuntimeScope,
     renderRuntimeValue,
     runtimeExprRequiresHost,
     runtimeValueExactlyMatchesConstraint,
@@ -120,29 +119,14 @@ evaluateRuntimeExprWithHost host expr =
 -- are host-free, including every dependency supplying the initial environment.
 evaluateModuleScopePure ::
   ModuleEvaluationMode -> RuntimeEnv -> Expr 'Analyzed -> Either Diagnostic ScopeResult
-evaluateModuleScopePure mode env expression =
+evaluateModuleScopePure mode env expression = do
+  prepared <- prepareRuntimeScope expression
   evaluateRuntimeScopePureRequest
     RuntimeScopeRequest
       { runtimeScopeEvaluationMode = mode,
         runtimeScopeInitialEnvironment = env,
-        runtimeScope = prepareAnalyzedScope expression
+        runtimeScope = prepared
       }
-
-evaluateModuleScope ::
-  ModuleEvaluationMode ->
-  RuntimeEnv ->
-  Expr 'Analyzed ->
-  Either Diagnostic ScopeResult
-evaluateModuleScope evaluationMode initialEnv statements =
-  runIdentity
-    ( evaluateRuntimeScopeWithHostRequest
-        disabledRuntimeHost
-        RuntimeScopeRequest
-          { runtimeScopeEvaluationMode = evaluationMode,
-            runtimeScopeInitialEnvironment = initialEnv,
-            runtimeScope = prepareAnalyzedScope statements
-          }
-    )
 
 evaluateModuleScopeWithHost ::
   (Monad m) =>
@@ -152,13 +136,16 @@ evaluateModuleScopeWithHost ::
   Expr 'Analyzed ->
   m (Either Diagnostic ScopeResult)
 evaluateModuleScopeWithHost host evaluationMode initialEnv statements =
-  evaluateRuntimeScopeWithHostRequest
-    host
-    RuntimeScopeRequest
-      { runtimeScopeEvaluationMode = evaluationMode,
-        runtimeScopeInitialEnvironment = initialEnv,
-        runtimeScope = prepareAnalyzedScope statements
-      }
+  case prepareRuntimeScope statements of
+    Left diagnostic -> pure (Left diagnostic)
+    Right prepared ->
+      evaluateRuntimeScopeWithHostRequest
+        host
+        RuntimeScopeRequest
+          { runtimeScopeEvaluationMode = evaluationMode,
+            runtimeScopeInitialEnvironment = initialEnv,
+            runtimeScope = prepared
+          }
 
 evaluateModuleScopeWithRequiredHost ::
   (Monad m) =>
@@ -169,14 +156,7 @@ evaluateModuleScopeWithRequiredHost ::
   m (Either Diagnostic ScopeResult)
 evaluateModuleScopeWithRequiredHost host evaluationMode initialEnv statements =
   runRuntimeHostEvaluation host $ \evaluationHost ->
-    runtimeControlAsDiagnosticResult
-      <$> evaluateRuntimeScopeWithRequiredHostRequest
-        evaluationHost
-        RuntimeScopeRequest
-          { runtimeScopeEvaluationMode = evaluationMode,
-            runtimeScopeInitialEnvironment = initialEnv,
-            runtimeScope = prepareAnalyzedScope statements
-          }
+    evaluateModuleScopeWithRequiredEvaluationHost evaluationHost evaluationMode initialEnv statements
 
 evaluateModuleScopeWithRequiredEvaluationHost ::
   (Monad m) =>
@@ -201,10 +181,13 @@ evaluateModuleScopeWithRequiredEvaluationHostControl ::
   Expr 'Analyzed ->
   RuntimeHostEvaluationT m (Either RuntimeControl ScopeResult)
 evaluateModuleScopeWithRequiredEvaluationHostControl host evaluationMode initialEnv statements =
-  evaluateRuntimeScopeWithRequiredHostRequest
-    host
-    RuntimeScopeRequest
-      { runtimeScopeEvaluationMode = evaluationMode,
-        runtimeScopeInitialEnvironment = initialEnv,
-        runtimeScope = prepareAnalyzedScope statements
-      }
+  case prepareRuntimeScope statements of
+    Left diagnostic -> pure (Left (RuntimeDiagnostic diagnostic))
+    Right prepared ->
+      evaluateRuntimeScopeWithRequiredHostRequest
+        host
+        RuntimeScopeRequest
+          { runtimeScopeEvaluationMode = evaluationMode,
+            runtimeScopeInitialEnvironment = initialEnv,
+            runtimeScope = prepared
+          }

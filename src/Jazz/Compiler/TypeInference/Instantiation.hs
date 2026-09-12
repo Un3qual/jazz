@@ -174,7 +174,7 @@ explicitQualifiedMethodTypeApplicationKey env state functionExpr =
   case functionExpr of
     EVar node name
       | Map.notMember (typeEnvReferenceKey (coreNodeFacts node) name) env,
-        Just methodKey <- capabilityMethodKeyFromReference (resolvedValueReference (coreNodeFacts node)),
+        Just methodKey <- capabilityMethodKeyFromReference (resolvedValueReference (coreNodeFacts node) name),
         qualifiedMethodClassIsVisible methodKey state ->
           Just methodKey
     _ -> Nothing

@@ -13,6 +13,7 @@ module Jazz.Compiler.Runtime.Engine
     evaluateRuntimeScopeWithRequiredHostRequest,
     evaluateRuntimeScopeWithEvaluationHostRequest,
     evaluateRuntimeScopePureRequest,
+    prepareRuntimeScope,
     runtimeExprRequiresHost,
     runtimeValueExactlyMatchesConstraint,
     renderRuntimeValue,
@@ -147,7 +148,6 @@ import Jazz.Compiler.Runtime.ScopePlan
     runtimeExprRequiresHost,
     runtimeStatementRequiresHost,
     scopePlanBindingIndex,
-    scopePlanBindingNameAt,
     scopePlanBindingReferenceAt,
     scopePlanIndexedStatements,
     scopePlanIsHostRecursiveBinding,
@@ -286,11 +286,9 @@ evaluateRuntimeExpressionWithRequiredEvaluationHost ::
   RuntimeHostEvaluationT m (Either RuntimeControl (Maybe RuntimeValue))
 evaluateRuntimeExpressionWithRequiredEvaluationHost host request =
   case expr of
-    EBlock {} ->
-      fmap scopeResultValue
-        <$> evaluateRuntimeScopeWithRequiredHostRequest
-          host
-          (runtimeExpressionScopeRequest request)
+    EBlock {} -> case runtimeExpressionScopeRequest request of
+      Left diagnostic -> pure (Left (RuntimeDiagnostic diagnostic))
+      Right scopeRequest -> fmap scopeResultValue <$> evaluateRuntimeScopeWithRequiredHostRequest host scopeRequest
     _ ->
       runExceptT
         (Just <$> evalValueWithHost host Nothing Map.empty False expr)
@@ -305,11 +303,9 @@ evaluateRuntimeExpressionWithEvaluationHost ::
 evaluateRuntimeExpressionWithEvaluationHost host request =
   if runtimeExprRequiresHost expr
     then case expr of
-      EBlock {} ->
-        fmap scopeResultValue
-          <$> evaluateRuntimeScopeWithEvaluationHostRequest
-            host
-            (runtimeExpressionScopeRequest request)
+      EBlock {} -> case runtimeExpressionScopeRequest request of
+        Left diagnostic -> pure (Left (RuntimeDiagnostic diagnostic))
+        Right scopeRequest -> fmap scopeResultValue <$> evaluateRuntimeScopeWithEvaluationHostRequest host scopeRequest
       _ ->
         runExceptT
           (Just <$> evalValueWithHost host Nothing Map.empty False expr)
@@ -326,21 +322,25 @@ evaluateRuntimeExpressionWithEvaluationHost host request =
 evaluateRuntimeExpressionPure :: RuntimeExpressionRequest -> Either Diagnostic (Maybe RuntimeValue)
 evaluateRuntimeExpressionPure request =
   case expr of
-    EBlock {} ->
-      scopeResultValue
-        <$> evaluateRuntimeScopePureRequest
-          (runtimeExpressionScopeRequest request)
+    EBlock {} -> do
+      scopeRequest <- runtimeExpressionScopeRequest request
+      scopeResultValue <$> evaluateRuntimeScopePureRequest scopeRequest
     _ -> Just <$> evalValue Map.empty expr
   where
     expr = runtimeExpression request
 
-runtimeExpressionScopeRequest :: RuntimeExpressionRequest -> RuntimeScopeRequest
-runtimeExpressionScopeRequest request =
-  RuntimeScopeRequest
-    { runtimeScopeEvaluationMode = EvaluateEntryModule,
-      runtimeScopeInitialEnvironment = Map.empty,
-      runtimeScope = prepareAnalyzedScope (runtimeExpression request)
-    }
+prepareRuntimeScope :: Expr 'Analyzed -> Either Diagnostic (PreparedRecursiveScope 'Analyzed)
+prepareRuntimeScope = either (Left . runtimeDiagnostic E3020 . Text.pack . show) Right . prepareAnalyzedScope
+
+runtimeExpressionScopeRequest :: RuntimeExpressionRequest -> Either Diagnostic RuntimeScopeRequest
+runtimeExpressionScopeRequest request = do
+  prepared <- prepareRuntimeScope (runtimeExpression request)
+  pure
+    RuntimeScopeRequest
+      { runtimeScopeEvaluationMode = EvaluateEntryModule,
+        runtimeScopeInitialEnvironment = Map.empty,
+        runtimeScope = prepared
+      }
 
 -- Public scope entry points receive an opaque map whose lazy cells may include
 -- recursive blackholes. They cannot safely recover provenance by inspecting
@@ -531,8 +531,8 @@ prepareRuntimeCells storage initialEnv preparedScope =
 
     extendPrefixEnvironment env (statementIndex, statement) =
       case statement of
-        SLet node _ _ ->
-          LazyMap.insert (resolvedBinderReference (statementResolution (coreNodeFacts node))) (bindingCellAt statementIndex) env
+        SLet node name _ ->
+          LazyMap.insert (resolvedBinderReference (statementResolution (coreNodeFacts node)) name) (bindingCellAt statementIndex) env
         SData _ _ _ constructors ->
           insertDataConstructors (modulePathForStatement statementIndex) constructors env
         SClass _ capabilityName _ methods ->
@@ -641,19 +641,14 @@ prepareRuntimeCells storage initialEnv preparedScope =
 
     bindingEnv :: Int -> RuntimeEnv
     bindingEnv statementIndex =
-      case functionSelfReferenceCell statementIndex of
-        Just selfCell ->
-          LazyMap.insert
-            (scopePlanBindingReferenceAt scopePlan statementIndex)
-            selfCell
-            peerVisibleEnv
-        Nothing
-          | recursiveBindingNeedsSelf statementIndex ->
-              LazyMap.insert
-                (scopePlanBindingReferenceAt scopePlan statementIndex)
-                (bindingCellAt statementIndex)
-                peerVisibleEnv
-          | otherwise -> peerVisibleEnv
+      case scopePlanBindingReferenceAt scopePlan statementIndex of
+        Nothing -> peerVisibleEnv
+        Just reference -> case functionSelfReferenceCell statementIndex of
+          Just selfCell -> LazyMap.insert reference selfCell peerVisibleEnv
+          Nothing
+            | recursiveBindingNeedsSelf statementIndex ->
+                LazyMap.insert reference (bindingCellAt statementIndex) peerVisibleEnv
+            | otherwise -> peerVisibleEnv
       where
         peerVisibleEnv = recursivePeerEnv statementIndex (envBefore statementIndex)
 
@@ -668,7 +663,7 @@ prepareRuntimeCells storage initialEnv preparedScope =
     recursiveFunctionNeedsSelf :: Int -> Bool
     recursiveFunctionNeedsSelf statementIndex =
       scopePlanIsSelfRecursiveFunction scopePlan statementIndex
-        && Map.notMember (scopePlanBindingReferenceAt scopePlan statementIndex) (envBefore statementIndex)
+        && maybe False (`Map.notMember` envBefore statementIndex) (scopePlanBindingReferenceAt scopePlan statementIndex)
 
     recursiveBindingNeedsSelf :: Int -> Bool
     recursiveBindingNeedsSelf statementIndex =
@@ -690,14 +685,15 @@ prepareRuntimeCells storage initialEnv preparedScope =
     -- self-referential scope during evaluation.
     attachSelfRecursiveBinding :: Int -> RuntimeValue -> RuntimeValue
     attachSelfRecursiveBinding statementIndex runtimeValue
-      | recursiveFunctionNeedsSelf statementIndex =
+      | recursiveFunctionNeedsSelf statementIndex,
+        Just reference <- scopePlanBindingReferenceAt scopePlan statementIndex =
           case runtimeValue of
             VClosure closure ->
               VClosure
                 closure
                   { runtimeClosureEnvironment =
                       LazyMap.insert
-                        (scopePlanBindingReferenceAt scopePlan statementIndex)
+                        reference
                         (bindingCellAt statementIndex)
                         (runtimeClosureEnvironment closure)
                   }
@@ -816,11 +812,11 @@ prepareRuntimeCells storage initialEnv preparedScope =
     terminalBlockLocalAliasExpr :: [Statement 'Analyzed] -> Maybe ([Statement 'Analyzed], Expr 'Analyzed)
     terminalBlockLocalAliasExpr blockStatements =
       case reverse blockStatements of
-        SExpr _ (EVar aliasNode _) : precedingStatements ->
+        SExpr _ (EVar aliasNode aliasName) : precedingStatements ->
           let prefixStatements = reverse precedingStatements
            in fmap
                 (prefixStatements,)
-                (followLocalAlias Set.empty (resolvedValueReference (expressionResolution (coreNodeFacts aliasNode))) (localAliasBindings prefixStatements))
+                (followLocalAlias Set.empty (resolvedValueReference (expressionResolution (coreNodeFacts aliasNode)) aliasName) (localAliasBindings prefixStatements))
         _ -> Nothing
 
     localAliasBindings :: [Statement 'Analyzed] -> Map ResolvedReference (Expr 'Analyzed)
@@ -830,8 +826,8 @@ prepareRuntimeCells storage initialEnv preparedScope =
         collectBinding :: Map ResolvedReference (Expr 'Analyzed) -> Statement 'Analyzed -> Map ResolvedReference (Expr 'Analyzed)
         collectBinding bindings statement =
           case statement of
-            SLet node _ bindingExpr ->
-              Map.insert (resolvedBinderReference (statementResolution (coreNodeFacts node))) bindingExpr bindings
+            SLet node name bindingExpr ->
+              Map.insert (resolvedBinderReference (statementResolution (coreNodeFacts node)) name) bindingExpr bindings
             _ -> bindings
 
     followLocalAlias :: Set ResolvedReference -> ResolvedReference -> Map ResolvedReference (Expr 'Analyzed) -> Maybe (Expr 'Analyzed)
@@ -841,8 +837,8 @@ prepareRuntimeCells storage initialEnv preparedScope =
         else case Map.lookup aliasName localBindings of
           Just aliasExpr ->
             case peelSingleExprBlock aliasExpr of
-              EVar nextAliasNode _
-                | let nextAliasName = resolvedValueReference (expressionResolution (coreNodeFacts nextAliasNode)),
+              EVar nextAliasNode nextName
+                | let nextAliasName = resolvedValueReference (expressionResolution (coreNodeFacts nextAliasNode)) nextName,
                   Map.member nextAliasName localBindings ->
                     followLocalAlias (Set.insert aliasName visitedNames) nextAliasName localBindings
               _ -> Just aliasExpr
@@ -867,10 +863,10 @@ prepareRuntimeCells storage initialEnv preparedScope =
         insertPeer envAcc peerIndex
           | peerIndex == statementIndex = envAcc
           | otherwise =
-              case scopePlanBindingNameAt scopePlan peerIndex of
-                Just _
-                  | Map.notMember (scopePlanBindingReferenceAt scopePlan peerIndex) envBeforeValue ->
-                      LazyMap.insert (scopePlanBindingReferenceAt scopePlan peerIndex) (bindingCellAt peerIndex) envAcc
+              case scopePlanBindingReferenceAt scopePlan peerIndex of
+                Just reference
+                  | Map.notMember reference envBeforeValue ->
+                      LazyMap.insert reference (bindingCellAt peerIndex) envAcc
                 _ ->
                   envAcc
 
@@ -879,7 +875,7 @@ prepareRuntimeCells storage initialEnv preparedScope =
       foldl' insertConstructor env constructors
       where
         insertConstructor envAcc (DataConstructor node constructorName _) =
-          Map.insert (resolvedBinderReference (statementResolution (coreNodeFacts node))) (constructorValue node constructorName) envAcc
+          Map.insert (resolvedBinderReference (statementResolution (coreNodeFacts node)) constructorName) (constructorValue node constructorName) envAcc
         constructorValue node constructorName =
           case Map.elems (statementGeneralizedSchemes (coreNodeFacts node)) of
             [scheme]
@@ -903,7 +899,7 @@ prepareRuntimeCells storage initialEnv preparedScope =
       where
         insertMethod envAcc (ClassMethodSignature node methodName _) =
           let methodKey = renderCapabilityMethodKey (qualifiedMethodKey capabilityName methodName)
-              methodName' = resolvedValueReference (statementResolution (coreNodeFacts node))
+              methodName' = resolvedValueReference (statementResolution (coreNodeFacts node)) methodName
               methodValue = case statementDeclarationFact (coreNodeFacts node) of
                 MethodDeclaration _ signature ->
                   Right
@@ -927,14 +923,14 @@ prepareRuntimeCells storage initialEnv preparedScope =
             methodEnv = foldl' insertCandidate env methodCandidates
             methodExprsByKey =
               Map.fromList
-                [ (resolvedValueReference (statementResolution (coreNodeFacts methodNode)), methodExpr)
-                | ImplMethod methodNode _ methodExpr <- methods
+                [ (resolvedValueReference (statementResolution (coreNodeFacts methodNode)) methodName, methodExpr)
+                | ImplMethod methodNode methodName methodExpr <- methods
                 ]
             methodCandidates =
               map
                 ( \(ImplMethod methodNode methodName methodExpr) ->
                     let methodKey = renderCapabilityMethodKey (qualifiedMethodKey capabilityName methodName)
-                        methodName' = resolvedValueReference (statementResolution (coreNodeFacts methodNode))
+                        methodName' = resolvedValueReference (statementResolution (coreNodeFacts methodNode)) methodName
                         evidence = runtimeEvidence methodModulePath (coreNodeId implementationNode) capabilityName methodName runtimeImplTarget
                      in ( methodName',
                           methodKey,
@@ -1011,18 +1007,19 @@ prepareRuntimeCells storage initialEnv preparedScope =
                   Right False
             blockExpression@(EBlock _ blockStatements) ->
               case terminalBlockLocalAliasExpr blockStatements of
-                Just (prefixStatements, aliasExpr) ->
+                Just (prefixStatements, aliasExpr) -> do
+                  prepared <- prepareRuntimeScope blockExpression
                   selectedQualifiedMethodAliasTarget
                     methodModulePath
                     methodExprsByKey
                     visitedMethodKeys
-                    (blockLocalAliasEnv env (selectPreparedScope [0 .. length prefixStatements - 1] (prepareAnalyzedScope blockExpression)))
+                    (blockLocalAliasEnv env (selectPreparedScope [0 .. length prefixStatements - 1] prepared))
                     methodKey
                     aliasExpr
                 Nothing ->
                   Right False
-            EVar aliasNode _ ->
-              let aliasReference = resolvedValueReference (expressionResolution (coreNodeFacts aliasNode))
+            EVar aliasNode aliasName ->
+              let aliasReference = resolvedValueReference (expressionResolution (coreNodeFacts aliasNode)) aliasName
                in case Map.lookup aliasReference methodExprsByKey of
                     Just aliasExpr ->
                       selectedQualifiedMethodAliasTarget methodModulePath methodExprsByKey nextVisitedMethodKeys env aliasReference aliasExpr
@@ -1284,7 +1281,7 @@ stepEvaluationMachine observeStatistics observeProfile host machine =
           | Just (BuiltinOperatorReference symbol) <- resolvedNodeReference (expressionResolution (coreNodeFacts node)) ->
               continueWith (ReturnRuntimeValue (VOperator symbol [])) expressionMachine
         EVar node name ->
-          case Map.lookup (resolvedValueReference (expressionResolution (coreNodeFacts node))) (evaluationEnvironment context) of
+          case Map.lookup (resolvedValueReference (expressionResolution (coreNodeFacts node)) name) (evaluationEnvironment context) of
             Just runtimeCell -> do
               runtimeValue <- liftRuntimeResult runtimeCell
               forceReference runtimeValue
@@ -1319,7 +1316,7 @@ stepEvaluationMachine observeStatistics observeProfile host machine =
                           runtimeClosureEnvironmentMayReachHostCells =
                             capturedEnvironmentMayReachHostCells,
                           runtimeClosureParameter = parameterName,
-                          runtimeClosureParameterReference = resolvedBinderReference (expressionResolution (coreNodeFacts node)),
+                          runtimeClosureParameterReference = resolvedBinderReference (expressionResolution (coreNodeFacts node)) parameterName,
                           runtimeClosureBody = bodyExpr,
                           runtimeClosureTypeHint = Nothing,
                           runtimeClosureModulePath = evaluationModulePath context,
@@ -1357,8 +1354,8 @@ stepEvaluationMachine observeStatistics observeProfile host machine =
             (EvaluateExpression context functionExpr)
         ETypeApplication _ functionExpr _ _ ->
           case functionExpr of
-            EVar node _ ->
-              case Map.lookup (resolvedValueReference (expressionResolution (coreNodeFacts node))) (evaluationEnvironment context) of
+            EVar node name ->
+              case Map.lookup (resolvedValueReference (expressionResolution (coreNodeFacts node)) name) (evaluationEnvironment context) of
                 Just runtimeCell -> do
                   unforcedValue <- liftRuntimeResult runtimeCell
                   case unforcedValue of
@@ -1385,8 +1382,9 @@ stepEvaluationMachine observeStatistics observeProfile host machine =
           suspendEvaluation expressionMachine (EvaluateLeftSection operatorSymbol) (EvaluateExpression context leftExpr)
         ESectionRight _ operatorSymbol rightExpr ->
           suspendEvaluation expressionMachine (EvaluateRightSection operatorSymbol) (EvaluateExpression context rightExpr)
-        EBlock _ statements ->
-          stepBlock expressionMachine context (prepareAnalyzedScope expression) statements
+        EBlock _ statements -> do
+          prepared <- liftRuntimeResult (prepareRuntimeScope expression)
+          stepBlock expressionMachine context prepared statements
       where
         modulePath = evaluationModulePath context
         facts = coreNodeFacts (expressionNode expression)

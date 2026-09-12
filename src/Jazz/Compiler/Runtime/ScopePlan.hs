@@ -13,7 +13,6 @@ module Jazz.Compiler.Runtime.ScopePlan
     scopePlanRecursiveGroupAt,
     scopePlanIsRecursiveBinding,
     scopePlanIsSelfRecursiveFunction,
-    scopePlanBindingNameAt,
     scopePlanBindingIndex,
     scopePlanBindingReferenceAt,
     scopePlanIsHostRecursiveBinding,
@@ -63,7 +62,6 @@ data RuntimeScopePlan = RuntimeScopePlan
     runtimeScopePlanModulePathsByStatement :: IntMap (Maybe SourceUnitOwner),
     runtimeScopePlanRecursiveGroups :: IntMap [Int],
     runtimeScopePlanSelfRecursiveFunctions :: IntSet,
-    runtimeScopePlanBindingNames :: IntMap ResolvedName,
     runtimeScopePlanBindingIndices :: Map.Map CoreBinderId Int,
     runtimeScopePlanHostRecursiveBindings :: IntSet
   }
@@ -78,7 +76,6 @@ buildRuntimeScopePlan preparedScope =
       runtimeScopePlanModulePathsByStatement = modulePathsByStatement,
       runtimeScopePlanRecursiveGroups = recursiveGroups,
       runtimeScopePlanSelfRecursiveFunctions = selfRecursiveFunctions,
-      runtimeScopePlanBindingNames = bindingNames,
       runtimeScopePlanBindingIndices = Map.fromList [(binder, index) | (index, binder) <- Map.toList (resolvedScopeBinderIds lexicalFacts)],
       runtimeScopePlanHostRecursiveBindings = hostRecursiveBindings
     }
@@ -89,7 +86,6 @@ buildRuntimeScopePlan preparedScope =
     lexicalFacts = preparedRecursiveScopeFacts preparedScope
     recursiveGroups = IntMap.fromDistinctAscList (Map.toAscList (resolvedScopeRecursiveGroups lexicalFacts))
     selfRecursiveFunctions = IntSet.fromList (Set.toList (resolvedScopeSelfRecursiveFunctions lexicalFacts))
-    bindingNames = IntMap.fromDistinctAscList (Map.toAscList (resolvedScopeBindingNames lexicalFacts))
     modulePathsByStatement =
       IntMap.fromDistinctAscList
         ( zip
@@ -131,10 +127,6 @@ scopePlanIsRecursiveBinding plan statementIndex =
 scopePlanIsSelfRecursiveFunction :: RuntimeScopePlan -> Int -> Bool
 scopePlanIsSelfRecursiveFunction plan statementIndex =
   IntSet.member statementIndex (runtimeScopePlanSelfRecursiveFunctions plan)
-
-scopePlanBindingNameAt :: RuntimeScopePlan -> Int -> Maybe ResolvedName
-scopePlanBindingNameAt plan statementIndex =
-  IntMap.lookup statementIndex (runtimeScopePlanBindingNames plan)
 
 scopePlanBindingIndex :: RuntimeScopePlan -> CoreBinderId -> Maybe Int
 scopePlanBindingIndex plan binder = Map.lookup binder (runtimeScopePlanBindingIndices plan)
@@ -216,7 +208,7 @@ scopeDefinitelyNotFunctionValue statements =
     SExpr _ expr : _ -> exprDefinitelyNotFunctionValue expr
     _ -> False
 
-scopePlanBindingReferenceAt :: RuntimeScopePlan -> Int -> ResolvedReference
+scopePlanBindingReferenceAt :: RuntimeScopePlan -> Int -> Maybe ResolvedReference
 scopePlanBindingReferenceAt plan index = case scopePlanStatementAt plan index of
-  Just (SLet node _ _) -> resolvedBinderReference (statementResolution (coreNodeFacts node))
-  _ -> error "expected a scope binding declaration"
+  Just (SLet node name _) -> Just (resolvedBinderReference (statementResolution (coreNodeFacts node)) name)
+  _ -> Nothing

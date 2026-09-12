@@ -5,11 +5,9 @@
 -- | A set with deterministic first-occurrence order.
 module Jazz.Compiler.StableSet
   ( StableSet,
-    stableSetDelete,
     stableSetDifference,
     stableSetEmpty,
     stableSetFromPreferred,
-    stableSetFromSet,
     stableSetInsert,
     stableSetMembershipSet,
     stableSetOrderedList,
@@ -49,18 +47,11 @@ stableSetInsert value stable@(StableSet members values)
   | Set.member value members = stable
   | otherwise = StableSet (Set.insert value members) (values Seq.|> value)
 
-stableSetDelete :: (Ord a) => a -> StableSet a -> StableSet a
-stableSetDelete value (StableSet members values) =
-  StableSet (Set.delete value members) (Seq.filter (/= value) values)
-
 stableSetDifference :: (Ord a) => StableSet a -> Set a -> StableSet a
 stableSetDifference (StableSet members values) removed =
   StableSet
     (Set.difference members removed)
     (Seq.filter (`Set.notMember` removed) values)
-
-stableSetFromSet :: Set a -> StableSet a
-stableSetFromSet members = StableSet members (Seq.fromList (Set.toList members))
 
 stableSetFromPreferred :: (Ord a) => [a] -> Set a -> StableSet a
 stableSetFromPreferred preferred members =

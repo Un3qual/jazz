@@ -53,17 +53,15 @@ parseAndLowerStandaloneSource source = do
 -- The synthetic wrapper is only needed by callers supplying a non-block AST.
 standaloneSourceModule :: Expr 'Lowered -> CoreModule 'Lowered
 standaloneSourceModule expression =
-  case reindexLoweredExpr block of
-    EBlock node statements ->
-      CoreModule
-        { coreModuleIdentity = moduleIdentity nominalPath standaloneSourceFile,
-          coreModuleBodyNode = node,
-          coreModuleImports = [],
-          coreModuleStatements = statements,
-          coreModuleFacts = DeclaredModuleFacts Nothing
-        }
-    _ -> error "standalone source wrapper lost its block"
+  CoreModule
+    { coreModuleIdentity = moduleIdentity nominalPath standaloneSourceFile,
+      coreModuleBodyNode = expressionNode indexedBlock,
+      coreModuleImports = [],
+      coreModuleStatements = scopeStatements indexedBlock,
+      coreModuleFacts = DeclaredModuleFacts Nothing
+    }
   where
+    indexedBlock = reindexLoweredExpr block
     block = case expression of
       EBlock {} -> expression
       _ ->

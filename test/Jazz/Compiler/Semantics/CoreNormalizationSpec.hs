@@ -97,7 +97,7 @@ testDeterministicNodeIdentities =
     let firstIds = canonicalNodeIds (lowerSurfaceExpr surface)
         secondIds = canonicalNodeIds (lowerSurfaceExpr surface)
     assertEqual "repeat lowering" firstIds secondIds
-    assertEqual "strict source pre-order" [CoreNodeId 0 .. CoreNodeId (length firstIds - 1)] firstIds
+    assertEqual "strict source pre-order" (map CoreNodeId [0 .. length firstIds - 1]) firstIds
     assertEqual "no duplicate IDs" (length firstIds) (length (nub firstIds))
 
 testCompleteCanonicalSpans :: IO ()

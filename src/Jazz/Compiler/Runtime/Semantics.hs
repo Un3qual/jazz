@@ -427,9 +427,9 @@ matchPattern :: Maybe SourceUnitOwner -> RuntimeValue -> Pattern 'Analyzed -> Ma
 matchPattern currentModulePath scrutineeValue casePattern =
   case casePattern of
     PWildcard _ -> Just Map.empty
-    PVariable node _ ->
+    PVariable node name ->
       Just
-        (Map.singleton (resolvedBinderReference (patternResolution (coreNodeFacts node))) (Right scrutineeValue))
+        (Map.singleton (resolvedBinderReference (patternResolution (coreNodeFacts node)) name) (Right scrutineeValue))
     PLiteral _ literal
       | runtimeValueMatchesLiteral scrutineeValue literal ->
           Just Map.empty
@@ -462,9 +462,9 @@ matchPattern currentModulePath scrutineeValue casePattern =
           | length elements == length patterns ->
               matchPatternList currentModulePath elements patterns
         _ -> Nothing
-    PAs node _ nestedPattern -> do
+    PAs node name nestedPattern -> do
       patternBindings <- matchPattern currentModulePath scrutineeValue nestedPattern
-      Just (Map.insert (resolvedBinderReference (patternResolution (coreNodeFacts node))) (Right scrutineeValue) patternBindings)
+      Just (Map.insert (resolvedBinderReference (patternResolution (coreNodeFacts node)) name) (Right scrutineeValue) patternBindings)
     POr _ alternatives ->
       matchFirstAlternative currentModulePath scrutineeValue alternatives
 

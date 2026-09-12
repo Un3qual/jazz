@@ -33,7 +33,6 @@ module Jazz.Compiler.TypeInference.Diagnostics
     mkListElementTypeMismatchError,
     mkListPatternTypeMismatchError,
     mkMissingClassMethodError,
-    mkMissingConstructorTypeParameterBindingError,
     mkMissingExplicitConstraintClassError,
     mkMissingExplicitConstraintImplFactError,
     mkMissingImplMethodBodyError,
@@ -349,9 +348,6 @@ mkUnknownConstructorPayloadTypeError name = mkErrorDiagnostic E2013 CompilationO
 mkInvalidConstructorPayloadTypeError :: Text -> Diagnostic
 mkInvalidConstructorPayloadTypeError detail =
   mkErrorDiagnostic E2013 CompilationOrigin ("invalid constructor payload type: " <> detail)
-
-mkMissingConstructorTypeParameterBindingError :: Text -> Diagnostic
-mkMissingConstructorTypeParameterBindingError name = mkErrorDiagnostic E2013 CompilationOrigin ("internal constructor scheme error: missing binding for type parameter '" <> name <> "'")
 
 mkMissingExplicitConstraintClassError :: CapabilityId -> Diagnostic
 mkMissingExplicitConstraintClassError capability = mkErrorDiagnostic E2009 CompilationOrigin ("missing class declaration '" <> name <> "'")

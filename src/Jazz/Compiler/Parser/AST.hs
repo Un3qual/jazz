@@ -62,7 +62,7 @@ data SurfaceName = SurfaceName
     surfaceNameSpan :: SourceSpan,
     surfaceNameQualifierSpan :: Maybe SourceSpan
   }
-  deriving stock (Eq, Generic, Ord, Show)
+  deriving stock (Eq, Generic, Show)
   deriving anyclass (NFData)
 
 instance IdentifierLike SurfaceName where

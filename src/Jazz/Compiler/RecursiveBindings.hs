@@ -10,7 +10,6 @@ module Jazz.Compiler.RecursiveBindings
   ( PreparedRecursiveScope,
     RecursiveScopeFacts,
     buildRecursiveScopeFacts,
-    closureCaptureCandidatesWithBound,
     collectBindingNames,
     freeVarsExprWithBound,
     freeVarsScopeWithBound,
@@ -23,7 +22,6 @@ module Jazz.Compiler.RecursiveBindings
     preparedRecursiveScopeFacts,
     preparedRecursiveScopeBindingNames,
     preparedRecursiveScopeGroups,
-    preparedRecursiveScopeOuterBindingNames,
     preparedRecursiveScopeStatements,
     recursiveScopeBindingNames,
     recursiveScopeGroups,
@@ -56,8 +54,9 @@ import Jazz.Compiler.AST
     ImplMethod (..),
     Pattern (..),
     Statement (..),
+    expressionNode,
   )
-import Jazz.Compiler.CoreIdentity (CoreBinderId, ResolvedNodeFacts (..), ResolvedReference (..), ResolvedScopeFacts (..))
+import Jazz.Compiler.CoreIdentity (CoreBinderId, CoreNodeId, ResolvedNodeFacts (..), ResolvedReference (..), ResolvedScopeFacts (..))
 import Jazz.Compiler.Name (Name (..), ResolvedName, ResolvedNameOrigin (..), ResolvedUserName (..), operatorBindingName)
 import Jazz.Compiler.Parser.Operator
   ( isBuiltinOperatorSymbol,
@@ -65,7 +64,7 @@ import Jazz.Compiler.Parser.Operator
 import Jazz.Compiler.Pattern
   ( extendBoundWithPattern,
   )
-import Jazz.Compiler.SemanticFacts (ExpressionFacts (expressionResolution))
+import Jazz.Compiler.SemanticFacts (ExpressionFacts (expressionResolution), SemanticFactInvariantFailure (..))
 import Jazz.Compiler.StableSet
   ( stableSetDifference,
     stableSetMembershipSet,
@@ -186,8 +185,7 @@ resolveLexicalScopes externalReferences externalNames = expression (Map.mapMaybe
         binderIndices = Map.fromList [(binder, index) | (index, (bindingNode, _)) <- Map.toList definitions, Just binder <- [resolvedNodeBinder (coreNodeFacts bindingNode)]]
         facts =
           ResolvedScopeFacts
-            { resolvedScopeOuterBindingNames = outerNames,
-              resolvedScopeBindingNames = recursiveScopeBindingNames recursion,
+            { resolvedScopeBindingNames = recursiveScopeBindingNames recursion,
               resolvedScopeBinderIds = Map.fromList [(index, binder) | (index, (bindingNode, _)) <- Map.toList definitions, Just binder <- [resolvedNodeBinder (coreNodeFacts bindingNode)]],
               resolvedScopeBindingReplacements = Map.fromList [(previousIndex, index) | (index, SLet bindingNode _ _) <- zip [0 ..] resolvedStatements, Just (LexicalReference previous) <- [resolvedNodeShadowedReference (coreNodeFacts bindingNode)], Just previousIndex <- [Map.lookup previous binderIndices]],
               resolvedScopeRecursiveGroups = groups,
@@ -213,8 +211,8 @@ resolveLexicalScopes externalReferences externalNames = expression (Map.mapMaybe
              in (visible, SImpl statementNode capability targets [ImplMethod (shadowed visible name methodNode) name (expression methodVisible body) | ImplMethod methodNode name body <- methods])
           _ -> (visible, value)
         insertPeer visible index = case Map.lookup index definitions of
-          Just (bindingNode, name) -> insertBinder bindingNode name visible
-          Nothing -> visible
+          Just (bindingNode, name) | Map.notMember name visible -> insertBinder bindingNode name visible
+          _ -> visible
 
 -- | Compute capture candidates bottom-up once, while resolution owns lexical
 -- identity. Removing declaration IDs also handles forward peers and rebinding
@@ -323,17 +321,17 @@ buildRecursiveScopeFacts outerBindingNames indexedStatements =
 -- visibility using a type or value environment.
 data PreparedRecursiveScope phase = PreparedRecursiveScope ![Statement phase] !ResolvedScopeFacts
 
-prepareResolvedScope :: CoreNode 'Resolved 'ExpressionSort -> [Statement 'Resolved] -> PreparedRecursiveScope 'Resolved
-prepareResolvedScope node = prepareScope (coreNodeFacts node)
+prepareResolvedScope :: CoreNode 'Resolved 'ExpressionSort -> [Statement 'Resolved] -> Either SemanticFactInvariantFailure (PreparedRecursiveScope 'Resolved)
+prepareResolvedScope node = prepareScope (coreNodeId node) (coreNodeFacts node)
 
-prepareAnalyzedScope :: Expr 'Analyzed -> PreparedRecursiveScope 'Analyzed
-prepareAnalyzedScope (EBlock node statements) = prepareScope (expressionResolution (coreNodeFacts node)) statements
-prepareAnalyzedScope _ = error "expected analyzed block"
+prepareAnalyzedScope :: Expr 'Analyzed -> Either SemanticFactInvariantFailure (PreparedRecursiveScope 'Analyzed)
+prepareAnalyzedScope (EBlock node statements) = prepareScope (coreNodeId node) (expressionResolution (coreNodeFacts node)) statements
+prepareAnalyzedScope expression = Left (AnalyzedModuleRootNotBlock (coreNodeId (expressionNode expression)))
 
-prepareScope :: ResolvedNodeFacts -> [Statement phase] -> PreparedRecursiveScope phase
-prepareScope facts statements = case resolvedNodeScope facts of
-  Just scope -> PreparedRecursiveScope statements scope
-  Nothing -> error "block has no resolved lexical facts"
+prepareScope :: CoreNodeId -> ResolvedNodeFacts -> [Statement phase] -> Either SemanticFactInvariantFailure (PreparedRecursiveScope phase)
+prepareScope nodeId facts statements = case resolvedNodeScope facts of
+  Just scope -> Right (PreparedRecursiveScope statements scope)
+  Nothing -> Left (MissingScopeFacts nodeId)
 
 -- | Restrict a scope to an ordered statement selection, renumbering its local
 -- indices. Declaration IDs and the resolver's visibility decisions survive.
@@ -342,8 +340,9 @@ selectPreparedScope indices (PreparedRecursiveScope statements facts) =
   PreparedRecursiveScope selectedStatements selectedFacts
   where
     byIndex = Map.fromList (zip [0 ..] statements)
-    selectedStatements = map (byIndex Map.!) indices
-    renumber = Map.fromList (zip indices [0 ..])
+    selected = [(index, statement) | index <- indices, Just statement <- [Map.lookup index byIndex]]
+    selectedStatements = map snd selected
+    renumber = Map.fromList (zip (map fst selected) [0 ..])
     project :: Map Int a -> Map Int a
     project values = Map.fromList [(new, value) | (old, new) <- Map.toList renumber, Just value <- [Map.lookup old values]]
     projectSet values = Set.fromList [new | old <- Set.toList values, Just new <- [Map.lookup old renumber]]
@@ -363,9 +362,6 @@ preparedRecursiveScopeStatements (PreparedRecursiveScope statements _) = stateme
 preparedRecursiveScopeFacts :: PreparedRecursiveScope phase -> ResolvedScopeFacts
 preparedRecursiveScopeFacts (PreparedRecursiveScope _ facts) = facts
 
-preparedRecursiveScopeOuterBindingNames :: PreparedRecursiveScope phase -> Set ResolvedName
-preparedRecursiveScopeOuterBindingNames = resolvedScopeOuterBindingNames . preparedRecursiveScopeFacts
-
 preparedRecursiveScopeBindingNames :: PreparedRecursiveScope phase -> Map Int ResolvedName
 preparedRecursiveScopeBindingNames = resolvedScopeBindingNames . preparedRecursiveScopeFacts
 
@@ -378,15 +374,6 @@ freeVarsExprWithBound = freeVarsExprWithVisibleBindings Set.empty
 freeVarsExprWithVisibleBindings :: (Ord (CoreUserNameAt phase)) => Set (CoreNameAt phase) -> Set (CoreNameAt phase) -> Expr phase -> Set (CoreNameAt phase)
 freeVarsExprWithVisibleBindings visibleBindingNames =
   freeVarsExprUsing (freeVarsScopeWithVisibleBindings visibleBindingNames)
-
--- | Names that may need to come from the environment when a closure is
--- created. Unlike recursive-binding analysis, an ordinary binding is not in
--- scope in its own initializer: a same-name reference snapshots a previously
--- visible value. Recursive cells supplied by scope evaluation are harmless
--- candidates here because restricting an environment drops absent names.
-closureCaptureCandidatesWithBound :: (Ord (CoreUserNameAt phase)) => Set (CoreNameAt phase) -> Expr phase -> Set (CoreNameAt phase)
-closureCaptureCandidatesWithBound =
-  freeVarsExprUsing closureCaptureCandidatesScopeWithBound
 
 freeVarsExprUsing :: (Ord (CoreUserNameAt phase)) => (Set (CoreNameAt phase) -> [Statement phase] -> Set (CoreNameAt phase)) -> Set (CoreNameAt phase) -> Expr phase -> Set (CoreNameAt phase)
 freeVarsExprUsing scopeFreeVars bound expr =
@@ -452,31 +439,6 @@ operatorBindingFreeVar bound operatorSymbol
   | otherwise = Set.singleton bindingName
   where
     bindingName = operatorBindingName operatorSymbol
-
-closureCaptureCandidatesScopeWithBound :: (Ord (CoreUserNameAt phase)) => Set (CoreNameAt phase) -> [Statement phase] -> Set (CoreNameAt phase)
-closureCaptureCandidatesScopeWithBound initialBound statements =
-  snd (foldl' step (initialBound, Set.empty) statements)
-  where
-    step (boundNames, captureCandidates) statement =
-      case statement of
-        SSignature {} -> (boundNames, captureCandidates)
-        SModule {} -> (boundNames, captureCandidates)
-        SImport {} -> (boundNames, captureCandidates)
-        SClass {} -> (boundNames, captureCandidates)
-        SImpl {} -> (boundNames, captureCandidates)
-        SData {} -> (boundNames, captureCandidates)
-        SExpr _ expr ->
-          ( boundNames,
-            Set.union
-              captureCandidates
-              (closureCaptureCandidatesWithBound boundNames expr)
-          )
-        SLet _ bindingName valueExpr ->
-          ( Set.insert bindingName boundNames,
-            Set.union
-              captureCandidates
-              (closureCaptureCandidatesWithBound boundNames valueExpr)
-          )
 
 freeVarsScopeWithBound :: (Ord (CoreUserNameAt phase)) => Set (CoreNameAt phase) -> [Statement phase] -> Set (CoreNameAt phase)
 freeVarsScopeWithBound = freeVarsScopeWithVisibleBindings Set.empty

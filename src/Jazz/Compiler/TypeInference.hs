@@ -73,7 +73,7 @@ import Jazz.Compiler.RecursiveBindings
 import Jazz.Compiler.SemanticDeclarations (DeclarationVariable)
 import Jazz.Compiler.SemanticFacts
   ( BinaryOperation (..),
-    SemanticFactInvariantFailure (MissingExpressionFacts),
+    SemanticFactInvariantFailure (MissingExpressionFacts, MissingScopeFacts),
   )
 import Jazz.Compiler.TypeInference.Analyzed (ExpressionDecision (..), draftDecidedExpressionNode, draftExpressionNode, draftOperationNode, noExpressionDecision, refineListPrependDraft)
 import Jazz.Compiler.TypeInference.Capabilities
@@ -168,20 +168,20 @@ inferExpressionWork :: InferenceInputs -> Expr 'Resolved -> (CheckedExpr, InferS
 inferExpressionWork inputs expr =
   let (importedEnvironment, initialState) = importBindingTypes (inferenceImportedTypes inputs) (initialStateForInference inputs)
    in case expr of
-        EBlock node statements ->
-          let preparedScope =
-                prepareResolvedScope node statements
-              (blockCheck, rawBlockState, _) =
-                inferScopeTypeWithModeAndForwardBindingsUsingPreparedScope
-                  preparedScope
-                  inferExprTypeWithMode
-                  InferenceOnly
-                  importedEnvironment
-                  initialState
-              blockResult = checkedScopeType blockCheck
-              blockType = fromMaybe unitType blockResult
-              blockState = rawBlockState
-           in (CheckedExpr blockResult (EBlock <$> draftExpressionNode (Just blockType) expr <*> checkedScopeTree blockCheck), blockState, InferencePreparedScope expr preparedScope)
+        EBlock node statements
+          | Right preparedScope <- prepareResolvedScope node statements ->
+              let (blockCheck, rawBlockState, _) =
+                    inferScopeTypeWithModeAndForwardBindingsUsingPreparedScope
+                      preparedScope
+                      inferExprTypeWithMode
+                      InferenceOnly
+                      importedEnvironment
+                      initialState
+                  blockResult = checkedScopeType blockCheck
+                  blockType = fromMaybe unitType blockResult
+                  blockState = rawBlockState
+               in (CheckedExpr blockResult (EBlock <$> draftExpressionNode (Just blockType) expr <*> checkedScopeTree blockCheck), blockState, InferencePreparedScope expr preparedScope)
+        EBlock node _ -> (CheckedExpr Nothing (rejectedDraft (MissingScopeFacts (coreNodeId node))), initialState, InferenceExpression expr)
         _ ->
           let (result, resultState) =
                 inferExprTypeDetailed
@@ -273,11 +273,13 @@ instantiateEnvBinding binding state =
 
 inferExprTypeWithMode :: InferenceMode -> TypeEnv -> InferState -> Expr 'Resolved -> (CheckedExpr, InferState)
 inferExprTypeWithMode mode env state expr = case expr of
-  EBlock node statements ->
-    let (scope, inferredState) = inferNestedScopeTypeWithMode inferExprTypeWithMode mode env state (prepareResolvedScope node statements)
-        result = checkedScopeType scope
-        finalState = inferredState
-     in (CheckedExpr result (EBlock <$> draftExpressionNode result expr <*> checkedScopeTree scope), finalState)
+  EBlock node statements
+    | Right prepared <- prepareResolvedScope node statements ->
+        let (scope, inferredState) = inferNestedScopeTypeWithMode inferExprTypeWithMode mode env state prepared
+            result = checkedScopeType scope
+            finalState = inferredState
+         in (CheckedExpr result (EBlock <$> draftExpressionNode result expr <*> checkedScopeTree scope), finalState)
+  EBlock node _ -> (CheckedExpr Nothing (rejectedDraft (MissingScopeFacts (coreNodeId node))), state)
   _ -> inferExprTypeDetailed env state expr
 
 -- Checking returns the draft subtree alongside its type. Legacy constructor
@@ -459,9 +461,9 @@ inferLeafExpression env state expr = case expr of
     let (result, evidence, finalState) = case Map.lookup (typeEnvReferenceKey (coreNodeFacts node) name) env of
           Just binding -> ordinary (instantiateEnvBinding binding state)
           Nothing | Just symbol <- resolvedOperatorSpelling (coreNodeFacts node) -> (Nothing, Nothing, addTypeError state (mkMissingOperatorBindingError symbol))
-          Nothing -> case instantiateBuiltinType (resolvedValueReference (coreNodeFacts node)) state of
+          Nothing -> case instantiateBuiltinType (resolvedValueReference (coreNodeFacts node) name) state of
             Just (builtinType, next) -> (Just builtinType, Nothing, next)
-            Nothing -> case instantiateQualifiedMethodType (resolvedValueReference (coreNodeFacts node)) state of
+            Nothing -> case instantiateQualifiedMethodType (resolvedValueReference (coreNodeFacts node) name) state of
               Just (selection, next) -> (selectedMethodType selection, selectedMethodEvidence selection, next)
               Nothing -> (Nothing, Nothing, state)
      in (result, evidence, annotateNewErrorsWithPrimarySpan (coreNodeSpan node) state finalState)

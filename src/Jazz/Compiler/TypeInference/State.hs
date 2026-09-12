@@ -121,18 +121,15 @@ data ExpressionEvidenceSeed = ExpressionEvidenceSeed
     evidenceSeedMethod :: MethodId,
     evidenceSeedType :: ExpressionType
   }
-  deriving (Eq, Show)
 
 data ExplicitInstantiationTarget
   = ExplicitBinderInstantiation ResolvedName
   | ExplicitQualifiedMethodInstantiation ResolvedName
-  deriving (Eq, Show)
 
 data ExplicitInstantiationSeed = ExplicitInstantiationSeed
   { explicitInstantiationSeedTarget :: ExplicitInstantiationTarget,
     explicitInstantiationSeedArguments :: NonEmpty ExpressionType
   }
-  deriving (Eq, Show)
 
 data InferState = InferState
   { inferSolver :: SolverState,

@@ -49,10 +49,10 @@ import Jazz.Compiler.SemanticFacts
     InstantiationTarget (..),
     SemanticFactInvariantFailure (..),
     SemanticInstantiation (..),
-    StatementDeclarationFact,
+    StatementDeclarationFact (..),
     StatementFacts (..),
   )
-import Jazz.Compiler.TypeInference.Draft (Attachment (..), CheckedExpr (..), Draft (..), finalizeDraft)
+import Jazz.Compiler.TypeInference.Draft (Attachment (..), CheckedExpr (..), Draft (..), finalizeDraft, rejectedDraft)
 import Jazz.Compiler.TypeInference.Solver (resolveType)
 import Jazz.Compiler.TypeInference.State
   ( ExplicitInstantiationSeed (..),
@@ -110,9 +110,17 @@ draftOperationNode operation = draftDecidedExpressionNode (noExpressionDecision 
 
 draftDecidedExpressionNode :: ExpressionDecision -> Maybe ExpressionType -> Expr 'Resolved -> Draft (CoreNode 'Analyzed 'ExpressionSort)
 draftDecidedExpressionNode decision result expression =
-  let node = expressionNode expression
-      payload = prepareExpressionNode decision (Just expression) result (coreNodeId node)
-   in payload `seq` Draft (\solved -> finalizeExpressionNode solved payload node)
+  case expression of
+    EVar _ _ | Nothing <- resolvedNodeReference resolution -> rejectedDraft (MissingExpressionFacts nodeId)
+    ELambda {} | Nothing <- resolvedNodeBinder resolution -> rejectedDraft (MissingExpressionFacts nodeId)
+    EBlock _ _ | Nothing <- resolvedNodeScope resolution -> rejectedDraft (MissingScopeFacts nodeId)
+    _ ->
+      let payload = prepareExpressionNode decision (Just expression) result nodeId
+       in payload `seq` Draft (\solved -> finalizeExpressionNode solved payload node)
+  where
+    node = expressionNode expression
+    nodeId = coreNodeId node
+    resolution = coreNodeFacts node
 
 draftCaseArmNode :: Maybe ExpressionType -> CoreNode 'Resolved 'ExpressionSort -> Draft (CoreNode 'Analyzed 'ExpressionSort)
 draftCaseArmNode result node =
@@ -286,6 +294,10 @@ mapExpressionFacts update expression =
     mapNode (CoreNode nodeId spanValue facts) = CoreNode nodeId spanValue (update facts)
 
 projectStatementBindings :: InferState -> CoreNodeId -> ResolvedNodeFacts -> [(ResolvedName, TypeBinding)] -> StatementDeclarationFact -> Attachment StatementFacts
+projectStatementBindings _ nodeId resolution _ (ValueDeclaration _)
+  | Nothing <- resolvedNodeBinder resolution = missing (MissingStatementBinder nodeId)
+projectStatementBindings _ nodeId resolution _ (MethodDeclaration _ _)
+  | Nothing <- resolvedNodeReference resolution = missing (MissingStatementFacts nodeId)
 projectStatementBindings state nodeId resolution bindings declaration =
   case bindings of
     [] -> pure (facts [] Map.empty)

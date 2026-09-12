@@ -29,6 +29,7 @@ module Jazz.Compiler.SemanticDeclarations
     bindingQuantifiedVariables,
     bindingVariableOrder,
     mapBindingTypes,
+    traverseBindingTypes,
     instantiateDeclarationType,
     concreteImplementationType,
     implementationTargetSignature,
@@ -40,6 +41,7 @@ where
 import Control.Applicative ((<|>))
 import Control.DeepSeq (NFData)
 import Data.Foldable (toList)
+import Data.Functor.Identity (Identity (..))
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
 import Data.Set (Set)
@@ -301,24 +303,27 @@ emptyScopeCapabilityFacts = mempty
 
 -- | Transform solved types and their binders together, preserving binder order.
 mapBindingTypes :: (Ord target) => (variable -> target) -> (SemanticType ResolvedName variable -> SemanticType ResolvedName target) -> SemanticBinding variable -> SemanticBinding target
-mapBindingTypes variable expression binding = case binding of
-  PlainTypeBinding value -> PlainTypeBinding (expression value)
-  SchemeTypeBinding scheme -> SchemeTypeBinding (mapScheme scheme)
-  OperatorAliasSchemeTypeBinding symbol scheme -> OperatorAliasSchemeTypeBinding symbol (mapScheme scheme)
-  BuiltinAliasTypeBinding symbol -> BuiltinAliasTypeBinding symbol
-  BuiltinOperatorAliasTypeBinding symbol -> BuiltinOperatorAliasTypeBinding symbol
-  ConstructorTypeBinding name parameters fields -> ConstructorTypeBinding name parameters fields
+mapBindingTypes variable expression = runIdentity . traverseBindingTypes (Identity . variable) (Identity . expression)
+
+-- | Allocate each parameter at its occurrence, including quantifiers and
+-- constraints, without assuming a separately collected variable inventory.
+traverseBindingTypes :: (Applicative f, Ord target) => (variable -> f target) -> (SemanticType ResolvedName variable -> f (SemanticType ResolvedName target)) -> SemanticBinding variable -> f (SemanticBinding target)
+traverseBindingTypes variable expression binding = case binding of
+  PlainTypeBinding value -> PlainTypeBinding <$> expression value
+  SchemeTypeBinding scheme -> SchemeTypeBinding <$> traverseScheme scheme
+  OperatorAliasSchemeTypeBinding symbol scheme -> OperatorAliasSchemeTypeBinding symbol <$> traverseScheme scheme
+  BuiltinAliasTypeBinding symbol -> pure (BuiltinAliasTypeBinding symbol)
+  BuiltinOperatorAliasTypeBinding symbol -> pure (BuiltinOperatorAliasTypeBinding symbol)
+  ConstructorTypeBinding name parameters fields -> pure (ConstructorTypeBinding name parameters fields)
   where
-    mapScheme scheme =
-      SemanticScheme
-        { schemeQuantifiedVariables =
-            let ordered = map variable (quantifiedVariablesOrderedList (schemeQuantifiedVariables scheme))
-             in quantifiedVariablesFromPreferred ordered (Set.fromList ordered),
-          schemeClassConstraints = map (fmap expression) (schemeClassConstraints scheme),
-          schemePrimitiveConstraints = map (fmap expression) (schemePrimitiveConstraints scheme),
-          schemeDefiningCapabilities = schemeDefiningCapabilities scheme,
-          schemeResultType = expression (schemeResultType scheme)
-        }
+    traverseScheme scheme =
+      SemanticScheme . quantified
+        <$> traverse variable (quantifiedVariablesOrderedList (schemeQuantifiedVariables scheme))
+        <*> traverse (traverse expression) (schemeClassConstraints scheme)
+        <*> traverse (traverse expression) (schemePrimitiveConstraints scheme)
+        <*> pure (schemeDefiningCapabilities scheme)
+        <*> expression (schemeResultType scheme)
+    quantified ordered = quantifiedVariablesFromPreferred ordered (Set.fromList ordered)
 
 bindingQuantifiedVariables :: SemanticBinding variable -> [variable]
 bindingQuantifiedVariables binding = case binding of

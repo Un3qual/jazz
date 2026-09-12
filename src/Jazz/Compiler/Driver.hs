@@ -28,7 +28,6 @@ module Jazz.Compiler.Driver
     runCompileErrors,
     runRuntimeErrors,
     runWarnings,
-    withAnalyzedAttachment,
     runSource,
     runSourceObserved,
     runSourceWithPrelude,
@@ -44,7 +43,6 @@ module Jazz.Compiler.Driver
 where
 
 import Control.Exception (evaluate)
-import qualified Data.List.NonEmpty as NonEmpty
 import Data.Text (Text)
 import qualified Data.Text as Text
 import Jazz.Compiler.AST
@@ -104,7 +102,6 @@ import Jazz.Compiler.RuntimeHost
   ( RuntimeHost,
     disabledRuntimeHost,
   )
-import Jazz.Compiler.SemanticFacts (SemanticFactInvariantFailure)
 import Jazz.Compiler.SourceProgram
   ( parseAndLowerStandaloneSource,
   )
@@ -523,18 +520,3 @@ buildAnalyzedProgram settings resolvedPrelude resolutionConfig entryModulePath s
           Left diagnostic -> forceDiagnostic diagnostic
           Right (_, diagnostics, maybeProgram) ->
             forceAnalyzedProgramResult (diagnostics, maybeProgram)
-
-standaloneAttachmentFailure :: NonEmpty.NonEmpty SemanticFactInvariantFailure -> String
-standaloneAttachmentFailure failures =
-  "standalone analyzed facts violated inference invariants: " <> show failures
-
--- | An analyzed-plan invariant failure never enters runtime evaluation, even
--- when the resolved interpreter would independently produce a diagnostic.
-withAnalyzedAttachment ::
-  Either (NonEmpty.NonEmpty SemanticFactInvariantFailure) plan ->
-  (plan -> IO result) ->
-  IO result
-withAnalyzedAttachment attachment continue =
-  case attachment of
-    Left failures -> fail (standaloneAttachmentFailure failures)
-    Right plan -> continue plan

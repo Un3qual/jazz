@@ -49,11 +49,9 @@ import Jazz.Compiler.Name
 import Jazz.Compiler.RecursiveBindings (publishResolvedCaptures, resolveLexicalScopes)
 import Jazz.Compiler.StableSet
   ( StableSet,
-    stableSetDelete,
     stableSetDifference,
     stableSetEmpty,
     stableSetFromPreferred,
-    stableSetFromSet,
     stableSetInsert,
     stableSetMembershipSet,
     stableSetOrderedList,
@@ -179,7 +177,7 @@ testStableSetMembershipAndOrder :: IO ()
 testStableSetMembershipAndOrder = do
   assertEqual "membership projection agrees with the ordered projection" expectedMembers (stableSetMembershipSet stable)
   assertEqual "first occurrences determine order" [3, 1, 2] (stableSetOrderedList stable)
-  assertEqual "from-set uses deterministic set order" [1, 2, 3] (stableSetOrderedList (stableSetFromSet expectedMembers))
+  assertEqual "from-set uses deterministic set order" [1, 2, 3] (stableSetOrderedList (stableSetFromPreferred [] expectedMembers))
   where
     expectedMembers :: Set.Set Int
     expectedMembers = Set.fromList [1, 2, 3]
@@ -205,7 +203,7 @@ testStableSetInsertion = do
 
 testStableSetRemoval :: IO ()
 testStableSetRemoval = do
-  assertEqual "deletion removes one member without reordering" [3, 2, 4] (stableSetOrderedList (stableSetDelete 1 stable))
+  assertEqual "deletion removes one member without reordering" [3, 2, 4] (stableSetOrderedList (stableSetDifference stable (Set.singleton 1)))
   assertEqual "difference removes all requested members without reordering" [1, 4] (stableSetOrderedList (stableSetDifference stable (Set.fromList [3, 2])))
   where
     stable :: StableSet Int

@@ -491,7 +491,7 @@ testPatternCaseBinderDoesNotGainRecursiveFunctionVisibility :: IO ()
 testPatternCaseBinderDoesNotGainRecursiveFunctionVisibility = do
   let plan =
         buildRuntimeScopePlan
-          (prepareAnalyzedScope (resolveRuntimeFixture (expressionBlock witnessStatements)))
+          ((either (error . show) id . prepareAnalyzedScope) (resolveRuntimeFixture (expressionBlock witnessStatements)))
   assertEqual "pattern-binder witness is not a runtime recursive group" False (scopePlanIsRecursiveBinding plan 0)
   assertEqual "pattern-binder witness gets no recursive function visibility" False (scopePlanIsSelfRecursiveFunction plan 0)
   result <- runSource defaultWarningSettings witnessSource
@@ -523,7 +523,7 @@ testPreludeScopePlanUsesNonemptyModulePath :: IO ()
 testPreludeScopePlanUsesNonemptyModulePath = do
   let plan =
         buildRuntimeScopePlan
-          (prepareAnalyzedScope (resolveRuntimeFixtureWith (PreludeSourceUnit preludeModulePath) mempty (expressionBlock [statementLet "preludeValue" (SourceSpan 1 1) (expressionLiteral (LInt 1))])))
+          ((either (error . show) id . prepareAnalyzedScope) (resolveRuntimeFixtureWith (PreludeSourceUnit preludeModulePath) mempty (expressionBlock [statementLet "preludeValue" (SourceSpan 1 1) (expressionLiteral (LInt 1))])))
   assertEqual
     "prelude statement path"
     (Just (PreludeSourceUnit preludeModulePath))
@@ -576,7 +576,7 @@ scopePlanForSource source =
               Right (Just expression) -> pure expression
           pure
             ( buildRuntimeScopePlan
-                (prepareAnalyzedScope analyzedExpression)
+                ((either (error . show) id . prepareAnalyzedScope) analyzedExpression)
             )
   where
     toList (diagnostic :| diagnostics) = diagnostic : diagnostics

@@ -34,7 +34,7 @@ import Jazz.Compiler.AST
 import Jazz.Compiler.BuiltinCatalog
   ( BuiltinSymbol (BuiltinToInt8),
   )
-import Jazz.Compiler.CoreIdentity (ResolvedNodeFacts (..), ResolvedReference (..), emptyResolvedNodeFacts, resolvedImportTarget)
+import Jazz.Compiler.CoreIdentity (ResolvedNodeFacts (..), ResolvedReference (..), ResolvedScopeFacts (..), emptyResolvedNodeFacts, resolvedNodeImportTarget)
 import Jazz.Compiler.Diagnostics (Diagnostic, SourceSpan (..), isErrorDiagnostic)
 import Jazz.Compiler.Diagnostics.Render
   ( renderDiagnostic,
@@ -549,7 +549,7 @@ assertAnalyzedProgramFacts resolvedProgram analyzedProgram = do
           case statementDeclarationFact facts of
             ImportDeclaration target -> do
               assertEqual "import target identity" (importedModule importDecl) target
-              assertEqual "import target survives checking" target (resolvedImportTarget (statementResolution facts))
+              assertEqual "import target survives checking" (Just target) (resolvedNodeImportTarget (statementResolution facts))
             declarationFact -> fail ("unexpected analyzed import declaration fact: " <> show declarationFact)
 
 testAnalyzedMethodParameterIdentity :: IO ()
@@ -658,13 +658,21 @@ testAnalyzedFactInvariantFailures = do
       unresolved = EVar unresolvedNode unknown
       checkedUnresolved = CheckedExpr (Just SemanticInt) (EVar <$> draftExpressionNode (Just SemanticInt) unresolved <*> pure unknown)
   assertEqual "an unresolved reference cannot become analyzed" (Left (UnresolvedExpressionReference (CoreNodeId 42) unknown :| [])) (finalizeCheckedExpression initialInferState checkedUnresolved)
+  let missingReference = EVar (node 43) unknown
+      missingBinder = ELambda (node 44) unknown expression
+      missingScope = EBlock (node 45) []
+      finalizeNode value = finalizeCheckedExpression initialInferState (CheckedExpr (Just SemanticInt) (ELit <$> draftExpressionNode (Just SemanticInt) value <*> pure (LInt 1)))
+  assertEqual "a missing reference cannot become analyzed" (Left (MissingExpressionFacts (CoreNodeId 43) :| [])) (finalizeNode missingReference)
+  assertEqual "a missing lambda binder cannot become analyzed" (Left (MissingExpressionFacts (CoreNodeId 44) :| [])) (finalizeNode missingBinder)
+  assertEqual "a missing lexical scope cannot become analyzed" (Left (MissingScopeFacts (CoreNodeId 45) :| [])) (finalizeNode missingScope)
 
   let statementId = CoreNodeId 51
       binder = CoreBinderId (owner, statementId)
       name = BuiltinName (mkIdentifier "value")
       statementNode = CoreNode statementId (SourceSpan 1 1) ((emptyResolvedNodeFacts owner) {resolvedNodeBinder = Just binder})
       statement = SLet statementNode name expression
-      block = EBlock (node 50) [statement]
+      blockNode = (node 50) {coreNodeFacts = (emptyResolvedNodeFacts owner) {resolvedNodeScope = Just (ResolvedScopeFacts (Map.singleton 0 name) (Map.singleton 0 binder) Map.empty Map.empty Set.empty Set.empty)}}
+      block = EBlock blockNode [statement]
       checkedValue = CheckedExpr (Just SemanticInt) (ELit <$> draftExpressionNode (Just SemanticInt) expression <*> pure (LInt 1))
       finalizeBinding binding = finalizeCheckedExpression initialInferState (CheckedExpr (Just SemanticInt) (EBlock <$> draftExpressionNode (Just SemanticInt) block <*> sequenceA [SLet <$> draftStatementNode statementNode [(name, binding)] (ValueDeclaration name) <*> pure name <*> checkedExprTree checkedValue]))
       aliasBinding = BuiltinAliasTypeBinding BuiltinToInt8

@@ -145,7 +145,7 @@ testAnalyzerRootLaziness = do
           analysisInputs
           False
           (error "ordinary analyzer root was forced")
-          (prepareResolvedScope (expressionNode (resolvedProgram "0.")) (error "prepared statements were retained lazily"))
+          (either (error . show) id (prepareResolvedScope (expressionNode (resolvedProgram "0.")) (error "prepared statements were retained lazily")))
       ) ::
       IO (Either ErrorCall AnalysisResult)
   case preparedOutcome of
@@ -153,7 +153,7 @@ testAnalyzerRootLaziness = do
     Right _ -> failTest "expected the analyzer boundary to force its prepared statements"
 
 programScope :: Expr 'Resolved -> PreparedRecursiveScope 'Resolved
-programScope (EBlock node statements) = prepareResolvedScope node statements
+programScope (EBlock node statements) = either (error . show) id (prepareResolvedScope node statements)
 programScope expression = error ("expected resolved block, got " <> show expression)
 
 analysisInputs :: AnalysisInputs
