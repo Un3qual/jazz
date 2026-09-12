@@ -8,7 +8,6 @@ module Jazz.Compiler.TypeInference.Capabilities
     addInferredEqualityClassConstraintIfVisible,
     addUnpreservedInferredMethodConstraintErrors,
     applyTypeSchemePrimitiveConstraints,
-    builtinDollarOperatorExpr,
     capabilityFactsFromState,
     instantiateClassMethodTarget,
     defaultBindingLiteralTypes,
@@ -45,6 +44,7 @@ where
 import Control.Applicative
   ( (<|>),
   )
+import Control.Monad (guard)
 import Data.Foldable
   ( toList,
   )
@@ -56,6 +56,7 @@ import Data.Map.Strict
   ( Map,
   )
 import qualified Data.Map.Strict as Map
+import Data.Maybe (isJust)
 import qualified Data.Sequence as Seq
 import Data.Set
   ( Set,
@@ -189,7 +190,7 @@ import Jazz.Compiler.TypeInference.Types
     typeEnvBindingKey,
     typeEnvReferenceKey,
   )
-import Jazz.Compiler.TypeRepresentation (NumericType (..))
+import Jazz.Compiler.TypeRepresentation (NumericType (..), substituteSemanticVariables)
 
 capabilityFactsFromState :: InferState -> ScopeCapabilityFacts
 capabilityFactsFromState = declarationCapabilities . inferDeclarations
@@ -390,17 +391,6 @@ seedImplMethodFacts implementationNode capabilityName arguments methods facts =
             member = mkIdentifier (identifierText methodName)
             identity = MethodId (ImplId (resolvedNodeOwner (coreNodeFacts implementationNode), coreNodeId implementationNode), member)
     _ -> facts
-
-builtinDollarOperatorExpr :: TypeEnv -> Expr 'Resolved -> Bool
-builtinDollarOperatorExpr env expr =
-  case expr of
-    EVar node _ | resolvedNodeReference (coreNodeFacts node) == Just (BuiltinOperatorReference "$") -> True
-    EVar node name ->
-      case Map.lookup (typeEnvReferenceKey (coreNodeFacts node) name) env of
-        Just (BuiltinOperatorAliasTypeBinding "$") -> True
-        Just (OperatorAliasSchemeTypeBinding "$" _) -> True
-        _ -> False
-    _ -> False
 
 qualifiedMethodClassIsVisible :: CapabilityMethodKey -> InferState -> Bool
 qualifiedMethodClassIsVisible methodKey state =
@@ -784,20 +774,8 @@ resolveDeferredExplicitConstraint state deferredConstraint =
     structuralFacts = deferredStructuralFacts deferredConstraint
 
 expressionTypeContainsUncommittedIntegerLiteral :: InferState -> ExpressionType -> Bool
-expressionTypeContainsUncommittedIntegerLiteral state expressionType
-  | Just _ <- integerLiteralRangeFor state expressionType = True
-  | otherwise =
-      case expressionType of
-        SemanticList elementType ->
-          expressionTypeContainsUncommittedIntegerLiteral state elementType
-        SemanticTuple elementTypes ->
-          any (expressionTypeContainsUncommittedIntegerLiteral state) elementTypes
-        SemanticData _ typeArguments ->
-          any (expressionTypeContainsUncommittedIntegerLiteral state) typeArguments
-        SemanticFunction argumentType resultType ->
-          expressionTypeContainsUncommittedIntegerLiteral state argumentType
-            || expressionTypeContainsUncommittedIntegerLiteral state resultType
-        _ -> False
+expressionTypeContainsUncommittedIntegerLiteral state =
+  Foldable.any (isJust . integerLiteralRangeFor state . SemanticVariable)
 
 constraintCandidateTypesForDeferred ::
   ScopeCapabilityFacts ->
@@ -958,32 +936,20 @@ resolveQualifiedMethodTypeWithExpected methodKey expectedType state =
           (MethodSelection Nothing Nothing, addTypeError state (mkAmbiguousQualifiedMethodBodyError methodKey))
       where
         preferredCandidates =
-          case exactMatchingCandidates of
-            [] -> matchingCandidates
-            exactMatches -> exactMatches
-
-        exactMatchingCandidates =
-          filter candidateExactlyMatchesExpected matchingCandidates
+          preferExactMatches candidateExactlyMatchesExpected matchingCandidates
 
         matchingCandidates =
-          foldr collectMatchingCandidate [] (Map.findWithDefault [] methodKey (inferConcreteImplMethods state))
+          [ (implMethodType, resolveType unifiedState methodType, unifiedState)
+          | implMethodType <- Map.findWithDefault [] methodKey (inferConcreteImplMethods state),
+            Just methodType <- [qualifiedMethodSignatureType classMethodType implMethodType],
+            Just unifiedState <- [unifyTypes expectedType methodType state]
+          ]
 
-        collectMatchingCandidate implMethodType matches =
+        candidateExactlyMatchesExpected (implMethodType, _, _) =
           case qualifiedMethodSignatureType classMethodType implMethodType of
-            Just methodType ->
-              case unifyTypes expectedType methodType state of
-                Just unifiedState ->
-                  (implMethodType, resolveType unifiedState methodType, unifiedState) : matches
-                Nothing -> matches
-            Nothing -> matches
-
-        candidateExactlyMatchesExpected (ImplMethodType implTarget _ _, _, _) =
-          case classMethodType of
-            ClassMethodType classParameter methodSignature ->
-              case instantiateClassMethodTarget classParameter implTarget methodSignature of
-                Just candidateType ->
-                  resolveType state candidateType == defaultLiteralTypes state (resolveType state expectedType)
-                Nothing -> False
+            Just candidateType ->
+              resolveType state candidateType == defaultLiteralTypes state (resolveType state expectedType)
+            Nothing -> False
 
 resolveQualifiedMethodType :: CapabilityMethodKey -> InferState -> (MethodSelection, InferState)
 resolveQualifiedMethodType methodKey state =
@@ -1078,34 +1044,18 @@ inferQualifiedMethodRequirementWithoutCostCentre ::
 inferQualifiedMethodRequirementWithoutCostCentre methodKey (ClassMethodType classParameter methodSignature) state argumentTypes = do
   let capabilityName = fst methodKey
   classArity <- Map.lookup capabilityName (inferClassFacts state)
-  if classArity /= 1
-    then Nothing
-    else
-      if not (classMethodSignatureHasTargetArgument classParameter methodSignature)
-        then Nothing
-        else
-          let (classTarget, stateAfterClassTarget) = freshTypeVar state
-           in do
-                methodType <-
-                  classMethodPayloadToGenericExpressionType
-                    classParameter
-                    classTarget
-                    methodSignature
-                let (maybeResultType, stateAfterArguments) =
-                      applyKnownFunctionArguments methodType argumentTypes stateAfterClassTarget
-                    resolvedClassTarget = resolveType stateAfterArguments classTarget
-                case maybeResultType of
-                  Just resultType
-                    | not
-                        ( Set.null
-                            (freeTypeVariables (defaultLiteralTypes stateAfterArguments resolvedClassTarget))
-                        ) ->
-                        Just
-                          ( Just resultType,
-                            addInferredMethodClassConstraint capabilityName methodKey resolvedClassTarget stateAfterArguments
-                          )
-                  _ ->
-                    Nothing
+  guard (classArity == 1)
+  guard (classMethodSignatureHasTargetArgument classParameter methodSignature)
+  let (classTarget, stateAfterClassTarget) = freshTypeVar state
+  methodType <- instantiateDeclarationType (Map.singleton classParameter classTarget) methodSignature
+  let (maybeResultType, stateAfterArguments) = applyKnownFunctionArguments methodType argumentTypes stateAfterClassTarget
+      resolvedClassTarget = resolveType stateAfterArguments classTarget
+  resultType <- maybeResultType
+  guard (not (Set.null (freeTypeVariables (defaultLiteralTypes stateAfterArguments resolvedClassTarget))))
+  pure
+    ( Just resultType,
+      addInferredConstraint (TypeSchemeMethodConstraint capabilityName methodKey resolvedClassTarget) stateAfterArguments
+    )
 
 classMethodSignatureHasTargetArgument :: Text -> SemanticType ResolvedName Text -> Bool
 classMethodSignatureHasTargetArgument classParameter methodSignature =
@@ -1140,27 +1090,14 @@ selectQualifiedMethodCandidate methodKey classMethodType implMethodTypes env sta
       AttachmentFailed {} -> Nothing
 
     preferredCandidates =
-      case exactMatchingCandidates of
-        [] -> matchingCandidates
-        exactMatches -> exactMatches
+      preferExactMatches
+        (\(implMethodType, _, _) -> qualifiedMethodCandidateExactlyMatchesArguments state env classMethodType implMethodType checkedArguments)
+        matchingCandidates
 
-    exactMatchingCandidates =
-      filterExactMatches matchingCandidatesWithTargets
-
-    matchingCandidates = matchingCandidatesWithTargets
-
-    matchingCandidatesWithTargets =
-      foldr collectMatch [] implMethodTypes
-
-    collectMatch implMethodType matches =
-      case applyQualifiedMethodCandidate classMethodType implMethodType state argumentTypes of
-        (Just matchedType, matchedState) -> (implMethodType, matchedType, matchedState) : matches
-        (Nothing, _) -> matches
-
-    filterExactMatches candidates =
+    matchingCandidates =
       [ (implMethodType, matchedType, matchedState)
-      | (implMethodType, matchedType, matchedState) <- candidates,
-        qualifiedMethodCandidateExactlyMatchesArguments state env classMethodType implMethodType checkedArguments
+      | implMethodType <- implMethodTypes,
+        (Just matchedType, matchedState) <- [applyQualifiedMethodCandidate classMethodType implMethodType state argumentTypes]
       ]
 
     resolvedArgumentTypes stateForRendering =
@@ -1169,6 +1106,12 @@ selectQualifiedMethodCandidate methodKey classMethodType implMethodTypes env sta
         argumentTypes
 
     argumentTypes = map snd typedArguments
+
+preferExactMatches :: (candidate -> Bool) -> [candidate] -> [candidate]
+preferExactMatches exact candidates =
+  case filter exact candidates of
+    [] -> candidates
+    exactMatches -> exactMatches
 
 qualifiedMethodCandidateExactlyMatchesArguments ::
   InferState ->
@@ -1517,11 +1460,6 @@ instantiateClassMethodTarget :: Text -> SemanticType ResolvedName Void -> Semant
 instantiateClassMethodTarget classParameter implTarget =
   instantiateDeclarationType (Map.singleton classParameter (fmap absurd implTarget))
 
-classMethodPayloadToGenericExpressionType ::
-  Text -> ExpressionType -> SemanticType ResolvedName Text -> Maybe ExpressionType
-classMethodPayloadToGenericExpressionType classParameter classTarget =
-  instantiateDeclarationType (Map.singleton classParameter classTarget)
-
 defaultLiteralTypes :: InferState -> ExpressionType -> ExpressionType
 defaultLiteralTypes state =
   defaultLiteralTypesWith state SemanticInt
@@ -1531,41 +1469,20 @@ defaultBindingLiteralTypes state =
   defaultLiteralTypesWith state (SemanticNumeric NumericInt64)
 
 defaultLiteralTypesWith :: InferState -> ExpressionType -> ExpressionType -> ExpressionType
-defaultLiteralTypesWith state integerLiteralDefault expressionType
-  | Just _ <- integerLiteralRangeFor state expressionType = integerLiteralDefault
-  | otherwise =
-      case expressionType of
-        SemanticList elementType ->
-          SemanticList (defaultLiteralTypesWith state integerLiteralDefault elementType)
-        SemanticTuple elementTypes ->
-          SemanticTuple (map (defaultLiteralTypesWith state integerLiteralDefault) elementTypes)
-        SemanticData typeName typeArguments ->
-          SemanticData typeName (map (defaultLiteralTypesWith state integerLiteralDefault) typeArguments)
-        SemanticFunction inputType outputType ->
-          SemanticFunction
-            (defaultLiteralTypesWith state integerLiteralDefault inputType)
-            (defaultLiteralTypesWith state integerLiteralDefault outputType)
-        _ -> expressionType
+defaultLiteralTypesWith state integerLiteralDefault =
+  substituteSemanticVariables defaultVariable
+  where
+    defaultVariable variable
+      | isJust (integerLiteralRangeFor state (SemanticVariable variable)) = integerLiteralDefault
+      | otherwise = SemanticVariable variable
 
-addInferredClassConstraint :: CapabilityId -> ExpressionType -> InferState -> InferState
-addInferredClassConstraint constraintName argumentType state =
+addInferredConstraint :: TypeSchemeConstraint -> InferState -> InferState
+addInferredConstraint constraint state =
   modifyInferenceOutput
     ( \output ->
         output
           { outputInferredConstraints =
-              TypeSchemeInferredConstraint constraintName argumentType : outputInferredConstraints output,
-            outputInferredConstraintCount = outputInferredConstraintCount output + 1
-          }
-    )
-    state
-
-addInferredMethodClassConstraint :: CapabilityId -> CapabilityMethodKey -> ExpressionType -> InferState -> InferState
-addInferredMethodClassConstraint constraintName methodKey argumentType state =
-  modifyInferenceOutput
-    ( \output ->
-        output
-          { outputInferredConstraints =
-              TypeSchemeMethodConstraint constraintName methodKey argumentType : outputInferredConstraints output,
+              constraint : outputInferredConstraints output,
             outputInferredConstraintCount = outputInferredConstraintCount output + 1
           }
     )
@@ -1574,7 +1491,7 @@ addInferredMethodClassConstraint constraintName methodKey argumentType state =
 addInferredEqualityClassConstraintIfVisible :: ExpressionType -> InferState -> InferState
 addInferredEqualityClassConstraintIfVisible argumentType state =
   case activeEqualityClassName state of
-    Just equalityClassName -> addInferredClassConstraint equalityClassName argumentType state
+    Just equalityClassName -> addInferredConstraint (TypeSchemeInferredConstraint equalityClassName argumentType) state
     Nothing -> state
 
 activeEqualityClassName :: InferState -> Maybe CapabilityId

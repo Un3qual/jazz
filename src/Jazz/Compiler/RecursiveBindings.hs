@@ -380,54 +380,24 @@ freeVarsExprUsing scopeFreeVars bound expr =
       | Set.member name bound -> Set.empty
       | otherwise -> Set.singleton name
     ELambda _ parameterName bodyExpr ->
-      freeVarsExprUsing
-        scopeFreeVars
-        (Set.insert parameterName bound)
-        bodyExpr
-    EOperatorValue _ operatorSymbol ->
-      operatorBindingFreeVar bound operatorSymbol
-    EList _ elements ->
-      Set.unions (map (freeVarsExprUsing scopeFreeVars bound) elements)
-    ETuple _ elements ->
-      Set.unions (map (freeVarsExprUsing scopeFreeVars bound) elements)
-    EApply _ functionExpr argumentExpr ->
-      Set.union
-        (freeVarsExprUsing scopeFreeVars bound functionExpr)
-        (freeVarsExprUsing scopeFreeVars bound argumentExpr)
-    ETypeApplication _ functionExpr _ _ ->
-      freeVarsExprUsing scopeFreeVars bound functionExpr
-    EIf _ conditionExpr thenExpr elseExpr ->
-      Set.unions
-        [ freeVarsExprUsing scopeFreeVars bound conditionExpr,
-          freeVarsExprUsing scopeFreeVars bound thenExpr,
-          freeVarsExprUsing scopeFreeVars bound elseExpr
-        ]
-    EPatternCase _ scrutineeExpr caseArms ->
-      Set.unions
-        ( freeVarsExprUsing scopeFreeVars bound scrutineeExpr
-            : [ Set.union
-                  (maybe Set.empty (freeVarsExprUsing scopeFreeVars armBound) guardExpr)
-                  (freeVarsExprUsing scopeFreeVars armBound bodyExpr)
-              | CaseArm _ pattern guardExpr bodyExpr <- caseArms,
-                let armBound = extendBoundWithPattern pattern bound
-              ]
-        )
+      freeVarsExprUsing scopeFreeVars (Set.insert parameterName bound) bodyExpr
+    EOperatorValue _ operatorSymbol -> operatorBindingFreeVar bound operatorSymbol
+    EList _ elements -> Set.unions (map recur elements)
+    ETuple _ elements -> Set.unions (map recur elements)
+    EApply _ functionExpr argumentExpr -> recur functionExpr <> recur argumentExpr
+    ETypeApplication _ functionExpr _ _ -> recur functionExpr
+    EIf _ conditionExpr thenExpr elseExpr -> Set.unions (map recur [conditionExpr, thenExpr, elseExpr])
+    EPatternCase _ scrutineeExpr caseArms -> Set.unions (recur scrutineeExpr : map armFreeVars caseArms)
     EBinary _ operatorSymbol leftExpr rightExpr ->
-      Set.unions
-        [ operatorBindingFreeVar bound operatorSymbol,
-          freeVarsExprUsing scopeFreeVars bound leftExpr,
-          freeVarsExprUsing scopeFreeVars bound rightExpr
-        ]
-    ESectionLeft _ leftExpr operatorSymbol ->
-      Set.union
-        (operatorBindingFreeVar bound operatorSymbol)
-        (freeVarsExprUsing scopeFreeVars bound leftExpr)
-    ESectionRight _ operatorSymbol rightExpr ->
-      Set.union
-        (operatorBindingFreeVar bound operatorSymbol)
-        (freeVarsExprUsing scopeFreeVars bound rightExpr)
-    EBlock _ statements ->
-      scopeFreeVars bound statements
+      Set.unions [operatorBindingFreeVar bound operatorSymbol, recur leftExpr, recur rightExpr]
+    ESectionLeft _ leftExpr operatorSymbol -> operatorBindingFreeVar bound operatorSymbol <> recur leftExpr
+    ESectionRight _ operatorSymbol rightExpr -> operatorBindingFreeVar bound operatorSymbol <> recur rightExpr
+    EBlock _ statements -> scopeFreeVars bound statements
+  where
+    recur = freeVarsExprUsing scopeFreeVars bound
+    armFreeVars (CaseArm _ pattern guardExpr bodyExpr) =
+      let armRecur = freeVarsExprUsing scopeFreeVars (extendBoundWithPattern pattern bound)
+       in foldMap armRecur guardExpr <> armRecur bodyExpr
 
 operatorBindingFreeVar :: (Ord user) => Set (Name user) -> Text -> Set (Name user)
 operatorBindingFreeVar bound operatorSymbol
@@ -818,22 +788,20 @@ selfReferenceOwnsRecursiveCellWith containsFunctionBranch bindingName candidateE
                     )
                   _ ->
                     (contexts, noSummary)
-              eagerBindingSummary =
-                foldl'
-                  combineSummaries
-                  noSummary
-                  [ summary
-                  | ScopeStatementContext statement statementBindings statementPath <- eagerStatements,
-                    summary <-
-                      case statement of
-                        SLet _ _ valueExpr ->
-                          [nonAliasSummary statementPath boundNames statementBindings Set.empty valueExpr]
-                        SExpr _ statementExpr ->
-                          [nonAliasSummary statementPath boundNames statementBindings Set.empty statementExpr]
-                        _ -> []
-                  ]
-           in combineSummaries terminalSummary eagerBindingSummary
+           in combineSummaries terminalSummary (eagerStatementsSummary boundNames eagerStatements)
         _ -> nonAliasSummary expressionPath boundNames scopeBindings visitedBindings expr
+
+    eagerStatementsSummary boundNames contexts =
+      foldl'
+        combineSummaries
+        noSummary
+        [ nonAliasSummary statementPath boundNames statementBindings Set.empty valueExpr
+        | ScopeStatementContext statement statementBindings statementPath <- contexts,
+          valueExpr <- case statement of
+            SLet _ _ value -> [value]
+            SExpr _ value -> [value]
+            _ -> []
+        ]
 
     nonAliasSummary expressionPath boundNames scopeBindings visitedBindings expr =
       case expr of
@@ -843,37 +811,11 @@ selfReferenceOwnsRecursiveCellWith containsFunctionBranch bindingName candidateE
         ELambda {} -> noSummary
         EOperatorValue _ operatorSymbol ->
           nonAliasOperatorSummary boundNames scopeBindings visitedBindings operatorSymbol
-        EList _ elements ->
-          foldl'
-            combineSummaries
-            noSummary
-            [ nonAliasSummary (expressionPath <> [elementIndex]) boundNames scopeBindings visitedBindings element
-            | (elementIndex, element) <- zip [0 ..] elements
-            ]
-        ETuple _ elements ->
-          foldl'
-            combineSummaries
-            noSummary
-            [ nonAliasSummary (expressionPath <> [elementIndex]) boundNames scopeBindings visitedBindings element
-            | (elementIndex, element) <- zip [0 ..] elements
-            ]
-        EApply _ functionExpr argumentExpr ->
-          foldl'
-            combineSummaries
-            noSummary
-            [ nonAliasSummary (expressionPath <> [0]) boundNames scopeBindings visitedBindings functionExpr,
-              nonAliasSummary (expressionPath <> [1]) boundNames scopeBindings visitedBindings argumentExpr
-            ]
-        ETypeApplication _ functionExpr _ _ ->
-          nonAliasSummary (expressionPath <> [0]) boundNames scopeBindings visitedBindings functionExpr
-        EIf _ conditionExpr thenExpr elseExpr ->
-          foldl'
-            combineSummaries
-            noSummary
-            [ nonAliasSummary (expressionPath <> [0]) boundNames scopeBindings visitedBindings conditionExpr,
-              nonAliasSummary (expressionPath <> [1]) boundNames scopeBindings visitedBindings thenExpr,
-              nonAliasSummary (expressionPath <> [2]) boundNames scopeBindings visitedBindings elseExpr
-            ]
+        EList _ elements -> children elements
+        ETuple _ elements -> children elements
+        EApply _ functionExpr argumentExpr -> children [functionExpr, argumentExpr]
+        ETypeApplication _ functionExpr _ _ -> recur 0 functionExpr
+        EIf _ conditionExpr thenExpr elseExpr -> children [conditionExpr, thenExpr, elseExpr]
         EPatternCase _ scrutineeExpr caseArms ->
           foldl'
             combineSummaries
@@ -895,36 +837,17 @@ selfReferenceOwnsRecursiveCellWith containsFunctionBranch bindingName candidateE
               let armBoundNames = extendBoundWithPattern pattern boundNames
             ]
         EBinary _ operatorSymbol leftExpr rightExpr ->
-          foldl'
-            combineSummaries
-            noSummary
-            [ nonAliasOperatorSummary boundNames scopeBindings visitedBindings operatorSymbol,
-              nonAliasSummary (expressionPath <> [0]) boundNames scopeBindings visitedBindings leftExpr,
-              nonAliasSummary (expressionPath <> [1]) boundNames scopeBindings visitedBindings rightExpr
-            ]
+          combineSummaries (operator operatorSymbol) (children [leftExpr, rightExpr])
         ESectionLeft _ leftExpr operatorSymbol ->
-          combineSummaries
-            (nonAliasOperatorSummary boundNames scopeBindings visitedBindings operatorSymbol)
-            (nonAliasSummary (expressionPath <> [0]) boundNames scopeBindings visitedBindings leftExpr)
+          combineSummaries (operator operatorSymbol) (recur 0 leftExpr)
         ESectionRight _ operatorSymbol rightExpr ->
-          combineSummaries
-            (nonAliasOperatorSummary boundNames scopeBindings visitedBindings operatorSymbol)
-            (nonAliasSummary (expressionPath <> [0]) boundNames scopeBindings visitedBindings rightExpr)
+          combineSummaries (operator operatorSymbol) (recur 0 rightExpr)
         EBlock _ blockStatements ->
-          foldl'
-            combineSummaries
-            noSummary
-            [ summary
-            | ScopeStatementContext statement statementBindings statementPath <-
-                scopeStatementContexts expressionPath boundNames scopeBindings blockStatements,
-              summary <-
-                case statement of
-                  SLet _ _ valueExpr ->
-                    [nonAliasSummary statementPath boundNames statementBindings Set.empty valueExpr]
-                  SExpr _ statementExpr ->
-                    [nonAliasSummary statementPath boundNames statementBindings Set.empty statementExpr]
-                  _ -> []
-            ]
+          eagerStatementsSummary boundNames (scopeStatementContexts expressionPath boundNames scopeBindings blockStatements)
+      where
+        recur childIndex = nonAliasSummary (expressionPath <> [childIndex]) boundNames scopeBindings visitedBindings
+        children = foldl' combineSummaries noSummary . zipWith recur [0 ..]
+        operator = nonAliasOperatorSummary boundNames scopeBindings visitedBindings
 
     nonAliasOperatorSummary boundNames scopeBindings visitedBindings operatorSymbol
       | isBuiltinOperatorSymbol operatorSymbol = noSummary
