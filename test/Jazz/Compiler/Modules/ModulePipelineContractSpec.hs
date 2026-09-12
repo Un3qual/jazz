@@ -312,6 +312,8 @@ testSingleModuleAnalysis = do
   (inference, actual) <- analyzeModule inputs NamedSourceUnit False (mconcat imports) entry
   assertEqual "single-module diagnostics" [] (inferredDiagnostics inference)
   assertEqual "single-module facts, binders and evidence match program analysis" (Just expected) actual
+  runtime <- either (fail . show) pure (evaluateAnalyzedProgram analyzed)
+  assertEqual "aliased and selective imports retain every view" (Just "1") (renderRuntimeValue <$> runtimeProgramOutput runtime)
   failing <- resolveFixtureProgram (Map.singleton "src/App/Main.jz" "module App::Main { 1 True. }")
   let failingEntry = NonEmpty.head (coreProgramModules failing)
   (programDiagnostics, _) <- analyzeProgram inputs failing
@@ -674,7 +676,7 @@ testAnalyzedFactInvariantFailures = do
       blockNode = (node 50) {coreNodeFacts = (emptyResolvedNodeFacts owner) {resolvedNodeScope = Just (ResolvedScopeFacts (Map.singleton 0 name) (Map.singleton 0 binder) Map.empty Map.empty Set.empty Set.empty)}}
       block = EBlock blockNode [statement]
       checkedValue = CheckedExpr (Just SemanticInt) (ELit <$> draftExpressionNode (Just SemanticInt) expression <*> pure (LInt 1))
-      finalizeBinding binding = finalizeCheckedExpression initialInferState (CheckedExpr (Just SemanticInt) (EBlock <$> draftExpressionNode (Just SemanticInt) block <*> sequenceA [SLet <$> draftStatementNode statementNode [(name, binding)] (ValueDeclaration name) <*> pure name <*> checkedExprTree checkedValue]))
+      finalizeBinding binding = finalizeCheckedExpression initialInferState (CheckedExpr (Just SemanticInt) (EBlock <$> draftExpressionNode (Just SemanticInt) block <*> sequenceA [SLet <$> draftStatementNode statementNode (Just binding) (ValueDeclaration name) <*> pure name <*> checkedExprTree checkedValue]))
       aliasBinding = BuiltinAliasTypeBinding BuiltinToInt8
   assertEqual "an unprojected binding cannot silently lose its scheme" (Left (MissingStatementScheme statementId binder :| [])) (finalizeBinding aliasBinding)
 

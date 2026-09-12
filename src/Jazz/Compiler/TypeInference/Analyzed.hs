@@ -260,9 +260,9 @@ referencedName expression =
     ETypeApplication _ function _ _ -> referencedName function
     _ -> Nothing
 
-draftStatementNode :: CoreNode 'Resolved 'StatementSort -> [(ResolvedName, TypeBinding)] -> StatementDeclarationFact -> Draft (CoreNode 'Analyzed 'StatementSort)
-draftStatementNode (CoreNode nodeId spanValue resolution) bindings declaration =
-  Draft (\solved -> CoreNode nodeId spanValue <$> projectStatementBindings solved nodeId resolution bindings declaration)
+draftStatementNode :: CoreNode 'Resolved 'StatementSort -> Maybe TypeBinding -> StatementDeclarationFact -> Draft (CoreNode 'Analyzed 'StatementSort)
+draftStatementNode (CoreNode nodeId spanValue resolution) binding declaration =
+  Draft (\solved -> CoreNode nodeId spanValue <$> projectStatementBindings solved nodeId resolution binding declaration)
 
 constrainBindingRuntimeResult :: StatementFacts -> Expr 'Analyzed -> Expr 'Analyzed
 constrainBindingRuntimeResult statementFacts =
@@ -293,19 +293,19 @@ mapExpressionFacts update expression =
   where
     mapNode (CoreNode nodeId spanValue facts) = CoreNode nodeId spanValue (update facts)
 
-projectStatementBindings :: InferState -> CoreNodeId -> ResolvedNodeFacts -> [(ResolvedName, TypeBinding)] -> StatementDeclarationFact -> Attachment StatementFacts
+projectStatementBindings :: InferState -> CoreNodeId -> ResolvedNodeFacts -> Maybe TypeBinding -> StatementDeclarationFact -> Attachment StatementFacts
 projectStatementBindings _ nodeId resolution _ (ValueDeclaration _)
   | Nothing <- resolvedNodeBinder resolution = missing (MissingStatementBinder nodeId)
 projectStatementBindings _ nodeId resolution _ (MethodDeclaration _ _)
   | Nothing <- resolvedNodeReference resolution = missing (MissingStatementFacts nodeId)
-projectStatementBindings state nodeId resolution bindings declaration =
-  case bindings of
-    [] -> pure (facts [] Map.empty)
-    _ -> case resolvedNodeBinder resolution of
+projectStatementBindings state nodeId resolution maybeBinding declaration =
+  case maybeBinding of
+    Nothing -> pure (facts [] Map.empty)
+    Just binding -> case resolvedNodeBinder resolution of
       Nothing -> missing (MissingStatementBinder nodeId)
-      Just binderId -> case traverse (projectTypeBinding state binderId . snd) bindings of
+      Just binderId -> case projectTypeBinding state binderId binding of
         Left failure -> missing failure
-        Right schemes -> pure (facts [binderId] (Map.fromList [(binderId, scheme) | scheme <- schemes]))
+        Right scheme -> pure (facts [binderId] (Map.singleton binderId scheme))
   where
     facts binders schemes = StatementFacts resolution binders schemes declaration
 

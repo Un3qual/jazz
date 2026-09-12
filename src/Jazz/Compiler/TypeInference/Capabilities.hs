@@ -29,7 +29,6 @@ module Jazz.Compiler.TypeInference.Capabilities
     insertTypeEnvFreeVariables,
     newInferredClassConstraints,
     qualifiedMethodClassIsVisible,
-    qualifiedMethodSignatureType,
     resolveTypeEnvFreeVariables,
     resolveTypeSchemeConstraint,
     restoreCapabilityFacts,
@@ -148,13 +147,11 @@ import Jazz.Compiler.TypeInference.State
     ModuleInferenceState (..),
     inferClassFacts,
     inferClassMethodSignatures,
-    inferConcreteImplFacts,
     inferConcreteImplMethods,
     inferCurrentModuleLocalCapabilityFacts,
     inferCurrentModulePath,
     inferDeferredExplicitConstraintCount,
     inferErrorCount,
-    inferGeneratedEqualityClassFacts,
     inferInferredClassConstraintCount,
     inferInferredClassConstraints,
     inferModuleCapabilityFacts,
@@ -195,14 +192,7 @@ import Jazz.Compiler.TypeInference.Types
 import Jazz.Compiler.TypeRepresentation (NumericType (..))
 
 capabilityFactsFromState :: InferState -> ScopeCapabilityFacts
-capabilityFactsFromState state =
-  ScopeCapabilityFacts
-    { scopeClassFacts = inferClassFacts state,
-      scopeGeneratedEqualityClassFacts = inferGeneratedEqualityClassFacts state,
-      scopeConcreteImplFacts = inferConcreteImplFacts state,
-      scopeClassMethodSignatures = inferClassMethodSignatures state,
-      scopeConcreteImplMethods = inferConcreteImplMethods state
-    }
+capabilityFactsFromState = declarationCapabilities . inferDeclarations
 
 typeSchemeDefiningFactsFromState :: InferState -> [TypeSchemeConstraint] -> ScopeCapabilityFacts
 typeSchemeDefiningFactsFromState state schemeConstraints =
@@ -229,17 +219,13 @@ typeSchemeReferencedCapabilityFacts [] _ = emptyScopeCapabilityFacts
 typeSchemeReferencedCapabilityFacts schemeConstraints facts =
   facts
     { scopeClassFacts =
-        Map.filterWithKey
-          (\className _ -> Set.member className referencedCapabilityNames)
-          (scopeClassFacts facts),
+        Map.restrictKeys (scopeClassFacts facts) referencedCapabilityNames,
       scopeConcreteImplFacts =
         Set.filter
           (\implKey -> Set.member (concreteImplFactCapability implKey) referencedCapabilityNames)
           (scopeConcreteImplFacts facts),
       scopeGeneratedEqualityClassFacts =
-        Set.filter
-          (`Set.member` referencedCapabilityNames)
-          (scopeGeneratedEqualityClassFacts facts),
+        Set.intersection (scopeGeneratedEqualityClassFacts facts) referencedCapabilityNames,
       scopeClassMethodSignatures =
         Map.filterWithKey
           (\methodKey _ -> methodKeyReferencesCapturedCapability methodKey)
@@ -268,18 +254,8 @@ typeSchemeConstraintCapabilityName constraint =
     TypeSchemeMethodConstraint constraintName _ _ -> constraintName
 
 applyCapabilityFacts :: ScopeCapabilityFacts -> InferState -> InferState
-applyCapabilityFacts facts state =
-  modifyDeclarationState
-    ( \declarations ->
-        declarations
-          { declarationClassFacts = scopeClassFacts facts,
-            declarationGeneratedEqualityClassFacts = scopeGeneratedEqualityClassFacts facts,
-            declarationConcreteImplFacts = scopeConcreteImplFacts facts,
-            declarationClassMethodSignatures = scopeClassMethodSignatures facts,
-            declarationConcreteImplMethods = scopeConcreteImplMethods facts
-          }
-    )
-    state
+applyCapabilityFacts facts =
+  modifyDeclarationState (\declarations -> declarations {declarationCapabilities = facts})
 
 restoreCapabilityFacts :: InferState -> InferState -> InferState
 restoreCapabilityFacts previousState nextState =
@@ -290,18 +266,7 @@ restoreCapabilityFacts previousState nextState =
               inferCurrentModuleLocalCapabilityFacts previousState
           }
     )
-    ( modifyDeclarationState
-        ( \declarations ->
-            declarations
-              { declarationClassFacts = inferClassFacts previousState,
-                declarationGeneratedEqualityClassFacts = inferGeneratedEqualityClassFacts previousState,
-                declarationConcreteImplFacts = inferConcreteImplFacts previousState,
-                declarationClassMethodSignatures = inferClassMethodSignatures previousState,
-                declarationConcreteImplMethods = inferConcreteImplMethods previousState
-              }
-        )
-        nextState
-    )
+    (applyCapabilityFacts (capabilityFactsFromState previousState) nextState)
 
 updateRootModuleBaselineFacts :: ScopeCapabilityFacts -> InferState -> InferState -> ScopeCapabilityFacts
 updateRootModuleBaselineFacts moduleBaselineFacts previousState nextState =
@@ -483,13 +448,13 @@ inferQualifiedMethodApplicationWithResults inferExpression env state methodKey a
 
 addUnpreservedInferredMethodConstraintErrors ::
   SourceSpan ->
-  TypeEnv ->
+  Set InferenceVariable ->
   InferState ->
   InferState ->
   ExpressionType ->
   Set InferenceVariable ->
   InferState
-addUnpreservedInferredMethodConstraintErrors spanValue env statementStartState state statementResultType schemeVariables =
+addUnpreservedInferredMethodConstraintErrors spanValue environmentVariables statementStartState state statementResultType schemeVariables =
   foldl'
     addUnpreservedClassConstraintError
     ( foldl'
@@ -505,7 +470,7 @@ addUnpreservedInferredMethodConstraintErrors spanValue env statementStartState s
         | TypeSchemeInferredConstraint constraintName argumentType <-
             newInferredClassConstraints statementStartState state,
           not (inferredConstraintTargetPreserved state schemeVariables argumentType),
-          not (inferredConstraintTargetStillVisibleInEnv state env argumentType),
+          not (inferredConstraintTargetStillVisibleInEnv state environmentVariables argumentType),
           inferredConstraintTargetConcrete state argumentType
             || ( not statementIntroducedErrors
                    && inferredConstraintTargetEscapesResult state statementResultType argumentType
@@ -518,7 +483,7 @@ addUnpreservedInferredMethodConstraintErrors spanValue env statementStartState s
         | TypeSchemeMethodConstraint constraintName methodKey argumentType <-
             newInferredClassConstraints statementStartState state,
           not (inferredConstraintTargetPreserved state schemeVariables argumentType),
-          not (inferredConstraintTargetStillVisibleInEnv state env argumentType),
+          not (inferredConstraintTargetStillVisibleInEnv state environmentVariables argumentType),
           not (concreteInferredMethodConstraintSatisfied state constraintName methodKey argumentType)
         ]
 
@@ -586,11 +551,10 @@ inferredConstraintTargetConcrete state argumentType =
           Just _ -> True
           Nothing -> False
 
-inferredConstraintTargetStillVisibleInEnv :: InferState -> TypeEnv -> ExpressionType -> Bool
-inferredConstraintTargetStillVisibleInEnv state env argumentType =
+inferredConstraintTargetStillVisibleInEnv :: InferState -> Set InferenceVariable -> ExpressionType -> Bool
+inferredConstraintTargetStillVisibleInEnv state environmentVariables argumentType =
   let targetType = resolveType state argumentType
       targetVariables = freeTypeVariables targetType
-      environmentVariables = freeTypeVariablesInEnv state env
    in not (Set.null targetVariables)
         && targetVariables `Set.isSubsetOf` environmentVariables
 
@@ -1005,13 +969,13 @@ resolveQualifiedMethodTypeWithExpected methodKey expectedType state =
           foldr collectMatchingCandidate [] (Map.findWithDefault [] methodKey (inferConcreteImplMethods state))
 
         collectMatchingCandidate implMethodType matches =
-          case qualifiedMethodSignatureType methodKey classMethodType implMethodType state of
-            (Just methodType, stateAfterMethodType) ->
-              case unifyTypes expectedType methodType stateAfterMethodType of
+          case qualifiedMethodSignatureType classMethodType implMethodType of
+            Just methodType ->
+              case unifyTypes expectedType methodType state of
                 Just unifiedState ->
                   (implMethodType, resolveType unifiedState methodType, unifiedState) : matches
                 Nothing -> matches
-            (Nothing, _) -> matches
+            Nothing -> matches
 
         candidateExactlyMatchesExpected (ImplMethodType implTarget _ _, _, _) =
           case classMethodType of
@@ -1036,7 +1000,7 @@ resolveQualifiedMethodType methodKey state =
         [implMethodType] ->
           selectedMethodResult
             implMethodType
-            (qualifiedMethodSignatureType methodKey classMethodType implMethodType state)
+            (qualifiedMethodSignatureType classMethodType implMethodType, state)
         _ ->
           (MethodSelection Nothing Nothing, addTypeError state (mkAmbiguousQualifiedMethodBodyError methodKey))
 
@@ -1056,7 +1020,7 @@ instantiateQualifiedMethodTypeWithExplicitTarget methodKey explicitTarget state 
         [implMethodType] ->
           selectedMethodResult
             implMethodType
-            (qualifiedMethodSignatureType methodKey classMethodType implMethodType state)
+            (qualifiedMethodSignatureType classMethodType implMethodType, state)
         _ ->
           (MethodSelection Nothing Nothing, addTypeError state (mkAmbiguousQualifiedMethodBodyForArgumentsError methodKey [explicitTarget]))
   where
@@ -1089,7 +1053,7 @@ resolveQualifiedMethodApplicationType methodKey env state typedArguments =
             [implMethodType] ->
               selectedMethodResult
                 implMethodType
-                (applyQualifiedMethodCandidateWithErrors methodKey classMethodType implMethodType state argumentTypes)
+                (applyQualifiedMethodCandidateWithErrors classMethodType implMethodType state argumentTypes)
             implMethodTypes ->
               selectQualifiedMethodCandidate methodKey classMethodType implMethodTypes env state typedArguments
   where
@@ -1189,7 +1153,7 @@ selectQualifiedMethodCandidate methodKey classMethodType implMethodTypes env sta
       foldr collectMatch [] implMethodTypes
 
     collectMatch implMethodType matches =
-      case applyQualifiedMethodCandidate methodKey classMethodType implMethodType state argumentTypes of
+      case applyQualifiedMethodCandidate classMethodType implMethodType state argumentTypes of
         (Just matchedType, matchedState) -> (implMethodType, matchedType, matchedState) : matches
         (Nothing, _) -> matches
 
@@ -1478,32 +1442,26 @@ constraintTypesCompatible left right = normalize left == normalize right
       _ -> target
 
 applyQualifiedMethodCandidate ::
-  CapabilityMethodKey ->
   ClassMethodType ->
   ImplMethodType ->
   InferState ->
   [ExpressionType] ->
   (Maybe ExpressionType, InferState)
-applyQualifiedMethodCandidate methodKey classMethodType implMethodType state argumentTypes =
-  case qualifiedMethodSignatureType methodKey classMethodType implMethodType state of
-    (Nothing, nextState) ->
-      (Nothing, nextState)
-    (Just methodType, stateAfterMethodType) ->
-      applyKnownFunctionArguments methodType argumentTypes stateAfterMethodType
+applyQualifiedMethodCandidate classMethodType implMethodType state argumentTypes =
+  case qualifiedMethodSignatureType classMethodType implMethodType of
+    Nothing -> (Nothing, state)
+    Just methodType -> applyKnownFunctionArguments methodType argumentTypes state
 
 applyQualifiedMethodCandidateWithErrors ::
-  CapabilityMethodKey ->
   ClassMethodType ->
   ImplMethodType ->
   InferState ->
   [ExpressionType] ->
   (Maybe ExpressionType, InferState)
-applyQualifiedMethodCandidateWithErrors methodKey classMethodType implMethodType state argumentTypes =
-  case qualifiedMethodSignatureType methodKey classMethodType implMethodType state of
-    (Nothing, nextState) ->
-      (Nothing, nextState)
-    (Just methodType, stateAfterMethodType) ->
-      applyKnownFunctionArgumentsWithErrors methodType argumentTypes stateAfterMethodType
+applyQualifiedMethodCandidateWithErrors classMethodType implMethodType state argumentTypes =
+  case qualifiedMethodSignatureType classMethodType implMethodType of
+    Nothing -> (Nothing, state)
+    Just methodType -> applyKnownFunctionArgumentsWithErrors methodType argumentTypes state
 
 applyKnownFunctionArguments ::
   ExpressionType ->
@@ -1549,13 +1507,11 @@ applyKnownFunctionArgumentsWithErrors functionType argumentTypes state =
               )
 
 qualifiedMethodSignatureType ::
-  CapabilityMethodKey ->
   ClassMethodType ->
   ImplMethodType ->
-  InferState ->
-  (Maybe ExpressionType, InferState)
-qualifiedMethodSignatureType _ (ClassMethodType classParameter methodSignature) (ImplMethodType implTarget _ _) state =
-  (instantiateClassMethodTarget classParameter implTarget methodSignature, state)
+  Maybe ExpressionType
+qualifiedMethodSignatureType (ClassMethodType classParameter methodSignature) (ImplMethodType implTarget _ _) =
+  instantiateClassMethodTarget classParameter implTarget methodSignature
 
 instantiateClassMethodTarget :: Text -> SemanticType ResolvedName Void -> SemanticType ResolvedName Text -> Maybe ExpressionType
 instantiateClassMethodTarget classParameter implTarget =

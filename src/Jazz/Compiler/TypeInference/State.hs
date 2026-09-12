@@ -69,7 +69,7 @@ import Jazz.Compiler.TypeInference.Types
     ImplMethodType,
     InferenceVariable,
     NumericConstraint,
-    ScopeCapabilityFacts,
+    ScopeCapabilityFacts (..),
     TypeEnv,
     TypeSchemeConstraint,
     emptyScopeCapabilityFacts,
@@ -86,11 +86,7 @@ data SolverState = SolverState
 
 data DeclarationState = DeclarationState
   { declarationDataTypes :: Map ResolvedName DataTypeBinding,
-    declarationClassFacts :: Map CapabilityId Int,
-    declarationGeneratedEqualityClassFacts :: Set CapabilityId,
-    declarationConcreteImplFacts :: Set ConcreteImplFact,
-    declarationClassMethodSignatures :: Map CapabilityMethodKey ClassMethodType,
-    declarationConcreteImplMethods :: Map CapabilityMethodKey [ImplMethodType]
+    declarationCapabilities :: ScopeCapabilityFacts
   }
   deriving (Eq, Show)
 
@@ -175,11 +171,7 @@ initialInferState =
       inferDeclarations =
         DeclarationState
           { declarationDataTypes = Map.empty,
-            declarationClassFacts = Map.empty,
-            declarationGeneratedEqualityClassFacts = Set.empty,
-            declarationConcreteImplFacts = Set.empty,
-            declarationClassMethodSignatures = Map.empty,
-            declarationConcreteImplMethods = Map.empty
+            declarationCapabilities = emptyScopeCapabilityFacts
           },
       inferModule =
         ModuleInferenceState
@@ -221,19 +213,19 @@ inferDataTypes :: InferState -> Map ResolvedName DataTypeBinding
 inferDataTypes = declarationDataTypes . inferDeclarations
 
 inferClassFacts :: InferState -> Map CapabilityId Int
-inferClassFacts = declarationClassFacts . inferDeclarations
+inferClassFacts = scopeClassFacts . declarationCapabilities . inferDeclarations
 
 inferGeneratedEqualityClassFacts :: InferState -> Set CapabilityId
-inferGeneratedEqualityClassFacts = declarationGeneratedEqualityClassFacts . inferDeclarations
+inferGeneratedEqualityClassFacts = scopeGeneratedEqualityClassFacts . declarationCapabilities . inferDeclarations
 
 inferConcreteImplFacts :: InferState -> Set ConcreteImplFact
-inferConcreteImplFacts = declarationConcreteImplFacts . inferDeclarations
+inferConcreteImplFacts = scopeConcreteImplFacts . declarationCapabilities . inferDeclarations
 
 inferClassMethodSignatures :: InferState -> Map CapabilityMethodKey ClassMethodType
-inferClassMethodSignatures = declarationClassMethodSignatures . inferDeclarations
+inferClassMethodSignatures = scopeClassMethodSignatures . declarationCapabilities . inferDeclarations
 
 inferConcreteImplMethods :: InferState -> Map CapabilityMethodKey [ImplMethodType]
-inferConcreteImplMethods = declarationConcreteImplMethods . inferDeclarations
+inferConcreteImplMethods = scopeConcreteImplMethods . declarationCapabilities . inferDeclarations
 
 inferCurrentModulePath :: InferState -> Maybe ModulePath
 inferCurrentModulePath = inferenceModulePath . inferModule

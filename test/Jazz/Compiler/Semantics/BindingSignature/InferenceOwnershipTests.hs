@@ -101,7 +101,7 @@ import Jazz.Compiler.TypeInference.Types
     NumericConstraint (..),
     SchemeConstraint (..),
     SchemePrimitiveConstraint (..),
-    ScopeCapabilityFacts,
+    ScopeCapabilityFacts (..),
     SemanticBinding (..),
     SemanticType (..),
     TypeEnvKey (..),
@@ -178,7 +178,14 @@ testStateRecordModifiers = do
         ( modifyModuleInferenceState
             (\moduleState -> moduleState {inferenceModulePath = Just (mkModulePath (mkIdentifier "App" :| [mkIdentifier "Main"]))})
             ( modifyDeclarationState
-                (\declarations -> declarations {declarationClassFacts = Map.singleton (CapabilityId (capabilityName "Eq")) 1})
+                ( \declarations ->
+                    declarations
+                      { declarationCapabilities =
+                          (declarationCapabilities declarations)
+                            { scopeClassFacts = Map.singleton (CapabilityId (capabilityName "Eq")) 1
+                            }
+                      }
+                )
                 initialInferState
             )
         )
@@ -700,7 +707,17 @@ testImplChecksPreserveRollback = do
           _ -> ((Just expected, resolveType current variable), current)
   case resolvedProgram "class Probe(a) { first :: (Int, Int). second :: (Int, Int). }. impl Probe(Int) { first = 0. second = (1, 2). }." of
     EBlock _ [SClass {}, SImpl _ capability _ methods] -> do
-      let initialState = modifyDeclarationState (\declarations -> declarations {declarationClassMethodSignatures = Map.fromList [((CapabilityId capability, mkIdentifier method), signature) | method <- ["first", "second"]]}) allocated
+      let initialState =
+            modifyDeclarationState
+              ( \declarations ->
+                  declarations
+                    { declarationCapabilities =
+                        (declarationCapabilities declarations)
+                          { scopeClassMethodSignatures = Map.fromList [((CapabilityId capability, mkIdentifier method), signature) | method <- ["first", "second"]]
+                          }
+                    }
+              )
+              allocated
           (finalState, results) = checkImplMethodBodies inferBody fst Map.empty initialState capability [SemanticInt] methods
       assertEqual "both bodies checked in source order" [0, 1] (map fst results)
       assertEqual "failed tuple unification did not leak into next body" [variable, variable] (map (snd . snd) results)

@@ -153,7 +153,6 @@ data SemanticFactInvariantFailure
   | MissingExpressionFacts CoreNodeId
   | UnresolvedExpressionReference CoreNodeId ResolvedName
   | MissingExpressionEvidence CoreNodeId
-  | AmbiguousExpressionEvidence CoreNodeId
   | MissingExplicitInstantiationSeed CoreNodeId
   | MismatchedExplicitInstantiationSeed CoreNodeId ResolvedName ResolvedName
   | UnexpectedExplicitInstantiationSeed CoreNodeId
@@ -165,7 +164,6 @@ data SemanticFactInvariantFailure
   | MissingStatementScheme CoreNodeId CoreBinderId
   | AnalyzedModuleRootNotBlock CoreNodeId
   | InvalidAnalyzedMethodSignature Text
-  | InvalidAnalyzedImplementationTarget CoreNodeId
   deriving stock (Eq, Generic, Ord, Show)
   deriving anyclass (NFData)
 

@@ -25,6 +25,7 @@ where
 
 import Control.Monad (replicateM)
 import qualified Control.Monad.Trans.State.Strict as State
+import qualified Data.Foldable as Foldable
 import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
 import Jazz.Compiler.BuiltinCatalog
@@ -183,12 +184,11 @@ dereferenceType state expressionType =
     _ -> (expressionType, state)
 
 unifyTypeListsWithoutCostCentre :: [ExpressionType] -> [ExpressionType] -> InferState -> Maybe InferState
-unifyTypeListsWithoutCostCentre leftTypes rightTypes state
-  | length leftTypes /= length rightTypes = Nothing
-  | otherwise = foldl' step (Just state) (zip leftTypes rightTypes)
-  where
-    step maybeState (leftType, rightType) =
-      maybeState >>= unifyTypesWithoutCostCentre leftType rightType
+unifyTypeListsWithoutCostCentre [] [] state = Just state
+unifyTypeListsWithoutCostCentre (leftType : leftTypes) (rightType : rightTypes) state = do
+  nextState <- unifyTypesWithoutCostCentre leftType rightType state
+  unifyTypeListsWithoutCostCentre leftTypes rightTypes nextState
+unifyTypeListsWithoutCostCentre _ _ _ = Nothing
 
 bindTypeVar :: InferenceVariable -> ExpressionType -> InferState -> Maybe InferState
 bindTypeVar typeVar replacementType state
@@ -247,20 +247,7 @@ bindTypeVar typeVar replacementType state
         _ -> stateWithoutNumericTypeVar
 
 occursInType :: InferenceVariable -> ExpressionType -> Bool
-occursInType typeVar expressionType =
-  case expressionType of
-    SemanticInt -> False
-    SemanticFloat -> False
-    SemanticNumeric {} -> False
-    SemanticBool -> False
-    SemanticChar -> False
-    SemanticText -> False
-    SemanticList elementType -> occursInType typeVar elementType
-    SemanticTuple elementTypes -> any (occursInType typeVar) elementTypes
-    SemanticData _ typeArguments -> any (occursInType typeVar) typeArguments
-    SemanticFunction inputType outputType ->
-      occursInType typeVar inputType || occursInType typeVar outputType
-    SemanticVariable otherVar -> typeVar == otherVar
+occursInType = Foldable.elem
 
 addStrictEqualityTypeVarConstraint :: InferenceVariable -> InferState -> InferState
 addStrictEqualityTypeVarConstraint typeVar state =

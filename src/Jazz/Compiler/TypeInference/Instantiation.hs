@@ -62,6 +62,7 @@ import Jazz.Compiler.TypeInference.TypeOps
   )
 import Jazz.Compiler.TypeInference.Types
   ( ExpressionType,
+    InferenceVariable,
     SemanticBinding (..),
     SemanticScheme (..),
     SemanticType (..),
@@ -103,12 +104,24 @@ instantiateNonBuiltinTypeBinding binding state =
         Nothing -> (Nothing, state)
 
 instantiateTypeScheme :: TypeScheme -> InferState -> (Maybe ExpressionType, InferState)
-instantiateTypeScheme typeScheme state =
+instantiateTypeScheme typeScheme =
+  instantiateTypeSchemeWithBindings
+    typeScheme
+    Map.empty
+    (quantifiedVariablesOrderedList (schemeQuantifiedVariables typeScheme))
+
+instantiateTypeSchemeWithBindings ::
+  TypeScheme ->
+  Map.Map InferenceVariable ExpressionType ->
+  [InferenceVariable] ->
+  InferState ->
+  (Maybe ExpressionType, InferState)
+instantiateTypeSchemeWithBindings typeScheme initialBindings remainingVariables state =
   let (freshBindings, nextState) =
         foldl'
           allocateFreshBinding
-          (Map.empty, state)
-          (quantifiedVariablesOrderedList (schemeQuantifiedVariables typeScheme))
+          (initialBindings, state)
+          remainingVariables
       instantiatedType =
         replaceTypeVariables freshBindings expressionType
       instantiatedConstraints =
@@ -196,32 +209,8 @@ instantiateTypeSchemeWithExplicitArgument typeScheme explicitArgumentType state 
     [] ->
       (Nothing, addTypeError state mkExplicitTypeApplicationTargetError)
     explicitTypeVar : remainingTypeVars ->
-      let (freshBindings, nextState) =
-            foldl'
-              allocateFreshBinding
-              (Map.singleton explicitTypeVar explicitArgumentType, state)
-              remainingTypeVars
-          instantiatedType =
-            replaceTypeVariables freshBindings expressionType
-          instantiatedConstraints =
-            map (instantiateTypeSchemeConstraint freshBindings) explicitConstraints
-          instantiatedPrimitiveConstraints =
-            map (instantiateTypeSchemePrimitiveConstraint freshBindings) primitiveConstraints
-          stateWithPrimitiveConstraints =
-            applyTypeSchemePrimitiveConstraints instantiatedPrimitiveConstraints nextState
-          stateWithDeferredConstraints =
-            deferExplicitConstraintsWithFacts
-              (definingFacts <> capabilityFactsFromState state)
-              definingFacts
-              instantiatedConstraints
-              stateWithPrimitiveConstraints
-       in (Just (resolveType stateWithDeferredConstraints instantiatedType), stateWithDeferredConstraints)
-  where
-    explicitConstraints = schemeClassConstraints typeScheme
-    primitiveConstraints = schemePrimitiveConstraints typeScheme
-    definingFacts = schemeDefiningCapabilities typeScheme
-    expressionType = schemeResultType typeScheme
-
-    allocateFreshBinding (bindings, stateAcc) typeVar =
-      let (freshType, nextState) = freshTypeVar stateAcc
-       in (Map.insert typeVar freshType bindings, nextState)
+      instantiateTypeSchemeWithBindings
+        typeScheme
+        (Map.singleton explicitTypeVar explicitArgumentType)
+        remainingTypeVars
+        state

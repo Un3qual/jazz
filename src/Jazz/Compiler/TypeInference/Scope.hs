@@ -18,6 +18,7 @@ where
 
 import Control.Monad (zipWithM)
 import Data.Bifunctor (first)
+import qualified Data.Foldable as Foldable
 import Data.List
   ( uncons,
     unsnoc,
@@ -467,30 +468,30 @@ inferScopeTypeInternal
       buildStatement index visibleTypes body methods statement = case statement of
         SLet node name value -> makeLet name <$> facts node (bindingFor node name) (ValueDeclaration name) <*> valueDraft value body
         SSignature node name signature -> SSignature <$> facts node (bindingAt (resolvedNodeReference (coreNodeFacts node)) name) (SignatureDeclaration name) <*> pure name <*> pure signature
-        SData node name parameters constructors -> SData <$> facts node [] (DataDeclaration name [constructorName | DataConstructor _ constructorName _ <- constructors]) <*> pure name <*> pure parameters <*> traverse constructor constructors
+        SData node name parameters constructors -> SData <$> facts node Nothing (DataDeclaration name [constructorName | DataConstructor _ constructorName _ <- constructors]) <*> pure name <*> pure parameters <*> traverse constructor constructors
         SClass node name parameters signatures ->
-          SClass <$> facts node [] (CapabilityDeclaration name parameters) <*> pure name <*> pure parameters <*> case Map.lookup index (preparedDeclarations scopePreparation) of
+          SClass <$> facts node Nothing (CapabilityDeclaration name parameters) <*> pure name <*> pure parameters <*> case Map.lookup index (preparedDeclarations scopePreparation) of
             Just (Right (PreparedClassMethods checkedMethods)) -> zipWithM classMethod signatures checkedMethods
             _ -> rejectedDraft (MissingStatementFacts (coreNodeId node))
         SImpl node name arguments declarations -> SImpl <$> implementationNode node name <*> pure name <*> pure arguments <*> traverse implMethod (zip [0 ..] declarations)
-        SModule node path -> SModule <$> facts node [] (ModuleDeclaration (sourceUnitOwnerModulePath (resolvedNodeOwner (coreNodeFacts node)))) <*> pure path
+        SModule node path -> SModule <$> facts node Nothing (ModuleDeclaration (sourceUnitOwnerModulePath (resolvedNodeOwner (coreNodeFacts node)))) <*> pure path
         SImport node path alias names -> case resolvedNodeImportTarget (coreNodeFacts node) of
-          Just target -> SImport <$> facts node [] (ImportDeclaration target) <*> pure path <*> pure alias <*> pure names
+          Just target -> SImport <$> facts node Nothing (ImportDeclaration target) <*> pure path <*> pure alias <*> pure names
           Nothing -> rejectedDraft (MissingStatementFacts (coreNodeId node))
-        SExpr node value -> SExpr <$> facts node [] ExpressionDeclaration <*> valueDraft value body
+        SExpr node value -> SExpr <$> facts node Nothing ExpressionDeclaration <*> valueDraft value body
         where
           facts = draftStatementNode
           bindingFor node name = bindingAt (LexicalReference <$> resolvedNodeBinder (coreNodeFacts node)) name
-          bindingAt reference name = maybe [] (\binding -> [(name, binding)]) (reference >>= (\target -> Map.lookup (TypeEnvKey target name) visibleTypes))
+          bindingAt reference name = reference >>= (\target -> Map.lookup (TypeEnvKey target name) visibleTypes)
           valueDraft _ (Just value) = checkedExprTree value
           valueDraft value Nothing = rejectedDraft (MissingExpressionFacts (coreNodeId (expressionNode value)))
           makeLet name node value = SLet node name (constrainBindingRuntimeResult (coreNodeFacts node) value)
           constructor (DataConstructor node name arguments) = DataConstructor <$> facts node (bindingFor node name) (ValueDeclaration name) <*> pure name <*> pure arguments
           classMethod (ClassMethodSignature node name signature) (_, _, methodType) = case projectAnalyzedMethodSignature (identifierText name) methodType of
-            Right analyzed -> ClassMethodSignature <$> facts node [] (MethodDeclaration name analyzed) <*> pure name <*> pure signature
+            Right analyzed -> ClassMethodSignature <$> facts node Nothing (MethodDeclaration name analyzed) <*> pure name <*> pure signature
             Left failure -> rejectedDraft failure
           implementationNode node name = case Map.lookup index (preparedDeclarations scopePreparation) of
-            Just (Right (PreparedImplementationTargets targets)) -> facts node [] (ImplementationDeclaration name (map (fmap absurd) targets))
+            Just (Right (PreparedImplementationTargets targets)) -> facts node Nothing (ImplementationDeclaration name (map (fmap absurd) targets))
             _ -> rejectedDraft (MissingStatementFacts (coreNodeId node))
           implMethod (methodIndex, ImplMethod node name value) = ImplMethod <$> facts node (bindingFor node name) (ValueDeclaration name) <*> pure name <*> valueDraft value (lookup methodIndex methods)
 
@@ -931,7 +932,7 @@ inferScopeTypeInternal
                             Just bindingType ->
                               addUnpreservedInferredMethodConstraintErrors
                                 bindingSpan
-                                generalizationEnv
+                                generalizationEnvVariables
                                 stateForStatement
                                 stateAfterSignatureContractCheck
                                 bindingType
@@ -1021,7 +1022,7 @@ inferScopeTypeInternal
                             Just resultType ->
                               addUnpreservedInferredMethodConstraintErrors
                                 exprSpan
-                                envForStatement
+                                (freeTypeVariablesInEnv stateAfterExplicitConstraintCheck envForStatement)
                                 stateForStatement
                                 stateAfterExplicitConstraintCheck
                                 resultType
@@ -1945,7 +1946,7 @@ pruneCapturedInferredClassConstraints statementStartState binding =
 
 pruneCapturedInferredClassConstraintsForBindings :: InferState -> [TypeBinding] -> InferState -> InferState
 pruneCapturedInferredClassConstraintsForBindings statementStartState bindings state =
-  if null capturedConstraints
+  if Set.null capturedConstraints
     then state
     else
       modifyInferenceOutput
@@ -1969,14 +1970,15 @@ pruneCapturedInferredClassConstraintsForBindings statementStartState bindings st
         (not . capturedInScheme . resolveTypeSchemeConstraint state)
         statementConstraints
     capturedConstraints =
-      [ resolveTypeSchemeConstraint state constraint
-      | binding <- bindings,
-        Just typeScheme <- [typeBindingScheme binding],
-        constraint <- schemeClassConstraints typeScheme,
-        typeSchemeConstraintIsInferred constraint
-      ]
+      Set.fromList
+        [ resolveTypeSchemeConstraint state constraint
+        | binding <- bindings,
+          Just typeScheme <- [typeBindingScheme binding],
+          constraint <- schemeClassConstraints typeScheme,
+          typeSchemeConstraintIsInferred constraint
+        ]
     capturedInScheme constraint =
-      constraint `elem` capturedConstraints
+      Set.member constraint capturedConstraints
 
 typeSchemeConstraintIsInferred :: TypeSchemeConstraint -> Bool
 typeSchemeConstraintIsInferred constraint =
@@ -1997,26 +1999,7 @@ explicitBindingSchemeVariables environmentVariables state pendingSignature =
    in Set.difference freeVariables environmentVariables
 
 expressionTypeVariableOrder :: ExpressionType -> [InferenceVariable]
-expressionTypeVariableOrder = go
-  where
-    go expressionType =
-      case expressionType of
-        SemanticInt -> []
-        SemanticFloat -> []
-        SemanticNumeric {} -> []
-        SemanticBool -> []
-        SemanticChar -> []
-        SemanticText -> []
-        SemanticList elementType ->
-          go elementType
-        SemanticTuple elementTypes ->
-          concatMap go elementTypes
-        SemanticData _ typeArguments ->
-          concatMap go typeArguments
-        SemanticFunction inputType outputType ->
-          go inputType ++ go outputType
-        SemanticVariable typeVar ->
-          [typeVar]
+expressionTypeVariableOrder = Foldable.toList
 
 typeSchemePrimitiveConstraints :: InferState -> Set InferenceVariable -> [TypeSchemePrimitiveConstraint]
 typeSchemePrimitiveConstraints state schemeVariables =
@@ -2167,6 +2150,7 @@ constructorArgumentTypes predeclaredDataTypes typeParameters fieldTypes initialS
         foldl' collectField ([], initialState) fieldTypes
    in (reverse argumentTypesRev, finalState)
   where
+    visibleDataTypes = Map.union (inferDataTypes initialState) predeclaredDataTypes
     signatureVariables =
       Map.fromList
         [ (identifierText parameterName, SemanticVariable (identifierText parameterName))
@@ -2174,7 +2158,7 @@ constructorArgumentTypes predeclaredDataTypes typeParameters fieldTypes initialS
         ]
 
     collectField (argumentTypesRev, stateAcc) fieldType =
-      case normalizeSignatureType (Map.union (inferDataTypes stateAcc) predeclaredDataTypes) signatureVariables fieldType of
+      case normalizeSignatureType visibleDataTypes signatureVariables fieldType of
         Right field ->
           ( ConstructorArgumentType field : argumentTypesRev,
             stateAcc
