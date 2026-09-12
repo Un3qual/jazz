@@ -59,7 +59,6 @@ import Jazz.Compiler.SourceUnitOwnership (SourceUnitOwner (..))
 data RuntimeScopePlan = RuntimeScopePlan
   { runtimeScopePlanIndexedStatements :: [(Int, Statement 'Analyzed)],
     runtimeScopePlanStatementsByIndex :: IntMap (Statement 'Analyzed),
-    runtimeScopePlanModulePathsByStatement :: IntMap (Maybe SourceUnitOwner),
     runtimeScopePlanRecursiveGroups :: IntMap [Int],
     runtimeScopePlanSelfRecursiveFunctions :: IntSet,
     runtimeScopePlanBindingIndices :: Map.Map CoreBinderId Int,
@@ -73,7 +72,6 @@ buildRuntimeScopePlan preparedScope =
   RuntimeScopePlan
     { runtimeScopePlanIndexedStatements = indexedStatements,
       runtimeScopePlanStatementsByIndex = statementsByIndex,
-      runtimeScopePlanModulePathsByStatement = modulePathsByStatement,
       runtimeScopePlanRecursiveGroups = recursiveGroups,
       runtimeScopePlanSelfRecursiveFunctions = selfRecursiveFunctions,
       runtimeScopePlanBindingIndices = Map.fromList [(binder, index) | (index, binder) <- Map.toList (resolvedScopeBinderIds lexicalFacts)],
@@ -86,12 +84,6 @@ buildRuntimeScopePlan preparedScope =
     lexicalFacts = preparedRecursiveScopeFacts preparedScope
     recursiveGroups = IntMap.fromDistinctAscList (Map.toAscList (resolvedScopeRecursiveGroups lexicalFacts))
     selfRecursiveFunctions = IntSet.fromList (Set.toList (resolvedScopeSelfRecursiveFunctions lexicalFacts))
-    modulePathsByStatement =
-      IntMap.fromDistinctAscList
-        ( zip
-            [0 :: Int ..]
-            [Just (resolvedNodeOwner (statementResolution (coreNodeFacts (statementNode statement)))) | statement <- statements]
-        )
     hostRecursiveBindings =
       IntSet.fromList
         [ groupIndex
@@ -114,7 +106,8 @@ scopePlanStatementAt plan statementIndex =
 
 scopePlanModulePathForStatement :: RuntimeScopePlan -> Int -> Maybe SourceUnitOwner
 scopePlanModulePathForStatement plan statementIndex =
-  IntMap.findWithDefault Nothing statementIndex (runtimeScopePlanModulePathsByStatement plan)
+  resolvedNodeOwner . statementResolution . coreNodeFacts . statementNode
+    <$> scopePlanStatementAt plan statementIndex
 
 scopePlanRecursiveGroupAt :: RuntimeScopePlan -> Int -> Maybe [Int]
 scopePlanRecursiveGroupAt plan statementIndex =

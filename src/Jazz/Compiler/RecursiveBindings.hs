@@ -18,7 +18,7 @@ module Jazz.Compiler.RecursiveBindings
     inferSelfRecursiveBindings,
     prepareResolvedScope,
     prepareAnalyzedScope,
-    selectPreparedScope,
+    takePreparedScope,
     preparedRecursiveScopeFacts,
     preparedRecursiveScopeBindingNames,
     preparedRecursiveScopeGroups,
@@ -334,25 +334,21 @@ prepareScope nodeId facts statements = case resolvedNodeScope facts of
   Just scope -> Right (PreparedRecursiveScope statements scope)
   Nothing -> Left (MissingScopeFacts nodeId)
 
--- | Restrict a scope to an ordered statement selection, renumbering its local
--- indices. Declaration IDs and the resolver's visibility decisions survive.
-selectPreparedScope :: [Int] -> PreparedRecursiveScope phase -> PreparedRecursiveScope phase
-selectPreparedScope indices (PreparedRecursiveScope statements facts) =
-  PreparedRecursiveScope selectedStatements selectedFacts
+-- | Keep a statement prefix and its published facts. Prefixes preserve local
+-- indices, declaration IDs, and the resolver's visibility decisions.
+takePreparedScope :: Int -> PreparedRecursiveScope phase -> PreparedRecursiveScope phase
+takePreparedScope count (PreparedRecursiveScope statements facts) =
+  PreparedRecursiveScope (take count statements) selectedFacts
   where
-    byIndex = Map.fromList (zip [0 ..] statements)
-    selected = [(index, statement) | index <- indices, Just statement <- [Map.lookup index byIndex]]
-    selectedStatements = map snd selected
-    renumber = Map.fromList (zip (map fst selected) [0 ..])
     project :: Map Int a -> Map Int a
-    project values = Map.fromList [(new, value) | (old, new) <- Map.toList renumber, Just value <- [Map.lookup old values]]
-    projectSet values = Set.fromList [new | old <- Set.toList values, Just new <- [Map.lookup old renumber]]
+    project = fst . Map.split count
+    projectSet = fst . Set.split count
     selectedFacts =
       facts
         { resolvedScopeBindingNames = project (resolvedScopeBindingNames facts),
           resolvedScopeBinderIds = project (resolvedScopeBinderIds facts),
-          resolvedScopeBindingReplacements = Map.mapMaybe (`Map.lookup` renumber) (project (resolvedScopeBindingReplacements facts)),
-          resolvedScopeRecursiveGroups = Map.map (\members -> [new | old <- members, Just new <- [Map.lookup old renumber]]) (project (resolvedScopeRecursiveGroups facts)),
+          resolvedScopeBindingReplacements = Map.filter (< count) (project (resolvedScopeBindingReplacements facts)),
+          resolvedScopeRecursiveGroups = Map.map (filter (< count)) (project (resolvedScopeRecursiveGroups facts)),
           resolvedScopeSelfRecursiveFunctions = projectSet (resolvedScopeSelfRecursiveFunctions facts),
           resolvedScopeSelfReferences = projectSet (resolvedScopeSelfReferences facts)
         }
@@ -563,11 +559,10 @@ inferRecursiveGroupsOrderedInternal outerBindingNames indexedStatements =
                 else Nothing
           | otherwise -> Map.lookup dependencyName firstDeclarationStatementByName
 
-    componentStatementIndices component =
-      let memberIndices =
-            case component of
-              AcyclicSCC componentIndex -> Set.singleton componentIndex
-              CyclicSCC indices -> Set.fromList indices
+    componentStatementIndices (AcyclicSCC componentIndex) = [componentIndex]
+    componentStatementIndices (CyclicSCC [componentIndex]) = [componentIndex]
+    componentStatementIndices (CyclicSCC indices) =
+      let memberIndices = Set.fromList indices
        in -- SCC traversal order is not the declaration order consumed by later
           -- phases, so re-project members through the original statement list.
           [ statementIndex

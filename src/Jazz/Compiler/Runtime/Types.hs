@@ -143,7 +143,6 @@ type RuntimeHostEvaluationT m = StateT RuntimeHostEvaluationState m
 
 data RuntimeClosure = RuntimeClosure
   { runtimeClosureEnvironment :: RuntimeEnv,
-    runtimeClosureEnvironmentMayReachHostCells :: Bool,
     runtimeClosureParameter :: ResolvedName,
     runtimeClosureParameterReference :: ResolvedReference,
     runtimeClosureBody :: Expr 'Analyzed,
@@ -394,8 +393,7 @@ type RuntimeEnv = Map ResolvedReference RuntimeCell
 
 data ScopeResult = ScopeResult
   { scopeResultEnvironment :: RuntimeEnv,
-    scopeResultValue :: Maybe RuntimeValue,
-    scopeResultEnvironmentMayReachHostCells :: Bool
+    scopeResultValue :: Maybe RuntimeValue
   }
 
 data ModuleEvaluationMode

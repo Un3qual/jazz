@@ -43,13 +43,15 @@ import Jazz.Compiler.ModuleAnalysis
 import Jazz.Compiler.ModuleExports (exportInventory)
 import Jazz.Compiler.ModuleIdentity (SourceUnitOwner (..), mkModulePath, standaloneModulePath)
 import Jazz.Compiler.ModuleResolver (resolveStandaloneExprNames)
-import Jazz.Compiler.Name (mkIdentifier, qualifiedName)
+import Jazz.Compiler.Name (NameNamespace (ConstructorNamespace, TypeNamespace), ResolvedName, mkIdentifier, qualifiedName, resolveDeclarationOwner, resolvedImportedName, resolvedLocalName)
 import Jazz.Compiler.Runtime
-  ( RuntimeValue (..),
+  ( RuntimeAnnotation (..),
+    RuntimeValue (..),
     evaluateRuntimeExpr,
     renderRuntimeValue,
     runtimeValueExactlyMatchesConstraint,
   )
+import Jazz.Compiler.Runtime.Semantics (applyRuntimeTypeHint, runtimeValueMatchesConstraint)
 import Jazz.Compiler.Runtime.Types
   ( RuntimeMethodCandidate (..),
     filterRuntimeMethodCandidates,
@@ -73,7 +75,8 @@ import Jazz.Compiler.Semantics.Runtime.Shared
 import Jazz.Compiler.SourceProgram (parseAndLowerStandaloneSource)
 import Jazz.Compiler.TypeInference.Result (InferenceResult, inferredDiagnostics)
 import Jazz.Compiler.TypeRepresentation
-  ( SemanticType (..),
+  ( InferenceVariable (..),
+    SemanticType (..),
     SignaturePayload (..),
     SignatureType (..),
   )
@@ -98,6 +101,9 @@ capabilityTests =
     ("capability declarations are inert at runtime", testCapabilityDeclarationsRuntimeInert),
     ("qualified method candidates carry compiler-owned runtime evidence", testQualifiedMethodCandidateCarriesRuntimeEvidence),
     ("selected method evidence rejects a mismatched target type", testSelectedMethodRejectsMismatchedEvidence),
+    ("runtime data constraints accept defining and importing views of one owner", testRuntimeDataConstraintsAcceptNominalViews),
+    ("runtime data constraints reject identical names from different owners", testRuntimeDataConstraintsRejectDifferentOwners),
+    ("runtime data hints preserve nominal identity", testRuntimeDataHintsPreserveNominalIdentity),
     ("qualified method application preserves argument order", testQualifiedMethodApplicationPreservesArgumentOrder),
     ("qualified method dispatch executes selected impl body", testQualifiedMethodDispatchExecutesImplBody),
     ("let-bound qualified method dispatch executes selected impl body", testLetBoundQualifiedMethodDispatchExecutesImplBody),
@@ -218,6 +224,54 @@ testCapabilityDeclarationsRuntimeInert = do
   assertEqual "compile errors" [] (runCompileErrors result)
   assertEqual "runtime errors" [] (runRuntimeErrors result)
   assertEqual "capability declarations do not affect runtime output" (Just "1") (runOutput result)
+
+testRuntimeDataConstraintsAcceptNominalViews :: IO ()
+testRuntimeDataConstraintsAcceptNominalViews = do
+  let (local, imported, _) = runtimeNominalTypeViews
+      value name = VConstructor name [] (resolvedLocalName ConstructorNamespace (mkIdentifier "Wrap")) [] []
+  assertEqual "imported constraint accepts defining value" True (runtimeValueMatchesConstraint (SemanticData imported []) (value local))
+  assertEqual "defining constraint accepts imported value" True (runtimeValueMatchesConstraint (SemanticData local []) (value imported))
+
+testRuntimeDataConstraintsRejectDifferentOwners :: IO ()
+testRuntimeDataConstraintsRejectDifferentOwners = do
+  let (local, _, unrelated) = runtimeNominalTypeViews
+      value = VConstructor local [] (resolvedLocalName ConstructorNamespace (mkIdentifier "Wrap")) [] []
+  assertEqual "same spelling does not identify the same data type" False (runtimeValueMatchesConstraint (SemanticData unrelated []) value)
+
+testRuntimeDataHintsPreserveNominalIdentity :: IO ()
+testRuntimeDataHintsPreserveNominalIdentity =
+  mapM_
+    checkShape
+    [ ("monomorphic", [], [], [], []),
+      ("parameterized", [parameter], [SemanticVariable parameter], [VBool True], [SemanticBool])
+    ]
+  where
+    parameter = InferenceVariable 0
+    (local, imported, unrelated) = runtimeNominalTypeViews
+    checkShape (label, parameters, fields, arguments, typeArguments) = do
+      let value name = VConstructor name parameters (resolvedLocalName ConstructorNamespace (mkIdentifier "Wrap")) fields arguments
+          hint name = SemanticData name typeArguments
+      checkHint (label <> " imported hint accepts defining value") (Just (hint imported)) (hint imported) (value local)
+      checkHint (label <> " defining hint accepts imported value") (Just (hint local)) (hint local) (value imported)
+      checkHint (label <> " unrelated hint leaves value unannotated") Nothing (hint unrelated) (value local)
+    checkHint label expected hint value =
+      case applyRuntimeTypeHint hint value of
+        Right hinted ->
+          assertEqual label expected $ case hinted of
+            VAnnotated (RuntimeTypeHint actual) _ -> Just actual
+            _ -> Nothing
+        Left diagnostic -> failTest (label <> ": " <> renderDiagnostic diagnostic)
+
+runtimeNominalTypeViews :: (ResolvedName, ResolvedName, ResolvedName)
+runtimeNominalTypeViews =
+  ( resolveDeclarationOwner (NamedSourceUnit definingModule) local,
+    resolvedImportedName definingModule TypeNamespace (mkIdentifier "Box"),
+    resolveDeclarationOwner (NamedSourceUnit unrelatedModule) local
+  )
+  where
+    local = resolvedLocalName TypeNamespace (mkIdentifier "Box")
+    definingModule = mkModulePath (mkIdentifier "Lib" NonEmpty.:| [mkIdentifier "One"])
+    unrelatedModule = mkModulePath (mkIdentifier "Lib" NonEmpty.:| [mkIdentifier "Two"])
 
 testSelectedMethodRejectsMismatchedEvidence :: IO ()
 testSelectedMethodRejectsMismatchedEvidence = do

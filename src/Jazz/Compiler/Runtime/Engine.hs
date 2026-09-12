@@ -91,7 +91,7 @@ import Jazz.Compiler.Name
 import Jazz.Compiler.Pattern
   ( patternBinderNames,
   )
-import Jazz.Compiler.RecursiveBindings (PreparedRecursiveScope, prepareAnalyzedScope, preparedRecursiveScopeStatements, selectPreparedScope)
+import Jazz.Compiler.RecursiveBindings (PreparedRecursiveScope, prepareAnalyzedScope, preparedRecursiveScopeStatements, takePreparedScope)
 import Jazz.Compiler.Runtime.HostEvaluation
   ( freshDeferredHostScopeId,
     modifyDeferredHostBindingCache,
@@ -291,7 +291,7 @@ evaluateRuntimeExpressionWithRequiredEvaluationHost host request =
       Right scopeRequest -> fmap scopeResultValue <$> evaluateRuntimeScopeWithRequiredHostRequest host scopeRequest
     _ ->
       runExceptT
-        (Just <$> evalValueWithHost host Nothing Map.empty False expr)
+        (Just <$> evalValueWithHost host Nothing Map.empty expr)
   where
     expr = runtimeExpression request
 
@@ -305,10 +305,10 @@ evaluateRuntimeExpressionWithEvaluationHost host request =
     then case expr of
       EBlock {} -> case runtimeExpressionScopeRequest request of
         Left diagnostic -> pure (Left (RuntimeDiagnostic diagnostic))
-        Right scopeRequest -> fmap scopeResultValue <$> evaluateRuntimeScopeWithEvaluationHostRequest host scopeRequest
+        Right scopeRequest -> fmap scopeResultValue <$> evaluateRuntimeScopeWithRequiredHostRequest host scopeRequest
       _ ->
         runExceptT
-          (Just <$> evalValueWithHost host Nothing Map.empty False expr)
+          (Just <$> evalValueWithHost host Nothing Map.empty expr)
     else
       pure
         ( case evaluateRuntimeExpressionPure request of
@@ -353,7 +353,6 @@ opaqueRuntimeEnvironmentMayReachHostCells = not . Map.null
 data EvaluationContext = EvaluationContext
   { evaluationModulePath :: Maybe SourceUnitOwner,
     evaluationEnvironment :: RuntimeEnv,
-    evaluationEnvironmentMayReachHostCells :: Bool,
     evaluationClosureBaseName :: Text,
     evaluationLambdaStage :: Int
   }
@@ -421,7 +420,6 @@ evaluateRuntimeScopeWithRequiredHostRequest host request =
     ( evalScopeWithHost
         host
         evaluationMode
-        (opaqueRuntimeEnvironmentMayReachHostCells initialEnv)
         initialEnv
         preparedScope
     )
@@ -456,7 +454,6 @@ evaluateRuntimeScopeWithEvaluationHostRequest host request =
         ( evalScopeWithHost
             host
             evaluationMode
-            (opaqueRuntimeEnvironmentMayReachHostCells initialEnv)
             initialEnv
             preparedScope
         )
@@ -485,23 +482,22 @@ data PreparedRuntimeCells = PreparedRuntimeCells
 
 evaluateRuntimeScopePureRequest :: RuntimeScopeRequest -> Either Diagnostic ScopeResult
 evaluateRuntimeScopePureRequest =
-  evaluateRuntimeScope LazyScopeCells False evalValueWithModulePath id
+  evaluateRuntimeScope LazyScopeCells evalValueWithModulePath id
 
 evaluateRuntimeScope ::
   (Monad m) =>
   ScopeCellStorage ->
-  Bool ->
   (Maybe SourceUnitOwner -> RuntimeEnv -> Expr 'Analyzed -> m RuntimeValue) ->
   (RuntimeCell -> m RuntimeValue) ->
   RuntimeScopeRequest ->
   m ScopeResult
-evaluateRuntimeScope storage envMayReachHostCells evaluateValue forceCell request =
+evaluateRuntimeScope storage evaluateValue forceCell request =
   go Nothing (scopePlanIndexedStatements scopePlan)
   where
     cells = prepareRuntimeCells storage (runtimeScopeInitialEnvironment request) (runtimeScope request)
     scopePlan = preparedCellPlan cells
     go lastValue remaining = case remaining of
-      [] -> pure (ScopeResult (preparedFinalEnvironment cells) lastValue envMayReachHostCells)
+      [] -> pure (ScopeResult (preparedFinalEnvironment cells) lastValue)
       (statementIndex, statement) : rest ->
         case (runtimeScopeEvaluationMode request, statement) of
           (EvaluateEntryModule, SLet {}) -> do
@@ -520,8 +516,8 @@ prepareRuntimeCells storage initialEnv preparedScope =
     indexedStatements = scopePlanIndexedStatements scopePlan
     bindingCells =
       LazyIntMap.fromDistinctAscList
-        [ (statementIndex, cellForStatement statementIndex statement)
-        | (statementIndex, statement) <- indexedStatements
+        [ (statementIndex, cellForBinding statementIndex node name valueExpr)
+        | (statementIndex, SLet node name valueExpr) <- indexedStatements
         ]
     prefixEnvironments =
       LazyIntMap.fromDistinctAscList
@@ -556,24 +552,19 @@ prepareRuntimeCells storage initialEnv preparedScope =
           Left
             (runtimeDiagnostic E3020 "internal runtime error: missing binding cell for statement")
 
-    cellForStatement :: Int -> Statement 'Analyzed -> RuntimeCell
-    cellForStatement statementIndex statement =
-      case statement of
-        SLet bindingNode bindingName valueExpr ->
-          case storage of
-            LazyScopeCells -> bindingCell statementIndex bindingName valueExpr
-            DeferredScopeCells scopeId ->
-              Right
-                ( VDeferredHostBinding
-                    (DeferredHostBindingKey scopeId (coreNodeId bindingNode) bindingName)
-                    (recursiveBindingDiagnostic statementIndex valueExpr)
-                    (modulePathForStatement statementIndex)
-                    valueExpr
-                    (bindingEnv statementIndex)
-                )
-        _ ->
-          Left
-            (runtimeDiagnostic E3020 "internal runtime error: expected binding statement")
+    cellForBinding :: Int -> CoreNode 'Analyzed 'StatementSort -> ResolvedName -> Expr 'Analyzed -> RuntimeCell
+    cellForBinding statementIndex bindingNode bindingName valueExpr =
+      case storage of
+        LazyScopeCells -> bindingCell statementIndex bindingName valueExpr
+        DeferredScopeCells scopeId ->
+          Right
+            ( VDeferredHostBinding
+                (DeferredHostBindingKey scopeId (coreNodeId bindingNode) bindingName)
+                (recursiveBindingDiagnostic statementIndex valueExpr)
+                (modulePathForStatement statementIndex)
+                valueExpr
+                (bindingEnv statementIndex)
+            )
 
     -- Explicit cells detect cycles through their evaluating cache state. Lazy
     -- cells below resolve alias edges before tying a value thunk's knot.
@@ -714,6 +705,8 @@ prepareRuntimeCells storage initialEnv preparedScope =
     -- Preserve wrapper runtime semantics by evaluating the branch condition
     -- first, then following alias resolution only through the selected branch.
     selectedRecursiveAliasTarget :: Int -> RuntimeEnv -> Expr 'Analyzed -> Either Diagnostic (Maybe Int)
+    selectedRecursiveAliasTarget statementIndex _ _
+      | not (scopePlanIsRecursiveBinding scopePlan statementIndex) = Right Nothing
     selectedRecursiveAliasTarget statementIndex env expr =
       case peelSingleExprBlock expr of
         EIf _ conditionExpr thenExpr elseExpr ->
@@ -1013,7 +1006,7 @@ prepareRuntimeCells storage initialEnv preparedScope =
                     methodModulePath
                     methodExprsByKey
                     visitedMethodKeys
-                    (blockLocalAliasEnv env (selectPreparedScope [0 .. length prefixStatements - 1] prepared))
+                    (blockLocalAliasEnv env (takePreparedScope (length prefixStatements) prepared))
                     methodKey
                     aliasExpr
                 Nothing ->
@@ -1082,7 +1075,6 @@ evalValueWithModulePath currentModulePath env expr =
                   EvaluationContext
                     { evaluationModulePath = currentModulePath,
                       evaluationEnvironment = env,
-                      evaluationEnvironmentMayReachHostCells = False,
                       evaluationClosureBaseName = "<entry>",
                       evaluationLambdaStage = 1
                     }
@@ -1302,9 +1294,6 @@ stepEvaluationMachine observeStatistics observeProfile host machine =
                   Map.restrictKeys
                     (evaluationEnvironment context)
                     capturedNames
-                capturedEnvironmentMayReachHostCells =
-                  not (Map.null capturedEnvironment)
-                    && evaluationEnvironmentMayReachHostCells context
             recordRuntimeStatisticWhen
               observeStatistics
               (recordRuntimeClosureCreation (Map.size capturedEnvironment))
@@ -1313,8 +1302,6 @@ stepEvaluationMachine observeStatistics observeProfile host machine =
                   ( VClosure
                       RuntimeClosure
                         { runtimeClosureEnvironment = capturedEnvironment,
-                          runtimeClosureEnvironmentMayReachHostCells =
-                            capturedEnvironmentMayReachHostCells,
                           runtimeClosureParameter = parameterName,
                           runtimeClosureParameterReference = resolvedBinderReference (expressionResolution (coreNodeFacts node)) parameterName,
                           runtimeClosureBody = bodyExpr,
@@ -1418,21 +1405,17 @@ stepEvaluationMachine observeStatistics observeProfile host machine =
     stepBlock expressionMachine context preparedScope statements =
       case reverse statements of
         SExpr _ terminalExpr : reversedPrefix -> do
-          let prefixStatements = reverse reversedPrefix
           scopeResult <-
             evalScopeWithHost
               host
               EvaluateEntryModule
-              (evaluationEnvironmentMayReachHostCells context)
               (evaluationEnvironment context)
-              (selectPreparedScope [0 .. length prefixStatements - 1] preparedScope)
+              (takePreparedScope (length reversedPrefix) preparedScope)
           let terminalContext =
                 context
                   { evaluationModulePath =
                       Just (resolvedNodeOwner (expressionResolution (coreNodeFacts (expressionNode terminalExpr)))),
-                    evaluationEnvironment = scopeResultEnvironment scopeResult,
-                    evaluationEnvironmentMayReachHostCells =
-                      scopeResultEnvironmentMayReachHostCells scopeResult
+                    evaluationEnvironment = scopeResultEnvironment scopeResult
                   }
           continueWith (EvaluateExpression terminalContext terminalExpr) expressionMachine
         _ -> do
@@ -1440,7 +1423,6 @@ stepEvaluationMachine observeStatistics observeProfile host machine =
             evalScopeWithHost
               host
               EvaluateEntryModule
-              (evaluationEnvironmentMayReachHostCells context)
               (evaluationEnvironment context)
               preparedScope
           throwRuntimeDiagnostic
@@ -1529,8 +1511,6 @@ stepEvaluationMachine observeStatistics observeProfile host machine =
                         (runtimeClosureParameterReference closure)
                         (Right hintedArgumentValue)
                         (runtimeClosureEnvironment closure),
-                    evaluationEnvironmentMayReachHostCells =
-                      runtimeClosureEnvironmentMayReachHostCells closure,
                     evaluationClosureBaseName = nextClosureBaseName,
                     evaluationLambdaStage = nextLambdaStage
                   }
@@ -1981,16 +1961,14 @@ evalValueWithHost ::
   RuntimeHost (RuntimeHostEvaluationT m) ->
   Maybe SourceUnitOwner ->
   RuntimeEnv ->
-  Bool ->
   Expr 'Analyzed ->
   ExceptT RuntimeControl (RuntimeHostEvaluationT m) RuntimeValue
-evalValueWithHost host currentModulePath env envMayReachHostCells expr =
+evalValueWithHost host currentModulePath env expr =
   runEvaluationMachine
     host
     EvaluationContext
       { evaluationModulePath = currentModulePath,
         evaluationEnvironment = env,
-        evaluationEnvironmentMayReachHostCells = envMayReachHostCells,
         evaluationClosureBaseName = "<entry>",
         evaluationLambdaStage = 1
       }
@@ -2000,30 +1978,21 @@ evalScopeWithHost ::
   (Monad m) =>
   RuntimeHost (RuntimeHostEvaluationT m) ->
   ModuleEvaluationMode ->
-  Bool ->
   RuntimeEnv ->
   PreparedRecursiveScope 'Analyzed ->
   ExceptT RuntimeControl (RuntimeHostEvaluationT m) ScopeResult
-evalScopeWithHost host evaluationMode initialEnvMayReachHostCells initialEnv preparedScope = do
+evalScopeWithHost host evaluationMode initialEnv preparedScope = do
   scopeId <- lift freshDeferredHostScopeId
-  let envMayReachHostCells =
-        initialEnvMayReachHostCells || any introducesCells (preparedRecursiveScopeStatements preparedScope)
-      evaluateValue owner env = evalValueWithHost host owner env envMayReachHostCells
-      forceCell cell = liftRuntimeResult cell >>= forceRuntimeValueWithHost host
+  let forceCell cell = liftRuntimeResult cell >>= forceRuntimeValueWithHost host
   evaluateRuntimeScope
     (DeferredScopeCells scopeId)
-    envMayReachHostCells
-    evaluateValue
+    (evalValueWithHost host)
     forceCell
     RuntimeScopeRequest
       { runtimeScopeEvaluationMode = evaluationMode,
         runtimeScopeInitialEnvironment = initialEnv,
         runtimeScope = preparedScope
       }
-  where
-    introducesCells SLet {} = True
-    introducesCells SImpl {} = True
-    introducesCells _ = False
 
 evalHostBindingValue ::
   (Monad m) =>
@@ -2035,7 +2004,7 @@ evalHostBindingValue ::
   ExceptT RuntimeControl (RuntimeHostEvaluationT m) RuntimeValue
 evalHostBindingValue host currentModulePath env bindingName valueExpr =
   nameRuntimeClosureBinding currentModulePath bindingName
-    <$> evalValueWithHost host currentModulePath env True valueExpr
+    <$> evalValueWithHost host currentModulePath env valueExpr
 
 forceQualifiedMethodValueWithHost ::
   (Monad m) =>
