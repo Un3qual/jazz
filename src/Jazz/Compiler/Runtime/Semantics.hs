@@ -17,7 +17,6 @@ module Jazz.Compiler.Runtime.Semantics
     runtimeValueMatchesLiteral,
     applyRuntimeTypeHint,
     applyRuntimeFunctionArgumentHint,
-    applyRuntimeFunctionResultHint,
     applyExplicitTypeApplicationResultHint,
     explicitTypeApplicationRuntimeFunctionHint,
     explicitTypeApplicationRuntimeValueHint,
@@ -487,14 +486,6 @@ constructorPatternScrutinee runtimeValue =
   case runtimeValue of
     VAnnotated _ innerValue -> constructorPatternScrutinee innerValue
     _ -> runtimeValue
-
-applyRuntimeFunctionResultHint :: AnalyzedType -> RuntimeValue -> Either Diagnostic RuntimeValue
-applyRuntimeFunctionResultHint typeHint runtimeValue =
-  case typeHint of
-    SemanticFunction _ resultType ->
-      applyRuntimeTypeHint resultType runtimeValue
-    _ ->
-      Right runtimeValue
 
 applyRuntimeFunctionArgumentHint :: AnalyzedType -> RuntimeValue -> Either Diagnostic RuntimeValue
 applyRuntimeFunctionArgumentHint typeHint runtimeValue =

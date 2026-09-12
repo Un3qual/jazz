@@ -50,17 +50,12 @@ import Data.Sequence (Seq)
 import qualified Data.Sequence as Seq
 import Data.Set (Set)
 import qualified Data.Set as Set
-import Jazz.Compiler.CoreIdentity (CapabilityMethodKey)
+import Jazz.Compiler.CoreIdentity (CapabilityId, CapabilityMethodKey, ImplId, MethodId)
 import Jazz.Compiler.Diagnostics (Diagnostic)
 import Jazz.Compiler.ModuleIdentity (ModulePath)
 import Jazz.Compiler.Name (ResolvedName, UnresolvedName)
 import Jazz.Compiler.PatternCoverage (PatternCoverageSite)
 import Jazz.Compiler.SemanticDeclarations (ConcreteImplFact, DeclarationVariable)
-import Jazz.Compiler.SemanticFacts
-  ( CapabilityId,
-    ImplId,
-    MethodId,
-  )
 import Jazz.Compiler.TypeInference.Types
   ( ClassMethodType,
     DataTypeBinding,

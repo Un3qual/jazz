@@ -23,7 +23,7 @@ roots = [
   '^Jazz\.Compiler\.Driver\.(compileExpr|compileModuleGraph|compileModuleGraphWithPrelude|compileSource|compileSourceWithPrelude|compileWarnings|runModuleGraph|runModuleGraphObserved|runModuleGraphWithPrelude|runModuleGraphWithPreludeAndHost|runModuleGraphWithResolvedPrelude|runSource|runSourceObserved|runSourceWithPrelude|runSourceWithPreludeAndHost|runWarnings)$',
   # Benchmark forcing and profiling tooling API.
   # src/Jazz/Compiler/Force.hs
-  '^Jazz\.Compiler\.Force\.(forceInferenceResult|forceAnalyzedModule|forceAnalyzedModules|forceAnalyzedProgram|forceListWith|forceLoweredExpr|forceResolvedExpr|forceResolvedModule|forceRuntimeProgramOutputResult|forceSurfaceExpr|forceTokens)$',
+  '^Jazz\.Compiler\.Force\.(forceInferenceResult|forceListWith|forceLoweredExpr|forceRuntimeProgramOutputResult|forceSurfaceExpr|forceTokens)$',
   # Explicit compiler inspection/testing API; retained migration baseline.
   # src/Jazz/Compiler/ModuleExports.hs
   '^Jazz\.Compiler\.ModuleExports\.(exportedConstructorOwners)$',
@@ -40,23 +40,14 @@ roots = [
   # src/Jazz/Compiler/Parser/Declaration.hs
   '^Jazz\.Compiler\.Parser\.Declaration\.(parseDataStatementParser)$',
   # Explicit compiler inspection/testing API; retained migration baseline.
-  # src/Jazz/Compiler/Parser/Expression.hs
-  '^Jazz\.Compiler\.Parser\.Expression\.(parseExpressionTokens)$',
-  # Explicit compiler inspection/testing API; retained migration baseline.
   # src/Jazz/Compiler/Parser/Operator.hs
   '^Jazz\.Compiler\.Parser\.Operator\.(operatorTableFromDeclarations)$',
   # Explicit compiler inspection/testing API; retained migration baseline.
   # src/Jazz/Compiler/Parser/Pattern.hs
   '^Jazz\.Compiler\.Parser\.Pattern\.(parseCaseArmPatternTokens|parseLambdaParameterTokens)$',
   # Explicit compiler inspection/testing API; retained migration baseline.
-  # src/Jazz/Compiler/Parser/Signature.hs
-  '^Jazz\.Compiler\.Parser\.Signature\.(parseSignatureTypePrefixDetailed)$',
-  # Explicit compiler inspection/testing API; retained migration baseline.
   # src/Jazz/Compiler/Parser/TokenParser.hs
   '^Jazz\.Compiler\.Parser\.TokenParser\.(parseIdentifier|runTokenParserPrefix|runTokenParserPrefixDetailed)$',
-  # Explicit compiler inspection/testing API; retained migration baseline.
-  # src/Jazz/Compiler/Parser/TokenStream.hs
-  '^Jazz\.Compiler\.Parser\.TokenStream\.(tokenStreamDrop)$',
   # Explicit compiler inspection/testing API; retained migration baseline.
   # src/Jazz/Compiler/PatternCoverage.hs
   '^Jazz\.Compiler\.PatternCoverage\.(constructorInventoryFromBindings|emptyConstructorInventory)$',

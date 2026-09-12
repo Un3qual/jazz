@@ -22,9 +22,7 @@ module Jazz.Compiler.Semantics.Runtime.Fixtures
     expressionTuple,
     expressionTypeApplication,
     expressionVariable,
-    fixtureAmbientTypeVariable,
     fixtureResolvedTypeName,
-    fixtureTypeName,
     fixtureTypeVariable,
     fixtureValueName,
     implMethod,
@@ -63,7 +61,7 @@ import Jazz.Compiler.AST
     Statement (..),
   )
 import Jazz.Compiler.CapabilityFacts (signaturePayloadConstraintType)
-import Jazz.Compiler.CoreIdentity (ResolvedReference (BuiltinOperatorReference), emptyResolvedNodeFacts, resolvedNodeReference)
+import Jazz.Compiler.CoreIdentity (CoreBinderId (..), ResolvedReference (BuiltinOperatorReference), emptyResolvedNodeFacts, resolvedNodeReference)
 import Jazz.Compiler.Diagnostics (SourceSpan (..))
 import Jazz.Compiler.ModuleIdentity (SourceUnitOwner (StandaloneSourceUnit), standaloneModulePath)
 import Jazz.Compiler.Name
@@ -80,13 +78,11 @@ import Jazz.Compiler.Name
     mkIdentifier,
     operatorBindingName,
     qualifiedMemberName,
-    resolvedAmbientName,
   )
 import Jazz.Compiler.Parser.Operator (isBuiltinOperatorSymbol)
 import Jazz.Compiler.SemanticFacts
   ( AnalyzedMethodSignature (..),
     AnalyzedScheme (..),
-    CoreBinderId (..),
     ExpressionFacts (..),
     InstantiationTarget (..),
     PatternConstructorFact (PatternHasNoConstructor),
@@ -384,16 +380,6 @@ statementExpression spanValue = SExpr (statementNode spanValue)
 
 fixtureTypeVariable :: UnresolvedName -> SignatureType 'Analyzed
 fixtureTypeVariable = TypeRepresentation.TypeVariable . typeName
-
-fixtureAmbientTypeVariable :: UnresolvedName -> SignatureType 'Analyzed
-fixtureAmbientTypeVariable =
-  TypeRepresentation.TypeVariable
-    . resolvedAmbientName TypeNamespace
-    . mkIdentifier
-    . identifierText
-
-fixtureTypeName :: UnresolvedName -> SignatureType 'Analyzed
-fixtureTypeName = TypeRepresentation.TypeName . typeName
 
 fixtureValueName :: UnresolvedName -> ResolvedName
 fixtureValueName = valueName

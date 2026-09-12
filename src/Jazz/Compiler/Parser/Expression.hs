@@ -5,7 +5,6 @@
 -- | Direct Megaparsec grammar for surface expressions.
 module Jazz.Compiler.Parser.Expression
   ( parseExpressionParser,
-    parseExpressionTokens,
   )
 where
 
@@ -17,7 +16,7 @@ import qualified Data.Set as Set
 import Data.Text (Text)
 import qualified Data.Text as Text
 import qualified Data.Text.Read as TextRead
-import Jazz.Compiler.Diagnostics (Diagnostic, SourceSpan, spanColumn, spanLine)
+import Jazz.Compiler.Diagnostics (SourceSpan, spanColumn, spanLine)
 import Jazz.Compiler.FractionalLiteral
   ( fractionalLiteralExceedsMagnitude,
     mkFractionalLiteralSource,
@@ -72,7 +71,6 @@ import Jazz.Compiler.Parser.TokenParser
     parseAnyToken,
     parseToken,
     peekToken,
-    runTokenParserPrefix,
     withConsumedSpan,
   )
 import Jazz.Compiler.Parser.TokenStream
@@ -85,14 +83,6 @@ import Jazz.Compiler.TypeRepresentation (NumericType (..))
 import qualified Text.Megaparsec as MP
 
 type Stop = TokenStream -> Bool
-
-parseExpressionTokens ::
-  StatementBlockParser ->
-  ParserContext ->
-  [Token] ->
-  Either Diagnostic (SurfaceExpr, [Token])
-parseExpressionTokens parseBlock context =
-  runTokenParserPrefix "expression" (parseExpressionParser parseBlock context)
 
 parseExpressionParser :: StatementBlockParser -> ExpressionParser
 parseExpressionParser parseBlock context =

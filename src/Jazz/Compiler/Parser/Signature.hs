@@ -6,7 +6,6 @@
 module Jazz.Compiler.Parser.Signature
   ( parseConstrainedSignatureTypeDetailed,
     parseSignatureTypeParser,
-    parseSignatureTypePrefixDetailed,
     parseSignaturePayload,
     parseSignaturePayloadDetailed,
     splitTopLevelCommaTokensDetailed,
@@ -143,10 +142,6 @@ parseSupportedSignaturePayload tokens =
 parseConstrainedSignatureTypeDetailed :: [Token] -> Either ParserFailure SurfaceSignatureType
 parseConstrainedSignatureTypeDetailed =
   TokenParser.runTokenParserDetailed "constrained signature type" signatureTypeParser
-
-parseSignatureTypePrefixDetailed :: [Token] -> Either ParserFailure (SurfaceSignatureType, [Token])
-parseSignatureTypePrefixDetailed =
-  TokenParser.runTokenParserPrefixDetailed "signature type" signatureTypeParser
 
 splitTopLevelCommaTokensDetailed :: [Token] -> Either ParserFailure [[Token]]
 splitTopLevelCommaTokensDetailed =

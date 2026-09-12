@@ -7,16 +7,11 @@
 -- forced, so closures and unused runtime exports do not need an 'NFData'
 -- instance.
 module Jazz.Compiler.Force
-  ( forceAnalyzedProgram,
-    forceAnalyzedModule,
-    forceAnalyzedModules,
-    forceAnalyzedProgramResult,
+  ( forceAnalyzedProgramResult,
     forceDiagnostic,
     forceLoweredExpr,
-    forceResolvedExpr,
     forceInferenceResult,
     forceListWith,
-    forceResolvedModule,
     forceRuntimeProgramOutputResult,
     forceSurfaceExpr,
     forceTokens,
@@ -25,10 +20,10 @@ where
 
 import Control.DeepSeq (rnf)
 import qualified Data.Text as Text
-import Jazz.Compiler.AST (CorePhase (Analyzed, Lowered, Resolved), Expr)
+import Jazz.Compiler.AST (CorePhase (Analyzed, Lowered), Expr)
 import Jazz.Compiler.Diagnostics (Diagnostic)
 import Jazz.Compiler.Diagnostics.Strictness (forceDiagnostic)
-import Jazz.Compiler.ModuleGraph (CoreModule, CoreProgram)
+import Jazz.Compiler.ModuleGraph (CoreProgram)
 import Jazz.Compiler.ModuleRuntime (RuntimeProgram (runtimeProgramOutput))
 import Jazz.Compiler.Parser.AST (SurfaceExpr)
 import Jazz.Compiler.Parser.Lexer (Token)
@@ -38,9 +33,6 @@ import Jazz.Compiler.TypeInference.Result (InferenceResult)
 
 forceLoweredExpr :: Expr 'Lowered -> ()
 forceLoweredExpr = rnf
-
-forceResolvedExpr :: Expr 'Resolved -> ()
-forceResolvedExpr = rnf
 
 forceTokens :: [Token] -> ()
 forceTokens = rnf
@@ -54,9 +46,6 @@ forceInferenceResult = rnf
 forceAnalyzedProgramResult :: ([Diagnostic], Maybe (CoreProgram 'Analyzed)) -> ()
 forceAnalyzedProgramResult = rnf
 
-forceAnalyzedProgram :: CoreProgram 'Analyzed -> ()
-forceAnalyzedProgram = rnf
-
 forceRuntimeProgramOutputResult :: Either Diagnostic RuntimeProgram -> ()
 forceRuntimeProgramOutputResult result =
   case result of
@@ -67,15 +56,6 @@ forceRuntimeProgramOutputResult result =
 forceRenderedRuntimeValue :: RuntimeValue -> ()
 forceRenderedRuntimeValue runtimeValue =
   Text.length (renderRuntimeValue runtimeValue) `seq` ()
-
-forceAnalyzedModule :: CoreModule 'Analyzed -> ()
-forceAnalyzedModule = rnf
-
-forceResolvedModule :: CoreModule 'Resolved -> ()
-forceResolvedModule = rnf
-
-forceAnalyzedModules :: [CoreModule 'Analyzed] -> ()
-forceAnalyzedModules = rnf
 
 forceListWith :: (value -> ()) -> [value] -> ()
 forceListWith forceValue values =

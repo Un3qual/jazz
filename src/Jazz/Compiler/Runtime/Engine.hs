@@ -69,7 +69,7 @@ import Jazz.Compiler.BuiltinCatalog
 import Jazz.Compiler.CapabilityFacts
   ( qualifiedMethodKey,
   )
-import Jazz.Compiler.CoreIdentity (ResolvedNodeFacts (resolvedNodeCaptures, resolvedNodeOwner, resolvedNodeReference, resolvedOperatorSpelling), ResolvedReference (..), renderCapabilityMethodKey, resolvedBinderReference, resolvedValueReference)
+import Jazz.Compiler.CoreIdentity (CapabilityId (..), CoreNodeId, ImplId (..), MethodId (..), ResolvedNodeFacts (resolvedNodeCaptures, resolvedNodeOwner, resolvedNodeReference, resolvedOperatorSpelling), ResolvedReference (..), renderCapabilityMethodKey, resolvedBinderReference, resolvedValueReference)
 import Jazz.Compiler.DiagnosticCatalog
   ( ErrorCode (..),
   )
@@ -161,7 +161,6 @@ import Jazz.Compiler.Runtime.Semantics
   ( applyConstructor,
     applyExplicitTypeApplicationResultHint,
     applyRuntimeFunctionArgumentHint,
-    applyRuntimeFunctionResultHint,
     applyRuntimeTypeHint,
     attachDefaultBindingIntegerTarget,
     evalNumericConversion,
@@ -225,12 +224,8 @@ import Jazz.Compiler.SemanticFacts
   ( AnalyzedMethodSignature (..),
     AnalyzedScheme (..),
     AnalyzedType,
-    CapabilityId (..),
-    CoreNodeId,
     EvidenceReference (..),
     ExpressionFacts (..),
-    ImplId (..),
-    MethodId (..),
     SemanticInstantiation (..),
     StatementDeclarationFact (..),
     StatementFacts (..),
@@ -358,8 +353,7 @@ data EvaluationContext = EvaluationContext
   }
 
 data RuntimeResultObligation
-  = ApplyFunctionResultHint AnalyzedType
-  | ApplyResultTypeHint AnalyzedType
+  = ApplyResultTypeHint AnalyzedType
   | ApplyExplicitResultHint AnalyzedType
   | ApplySelectedEvidence (NonEmpty.NonEmpty EvidenceReference)
   | AttachDefaultIntegerResult
@@ -1476,7 +1470,7 @@ stepEvaluationMachine observeStatistics observeProfile host machine =
             liftRuntimeResult (applyRuntimeFunctionArgumentHint typeHint argumentValue)
           continueWith
             (ApplyCallable innerFunctionValue hintedArgumentValue)
-            (appendRuntimeResultObligation (ApplyFunctionResultHint typeHint) machine)
+            (appendFunctionResultHint typeHint machine)
         VSectionLeft operatorSymbol leftValue
           | operatorSymbol == "$" ->
               continueWith (ApplyCallable leftValue argumentValue) profiledMachine
@@ -1497,10 +1491,10 @@ stepEvaluationMachine observeStatistics observeProfile host machine =
               Just typeHint ->
                 liftRuntimeResult (applyRuntimeFunctionArgumentHint typeHint argumentValue)
               Nothing -> pure argumentValue
-          let resultObligation =
+          let withResultHint =
                 case runtimeClosureTypeHint closure of
-                  Just typeHint -> ApplyFunctionResultHint typeHint
-                  Nothing -> AttachDefaultIntegerResult
+                  Just typeHint -> appendFunctionResultHint typeHint
+                  Nothing -> appendRuntimeResultObligation AttachDefaultIntegerResult
               (nextClosureBaseName, nextLambdaStage) =
                 nextClosureOrigin (runtimeClosureCallableIdentity closure)
               closureContext =
@@ -1516,7 +1510,7 @@ stepEvaluationMachine observeStatistics observeProfile host machine =
                   }
           continueWith
             (EvaluateExpression closureContext (runtimeClosureBody closure))
-            (appendRuntimeResultObligation resultObligation profiledMachine)
+            (withResultHint profiledMachine)
         VBuiltin builtinFunction capturedArgs -> do
           resultValue <-
             applyBuiltinWithHost
@@ -1836,11 +1830,13 @@ appendRuntimeResultObligation obligation machine =
         prependRuntimeResultObligation obligation (evaluationReturnPolicy machine)
     }
 
-prependRuntimeResultObligation :: RuntimeResultObligation -> RuntimeReturnPolicy -> RuntimeReturnPolicy
-prependRuntimeResultObligation (ApplyFunctionResultHint typeHint) policy =
+appendFunctionResultHint :: AnalyzedType -> EvaluationMachine -> EvaluationMachine
+appendFunctionResultHint typeHint =
   case typeHint of
-    SemanticFunction _ resultType -> prependRuntimeResultObligation (ApplyResultTypeHint resultType) policy
-    _ -> policy
+    SemanticFunction _ resultType -> appendRuntimeResultObligation (ApplyResultTypeHint resultType)
+    _ -> id
+
+prependRuntimeResultObligation :: RuntimeResultObligation -> RuntimeReturnPolicy -> RuntimeReturnPolicy
 -- An Int result hint already performs Int64 conversion/defaulting. Keep that
 -- stronger check when it meets an ordinary integer-defaulting obligation.
 prependRuntimeResultObligation AttachDefaultIntegerResult policy@(RuntimeReturnPolicy (ApplyResultTypeHint SemanticInt : _)) = policy
@@ -1870,8 +1866,6 @@ dischargeRuntimeReturnPolicy (RuntimeReturnPolicy obligations) runtimeValue =
   where
     applyObligation currentValue obligation =
       case obligation of
-        ApplyFunctionResultHint typeHint ->
-          liftRuntimeResult (applyRuntimeFunctionResultHint typeHint currentValue)
         ApplyResultTypeHint typeHint ->
           liftRuntimeResult (applyRuntimeTypeHint typeHint currentValue)
         ApplyExplicitResultHint typeHint ->

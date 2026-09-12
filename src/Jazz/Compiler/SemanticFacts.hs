@@ -13,13 +13,8 @@ module Jazz.Compiler.SemanticFacts
     AnalyzedSchemeConstraint (..),
     BinaryOperation (..),
     BinaryOperandTyping (..),
-    CapabilityId (..),
-    CoreBinderId (..),
-    CoreNodeId (..),
     EvidenceReference (..),
     ExpressionFacts (..),
-    ImplId (..),
-    MethodId (..),
     PatternConstructorFact (..),
     PatternFacts (..),
     PatternRefutability (..),
@@ -36,7 +31,7 @@ import Data.List.NonEmpty (NonEmpty)
 import Data.Map.Strict (Map)
 import Data.Text (Text)
 import GHC.Generics (Generic)
-import Jazz.Compiler.CoreIdentity (CapabilityId (..), CapabilityMethodKey, CoreBinderId (..), CoreNodeId (..), ImplId (..), MethodId (..), ResolvedNodeFacts)
+import Jazz.Compiler.CoreIdentity (CapabilityId, CapabilityMethodKey, CoreBinderId, CoreNodeId, ImplId, MethodId, ResolvedNodeFacts)
 import Jazz.Compiler.ModuleIdentity (ModulePath)
 import Jazz.Compiler.Name (ResolvedName)
 import Jazz.Compiler.TypeRepresentation

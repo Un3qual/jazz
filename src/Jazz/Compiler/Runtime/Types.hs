@@ -88,7 +88,7 @@ import Jazz.Compiler.AST
     NumericType,
   )
 import Jazz.Compiler.BuiltinCatalog (BuiltinSymbol)
-import Jazz.Compiler.CoreIdentity (ResolvedReference)
+import Jazz.Compiler.CoreIdentity (CoreNodeId, MethodId, ResolvedReference)
 import Jazz.Compiler.Diagnostics (Diagnostic)
 import Jazz.Compiler.FractionalLiteral (FractionalLiteralSource)
 import Jazz.Compiler.Name (ResolvedName)
@@ -97,7 +97,7 @@ import Jazz.Compiler.Runtime.Observation
     RuntimeObservationState,
   )
 import Jazz.Compiler.Runtime.Outcome (RuntimeControl (..))
-import Jazz.Compiler.SemanticFacts (AnalyzedType, CoreNodeId, EvidenceReference (..), MethodId)
+import Jazz.Compiler.SemanticFacts (AnalyzedType, EvidenceReference (..))
 import Jazz.Compiler.SourceUnitOwnership (SourceUnitOwner)
 import Jazz.Compiler.TypeRepresentation (InferenceVariable)
 

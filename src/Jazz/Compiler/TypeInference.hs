@@ -282,8 +282,7 @@ inferExprTypeWithMode mode env state expr = case expr of
   EBlock node _ -> (CheckedExpr Nothing (rejectedDraft (MissingScopeFacts (coreNodeId node))), state)
   _ -> inferExprTypeDetailed env state expr
 
--- Checking returns the draft subtree alongside its type. Legacy constructor
--- families temporarily retain attachment until their own children are migrated.
+-- Checking returns each draft subtree alongside its inferred type.
 inferExprTypeDetailed :: TypeEnv -> InferState -> Expr 'Resolved -> (CheckedExpr, InferState)
 inferExprTypeDetailed env state expr = case expr of
   ELit _ literal -> leaf (\node -> ELit node literal)

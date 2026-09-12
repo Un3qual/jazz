@@ -31,7 +31,7 @@ import Jazz.Compiler.AST
     Expr (..),
     expressionNode,
   )
-import Jazz.Compiler.CoreIdentity (ResolvedNodeFacts (..), ResolvedReference (..))
+import Jazz.Compiler.CoreIdentity (CoreBinderId (..), CoreNodeId, ResolvedNodeFacts (..), ResolvedReference (..))
 import Jazz.Compiler.Name (ResolvedName, identifierText)
 import Jazz.Compiler.SemanticDeclarations (instantiateDeclarationType)
 import Jazz.Compiler.SemanticFacts
@@ -42,8 +42,6 @@ import Jazz.Compiler.SemanticFacts
     AnalyzedSchemeConstraint (..),
     BinaryOperandTyping (..),
     BinaryOperation (..),
-    CoreBinderId (..),
-    CoreNodeId,
     EvidenceReference (..),
     ExpressionFacts (..),
     InstantiationTarget (..),

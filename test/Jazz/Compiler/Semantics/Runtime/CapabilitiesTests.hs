@@ -22,6 +22,7 @@ import Jazz.Compiler.AST
     Literal (..),
     Statement (..),
   )
+import Jazz.Compiler.CoreIdentity (CapabilityId (..), ImplId (..), MethodId (..))
 import Jazz.Compiler.Diagnostics
   ( SourceSpan (..),
     isErrorDiagnostic,
@@ -63,11 +64,8 @@ import Jazz.Compiler.Runtime.Types
   )
 import Jazz.Compiler.SemanticFacts
   ( AnalyzedType,
-    CapabilityId (..),
     EvidenceReference (..),
     ExpressionFacts (..),
-    ImplId (..),
-    MethodId (..),
     SemanticInstantiation (..),
   )
 import Jazz.Compiler.Semantics.Runtime.Fixtures

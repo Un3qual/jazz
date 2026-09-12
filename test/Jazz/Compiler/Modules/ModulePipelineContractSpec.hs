@@ -34,7 +34,7 @@ import Jazz.Compiler.AST
 import Jazz.Compiler.BuiltinCatalog
   ( BuiltinSymbol (BuiltinToInt8),
   )
-import Jazz.Compiler.CoreIdentity (ResolvedNodeFacts (..), ResolvedReference (..), ResolvedScopeFacts (..), emptyResolvedNodeFacts, resolvedNodeImportTarget)
+import Jazz.Compiler.CoreIdentity (CapabilityId (..), CoreBinderId (..), ImplId (..), MethodId (..), ResolvedNodeFacts (..), ResolvedReference (..), ResolvedScopeFacts (..), emptyResolvedNodeFacts, resolvedNodeImportTarget)
 import Jazz.Compiler.Diagnostics (Diagnostic, SourceSpan (..), isErrorDiagnostic)
 import Jazz.Compiler.Diagnostics.Render
   ( renderDiagnostic,
@@ -149,13 +149,9 @@ import Jazz.Compiler.SemanticFacts
     AnalyzedScheme (..),
     BinaryOperandTyping (..),
     BinaryOperation (..),
-    CapabilityId (..),
-    CoreBinderId (..),
     EvidenceReference (..),
     ExpressionFacts (..),
-    ImplId (..),
     InstantiationTarget (..),
-    MethodId (..),
     PatternConstructorFact (..),
     PatternFacts (..),
     PatternRefutability (..),
