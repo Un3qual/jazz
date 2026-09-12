@@ -473,8 +473,8 @@ module ParserSignature (
     | [] -> tokenSucceed ()
   }.
 
-  # Qualified constraint heads have a strict grammar; legacy payload forms and
-  # unsupported type arguments still retain the pure fallback representation.
+  # Malformed qualified constraint heads fail validation; other unsupported
+  # payloads, including type arguments, retain their token representation.
   parseSignaturePayloadDetailed :: [CanonicalToken] -> TokenParser(SurfaceSignaturePayload).
   parseSignaturePayloadDetailed = \(tokens) -> tokenKeepRight
     (case tokens {

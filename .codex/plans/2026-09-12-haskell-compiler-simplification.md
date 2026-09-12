@@ -6,6 +6,13 @@ Reduce `src/Jazz` through shared operations; preserve language behavior,
 diagnostic ordering/locations, scope identity, evaluation and observation.
 Existing specifications containing implementation snippets are outside scope.
 
+This is the first-pass historical record. Its ten pre-existing hosted parser
+failures were subsequently fixed in the
+[test repair](2026-09-12-test-validity-and-parity.md). The
+[latest implementation verification](2026-09-12-haskell-practices-implementation.md)
+records all 62 regular suites passing, with full-scale tests skipped in that run
+at the maintainer's request. The checkpoint results below describe this pass only.
+
 - [x] Consolidate the parser's repeated precedence and pattern dispatch.
 - [x] Share type-inference operator checking and capability candidate handling.
 - [x] Consolidate runtime numeric dispatch, constructor matching and guards.

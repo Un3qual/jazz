@@ -5,6 +5,13 @@ User-authorized second pass, on `codex/simplify-haskell-compiler` above
 operations and clearer functions while preserving functionality, diagnostics,
 identity, source order, runtime observations and evaluation behavior.
 
+This is the second-pass historical record. Its reduction totals cover the first
+two passes only; subsequent test repair removed four more Haskell lines, and the
+[Haskell practices implementation](2026-09-12-haskell-practices-implementation.md)
+removed another 21. Thus `dfd0bde6..705b09b5` removes 1,494 net lines across 43
+`src/Jazz` files. See that implementation record for the latest verification;
+the ten hosted failures recorded below were fixed during the intervening repair.
+
 The empty execution queue supplies no additional feature work. This explicit
 request scopes the audit to files not investigated in the first pass. Keep
 hosted feature work deferred; do not execute benchmarks or scale suites.

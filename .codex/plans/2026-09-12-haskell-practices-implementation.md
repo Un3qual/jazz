@@ -2,8 +2,8 @@
 
 Approved by the maintainer on 2026-09-12; continue on
 `codex/simplify-haskell-compiler` from `2a08016c`.
-Implements the six concrete recommendations in the
-[research record](2026-09-12-haskell-compiler-practices-research.md).
+Implements the six concrete recommendations and additional readability conventions
+in the [research record](2026-09-12-haskell-compiler-practices-research.md).
 No language behavior changes or deferred framework/toolchain migrations.
 
 ## Changes
