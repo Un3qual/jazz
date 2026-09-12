@@ -260,16 +260,13 @@ referencedName expression =
 
 draftStatementNode :: CoreNode 'Resolved 'StatementSort -> Maybe TypeBinding -> StatementDeclarationFact -> Draft (CoreNode 'Analyzed 'StatementSort)
 draftStatementNode (CoreNode nodeId spanValue resolution) binding declaration =
-  Draft (\solved -> CoreNode nodeId spanValue <$> projectStatementBindings solved nodeId resolution binding declaration)
+  Draft (\solved -> CoreNode nodeId spanValue <$> projectStatementBinding solved nodeId resolution binding declaration)
 
 constrainBindingRuntimeResult :: StatementFacts -> Expr 'Analyzed -> Expr 'Analyzed
 constrainBindingRuntimeResult statementFacts =
-  case statementBinderIds statementFacts of
-    binder : _ ->
-      case Map.lookup binder (statementGeneralizedSchemes statementFacts) of
-        Just scheme -> mapExpressionFacts (\facts -> facts {expressionResultRepresentation = resultRepresentation (analyzedSchemeType scheme)})
-        Nothing -> id
-    [] -> id
+  case statementBinding statementFacts of
+    Just (_, scheme) -> mapExpressionFacts (\facts -> facts {expressionResultRepresentation = resultRepresentation (analyzedSchemeType scheme)})
+    Nothing -> id
 
 mapExpressionFacts :: (ExpressionFacts -> ExpressionFacts) -> Expr 'Analyzed -> Expr 'Analyzed
 mapExpressionFacts update expression =
@@ -291,21 +288,21 @@ mapExpressionFacts update expression =
   where
     mapNode (CoreNode nodeId spanValue facts) = CoreNode nodeId spanValue (update facts)
 
-projectStatementBindings :: InferState -> CoreNodeId -> ResolvedNodeFacts -> Maybe TypeBinding -> StatementDeclarationFact -> Attachment StatementFacts
-projectStatementBindings _ nodeId resolution _ (ValueDeclaration _)
+projectStatementBinding :: InferState -> CoreNodeId -> ResolvedNodeFacts -> Maybe TypeBinding -> StatementDeclarationFact -> Attachment StatementFacts
+projectStatementBinding _ nodeId resolution _ (ValueDeclaration _)
   | Nothing <- resolvedNodeBinder resolution = missing (MissingStatementBinder nodeId)
-projectStatementBindings _ nodeId resolution _ (MethodDeclaration _ _)
+projectStatementBinding _ nodeId resolution _ (MethodDeclaration _ _)
   | Nothing <- resolvedNodeReference resolution = missing (MissingStatementFacts nodeId)
-projectStatementBindings state nodeId resolution maybeBinding declaration =
+projectStatementBinding state nodeId resolution maybeBinding declaration =
   case maybeBinding of
-    Nothing -> pure (facts [] Map.empty)
+    Nothing -> pure (facts Nothing)
     Just binding -> case resolvedNodeBinder resolution of
       Nothing -> missing (MissingStatementBinder nodeId)
       Just binderId -> case projectTypeBinding state binderId binding of
         Left failure -> missing failure
-        Right scheme -> pure (facts [binderId] (Map.singleton binderId scheme))
+        Right scheme -> pure (facts (Just (binderId, scheme)))
   where
-    facts binders schemes = StatementFacts resolution binders schemes declaration
+    facts binding = StatementFacts resolution binding declaration
 
 projectTypeBinding :: InferState -> CoreBinderId -> TypeBinding -> Either SemanticFactInvariantFailure AnalyzedScheme
 projectTypeBinding state binderId@(CoreBinderId (_, nodeId)) binding =

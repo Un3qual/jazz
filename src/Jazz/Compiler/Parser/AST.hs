@@ -5,14 +5,14 @@
 -- | Surface AST produced directly by the parser before the program is lowered
 -- into the smaller core AST used by later phases.
 module Jazz.Compiler.Parser.AST
-  ( SurfaceCaseArm (..),
+  ( Literal (..),
+    SurfaceCaseArm (..),
     SurfaceClassMethodSignature (..),
     SurfaceDataConstructor (..),
     SurfaceExpr (..),
     SurfaceExprForm (..),
     SurfaceImplMethod (..),
     SurfaceLambdaParameter (..),
-    SurfaceLiteral (..),
     SurfaceNumericType,
     SurfaceName (..),
     SurfacePatternLambdaClause (..),
@@ -33,9 +33,7 @@ import GHC.Generics (Generic)
 import Jazz.Compiler.Diagnostics
   ( SourceSpan,
   )
-import Jazz.Compiler.FractionalLiteral
-  ( FractionalLiteralSource,
-  )
+import Jazz.Compiler.Literal (Literal (..))
 import Jazz.Compiler.ModuleExports
   ( ModuleExportSelector,
   )
@@ -69,16 +67,6 @@ instance IdentifierLike SurfaceName where
   identifierText = identifierText . surfaceNameIdentifier
   identifierPurity = identifierPurity . surfaceNameIdentifier
 
--- | Literals as they appear in parsed source before lowering.
-data SurfaceLiteral
-  = SLInt Integer
-  | SLFloat Double FractionalLiteralSource (Maybe SurfaceNumericType)
-  | SLBool Bool
-  | SLChar Char
-  | SLText Text
-  deriving stock (Eq, Generic, Show)
-  deriving anyclass (NFData)
-
 -- | Surface patterns accepted by the current parser slice for general case
 -- expressions.
 data SurfacePattern = SurfacePattern
@@ -91,7 +79,7 @@ data SurfacePattern = SurfacePattern
 data SurfacePatternForm
   = SPWildcard
   | SPVariable Identifier
-  | SPLiteral SurfaceLiteral
+  | SPLiteral Literal
   | SPConstructor Identifier [SurfacePattern]
   | SPList [SurfacePattern]
   | SPConsList SurfacePattern SurfacePattern
@@ -138,7 +126,7 @@ data SurfaceExpr = SurfaceExpr
   deriving anyclass (NFData)
 
 data SurfaceExprForm
-  = SELit SurfaceLiteral
+  = SELit Literal
   | SEVar Identifier
   | SEQualifiedVar Identifier Identifier
   | SEQualifiedMethod Identifier Identifier Identifier SourceSpan SourceSpan SourceSpan

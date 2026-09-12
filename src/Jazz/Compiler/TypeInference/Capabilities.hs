@@ -85,7 +85,8 @@ import Jazz.Compiler.CapabilityFacts
   )
 import Jazz.Compiler.CoreIdentity (CapabilityId (..), CapabilityMethodKey, ImplId (..), MethodId (..), ResolvedNodeFacts (..), ResolvedReference (..), capabilityMethodKeyFromReference, renderCapabilityId)
 import Jazz.Compiler.Diagnostics
-  ( DiagnosticContext (SatisfyingConstraint),
+  ( Diagnostic,
+    DiagnosticContext (SatisfyingConstraint),
     SourceSpan,
     setDiagnosticPrimarySpan,
   )
@@ -1019,7 +1020,7 @@ resolveQualifiedMethodApplicationType methodKey env state typedArguments =
             [implMethodType] ->
               selectedMethodResult
                 implMethodType
-                (applyQualifiedMethodCandidateWithErrors classMethodType implMethodType state argumentTypes)
+                (applyQualifiedMethodCandidate applyKnownFunctionArgumentsWithErrors classMethodType implMethodType state argumentTypes)
             implMethodTypes ->
               selectQualifiedMethodCandidate methodKey classMethodType implMethodTypes env state typedArguments
   where
@@ -1097,7 +1098,7 @@ selectQualifiedMethodCandidate methodKey classMethodType implMethodTypes env sta
     matchingCandidates =
       [ (implMethodType, matchedType, matchedState)
       | implMethodType <- implMethodTypes,
-        (Just matchedType, matchedState) <- [applyQualifiedMethodCandidate classMethodType implMethodType state argumentTypes]
+        (Just matchedType, matchedState) <- [applyQualifiedMethodCandidate applyKnownFunctionArguments classMethodType implMethodType state argumentTypes]
       ]
 
     resolvedArgumentTypes stateForRendering =
@@ -1284,8 +1285,8 @@ constraintBlockRuntimeHint state env initialLocalHints statements =
         _ ->
           go localHints pendingHints rest
 
-    checkedSignatureRuntimeHint facts = case Map.elems (statementGeneralizedSchemes facts) of
-      [scheme] | null (analyzedSchemeVariables scheme) -> closedConstraintType (defaultLiteralTypes state (analyzedSchemeType scheme))
+    checkedSignatureRuntimeHint facts = case statementBinding facts of
+      Just (_, scheme) | null (analyzedSchemeVariables scheme) -> closedConstraintType (defaultLiteralTypes state (analyzedSchemeType scheme))
       _ -> Nothing
 
 checkedDollarOperatorExpr :: TypeEnv -> Expr 'Analyzed -> Bool
@@ -1385,51 +1386,40 @@ constraintTypesCompatible left right = normalize left == normalize right
       _ -> target
 
 applyQualifiedMethodCandidate ::
+  (ExpressionType -> [ExpressionType] -> InferState -> (Maybe ExpressionType, InferState)) ->
   ClassMethodType ->
   ImplMethodType ->
   InferState ->
   [ExpressionType] ->
   (Maybe ExpressionType, InferState)
-applyQualifiedMethodCandidate classMethodType implMethodType state argumentTypes =
+applyQualifiedMethodCandidate applyArguments classMethodType implMethodType state argumentTypes =
   case qualifiedMethodSignatureType classMethodType implMethodType of
     Nothing -> (Nothing, state)
-    Just methodType -> applyKnownFunctionArguments methodType argumentTypes state
-
-applyQualifiedMethodCandidateWithErrors ::
-  ClassMethodType ->
-  ImplMethodType ->
-  InferState ->
-  [ExpressionType] ->
-  (Maybe ExpressionType, InferState)
-applyQualifiedMethodCandidateWithErrors classMethodType implMethodType state argumentTypes =
-  case qualifiedMethodSignatureType classMethodType implMethodType of
-    Nothing -> (Nothing, state)
-    Just methodType -> applyKnownFunctionArgumentsWithErrors methodType argumentTypes state
+    Just methodType -> applyArguments methodType argumentTypes state
 
 applyKnownFunctionArguments ::
   ExpressionType ->
   [ExpressionType] ->
   InferState ->
   (Maybe ExpressionType, InferState)
-applyKnownFunctionArguments functionType argumentTypes state =
-  foldl' step (Just functionType, state) argumentTypes
-  where
-    step (Nothing, stateAcc) _ =
-      (Nothing, stateAcc)
-    step (Just currentFunctionType, stateAcc) argumentType =
-      let (resultTypeVar, stateWithResultVar) = freshTypeVar stateAcc
-       in case unifyTypes currentFunctionType (SemanticFunction argumentType resultTypeVar) stateWithResultVar of
-            Just unifiedState ->
-              (Just (resolveType unifiedState resultTypeVar), unifiedState)
-            Nothing ->
-              (Nothing, stateAcc)
+applyKnownFunctionArguments = applyFunctionArguments (\beforeAllocation _ _ -> beforeAllocation)
 
 applyKnownFunctionArgumentsWithErrors ::
   ExpressionType ->
   [ExpressionType] ->
   InferState ->
   (Maybe ExpressionType, InferState)
-applyKnownFunctionArgumentsWithErrors functionType argumentTypes state =
+applyKnownFunctionArgumentsWithErrors = applyFunctionArguments (\_ afterAllocation diagnostic -> addTypeError afterAllocation diagnostic)
+
+-- Silent candidate probing discards the failing argument's fresh variable;
+-- reporting retains it. Neither policy keeps a failed unification's changes.
+applyFunctionArguments ::
+  (InferState -> InferState -> Diagnostic -> InferState) ->
+  ExpressionType ->
+  [ExpressionType] ->
+  InferState ->
+  (Maybe ExpressionType, InferState)
+applyFunctionArguments onFailure functionType argumentTypes state =
   foldl' step (Just functionType, state) argumentTypes
   where
     step (Nothing, stateAcc) _ =
@@ -1441,7 +1431,8 @@ applyKnownFunctionArgumentsWithErrors functionType argumentTypes state =
               (Just (resolveType unifiedState resultTypeVar), unifiedState)
             Nothing ->
               ( Nothing,
-                addTypeError
+                onFailure
+                  stateAcc
                   stateWithResultVar
                   ( mkApplyTypeError
                       (defaultLiteralTypes stateWithResultVar (resolveType stateWithResultVar currentFunctionType))

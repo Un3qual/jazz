@@ -17,8 +17,8 @@ import Data.Text (Text)
 import Jazz.Compiler.Diagnostics (Diagnostic, SourceSpan, spanColumn, spanLine)
 import Jazz.Compiler.Name (mkIdentifier)
 import Jazz.Compiler.Parser.AST
-  ( SurfaceLambdaParameter (..),
-    SurfaceLiteral (..),
+  ( Literal (..),
+    SurfaceLambdaParameter (..),
     SurfacePattern (..),
     SurfacePatternForm (..),
   )
@@ -95,10 +95,10 @@ parsePattern position = withConsumedSpan locatePatternRange $ do
       parseIntegralPatternLiteral token value
     Just token@Token {tokenKind = TChar value} -> do
       void parseAnyToken
-      pure (locatedPattern token (SPLiteral (SLChar value)))
+      pure (locatedPattern token (SPLiteral (LChar value)))
     Just token@Token {tokenKind = TText value} -> do
       void parseAnyToken
-      pure (locatedPattern token (SPLiteral (SLText value)))
+      pure (locatedPattern token (SPLiteral (LText value)))
     Just token@Token {tokenKind = TLBracket} -> do
       void parseAnyToken
       parseListPattern token
@@ -123,8 +123,8 @@ parseIdentifierPattern :: PatternPosition -> Token -> Text -> Parser SurfacePatt
 parseIdentifierPattern position identifierToken name =
   case name of
     "_" -> pure (locatedPattern identifierToken SPWildcard)
-    "True" -> pure (locatedPattern identifierToken (SPLiteral (SLBool True)))
-    "False" -> pure (locatedPattern identifierToken (SPLiteral (SLBool False)))
+    "True" -> pure (locatedPattern identifierToken (SPLiteral (LBool True)))
+    "False" -> pure (locatedPattern identifierToken (SPLiteral (LBool False)))
     _
       | isConstructorIdentifierText name ->
           case position of
@@ -180,8 +180,8 @@ parseIntegralPatternLiteral wholeToken wholeValue = do
                   failTokenParserAt
                     (tokenSpan wholeToken)
                     (UnsupportedSyntax FractionalLiteralPattern)
-            _ -> pure (locatedPattern wholeToken (SPLiteral (SLInt wholeValue)))
-    _ -> pure (locatedPattern wholeToken (SPLiteral (SLInt wholeValue)))
+            _ -> pure (locatedPattern wholeToken (SPLiteral (LInt wholeValue)))
+    _ -> pure (locatedPattern wholeToken (SPLiteral (LInt wholeValue)))
 
 parseAsPatternOrVariable ::
   Token ->

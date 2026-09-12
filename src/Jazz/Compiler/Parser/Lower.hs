@@ -40,7 +40,6 @@ import Jazz.Compiler.AST
     DataConstructor (..),
     Expr (..),
     ImplMethod (..),
-    Literal (..),
     Pattern (..),
     SignatureConstraint,
     SignaturePayload,
@@ -100,7 +99,6 @@ import Jazz.Compiler.Parser.AST
     SurfaceExprForm (..),
     SurfaceImplMethod (..),
     SurfaceLambdaParameter (..),
-    SurfaceLiteral (..),
     SurfaceName (..),
     SurfacePattern (..),
     SurfacePatternForm (..),
@@ -429,7 +427,7 @@ lowerSurfaceExprWithoutCostCentre :: SurfaceExpr -> Lowering (Expr 'Lowered)
 lowerSurfaceExprWithoutCostCentre surfaceExpr = do
   node <- freshNode (surfaceExprSpan surfaceExpr)
   case surfaceExprForm surfaceExpr of
-    SELit literal -> pure (ELit node (lowerSurfaceLiteral literal))
+    SELit literal -> pure (ELit node literal)
     SEVar name -> pure (EVar node (sourceName name))
     SEQualifiedVar qualifier member ->
       pure (EVar node (qualifiedName qualifier member))
@@ -556,25 +554,13 @@ lowerSurfacePatternLambda firstNode lambdaSpan clauses =
           node <- freshNode clauseSpan
           PTuple node <$> traverse lowerSurfacePattern patternValues
 
--- | Lower literal syntax without changing the value domain available to later
--- semantic phases.
-lowerSurfaceLiteral :: SurfaceLiteral -> Literal
-lowerSurfaceLiteral literal =
-  case literal of
-    SLInt value -> LInt value
-    SLFloat value literalSource maybeTargetType ->
-      LFloat value literalSource maybeTargetType
-    SLBool value -> LBool value
-    SLChar value -> LChar value
-    SLText value -> LText value
-
 lowerSurfacePattern :: SurfacePattern -> Lowering (Pattern 'Lowered)
 lowerSurfacePattern surfacePattern = do
   node <- freshNode (surfacePatternSpan surfacePattern)
   case surfacePatternForm surfacePattern of
     SPWildcard -> pure (PWildcard node)
     SPVariable name -> pure (PVariable node (sourceName name))
-    SPLiteral literal -> pure (PLiteral node (lowerSurfaceLiteral literal))
+    SPLiteral literal -> pure (PLiteral node literal)
     SPConstructor name patterns ->
       PConstructor node (sourceName name) <$> traverse lowerSurfacePattern patterns
     SPList patterns ->

@@ -477,10 +477,10 @@ operatorBindingFeature name
       Set.singleton DeclaredOperatorFeature
   | otherwise = Set.empty
 
-inventoryLiteral :: SurfaceLiteral -> Set SurfaceFeature
+inventoryLiteral :: Literal -> Set SurfaceFeature
 inventoryLiteral literal =
   case literal of
-    SLFloat _ _ (Just _) -> Set.singleton NumericWidthFeature
+    LFloat _ _ (Just _) -> Set.singleton NumericWidthFeature
     _ -> Set.empty
 
 inventorySignaturePayload :: SurfaceSignaturePayload -> Set SurfaceFeature

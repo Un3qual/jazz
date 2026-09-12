@@ -16,7 +16,6 @@ import Jazz.Compiler.Parser.AST
     SurfaceDataConstructor (..),
     SurfaceExpr (..),
     SurfaceExprForm (..),
-    SurfaceLiteral (..),
     SurfaceName (..),
     SurfacePattern (..),
     SurfacePatternForm (..),
@@ -84,11 +83,11 @@ testKeepsHigherPrecedencePipeInComparisonGuardRhs =
                                     ( SEBinary
                                         "=="
                                         (e 1 30 (SEVar "left"))
-                                        (e 1 38 (SEBinary "|" (e 1 38 (SEVar "right")) (e 1 46 (SELit (SLBool True)))))
+                                        (e 1 38 (SEBinary "|" (e 1 38 (SEVar "right")) (e 1 46 (SELit (LBool True)))))
                                     )
                                 )
                             )
-                            (e 1 54 (SELit (SLInt 1)))
+                            (e 1 54 (SELit (LInt 1)))
                         ]
                     )
                 )
@@ -141,7 +140,7 @@ testKeepsLiteralPipeOperandInEqualityGuardRhs =
                                     ( SEBinary
                                         "=="
                                         (e 1 24 (SEVar "item"))
-                                        (e 1 32 (SEBinary "|" (e 1 32 (SELit (SLInt 0))) (e 1 36 (SEVar "Just"))))
+                                        (e 1 32 (SEBinary "|" (e 1 32 (SELit (LInt 0))) (e 1 36 (SEVar "Just"))))
                                     )
                                 )
                             )
@@ -206,7 +205,7 @@ testKeepsLiteralPipeOperandInInequalityGuardRhs =
                                     ( SEBinary
                                         "!="
                                         (e 1 24 (SEVar "item"))
-                                        (e 1 32 (SEBinary "|" (e 1 32 (SELit (SLInt 0))) (e 1 36 (SEVar "Just"))))
+                                        (e 1 32 (SEBinary "|" (e 1 32 (SELit (LInt 0))) (e 1 36 (SEVar "Just"))))
                                     )
                                 )
                             )
@@ -288,7 +287,7 @@ testKeepsLiteralPipeOperandInOrderingGuardRhs = do
                                             pipeExpressionColumn
                                             ( SEBinary
                                                 "|"
-                                                (e 1 pipeExpressionColumn (SELit (SLInt 0)))
+                                                (e 1 pipeExpressionColumn (SELit (LInt 0)))
                                                 (e 1 (pipeExpressionColumn + 4) (SEVar "Just"))
                                             )
                                         )

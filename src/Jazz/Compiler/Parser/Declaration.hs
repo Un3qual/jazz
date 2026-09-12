@@ -320,6 +320,9 @@ parseStatement expression context = do
       failTokenParserAt (tokenSpan token) (DeclarationFailure (ReservedLiteralName BindingName name))
 
 parseSignatureOrQualifiedAlias :: Parser SurfaceExpr -> Set Text -> Text -> Token -> Token -> Parser SurfaceStatement
+-- An adjacent qualifier can begin either a signature or an expression. Known
+-- aliases select expressions immediately; otherwise classification needs the
+-- complete signature probe. Restore the full parser state before falling back.
 parseSignatureOrQualifiedAlias expression knownAliases name nameToken colonToken
   | adjacentQualifier && Set.member name knownAliases = parseExprStatement expression
   | otherwise = do

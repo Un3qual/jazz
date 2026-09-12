@@ -94,12 +94,8 @@ resolveRuntimeFixtureWith owner external fixture =
     restorePattern _ _ (CoreNode index spanValue facts) = pure (CoreNode index spanValue ((patterns Map.! index) {patternResolution = facts}))
     restoreStatement _ _ (CoreNode index spanValue facts) =
       let original = statements Map.! index
-          repaired = case (resolvedNodeBinder facts, statementBinderIds original) of
-            (Just binder, [previous]) ->
-              original
-                { statementBinderIds = [binder],
-                  statementGeneralizedSchemes = Map.mapKeys (\key -> if key == previous then binder else key) (statementGeneralizedSchemes original)
-                }
+          repaired = case (resolvedNodeBinder facts, statementBinding original) of
+            (Just binder, Just (_, scheme)) -> original {statementBinding = Just (binder, scheme)}
             _ -> original
        in pure (CoreNode index spanValue (repaired {statementResolution = facts}))
 

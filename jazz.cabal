@@ -111,6 +111,7 @@ library jazz-internal
       Jazz.Compiler.Force
       Jazz.Compiler.FractionalLiteral
       Jazz.Compiler.Identifier
+      Jazz.Compiler.Literal
       Jazz.Compiler.ModuleGraph
       Jazz.Compiler.ModuleAnalysis
       Jazz.Compiler.ModuleIdentity

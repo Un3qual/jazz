@@ -97,7 +97,17 @@ data ResolvedNodeFacts = ResolvedNodeFacts
   deriving anyclass (NFData)
 
 emptyResolvedNodeFacts :: SourceUnitOwner -> ResolvedNodeFacts
-emptyResolvedNodeFacts owner = ResolvedNodeFacts owner Nothing Nothing Nothing Nothing Nothing Nothing []
+emptyResolvedNodeFacts owner =
+  ResolvedNodeFacts
+    { resolvedNodeOwner = owner,
+      resolvedNodeBinder = Nothing,
+      resolvedNodeShadowedReference = Nothing,
+      resolvedNodeReference = Nothing,
+      resolvedOperatorSpelling = Nothing,
+      resolvedNodeImportTarget = Nothing,
+      resolvedNodeScope = Nothing,
+      resolvedNodeCaptures = []
+    }
 
 -- Missing facts retain an unresolved name during diagnostic recovery. The
 -- checked-tree boundary rejects these nodes before they can become executable.

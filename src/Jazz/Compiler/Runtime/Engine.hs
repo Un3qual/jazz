@@ -496,6 +496,9 @@ evaluateRuntimeScope storage evaluateValue forceCell request =
           _ -> go Nothing rest
 
 prepareRuntimeCells :: ScopeCellStorage -> RuntimeEnv -> PreparedRecursiveScope 'Analyzed -> PreparedRuntimeCells
+-- Binding cells capture environments that themselves contain the cells.
+-- The lazy maps tie this recursive knot without forcing a binding before its
+-- environment exists; cycle detection remains in the cell evaluation paths.
 prepareRuntimeCells storage initialEnv preparedScope =
   PreparedRuntimeCells scopePlan finalEnvironment envBefore bindingCellAt
   where
@@ -821,8 +824,8 @@ prepareRuntimeCells storage initialEnv preparedScope =
         insertConstructor envAcc (DataConstructor node constructorName _) =
           Map.insert (resolvedBinderReference (statementResolution (coreNodeFacts node)) constructorName) (constructorValue node constructorName) envAcc
         constructorValue node constructorName =
-          case Map.elems (statementGeneralizedSchemes (coreNodeFacts node)) of
-            [scheme]
+          case statementBinding (coreNodeFacts node) of
+            Just (_, scheme)
               | (fields, SemanticData typeName arguments) <- runtimeFunctionArguments (analyzedSchemeType scheme),
                 Just parameters <- traverse parameterVariable arguments ->
                   Right
@@ -2069,42 +2072,23 @@ evalBuiltinWithHost ::
   ExceptT RuntimeControl (RuntimeHostEvaluationT m) RuntimeValue
 evalBuiltinWithHost observeStatistics observeProfile host builtinFunction arguments =
   case (builtinFunction, arguments) of
-    (BuiltinReadTextRaw, [VText path]) -> do
-      beginHostOperation observeStatistics observeProfile ReadTextHostOperation
-      outcome <- lift (runtimeHostReadText host path)
-      endHostOperation observeProfile
-      pure (rawHostOutcome VText outcome)
-    (BuiltinWriteTextRaw, [VText path, VText contents]) -> do
-      beginHostOperation observeStatistics observeProfile WriteTextHostOperation
-      outcome <- lift (runtimeHostWriteText host path contents)
-      endHostOperation observeProfile
-      pure (rawHostOutcome (const (VText "")) outcome)
-    (BuiltinReadStdinRaw, [VTuple []]) -> do
-      beginHostOperation observeStatistics observeProfile ReadStdinHostOperation
-      outcome <- lift (runtimeHostReadStdin host)
-      endHostOperation observeProfile
-      pure (rawHostOutcome VText outcome)
-    (BuiltinWriteStdoutRaw, [VText contents]) -> do
-      beginHostOperation observeStatistics observeProfile WriteStdoutHostOperation
-      outcome <- lift (runtimeHostWriteStdout host contents)
-      endHostOperation observeProfile
-      pure (rawHostOutcome (const (VText "")) outcome)
-    (BuiltinWriteStderrRaw, [VText contents]) -> do
-      beginHostOperation observeStatistics observeProfile WriteStderrHostOperation
-      outcome <- lift (runtimeHostWriteStderr host contents)
-      endHostOperation observeProfile
-      pure (rawHostOutcome (const (VText "")) outcome)
+    (BuiltinReadTextRaw, [VText path]) ->
+      rawHostOutcome VText <$> observeHostOperation ReadTextHostOperation (runtimeHostReadText host path)
+    (BuiltinWriteTextRaw, [VText path, VText contents]) ->
+      rawHostOutcome (const (VText "")) <$> observeHostOperation WriteTextHostOperation (runtimeHostWriteText host path contents)
+    (BuiltinReadStdinRaw, [VTuple []]) ->
+      rawHostOutcome VText <$> observeHostOperation ReadStdinHostOperation (runtimeHostReadStdin host)
+    (BuiltinWriteStdoutRaw, [VText contents]) ->
+      rawHostOutcome (const (VText "")) <$> observeHostOperation WriteStdoutHostOperation (runtimeHostWriteStdout host contents)
+    (BuiltinWriteStderrRaw, [VText contents]) ->
+      rawHostOutcome (const (VText "")) <$> observeHostOperation WriteStderrHostOperation (runtimeHostWriteStderr host contents)
     (BuiltinArguments, [VTuple []]) -> do
-      beginHostOperation observeStatistics observeProfile ArgumentsHostOperation
-      argumentsText <- lift (runtimeHostArguments host)
-      endHostOperation observeProfile
+      argumentsText <- observeHostOperation ArgumentsHostOperation (runtimeHostArguments host)
       pure (VList (map VText argumentsText) (Just (SemanticList SemanticText)))
     (BuiltinExit, [statusValue])
       | Just status <- runtimeHostExitStatus statusValue,
         status >= 0 && status <= 255 -> do
-          beginHostOperation observeStatistics observeProfile ExitHostOperation
-          exitResult <- lift (runtimeHostExit host status)
-          endHostOperation observeProfile
+          exitResult <- observeHostOperation ExitHostOperation (runtimeHostExit host status)
           case exitResult of
             Right RuntimeHostExitReturned -> pure (VTuple [])
             Right RuntimeHostExitRequested ->
@@ -2129,6 +2113,12 @@ evalBuiltinWithHost observeStatistics observeProfile host builtinFunction argume
         (applyRuntimeFunctionWithHost host)
         builtinFunction
         arguments
+  where
+    observeHostOperation operation action = do
+      beginHostOperation observeStatistics observeProfile operation
+      outcome <- lift action
+      endHostOperation observeProfile
+      pure outcome
 
 beginHostOperation ::
   (Monad m) =>

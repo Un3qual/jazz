@@ -11,7 +11,6 @@ import Jazz.Compiler.Diagnostics
 import Jazz.Compiler.Parser.AST
   ( SurfaceExpr (..),
     SurfaceExprForm (..),
-    SurfaceLiteral (..),
     SurfaceStatement (..),
   )
 import Jazz.Compiler.Parser.Lower
@@ -63,7 +62,7 @@ testParsesBasicIfExpression =
                 [ SSLet
                     "x"
                     (SourceSpan 1 1)
-                    (e 1 5 (SEIf (e 1 8 (SELit (SLBool True))) (e 1 18 (SELit (SLInt 1))) (e 1 25 (SELit (SLInt 2)))))
+                    (e 1 5 (SEIf (e 1 8 (SELit (LBool True))) (e 1 18 (SELit (LInt 1))) (e 1 25 (SELit (LInt 2)))))
                 ]
             )
         )
@@ -113,9 +112,9 @@ testParsesIfInfixConditionBoundary =
                         1
                         5
                         ( SEIf
-                            (e 1 8 (SEBinary ">" (e 1 8 (SEVar "x")) (e 1 12 (SELit (SLInt 0)))))
-                            (e 1 19 (SELit (SLInt 1)))
-                            (e 1 26 (SELit (SLInt 2)))
+                            (e 1 8 (SEBinary ">" (e 1 8 (SEVar "x")) (e 1 12 (SELit (LInt 0)))))
+                            (e 1 19 (SELit (LInt 1)))
+                            (e 1 26 (SELit (LInt 2)))
                         )
                     )
                 ]

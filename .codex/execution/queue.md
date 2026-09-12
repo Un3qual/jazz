@@ -13,7 +13,7 @@ public behavior.
 | id  | title | priority | size | kind | autonomous_ready | depends_on | plan | plan_section | target_paths | deliverable | verification | last_verified |
 | --- | ----- | -------- | ---- | ---- | ---------------- | ---------- | ---- | ------------ | ------------ | ----------- | ------------ | ------------- |
 
-Current executor status (`2026-09-12`): Ready Now is empty. The [test-validity and parity repair](../plans/2026-09-12-test-validity-and-parity.md) is complete after both Haskell simplification passes. All 66 compiler test suites passed, including the four opt-in full-scale suites with unchanged limits and no skipped performance cases. The clean Haskell quality gate, repository checks, CLI/package checks and executable examples also passed. Broader bootstrap development and benchmark/profiling runs remain deferred. There is no source-backed next curation target selected for execution and no named candidate currently promoted.
+Current executor status (`2026-09-12`): Ready Now is empty. The maintainer explicitly approved the six [Haskell practices implementation](../plans/2026-09-12-haskell-practices-implementation.md) changes on the existing branch; implementation and verification are in progress. The preceding [test-validity and parity repair](../plans/2026-09-12-test-validity-and-parity.md) passed all 66 compiler test suites and the clean quality and repository gates. Broader bootstrap development and benchmark/profiling runs remain deferred. There is no source-backed next curation target selected for execution and no named candidate currently promoted.
 
 ## Next Curation Target
 

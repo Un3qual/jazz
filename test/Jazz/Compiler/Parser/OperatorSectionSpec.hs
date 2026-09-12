@@ -11,7 +11,6 @@ import Jazz.Compiler.Diagnostics
 import Jazz.Compiler.Parser.AST
   ( SurfaceExpr (..),
     SurfaceExprForm (..),
-    SurfaceLiteral (..),
     SurfaceStatement (..),
   )
 import Jazz.Compiler.Parser.Lower
@@ -82,8 +81,8 @@ testParsesBareOperatorValueApplication =
                         1
                         5
                         ( SEApply
-                            (e 1 5 (SEApply (e 1 5 (SEOperatorValue "+")) (e 1 9 (SELit (SLInt 1)))))
-                            (e 1 11 (SELit (SLInt 2)))
+                            (e 1 5 (SEApply (e 1 5 (SEOperatorValue "+")) (e 1 9 (SELit (LInt 1)))))
+                            (e 1 11 (SELit (LInt 2)))
                         )
                     )
                 ]
@@ -100,7 +99,7 @@ testParsesLeftSection =
         ( e
             1
             1
-            (SEBlock [SSLet "f" (SourceSpan 1 1) (e 1 5 (SESectionLeft (e 1 6 (SELit (SLInt 10))) "+"))])
+            (SEBlock [SSLet "f" (SourceSpan 1 1) (e 1 5 (SESectionLeft (e 1 6 (SELit (LInt 10))) "+"))])
         )
     )
     (parseSurfaceProgramPoints "f = (10 +).")
@@ -113,7 +112,7 @@ testParsesRightSection =
         ( e
             1
             1
-            (SEBlock [SSLet "f" (SourceSpan 1 1) (e 1 5 (SESectionRight "+" (e 1 8 (SELit (SLInt 10)))))])
+            (SEBlock [SSLet "f" (SourceSpan 1 1) (e 1 5 (SESectionRight "+" (e 1 8 (SELit (LInt 10)))))])
         )
     )
     (parseSurfaceProgramPoints "f = (+ 10).")
@@ -126,7 +125,7 @@ testGroupedExpressionIsNotSection =
         ( e
             1
             1
-            (SEBlock [SSLet "x" (SourceSpan 1 1) (e 1 6 (SEBinary "+" (e 1 6 (SELit (SLInt 1))) (e 1 10 (SELit (SLInt 2)))))])
+            (SEBlock [SSLet "x" (SourceSpan 1 1) (e 1 6 (SEBinary "+" (e 1 6 (SELit (LInt 1))) (e 1 10 (SELit (LInt 2)))))])
         )
     )
     (parseSurfaceProgramPoints "x = (1 + 2).")
@@ -148,8 +147,8 @@ testSectionApplicationBeforeInfix =
                         5
                         ( SEBinary
                             "*"
-                            (e 1 5 (SEApply (e 1 5 (SESectionRight "+" (e 1 8 (SELit (SLInt 1))))) (e 1 11 (SELit (SLInt 2)))))
-                            (e 1 15 (SELit (SLInt 3)))
+                            (e 1 5 (SEApply (e 1 5 (SESectionRight "+" (e 1 8 (SELit (LInt 1))))) (e 1 11 (SELit (LInt 2)))))
+                            (e 1 15 (SELit (LInt 3)))
                         )
                     )
                 ]

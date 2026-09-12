@@ -556,7 +556,7 @@ span2 :: SourceSpan
 span2 = SourceSpan 2 3
 
 seInt :: Integer -> SurfaceExpr
-seInt = se . SELit . SLInt
+seInt = se . SELit . LInt
 
 seVar :: Identifier -> SurfaceExpr
 seVar = se . SEVar

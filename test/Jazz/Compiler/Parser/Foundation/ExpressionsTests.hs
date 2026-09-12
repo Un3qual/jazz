@@ -24,7 +24,6 @@ import Jazz.Compiler.Parser.AST
     SurfaceExprForm (..),
     SurfaceImplMethod (..),
     SurfaceLambdaParameter (..),
-    SurfaceLiteral (..),
     SurfaceName (..),
     SurfaceStatement (..),
   )
@@ -173,7 +172,7 @@ testParseLetAndExpr =
   assertEqual
     "surface AST"
     ( Right
-        (e 1 1 $ SEBlock [SSLet "x" (SourceSpan 1 1) (e 1 5 $ SELit (SLInt 1)), SSExpr (SourceSpan 2 1) (e 2 1 $ SEVar "x")])
+        (e 1 1 $ SEBlock [SSLet "x" (SourceSpan 1 1) (e 1 5 $ SELit (LInt 1)), SSExpr (SourceSpan 2 1) (e 2 1 $ SEVar "x")])
     )
     ( parseSurfaceProgramPoints
         """
@@ -193,7 +192,7 @@ testParseSurfaceProgramAcceptsTextInput = do
   assertEqual
     "surface AST from Text source"
     ( Right
-        (e 1 1 $ SEBlock [SSLet "x" (SourceSpan 1 1) (e 1 5 $ SELit (SLInt 1)), SSExpr (SourceSpan 2 1) (e 2 1 $ SEVar "x")])
+        (e 1 1 $ SEBlock [SSLet "x" (SourceSpan 1 1) (e 1 5 $ SELit (LInt 1)), SSExpr (SourceSpan 2 1) (e 2 1 $ SEVar "x")])
     )
     (parseSurfaceProgramPoints sourceText)
 
@@ -206,7 +205,7 @@ testParseTupleLiteral =
             SEBlock
               [ SSExpr
                   (SourceSpan 1 1)
-                  (e 1 1 $ SETuple [e 1 2 $ SELit (SLInt 1), e 1 5 $ SELit (SLBool True)])
+                  (e 1 1 $ SETuple [e 1 2 $ SELit (LInt 1), e 1 5 $ SELit (LBool True)])
               ]
         )
     )
@@ -214,8 +213,8 @@ testParseTupleLiteral =
 
 testLowersCharAndTextLiterals :: IO ()
 testLowersCharAndTextLiterals = do
-  assertLoweredCoreEqual "lower Char" (loweredLiteral (LChar 'a')) (lowerSurfaceExpr (e 1 1 $ SELit (SLChar 'a')))
-  assertLoweredCoreEqual "lower Text" (loweredLiteral (LText "Jazz")) (lowerSurfaceExpr (e 1 1 $ SELit (SLText "Jazz")))
+  assertLoweredCoreEqual "lower Char" (loweredLiteral (LChar 'a')) (lowerSurfaceExpr (e 1 1 $ SELit (LChar 'a')))
+  assertLoweredCoreEqual "lower Text" (loweredLiteral (LText "Jazz")) (lowerSurfaceExpr (e 1 1 $ SELit (LText "Jazz")))
 
 testParseFractionalLiteral :: IO ()
 testParseFractionalLiteral =
@@ -231,8 +230,8 @@ testParseFractionalLiteral =
         SurfaceExpr
           _
           ( SEBlock
-              [ SSLet "x" _ (SurfaceExpr _ (SELit (SLFloat 1.5 _ Nothing))),
-                SSLet "y" _ (SurfaceExpr _ (SELit (SLInt 2)))
+              [ SSLet "x" _ (SurfaceExpr _ (SELit (LFloat 1.5 _ Nothing))),
+                SSLet "y" _ (SurfaceExpr _ (SELit (LInt 2)))
                 ]
             ) -> pure ()
         other -> failTest ("unexpected surface fractional literals: " <> Text.pack (show other))
@@ -253,9 +252,9 @@ testParseFractionalLiteralSuffixes =
         SurfaceExpr
           _
           ( SEBlock
-              [ SSLet "x16" _ (SurfaceExpr _ (SELit (SLFloat 1.5 _ (Just NumericFloat16)))),
-                SSLet "x32" _ (SurfaceExpr _ (SELit (SLFloat 2.5 _ (Just NumericFloat32)))),
-                SSLet "x64" _ (SurfaceExpr _ (SELit (SLFloat 3.5 _ (Just NumericFloat64))))
+              [ SSLet "x16" _ (SurfaceExpr _ (SELit (LFloat 1.5 _ (Just NumericFloat16)))),
+                SSLet "x32" _ (SurfaceExpr _ (SELit (LFloat 2.5 _ (Just NumericFloat32)))),
+                SSLet "x64" _ (SurfaceExpr _ (SELit (LFloat 3.5 _ (Just NumericFloat64))))
                 ]
             ) -> pure ()
         other -> failTest ("unexpected surface fractional suffix targets: " <> Text.pack (show other))
@@ -267,7 +266,7 @@ testIgnoresHashLineComments =
   assertEqual
     "comments ignored"
     ( Right
-        (e 1 1 $ SEBlock [SSLet "x" (SourceSpan 1 1) (e 1 5 $ SELit (SLInt 1)), SSExpr (SourceSpan 3 1) (e 3 1 $ SEVar "x")])
+        (e 1 1 $ SEBlock [SSLet "x" (SourceSpan 1 1) (e 1 5 $ SELit (LInt 1)), SSExpr (SourceSpan 3 1) (e 3 1 $ SEVar "x")])
     )
     (parseSurfaceProgramPoints "x = 1.\n# parser should ignore this line comment\nx.")
 
@@ -287,7 +286,7 @@ testParseNestedScopeExpression =
     ( Right
         ( e 1 1 $
             SEBlock
-              [ SSLet "x" (SourceSpan 1 1) (e 1 5 $ SELit (SLInt 1)),
+              [ SSLet "x" (SourceSpan 1 1) (e 1 5 $ SELit (LInt 1)),
                 SSExpr
                   (SourceSpan 2 1)
                   (e 2 1 $ SEBlock [SSExpr (SourceSpan 2 3) (e 2 3 $ SEVar "x")])
@@ -316,7 +315,7 @@ testParseBlockArgumentExpression =
                         (e 1 10 $ SEVar "f")
                         ( e 1 12 $
                             SEBlock
-                              [ SSLet "x" (SourceSpan 2 3) (e 2 7 $ SELit (SLInt 1)),
+                              [ SSLet "x" (SourceSpan 2 3) (e 2 7 $ SELit (LInt 1)),
                                 SSExpr (SourceSpan 3 3) (e 3 3 $ SEVar "x")
                               ]
                         )
@@ -389,7 +388,7 @@ testParsesLargeIntegerLiteral =
     (parseSurfaceProgramPoints "x = 9223372036854775808.")
     ( assertEqual
         "large integer surface AST"
-        (e 1 1 $ SEBlock [SSLet "x" (SourceSpan 1 1) (e 1 5 $ SELit (SLInt 9223372036854775808))])
+        (e 1 1 $ SEBlock [SSLet "x" (SourceSpan 1 1) (e 1 5 $ SELit (LInt 9223372036854775808))])
     )
 
 testParsesAbstractionKeywordsAsBindingNames :: IO ()
@@ -399,7 +398,7 @@ testParsesAbstractionKeywordsAsBindingNames =
     ( Right
         ( e 1 1 $
             SEBlock
-              [ SSLet "class" (SourceSpan 1 1) (e 1 9 $ SELit (SLInt 1)),
+              [ SSLet "class" (SourceSpan 1 1) (e 1 9 $ SELit (LInt 1)),
                 SSLet "impl" (SourceSpan 2 1) (e 2 8 $ SEVar "class"),
                 SSLet "trait" (SourceSpan 3 1) (e 3 9 $ SEVar "impl")
               ]
@@ -420,7 +419,7 @@ testParsesOperatorKeywordAsBindingName =
     ( Right
         ( e 1 1 $
             SEBlock
-              [ SSLet "operator" (SourceSpan 1 1) (e 1 12 $ SELit (SLInt 1)),
+              [ SSLet "operator" (SourceSpan 1 1) (e 1 12 $ SELit (LInt 1)),
                 SSLet "result" (SourceSpan 2 1) (e 2 10 $ SEVar "operator")
               ]
         )
@@ -444,7 +443,7 @@ testParsesOperatorKeywordAsNestedBlockBindingName =
                   (SourceSpan 1 1)
                   ( e 1 9 $
                       SEBlock
-                        [ SSLet "operator" (SourceSpan 2 3) (e 2 14 $ SELit (SLInt 1)),
+                        [ SSLet "operator" (SourceSpan 2 3) (e 2 14 $ SELit (LInt 1)),
                           SSExpr (SourceSpan 3 3) (e 3 3 $ SEVar "operator")
                         ]
                   )

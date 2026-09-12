@@ -26,11 +26,11 @@ import Jazz.Compiler.Name
     mkIdentifier,
   )
 import Jazz.Compiler.Parser.AST
-  ( SurfaceCaseArm (..),
+  ( Literal (..),
+    SurfaceCaseArm (..),
     SurfaceExpr (..),
     SurfaceExprForm (..),
     SurfaceLambdaParameter (..),
-    SurfaceLiteral (..),
     SurfaceNumericType,
     SurfacePattern (..),
     SurfacePatternForm (..),
@@ -290,16 +290,16 @@ parsePrimaryExpr parseBlock context stop = withConsumedSpan locateExprRange $ do
       void parseAnyToken
       case tokenKind token of
         TInt value -> do
-          literal <- parseNumericSurfaceLiteral token value
+          literal <- parseNumericLiteral token value
           pure (locatedExpr token (SELit literal))
         TChar value ->
-          pure (locatedExpr token (SELit (SLChar value)))
+          pure (locatedExpr token (SELit (LChar value)))
         TText value ->
-          pure (locatedExpr token (SELit (SLText value)))
+          pure (locatedExpr token (SELit (LText value)))
         TIdentifier "True" ->
-          pure (locatedExpr token (SELit (SLBool True)))
+          pure (locatedExpr token (SELit (LBool True)))
         TIdentifier "False" ->
-          pure (locatedExpr token (SELit (SLBool False)))
+          pure (locatedExpr token (SELit (LBool False)))
         TIdentifier name ->
           parseIdentifierExpr token name
         TIf ->
@@ -409,8 +409,8 @@ parseQualifiedIdentifierExpr identifierToken qualifierName memberToken memberNam
             (SEQualifiedVar (mkIdentifier qualifierName) (mkIdentifier memberName))
         )
 
-parseNumericSurfaceLiteral :: Token -> Integer -> Parser SurfaceLiteral
-parseNumericSurfaceLiteral wholeToken wholeValue = do
+parseNumericLiteral :: Token -> Integer -> Parser Literal
+parseNumericLiteral wholeToken wholeValue = do
   tokens <- MP.getInput
   case tokens of
     dotToken@Token {tokenKind = TDot} :< fractionalToken@Token {tokenKind = TInt fractionalValue} :< _
@@ -432,9 +432,9 @@ parseNumericSurfaceLiteral wholeToken wholeValue = do
               (parseFloatLiteral literalText)
           if fractionalLiteralExceedsMagnitude literalSource float64MaxFinite
             then failTokenParserAt (tokenSpan wholeToken) (InvalidFractionalLiteral literalText)
-            else pure (SLFloat floatValue literalSource maybeTargetType)
+            else pure (LFloat floatValue literalSource maybeTargetType)
     _ ->
-      pure (SLInt wholeValue)
+      pure (LInt wholeValue)
 
 parseFractionalLiteralSuffix :: Token -> Parser (Maybe SurfaceNumericType)
 parseFractionalLiteralSuffix fractionalToken = do

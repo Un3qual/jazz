@@ -23,7 +23,6 @@ import Jazz.Compiler.Name
 import Jazz.Compiler.Parser.AST
   ( SurfaceExpr (..),
     SurfaceExprForm (..),
-    SurfaceLiteral (..),
     SurfaceName (..),
     SurfaceStatement (..),
   )
@@ -71,7 +70,7 @@ testParsesValueExportSelector =
                   (SourceSpan 1 1)
                   ["Example"]
                   (Just [ModuleExportSelector (Just ValueNamespace) "answer"]),
-                SSLet "answer" (SourceSpan 2 3) (e 2 12 $ SELit (SLInt 42))
+                SSLet "answer" (SourceSpan 2 3) (e 2 12 $ SELit (LInt 42))
               ]
         )
     )
@@ -91,7 +90,7 @@ testParsesOperatorKeywordAsModuleBodyBindingName =
         ( e 1 1 $
             SEBlock
               [ SSModule (SourceSpan 1 1) ["App", "Core"] Nothing,
-                SSLet "operator" (SourceSpan 2 1) (e 2 12 $ SELit (SLInt 1)),
+                SSLet "operator" (SourceSpan 2 1) (e 2 12 $ SELit (LInt 1)),
                 SSLet "result" (SourceSpan 3 1) (e 3 10 $ SEVar "operator")
               ]
         )

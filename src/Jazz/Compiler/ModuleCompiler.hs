@@ -58,7 +58,7 @@ analyzeProgram inputs resolvedProgram =
           foldM
             (analyzeDependency ambientInterface)
             (Seq.empty, Map.empty, Seq.empty)
-            (NonEmpty.toList (coreProgramModules resolvedProgram))
+            (coreProgramModules resolvedProgram)
     let diagnostics = orderedProgramDiagnostics resolvedProgram (preludeDiagnostics : toList moduleDiagnostics)
     if any isErrorDiagnostic diagnostics
       then pure (diagnostics, Nothing)

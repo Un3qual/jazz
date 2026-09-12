@@ -793,9 +793,8 @@ testRuntimeFixtureIdentityAgreement = do
       let facts = AST.coreNodeFacts resolved
        in case resolvedNodeBinder (statementResolution facts) of
             Just binder -> do
-              assertEqual "constructor semantic binder agrees with resolution" [binder] (statementBinderIds facts)
-              assertEqual "constructor scheme is keyed by its resolved binder" [binder] (Map.keys (statementGeneralizedSchemes facts))
-              assertEqual "constructor scheme retains its authored semantic types" (Map.elems (statementGeneralizedSchemes (AST.coreNodeFacts authored))) (Map.elems (statementGeneralizedSchemes facts))
+              assertEqual "constructor semantic binder agrees with resolution" (Just binder) (fst <$> statementBinding facts)
+              assertEqual "constructor scheme retains its authored semantic types" (snd <$> statementBinding (AST.coreNodeFacts authored)) (snd <$> statementBinding facts)
             Nothing -> failTest "fixture constructor has no resolved binder"
 
 testDirectRuntimeWrapperUsesDisabledHost :: IO ()

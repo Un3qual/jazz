@@ -168,7 +168,7 @@ selectorEligibleNames =
 
 inventoryHasSelector :: ModuleExportSelector -> ModuleExportInventory -> Bool
 inventoryHasSelector selector =
-  any (moduleExportSelectorMatches selector) . Set.toList . exportInventoryEntries
+  any (moduleExportSelectorMatches selector) . exportInventoryEntries
 
 renderModuleExportSelector :: ModuleExportSelector -> Text
 renderModuleExportSelector selector =

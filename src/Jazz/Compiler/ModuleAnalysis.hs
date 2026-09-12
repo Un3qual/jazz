@@ -180,7 +180,7 @@ analyzedImport importDecl =
     { ModuleGraph.moduleImportNode =
         case ModuleGraph.moduleImportNode importDecl of
           CoreNode nodeId spanValue resolution ->
-            CoreNode nodeId spanValue (StatementFacts resolution [] Map.empty (ImportDeclaration (ModuleGraph.importedModule importDecl))),
+            CoreNode nodeId spanValue (StatementFacts resolution Nothing (ImportDeclaration (ModuleGraph.importedModule importDecl))),
       ModuleGraph.importedModule = ModuleGraph.importedModule importDecl,
       ModuleGraph.importExposure = ModuleGraph.importExposure importDecl
     }
@@ -378,7 +378,13 @@ finishInference inputs hideRootBindings subject inferredResult finalizedInferenc
           hideRootBindings
           expr
   let (warnings, analysisErrors) = partition (isJust . diagnosticWarningCategory) analyzerDiagnostics
-      diagnostics = CompilationDiagnostics warnings analysisErrors (finalizedTypeErrors finalizedInference) (finalizedPatternCoverageDiagnostics finalizedInference)
+      diagnostics =
+        CompilationDiagnostics
+          { compilationWarnings = warnings,
+            compilationAnalysisErrors = analysisErrors,
+            compilationTypeErrors = finalizedTypeErrors finalizedInference,
+            compilationCoverageErrors = finalizedPatternCoverageDiagnostics finalizedInference
+          }
   expression `seq`
     inferredResult `seq`
       pure

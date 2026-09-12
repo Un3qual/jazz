@@ -44,7 +44,7 @@ import Data.Text (Text)
 import GHC.Generics (Generic)
 import Jazz.Compiler.CoreIdentity (CoreNodeId (..), ResolvedNodeFacts)
 import Jazz.Compiler.Diagnostics (SourceSpan)
-import Jazz.Compiler.FractionalLiteral (FractionalLiteralSource)
+import Jazz.Compiler.Literal (Literal (..))
 import Jazz.Compiler.Name
   ( Name,
     ResolvedUserName,
@@ -100,16 +100,6 @@ type SignatureConstraint phase = TypeRepresentation.SignatureConstraint (CoreNam
 type SignatureToken phase = TypeRepresentation.SignatureToken (CoreNameAt phase)
 
 type SignaturePayload phase = TypeRepresentation.SignaturePayload (CoreNameAt phase) (CoreNameAt phase) (CoreNameAt phase)
-
-data Literal
-  = LInt Integer
-  | LFloat Double FractionalLiteralSource (Maybe NumericType)
-  | LBool Bool
-  | LChar Char
-  | LText Text
-  deriving stock (Eq, Generic, Show)
-
-instance NFData Literal
 
 data Pattern (phase :: CorePhase)
   = PWildcard (CoreNode phase 'PatternSort)

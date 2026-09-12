@@ -118,8 +118,7 @@ data PatternFacts = PatternFacts
 
 data StatementFacts = StatementFacts
   { statementResolution :: ResolvedNodeFacts,
-    statementBinderIds :: [CoreBinderId],
-    statementGeneralizedSchemes :: Map CoreBinderId AnalyzedScheme,
+    statementBinding :: Maybe (CoreBinderId, AnalyzedScheme),
     statementDeclarationFact :: StatementDeclarationFact
   }
   deriving stock (Eq, Generic, Show)
