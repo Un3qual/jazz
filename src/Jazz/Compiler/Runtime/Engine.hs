@@ -720,18 +720,8 @@ prepareRuntimeCells storage initialEnv preparedScope =
 
     selectRecursiveAliasTarget :: Int -> RuntimeEnv -> Expr 'Analyzed -> Expr 'Analyzed -> Expr 'Analyzed -> Either Diagnostic (Maybe Int)
     selectRecursiveAliasTarget statementIndex env conditionExpr thenExpr elseExpr = do
-      conditionValue <- evalValueAt statementIndex env conditionExpr
-      case conditionValue of
-        VBool True ->
-          selectedRecursiveAliasTarget statementIndex env thenExpr
-        VBool False ->
-          selectedRecursiveAliasTarget statementIndex env elseExpr
-        other ->
-          Left
-            ( runtimeDiagnostic
-                E3003
-                ("runtime branch condition must be Bool, found " <> renderRuntimeType other)
-            )
+      condition <- evalValueAt statementIndex env conditionExpr >>= runtimeBoolean "branch condition"
+      selectedRecursiveAliasTarget statementIndex env (if condition then thenExpr else elseExpr)
 
     selectMatchingCaseArmForAlias ::
       Maybe SourceUnitOwner ->
@@ -743,43 +733,17 @@ prepareRuntimeCells storage initialEnv preparedScope =
     selectMatchingCaseArmForAlias patternModulePath evalGuard env scrutineeValue =
       chooseRemainingArm
       where
-        chooseRemainingArm remainingArms =
-          case remainingArms of
-            [] -> Right Nothing
-            caseArm : rest ->
-              chooseArm caseArm rest
-
-        chooseArm caseArm rest =
+        chooseRemainingArm [] = Right Nothing
+        chooseRemainingArm (caseArm : rest) =
           case matchCaseArm patternModulePath env scrutineeValue caseArm of
-            Just (armEnv, guardExpr, bodyExpr) ->
-              case guardExpr of
-                Nothing ->
-                  Right
-                    ( Just
-                        ( armEnv,
-                          bodyExpr
-                        )
-                    )
-                Just conditionExpr -> do
-                  guardValue <- evalGuard armEnv conditionExpr
-                  case guardValue of
-                    VBool True ->
-                      Right
-                        ( Just
-                            ( armEnv,
-                              bodyExpr
-                            )
-                        )
-                    VBool False ->
-                      chooseRemainingArm rest
-                    other ->
-                      Left
-                        ( runtimeDiagnostic
-                            E3003
-                            ("runtime case guard must be Bool, found " <> renderRuntimeType other)
-                        )
-            Nothing ->
-              chooseRemainingArm rest
+            Nothing -> chooseRemainingArm rest
+            Just (armEnv, guardExpr, bodyExpr) -> do
+              selected <- case guardExpr of
+                Nothing -> Right True
+                Just conditionExpr -> evalGuard armEnv conditionExpr >>= runtimeBoolean "case guard"
+              if selected
+                then Right (Just (armEnv, bodyExpr))
+                else chooseRemainingArm rest
 
     -- Single-expression blocks are semantically transparent here, so peel
     -- them before following recursive alias edges and cycle detection.
@@ -1012,18 +976,14 @@ prepareRuntimeCells storage initialEnv preparedScope =
 
     selectQualifiedMethodAliasTarget :: Maybe SourceUnitOwner -> Map ResolvedReference (Expr 'Analyzed) -> Set ResolvedReference -> RuntimeEnv -> ResolvedReference -> Expr 'Analyzed -> Expr 'Analyzed -> Expr 'Analyzed -> Either Diagnostic Bool
     selectQualifiedMethodAliasTarget methodModulePath methodExprsByKey visitedMethodKeys env methodKey conditionExpr thenExpr elseExpr = do
-      conditionValue <- evalValueWithModulePath methodModulePath env conditionExpr
-      case conditionValue of
-        VBool True ->
-          selectedQualifiedMethodAliasTarget methodModulePath methodExprsByKey visitedMethodKeys env methodKey thenExpr
-        VBool False ->
-          selectedQualifiedMethodAliasTarget methodModulePath methodExprsByKey visitedMethodKeys env methodKey elseExpr
-        other ->
-          Left
-            ( runtimeDiagnostic
-                E3003
-                ("runtime branch condition must be Bool, found " <> renderRuntimeType other)
-            )
+      condition <- evalValueWithModulePath methodModulePath env conditionExpr >>= runtimeBoolean "branch condition"
+      selectedQualifiedMethodAliasTarget methodModulePath methodExprsByKey visitedMethodKeys env methodKey (if condition then thenExpr else elseExpr)
+
+runtimeBoolean :: Text -> RuntimeValue -> Either Diagnostic Bool
+runtimeBoolean context runtimeValue =
+  case runtimeValue of
+    VBool condition -> Right condition
+    other -> Left (runtimeDiagnostic E3003 ("runtime " <> context <> " must be Bool, found " <> renderRuntimeType other))
 
 evalValue :: RuntimeEnv -> Expr 'Analyzed -> Either Diagnostic RuntimeValue
 evalValue =
@@ -1656,38 +1616,16 @@ resumeEvaluationFrame observeStatistics observeProfile host machine frame runtim
             machine
             (EvaluateTupleElement context (runtimeValue : reversedElements) rest)
             (EvaluateExpression context nextElement)
-    EvaluateIfBranch context thenExpr elseExpr ->
-      case runtimeValue of
-        VBool True ->
-          continueWith
-            (EvaluateExpression context thenExpr)
-            machine
-        VBool False ->
-          continueWith
-            (EvaluateExpression context elseExpr)
-            machine
-        other ->
-          throwRuntimeDiagnostic
-            (runtimeDiagnostic E3003 ("runtime branch condition must be Bool, found " <> renderRuntimeType other))
+    EvaluateIfBranch context thenExpr elseExpr -> do
+      condition <- liftRuntimeResult (runtimeBoolean "branch condition" runtimeValue)
+      continueWith (EvaluateExpression context (if condition then thenExpr else elseExpr)) machine
     EvaluateCaseArms context caseArms ->
       continueCaseEvaluation observeStatistics machine context runtimeValue caseArms
-    EvaluateCaseGuard context scrutineeValue armEnv bodyExpr remainingArms ->
-      case runtimeValue of
-        VBool True ->
-          continueWith
-            ( EvaluateExpression
-                ( context
-                    { evaluationEnvironment = armEnv
-                    }
-                )
-                bodyExpr
-            )
-            machine
-        VBool False ->
-          continueCaseEvaluation observeStatistics machine context scrutineeValue remainingArms
-        other ->
-          throwRuntimeDiagnostic
-            (runtimeDiagnostic E3003 ("runtime case guard must be Bool, found " <> renderRuntimeType other))
+    EvaluateCaseGuard context scrutineeValue armEnv bodyExpr remainingArms -> do
+      condition <- liftRuntimeResult (runtimeBoolean "case guard" runtimeValue)
+      if condition
+        then continueWith (EvaluateExpression context {evaluationEnvironment = armEnv} bodyExpr) machine
+        else continueCaseEvaluation observeStatistics machine context scrutineeValue remainingArms
     EvaluateBuiltinRightOperand context operatorSymbol rightExpr ->
       suspendEvaluation
         machine
@@ -1741,33 +1679,18 @@ continueCaseEvaluation observeStatistics machine context scrutineeValue =
             scrutineeValue
             caseArm of
             Nothing -> chooseArm rest
-            Just (armEnv, Nothing, bodyExpr) -> do
+            Just (armEnv, guardExpr, bodyExpr) -> do
               recordRuntimeStatisticWhen
                 observeStatistics
                 (recordRuntimePatternMatch (Set.size (patternBinderNames casePattern)))
-              continueWith
-                ( EvaluateExpression
-                    ( context
-                        { evaluationEnvironment = armEnv
-                        }
-                    )
-                    bodyExpr
-                )
-                machine
-            Just (armEnv, Just guardExpr, bodyExpr) -> do
-              recordRuntimeStatisticWhen
-                observeStatistics
-                (recordRuntimePatternMatch (Set.size (patternBinderNames casePattern)))
-              suspendEvaluation
-                machine
-                (EvaluateCaseGuard context scrutineeValue armEnv bodyExpr rest)
-                ( EvaluateExpression
-                    ( context
-                        { evaluationEnvironment = armEnv
-                        }
-                    )
-                    guardExpr
-                )
+              let armContext = context {evaluationEnvironment = armEnv}
+              case guardExpr of
+                Nothing -> continueWith (EvaluateExpression armContext bodyExpr) machine
+                Just conditionExpr ->
+                  suspendEvaluation
+                    machine
+                    (EvaluateCaseGuard context scrutineeValue armEnv bodyExpr rest)
+                    (EvaluateExpression armContext conditionExpr)
 
 applyRemainingArguments ::
   (Monad m) =>

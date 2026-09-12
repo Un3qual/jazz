@@ -6,6 +6,7 @@ module Jazz.Compiler.WarningConfig
   ( WarningDirective (..),
     WarningSettings,
     defaultWarningSettings,
+    applyWarningPolicy,
     isWarningEnabled,
     isWarningError,
     parseWarningCategory,
@@ -31,7 +32,9 @@ import Jazz.Compiler.DiagnosticCatalog
 import Jazz.Compiler.Diagnostics
   ( Diagnostic,
     DiagnosticOrigin (..),
+    diagnosticWarningCategory,
     mkErrorDiagnostic,
+    promoteDiagnostic,
   )
 
 -- | Normalized internal directives produced from CLI, env, and config inputs
@@ -72,6 +75,13 @@ isWarningError settings category =
     && ( allEnabledAreErrors settings
            || Set.member category (errorCategories settings)
        )
+
+applyWarningPolicy :: WarningSettings -> Diagnostic -> Diagnostic
+applyWarningPolicy settings diagnostic =
+  case diagnosticWarningCategory diagnostic of
+    Just category
+      | isWarningError settings category -> promoteDiagnostic diagnostic
+    _ -> diagnostic
 
 -- | Parse a warning category through the catalog while keeping configuration
 -- failures in the compiler's diagnostic channel.

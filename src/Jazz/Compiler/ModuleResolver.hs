@@ -38,6 +38,7 @@ import Data.Bifunctor
   ( bimap,
     first,
   )
+import Data.Containers.ListUtils (nubOrd)
 import Data.Foldable
   ( toList,
   )
@@ -359,7 +360,7 @@ resolveStateWithLookupAndVisibleSymbols config ambientExports ambientReferences 
     loadModuleSource callStack modulePath = do
       let relativePath = modulePathRelativeFile (moduleExtension config) modulePath
           candidatePaths =
-            dedupePreservingOrder
+            nubOrd
               (map (normalise . appendRelativePath relativePath) (moduleRoots config))
       candidatesWithContents <-
         mapM
@@ -1014,13 +1015,3 @@ renderImporterContext callStack =
   case callStack of
     importerPath : _ -> " imported by '" <> renderModulePath importerPath <> "'"
     [] -> ""
-
--- | Preserve the first occurrence of each candidate path so module-root lookup
--- order remains stable while removing duplicates.
-dedupePreservingOrder :: (Ord a) => [a] -> [a]
-dedupePreservingOrder =
-  reverse . fst . foldl' step ([], Set.empty)
-  where
-    step (uniqueRev, seen) value
-      | Set.member value seen = (uniqueRev, seen)
-      | otherwise = (value : uniqueRev, Set.insert value seen)

@@ -701,7 +701,7 @@ runtimeValueExactlyMatchesConstraint signatureType runtimeValue =
         SemanticData typeName [] ->
           runtimeValueExactlyMatchesDataTypeName typeName runtimeValue
         SemanticData typeName typeArguments ->
-          runtimeValueExactlyMatchesDataTypeApplication typeName typeArguments runtimeValue
+          runtimeDataTypeApplicationMatches runtimeValueExactlyMatchesConstraint typeName typeArguments runtimeValue
         _ -> False
     _ -> False
 
@@ -737,7 +737,7 @@ runtimeValueMatchesConstraint signatureType runtimeValue =
         SemanticData typeName [] ->
           runtimeValueExactlyMatchesDataTypeName typeName runtimeValue
         SemanticData typeName typeArguments ->
-          runtimeValueMatchesDataTypeApplication typeName typeArguments runtimeValue
+          runtimeDataTypeApplicationMatches runtimeValueMatchesConstraint typeName typeArguments runtimeValue
         SemanticList elementType ->
           case runtimeValue of
             VList elements maybeTypeHint ->
@@ -759,8 +759,8 @@ runtimeValueMatchesConstraint signatureType runtimeValue =
                 Nothing -> True
             _ -> isFunctionValue runtimeValue
 
-runtimeValueMatchesDataTypeApplication :: ResolvedName -> [AnalyzedType] -> RuntimeValue -> Bool
-runtimeValueMatchesDataTypeApplication typeName typeArguments runtimeValue =
+runtimeDataTypeApplicationMatches :: (AnalyzedType -> RuntimeValue -> Bool) -> ResolvedName -> [AnalyzedType] -> RuntimeValue -> Bool
+runtimeDataTypeApplicationMatches matches typeName typeArguments runtimeValue =
   case runtimeValue of
     VConstructor valueTypeName typeParameters _ constructorArguments capturedArgs
       | valueTypeName == typeName,
@@ -769,7 +769,7 @@ runtimeValueMatchesDataTypeApplication typeName typeArguments runtimeValue =
           let typeParameterBindings = Map.fromList (zip typeParameters typeArguments)
            in and
                 ( zipWith
-                    (runtimeValueMatchesConstructorArgument typeParameterBindings)
+                    (matches . substituteConstructorFieldType typeParameterBindings)
                     constructorArguments
                     capturedArgs
                 )
@@ -782,34 +782,6 @@ runtimeValueExactlyMatchesDataTypeName typeName runtimeValue =
       runtimeConstructorTypeName shape == typeName
         && constructorApplicationIsSaturated shape capturedArgs
     _ -> False
-
-runtimeValueExactlyMatchesDataTypeApplication :: ResolvedName -> [AnalyzedType] -> RuntimeValue -> Bool
-runtimeValueExactlyMatchesDataTypeApplication typeName typeArguments runtimeValue =
-  case runtimeValue of
-    VConstructor valueTypeName typeParameters _ constructorArguments capturedArgs
-      | valueTypeName == typeName,
-        length typeParameters == length typeArguments,
-        constructorIsSaturated constructorArguments capturedArgs ->
-          let typeParameterBindings = Map.fromList (zip typeParameters typeArguments)
-           in and
-                ( zipWith
-                    (runtimeValueExactlyMatchesConstructorArgument typeParameterBindings)
-                    constructorArguments
-                    capturedArgs
-                )
-    _ -> False
-
-runtimeValueMatchesConstructorArgument :: Map InferenceVariable AnalyzedType -> AnalyzedType -> RuntimeValue -> Bool
-runtimeValueMatchesConstructorArgument typeParameterBindings fieldType runtimeValue =
-  runtimeValueMatchesConstraint
-    (substituteConstructorFieldType typeParameterBindings fieldType)
-    runtimeValue
-
-runtimeValueExactlyMatchesConstructorArgument :: Map InferenceVariable AnalyzedType -> AnalyzedType -> RuntimeValue -> Bool
-runtimeValueExactlyMatchesConstructorArgument typeParameterBindings fieldType runtimeValue =
-  runtimeValueExactlyMatchesConstraint
-    (substituteConstructorFieldType typeParameterBindings fieldType)
-    runtimeValue
 
 runtimeIntMatchesIntAlias :: RuntimeValue -> Bool
 runtimeIntMatchesIntAlias runtimeValue =
