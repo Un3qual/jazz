@@ -308,17 +308,17 @@ testQualifiedMethodCandidateCarriesRuntimeEvidence =
         (Text.pack (show methodValue))
       assertEqual "runtime evidence stays non-user-visible" "<function>" (renderRuntimeValue methodValue)
       case candidates of
-        RuntimeMethodCandidate EvidenceReference {evidenceMethod = Just method} _ : additional : _ ->
+        RuntimeMethodCandidate EvidenceReference {evidenceMethod = method} _ : additional : _ ->
           case selectRuntimeMethodCandidate method candidateSet of
             Just selected -> do
               let retained = filterRuntimeMethodCandidates (const True) selected
                   removed = filterRuntimeMethodCandidates (const False) selected
               assertEqual "filtering retains the checked selection" True (runtimeMethodIsSelected retained)
-              assertEqual "filtering retains exactly the selected method" [Just method] [evidenceMethod evidence | RuntimeMethodCandidate evidence _ <- runtimeMethodCandidatesInOrder retained]
+              assertEqual "filtering retains exactly the selected method" [method] [evidenceMethod evidence | RuntimeMethodCandidate evidence _ <- runtimeMethodCandidatesInOrder retained]
               assertEqual "filtering can reject the selected method" 0 (length (runtimeMethodCandidatesInOrder removed))
               let extended = appendRuntimeMethodCandidate additional selected
               assertEqual "adding an implementation retains the checked selection" True (runtimeMethodIsSelected extended)
-              assertEqual "adding an implementation retains exactly the selected method" [Just method] [evidenceMethod evidence | RuntimeMethodCandidate evidence _ <- runtimeMethodCandidatesInOrder extended]
+              assertEqual "adding an implementation retains exactly the selected method" [method] [evidenceMethod evidence | RuntimeMethodCandidate evidence _ <- runtimeMethodCandidatesInOrder extended]
             Nothing -> failTest "expected evidence to select its candidate"
         _ -> failTest "expected a candidate with method evidence"
     Right otherValue ->
@@ -617,7 +617,7 @@ testNullaryMethodSelectionRecordsCanonicalAnalyzedEvidence = do
       EvidenceReference
         { evidenceCapability = CapabilityId capabilityName,
           evidenceImplementation = implementationId,
-          evidenceMethod = Just (MethodId (implementationId, mkIdentifier "defaultValue")),
+          evidenceMethod = MethodId (implementationId, mkIdentifier "defaultValue"),
           evidenceType = targetType
         }
 
@@ -2101,14 +2101,7 @@ analyzeRuntimeFacts source = do
     case parseAndLowerStandaloneSource source of
       Left diagnostic ->
         failTest ("runtime-facts fixture failed to lower: " <> renderDiagnostic diagnostic)
-      Right lowered ->
-        case resolveStandaloneExprNames (exportInventory []) lowered of
-          Left diagnostics ->
-            failTest
-              ( "runtime-facts fixture failed to resolve: "
-                  <> Text.unlines (map renderDiagnostic (NonEmpty.toList diagnostics))
-              )
-          Right resolved -> pure resolved
+      Right lowered -> pure (resolveStandaloneExprNames (exportInventory []) lowered)
   (inference, attachment) <-
     analyzeResolvedExpression
       defaultWarningSettings

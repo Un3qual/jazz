@@ -677,7 +677,7 @@ resolveCoreModuleNames ::
   ModuleGraph.CoreModule 'Lowered ->
   Either (NonEmpty Diagnostic) (ModuleGraph.CoreModule 'Resolved)
 resolveCoreModuleNames owner externalReferences ambientExports localInventory publicInventory importScope imports coreModule = do
-  resolvedExpr <- resolveExprNames context (ModuleGraph.coreModuleExpr coreModule)
+  let resolvedExpr = resolveExprNames context (ModuleGraph.coreModuleExpr coreModule)
   resolvedImports <-
     either
       (Left . NonEmpty.singleton)

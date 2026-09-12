@@ -57,7 +57,7 @@ data SemanticInstantiation = SemanticInstantiation
 data EvidenceReference = EvidenceReference
   { evidenceCapability :: CapabilityId,
     evidenceImplementation :: ImplId,
-    evidenceMethod :: Maybe MethodId,
+    evidenceMethod :: MethodId,
     evidenceType :: AnalyzedType
   }
   deriving stock (Eq, Generic, Ord, Show)

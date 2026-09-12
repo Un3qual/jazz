@@ -18,9 +18,6 @@ import Data.Bifunctor
   ( bimap,
   )
 import Data.List (mapAccumL)
-import Data.List.NonEmpty
-  ( NonEmpty,
-  )
 import qualified Data.List.NonEmpty as NonEmpty
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
@@ -52,9 +49,6 @@ import Jazz.Compiler.CoreIdentity
     ResolvedNodeFacts (..),
     ResolvedReference (..),
     emptyResolvedNodeFacts,
-  )
-import Jazz.Compiler.Diagnostics
-  ( Diagnostic,
   )
 import Jazz.Compiler.ModuleExports
   ( ModuleExport (..),
@@ -116,8 +110,8 @@ resolveBinderNode owner node =
 resolveExprNames ::
   ResolutionContext ->
   Expr 'Lowered ->
-  Either (NonEmpty Diagnostic) (Expr 'Resolved)
-resolveExprNames context rootExpression = Right (publishResolvedCaptures (resolveLexicalScopes (resolutionExternalReferences context) externalNames (resolveExpr (resolutionSourceOwner context) Map.empty rootExpression)))
+  Expr 'Resolved
+resolveExprNames context rootExpression = publishResolvedCaptures (resolveLexicalScopes (resolutionExternalReferences context) externalNames (resolveExpr (resolutionSourceOwner context) Map.empty rootExpression))
   where
     ambientExports = resolutionAmbientExports context
     localInventory = resolutionLocalInventory context
@@ -582,7 +576,7 @@ resolveExprNames context rootExpression = Right (publishResolvedCaptures (resolv
 resolveStandaloneExprNames ::
   ModuleExportInventory ->
   Expr 'Lowered ->
-  Either (NonEmpty Diagnostic) (Expr 'Resolved)
+  Expr 'Resolved
 resolveStandaloneExprNames ambientExports expression =
   resolveExprNames
     ResolutionContext

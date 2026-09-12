@@ -16,7 +16,6 @@ import Data.Functor.Identity
   ( Identity,
     runIdentity,
   )
-import Data.List.NonEmpty (NonEmpty (..))
 import Data.Text (Text)
 import qualified Data.Text as Text
 import Jazz.Compiler.AST
@@ -557,29 +556,21 @@ scopePlanForSource source =
   case parseAndLowerStandaloneSource source of
     Left diagnostic ->
       failTest ("expected scope-plan witness source to parse and lower: " <> renderDiagnostic diagnostic)
-    Right loweredExpression ->
-      case resolveStandaloneExprNames (exportInventory []) loweredExpression of
-        Left diagnostics ->
-          failTest
-            ( "expected scope-plan witness source to resolve: "
-                <> Text.intercalate "\n" (map renderDiagnostic (toList diagnostics))
-            )
-        Right resolvedExpression -> do
-          (_, attachment) <-
-            analyzeResolvedExpression
-              defaultWarningSettings
-              resolvedExpression
-          analyzedExpression <-
-            case attachment of
-              Left failures -> failTest ("scope-plan witness facts failed: " <> Text.pack (show failures))
-              Right Nothing -> failTest "scope-plan witness produced no analyzed expression"
-              Right (Just expression) -> pure expression
-          pure
-            ( buildRuntimeScopePlan
-                ((either (error . show) id . prepareAnalyzedScope) analyzedExpression)
-            )
-  where
-    toList (diagnostic :| diagnostics) = diagnostic : diagnostics
+    Right loweredExpression -> do
+      let resolvedExpression = resolveStandaloneExprNames (exportInventory []) loweredExpression
+      (_, attachment) <-
+        analyzeResolvedExpression
+          defaultWarningSettings
+          resolvedExpression
+      analyzedExpression <-
+        case attachment of
+          Left failures -> failTest ("scope-plan witness facts failed: " <> Text.pack (show failures))
+          Right Nothing -> failTest "scope-plan witness produced no analyzed expression"
+          Right (Just expression) -> pure expression
+      pure
+        ( buildRuntimeScopePlan
+            ((either (error . show) id . prepareAnalyzedScope) analyzedExpression)
+        )
 
 testPatternCaseGuardLambdaDoesNotClassifyNonFunctionRecursion :: IO ()
 testPatternCaseGuardLambdaDoesNotClassifyNonFunctionRecursion = do

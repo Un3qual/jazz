@@ -102,18 +102,18 @@ testGeneratedNamesDoNotAcquireUserPurity = do
 testKernelBridgeTargetResolution :: IO ()
 testKernelBridgeTargetResolution =
   assertRight "lower kernel bridge" (parseAndLowerStandaloneSource "__kernel_hd = __kernel_hd.") $ \lowered ->
-    assertRight "resolve kernel bridge" (resolveStandaloneExprNames (exportInventory []) lowered) $ \resolved ->
-      case resolved of
-        EBlock _ [SLet _ binder (EVar _ target)] -> do
-          assertEqual
-            "kernel bridge binder"
-            (resolvedLocalName ValueNamespace (mkIdentifier "__kernel_hd"))
-            binder
-          assertEqual
-            "kernel bridge target"
-            (BuiltinName (mkIdentifier "__kernel_hd"))
-            target
-        _ -> assertEqual "kernel bridge core shape" "single let block" (show resolved)
+    let resolved = resolveStandaloneExprNames (exportInventory []) lowered
+     in case resolved of
+          EBlock _ [SLet _ binder (EVar _ target)] -> do
+            assertEqual
+              "kernel bridge binder"
+              (resolvedLocalName ValueNamespace (mkIdentifier "__kernel_hd"))
+              binder
+            assertEqual
+              "kernel bridge target"
+              (BuiltinName (mkIdentifier "__kernel_hd"))
+              target
+          _ -> assertEqual "kernel bridge core shape" "single let block" (show resolved)
 
 testDeclarationTargets :: IO ()
 testDeclarationTargets =
@@ -122,18 +122,18 @@ testDeclarationTargets =
   where
     path = mkModulePath (mkIdentifier "SamePath" :| [])
     check lowered owner =
-      assertRight "resolve declarations" (resolveExprNames (context owner) lowered) $ \resolved ->
-        case resolved of
-          EBlock _ [SLet firstNode _ _, SLet secondNode _ (EBinary _ _ (EVar earlierUse _) _), SLet _ _ (ELambda parameterNode _ (EVar parameterUse _)), SExpr _ (EVar finalUse _)] -> do
-            let firstBinder = CoreBinderId (owner, coreNodeId firstNode)
-                secondBinder = CoreBinderId (owner, coreNodeId secondNode)
-                parameterBinder = CoreBinderId (owner, coreNodeId parameterNode)
-            assertEqual "declaration carries its source owner" (Just firstBinder) (resolvedNodeBinder (coreNodeFacts firstNode))
-            assertEqual "rebind publishes the replaced declaration" (Just (LexicalReference firstBinder)) (resolvedNodeShadowedReference (coreNodeFacts secondNode))
-            assertEqual "lambda publishes the shadowed declaration" (Just (LexicalReference secondBinder)) (resolvedNodeShadowedReference (coreNodeFacts parameterNode))
-            assertEqual "rebind initializer selects earlier declaration" (Just (LexicalReference firstBinder)) (resolvedNodeReference (coreNodeFacts earlierUse))
-            assertEqual "later use selects rebind" (Just (LexicalReference secondBinder)) (resolvedNodeReference (coreNodeFacts finalUse))
-            assertEqual "lambda parameter has its own declaration identity" (Just parameterBinder) (resolvedNodeBinder (coreNodeFacts parameterNode))
-            assertEqual "lambda use selects parameter" (Just (LexicalReference parameterBinder)) (resolvedNodeReference (coreNodeFacts parameterUse))
-          _ -> fail ("unexpected rebinding core: " <> show resolved)
+      let resolved = resolveExprNames (context owner) lowered
+       in case resolved of
+            EBlock _ [SLet firstNode _ _, SLet secondNode _ (EBinary _ _ (EVar earlierUse _) _), SLet _ _ (ELambda parameterNode _ (EVar parameterUse _)), SExpr _ (EVar finalUse _)] -> do
+              let firstBinder = CoreBinderId (owner, coreNodeId firstNode)
+                  secondBinder = CoreBinderId (owner, coreNodeId secondNode)
+                  parameterBinder = CoreBinderId (owner, coreNodeId parameterNode)
+              assertEqual "declaration carries its source owner" (Just firstBinder) (resolvedNodeBinder (coreNodeFacts firstNode))
+              assertEqual "rebind publishes the replaced declaration" (Just (LexicalReference firstBinder)) (resolvedNodeShadowedReference (coreNodeFacts secondNode))
+              assertEqual "lambda publishes the shadowed declaration" (Just (LexicalReference secondBinder)) (resolvedNodeShadowedReference (coreNodeFacts parameterNode))
+              assertEqual "rebind initializer selects earlier declaration" (Just (LexicalReference firstBinder)) (resolvedNodeReference (coreNodeFacts earlierUse))
+              assertEqual "later use selects rebind" (Just (LexicalReference secondBinder)) (resolvedNodeReference (coreNodeFacts finalUse))
+              assertEqual "lambda parameter has its own declaration identity" (Just parameterBinder) (resolvedNodeBinder (coreNodeFacts parameterNode))
+              assertEqual "lambda use selects parameter" (Just (LexicalReference parameterBinder)) (resolvedNodeReference (coreNodeFacts parameterUse))
+            _ -> fail ("unexpected rebinding core: " <> show resolved)
     context owner = ResolutionContext owner Map.empty (exportInventory []) (exportInventory []) emptyImportScope

@@ -767,10 +767,7 @@ resolvedPatternCase patternValue =
         [CaseArm loweredExpressionNode patternValue Nothing (ELit loweredExpressionNode (LInt 0))]
 
 resolveExpression :: Expr 'Lowered -> Expr 'Resolved
-resolveExpression expression =
-  case resolveStandaloneExprNames (exportInventory []) expression of
-    Right resolved -> resolved
-    Left diagnostics -> error (show diagnostics)
+resolveExpression = resolveStandaloneExprNames (exportInventory [])
 
 wildcardPattern :: Pattern 'Lowered
 wildcardPattern = PWildcard loweredPatternNode

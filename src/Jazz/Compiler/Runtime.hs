@@ -66,8 +66,7 @@ import Jazz.Compiler.Runtime.Outcome
     runtimeOutcomeAsDiagnosticResult,
   )
 import Jazz.Compiler.Runtime.Request
-  ( RuntimeExpressionRequest (..),
-    RuntimeScopeRequest (..),
+  ( RuntimeScopeRequest (..),
   )
 import Jazz.Compiler.Runtime.Types
   ( ModuleEvaluationMode (..),
@@ -98,9 +97,7 @@ evaluateRuntimeExprObserved observationRequest expr =
     ( evaluateRuntimeExpressionObserved
         observationRequest
         disabledRuntimeHost
-        RuntimeExpressionRequest
-          { runtimeExpression = expr
-          }
+        expr
     )
 
 evaluateRuntimeExprWithHost :: (Monad m) => RuntimeHost m -> Expr 'Analyzed -> m (Either Diagnostic (Maybe RuntimeValue))
@@ -110,9 +107,7 @@ evaluateRuntimeExprWithHost host expr =
     ( evaluateRuntimeExpressionObserved
         RuntimeObservationDisabled
         host
-        RuntimeExpressionRequest
-          { runtimeExpression = expr
-          }
+        expr
     )
 
 -- | The program coordinator uses this only after proving that all artifacts

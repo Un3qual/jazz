@@ -122,17 +122,17 @@ lowerAndAnalyze = assertRight "parse" (parseSurfaceProgram "[1,\n 2].") $ \surfa
         _ -> []
   assertEqual "lowered" expected (spans lowered)
   assertEqual "reindexed" expected (spans (reindexLoweredExpr lowered))
-  assertRight "resolve" (resolveStandaloneExprNames (exportInventory []) lowered) $ \resolved -> do
-    inferred <- inferExpressionDefault resolved
-    assertEqual "inferred" expected (spans (inferenceResolvedExpr inferred))
+  let resolved = resolveStandaloneExprNames (exportInventory []) lowered
+  inferred <- inferExpressionDefault resolved
+  assertEqual "inferred" expected (spans (inferenceResolvedExpr inferred))
   let identity = moduleIdentity standaloneModulePath (mkSourceFile "Main.jz")
   assertRight "lower qualified module" (lowerSurfaceModule identity surface) $ \coreModule -> do
     let qualified = map (qualifySourceSpan "Main.jz") expected
         moduleExpr = coreModuleExpr coreModule
     assertEqual "qualified lowering" qualified (spans moduleExpr)
-    assertRight "resolve qualified module" (resolveStandaloneExprNames (exportInventory []) moduleExpr) $ \resolved -> do
-      inferred <- inferExpressionDefault resolved
-      assertEqual "qualified inference" qualified (spans (inferenceResolvedExpr inferred))
+    let qualifiedResolved = resolveStandaloneExprNames (exportInventory []) moduleExpr
+    qualifiedInferred <- inferExpressionDefault qualifiedResolved
+    assertEqual "qualified inference" qualified (spans (inferenceResolvedExpr qualifiedInferred))
 
 qualifyRanges :: IO ()
 qualifyRanges = do

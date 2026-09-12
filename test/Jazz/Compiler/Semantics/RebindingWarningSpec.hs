@@ -458,19 +458,16 @@ rebindingAndUnusedEnabledSettings =
 
 analyzeProgram :: WarningSettings -> Expr 'Lowered -> IO AnalysisResult
 analyzeProgram settings expression = do
-  resolved <- resolveForAnalyzer expression
+  let resolved = resolveForAnalyzer expression
   Analyzer.analyzeProgram settings resolved
 
 analyzeRebindingWarnings :: WarningSettings -> Expr 'Lowered -> IO [Diagnostic]
 analyzeRebindingWarnings settings expression = do
-  resolved <- resolveForAnalyzer expression
+  let resolved = resolveForAnalyzer expression
   Analyzer.analyzeRebindingWarnings settings resolved
 
-resolveForAnalyzer :: Expr 'Lowered -> IO (Expr 'Resolved)
-resolveForAnalyzer expression =
-  case resolveStandaloneExprNames (exportInventory []) (reindexLoweredExpr expression) of
-    Left diagnostics -> failTest ("fixture resolution failed: " <> Text.pack (show diagnostics))
-    Right resolved -> pure resolved
+resolveForAnalyzer :: Expr 'Lowered -> Expr 'Resolved
+resolveForAnalyzer = resolveStandaloneExprNames (exportInventory []) . reindexLoweredExpr
 
 sampleProgram :: Expr 'Lowered
 sampleProgram =

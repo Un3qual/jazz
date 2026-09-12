@@ -873,7 +873,7 @@ schemeHasLiteralRange scheme =
         AnalyzedNumericPrimitiveConstraint (AnalyzedIntegralLiteralNumericConstraint 1 1) _ -> True
         _ -> False
 
-expectedEvidenceIdentities :: CoreProgram 'Resolved -> [(CapabilityId, ImplId, Maybe MethodId)]
+expectedEvidenceIdentities :: CoreProgram 'Resolved -> [(CapabilityId, ImplId, MethodId)]
 expectedEvidenceIdentities program =
   [ ( CapabilityId
         ( UserName
@@ -884,7 +884,7 @@ expectedEvidenceIdentities program =
             )
         ),
       implementationId,
-      Just (MethodId (implementationId, mkIdentifier (identifierText methodName)))
+      MethodId (implementationId, mkIdentifier (identifierText methodName))
     )
   | coreModule <- NonEmpty.toList (coreProgramModules program),
     statement <- moduleStatements coreModule,

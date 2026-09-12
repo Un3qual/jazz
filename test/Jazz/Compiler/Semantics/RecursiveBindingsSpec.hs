@@ -115,7 +115,7 @@ testPreparedRecursiveScope = do
     statements = case program of
       EBlock _ values -> values
       _ -> error "expected resolved block"
-    program = either (error . show) id (resolveStandaloneExprNames (exportInventory []) (loweredProgram "left = \\(item) -> right. 0. right = \\(item) -> left."))
+    program = resolveStandaloneExprNames (exportInventory []) (loweredProgram "left = \\(item) -> right. 0. right = \\(item) -> left.")
 
 testLambdaCapturePlans :: IO ()
 testLambdaCapturePlans =
@@ -137,7 +137,7 @@ testLambdaCaptureOrder = do
     (captures (resolvedFixture "probe = \\(item) -> { local = outside. (local, outside, tail, item). }."))
 
   case resolveStandaloneExprNames (exportInventory []) (loweredProgram "outside = 1. probe = \\(item) -> { outside = outside + 1. \\(inner) -> outside. }.") of
-    Right (EBlock _ [SLet outerNode _ _, SLet _ _ outer@(ELambda _ _ (EBlock _ [SLet localNode _ _, SExpr _ nested]))]) -> do
+    EBlock _ [SLet outerNode _ _, SLet _ _ outer@(ELambda _ _ (EBlock _ [SLet localNode _ _, SExpr _ nested]))] -> do
       assertEqual
         "outer closure captures the earlier declaration"
         (fmap LexicalReference (resolvedNodeBinder (coreNodeFacts outerNode)))
@@ -154,9 +154,7 @@ captures :: Expr 'Resolved -> [Text]
 captures = map (identifierText . snd) . resolvedNodeCaptures . coreNodeFacts . expressionNode
 
 resolvedFixture :: Text -> Expr 'Resolved
-resolvedFixture source = case resolveStandaloneExprNames (exportInventory []) (fixtureExpression source) of
-  Right expression -> expression
-  Left diagnostics -> error (show diagnostics)
+resolvedFixture source = resolveStandaloneExprNames (exportInventory []) (fixtureExpression source)
 
 testFreeVarsLambdaParameterBound :: IO ()
 testFreeVarsLambdaParameterBound =

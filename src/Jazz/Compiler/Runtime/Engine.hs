@@ -138,8 +138,7 @@ import Jazz.Compiler.Runtime.Primitives
     evalBuiltin,
   )
 import Jazz.Compiler.Runtime.Request
-  ( RuntimeExpressionRequest (..),
-    RuntimeScopeRequest (..),
+  ( RuntimeScopeRequest (..),
   )
 import Jazz.Compiler.Runtime.ScopePlan
   ( RuntimeScopePlan,
@@ -246,59 +245,57 @@ evaluateRuntimeExpressionObserved ::
   (Monad m) =>
   RuntimeObservationRequest ->
   RuntimeHost m ->
-  RuntimeExpressionRequest ->
+  Expr 'Analyzed ->
   m (RuntimeObservationResult (Maybe RuntimeValue))
-evaluateRuntimeExpressionObserved observationRequest host request =
+evaluateRuntimeExpressionObserved observationRequest host expr =
   {-# SCC "jazz-stage:evaluation" #-}
   case observationRequest of
     RuntimeObservationDisabled -> do
       outcome <-
-        evaluateRuntimeExpressionUnobserved host request
+        evaluateRuntimeExpressionUnobserved host expr
       pure (RuntimeObservationResult outcome Nothing)
     _ -> do
       (outcome, observationState) <-
         runRuntimeHostEvaluationWithObservation observationRequest host $ \evaluationHost ->
-          evaluateRuntimeExpressionWithRequiredEvaluationHost evaluationHost request
+          evaluateRuntimeExpressionWithRequiredEvaluationHost evaluationHost expr
       pure (finishRuntimeObservationResult (runtimeControlOutcome outcome) observationState)
 
 evaluateRuntimeExpressionUnobserved ::
   (Monad m) =>
   RuntimeHost m ->
-  RuntimeExpressionRequest ->
+  Expr 'Analyzed ->
   m (RuntimeOutcome (Maybe RuntimeValue))
-evaluateRuntimeExpressionUnobserved host request =
+evaluateRuntimeExpressionUnobserved host expr =
   runtimeControlOutcome
     <$> runRuntimeHostEvaluation
       host
       ( \evaluationHost ->
-          evaluateRuntimeExpressionWithEvaluationHost evaluationHost request
+          evaluateRuntimeExpressionWithEvaluationHost evaluationHost expr
       )
 
 evaluateRuntimeExpressionWithRequiredEvaluationHost ::
   (Monad m) =>
   RuntimeHost (RuntimeHostEvaluationT m) ->
-  RuntimeExpressionRequest ->
+  Expr 'Analyzed ->
   RuntimeHostEvaluationT m (Either RuntimeControl (Maybe RuntimeValue))
-evaluateRuntimeExpressionWithRequiredEvaluationHost host request =
+evaluateRuntimeExpressionWithRequiredEvaluationHost host expr =
   case expr of
-    EBlock {} -> case runtimeExpressionScopeRequest request of
+    EBlock {} -> case runtimeExpressionScopeRequest expr of
       Left diagnostic -> pure (Left (RuntimeDiagnostic diagnostic))
       Right scopeRequest -> fmap scopeResultValue <$> evaluateRuntimeScopeWithRequiredHostRequest host scopeRequest
     _ ->
       runExceptT
         (Just <$> evalValueWithHost host Nothing Map.empty expr)
-  where
-    expr = runtimeExpression request
 
 evaluateRuntimeExpressionWithEvaluationHost ::
   (Monad m) =>
   RuntimeHost (RuntimeHostEvaluationT m) ->
-  RuntimeExpressionRequest ->
+  Expr 'Analyzed ->
   RuntimeHostEvaluationT m (Either RuntimeControl (Maybe RuntimeValue))
-evaluateRuntimeExpressionWithEvaluationHost host request =
+evaluateRuntimeExpressionWithEvaluationHost host expr =
   if runtimeExprRequiresHost expr
     then case expr of
-      EBlock {} -> case runtimeExpressionScopeRequest request of
+      EBlock {} -> case runtimeExpressionScopeRequest expr of
         Left diagnostic -> pure (Left (RuntimeDiagnostic diagnostic))
         Right scopeRequest -> fmap scopeResultValue <$> evaluateRuntimeScopeWithRequiredHostRequest host scopeRequest
       _ ->
@@ -306,30 +303,26 @@ evaluateRuntimeExpressionWithEvaluationHost host request =
           (Just <$> evalValueWithHost host Nothing Map.empty expr)
     else
       pure
-        ( case evaluateRuntimeExpressionPure request of
+        ( case evaluateRuntimeExpressionPure expr of
             Left diagnostic -> Left (RuntimeDiagnostic diagnostic)
             Right value -> Right value
         )
-  where
-    expr = runtimeExpression request
 
 -- | Evaluate an expression, returning a terminal scope value when one exists.
-evaluateRuntimeExpressionPure :: RuntimeExpressionRequest -> Either Diagnostic (Maybe RuntimeValue)
-evaluateRuntimeExpressionPure request =
+evaluateRuntimeExpressionPure :: Expr 'Analyzed -> Either Diagnostic (Maybe RuntimeValue)
+evaluateRuntimeExpressionPure expr =
   case expr of
     EBlock {} -> do
-      scopeRequest <- runtimeExpressionScopeRequest request
+      scopeRequest <- runtimeExpressionScopeRequest expr
       scopeResultValue <$> evaluateRuntimeScopePureRequest scopeRequest
     _ -> Just <$> evalValue Map.empty expr
-  where
-    expr = runtimeExpression request
 
 prepareRuntimeScope :: Expr 'Analyzed -> Either Diagnostic (PreparedRecursiveScope 'Analyzed)
 prepareRuntimeScope = either (Left . runtimeDiagnostic E3020 . Text.pack . show) Right . prepareAnalyzedScope
 
-runtimeExpressionScopeRequest :: RuntimeExpressionRequest -> Either Diagnostic RuntimeScopeRequest
-runtimeExpressionScopeRequest request = do
-  prepared <- prepareRuntimeScope (runtimeExpression request)
+runtimeExpressionScopeRequest :: Expr 'Analyzed -> Either Diagnostic RuntimeScopeRequest
+runtimeExpressionScopeRequest expr = do
+  prepared <- prepareRuntimeScope expr
   pure
     RuntimeScopeRequest
       { runtimeScopeEvaluationMode = EvaluateEntryModule,
@@ -1923,7 +1916,7 @@ selectRuntimeEvidence evidenceReferences runtimeValue =
     VQualifiedMethodApplication methodKey classParameter methodSignature candidates capturedArgs ->
       case evidenceReferences of
         reference NonEmpty.:| []
-          | Just method@(MethodId (implementation, _)) <- evidenceMethod reference,
+          | let method@(MethodId (implementation, _)) = evidenceMethod reference,
             implementation == evidenceImplementation reference,
             Just selected <- selectRuntimeMethodCandidate method candidates,
             [RuntimeMethodCandidate candidate _] <- runtimeMethodCandidatesInOrder selected,
@@ -1945,7 +1938,7 @@ runtimeEvidence modulePath implementationNodeId capabilityName methodName target
   EvidenceReference
     (CapabilityId capabilityName)
     implementationId
-    (Just (MethodId (implementationId, mkIdentifier (identifierText methodName))))
+    (MethodId (implementationId, mkIdentifier (identifierText methodName)))
     targetType
   where
     implementationId = ImplId (fromMaybe (StandaloneSourceUnit standaloneModulePath) modulePath, implementationNodeId)

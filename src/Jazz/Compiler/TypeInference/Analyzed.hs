@@ -230,7 +230,7 @@ expressionEvidenceFacts state evidence =
       [ EvidenceReference
           { evidenceCapability = capability,
             evidenceImplementation = implementation,
-            evidenceMethod = Just method,
+            evidenceMethod = method,
             evidenceType = resolveType state targetType
           }
       ]

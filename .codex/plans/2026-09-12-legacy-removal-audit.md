@@ -47,3 +47,28 @@ Verified with the pinned GHC 9.14.1 toolchain:
 - Ormolu and `git diff --check` passed for the changed code.
 
 Benchmark, performance, profiling, scale, and corpus-budget execution remains excluded. All components, including opt-in scale and benchmark components, were compiled by the clean Weeder gate. The full test matrix was not executed.
+
+## Manual source and data-flow follow-up
+
+Audit input: `5d5efca4`. The maintainer requested a second inspection that follows actual code, rather than treating a clean Weeder result as proof that migration scaffolding is gone. The Jazz-authored frontend and all Bootstrap suites are explicitly retained.
+
+Traced the resolver and module-validation boundaries, checked-tree finalization and evidence producers, runtime expression/scope entrypoints, candidate indexing/selection, closure annotations, and constructor ownership. Compared the remaining carriers with the earlier simplification and their Git history.
+
+### Removed
+
+- **Success-only resolver error channel:** `ModuleResolver.Names.resolveExprNames` unconditionally wrapped a pure tree transformation in `Right`; `resolveStandaloneExprNames` merely forwarded it. Unresolved references are deliberately retained for later diagnostics, while module/import validation owns actual resolution errors. Both functions now return the resolved expression directly. Removed their callers' unreachable failure branches, including fixture-only diagnostic rendering helpers. Module/import error handling and checked-artifact invariant failures remain intact.
+- **Obsolete runtime request wrapper:** `RuntimeExpressionRequest` previously carried hint maps, builtin mode, source-unit indices, and prelude identity. After those migrations it contained only `Expr 'Analyzed`, which every consumer immediately unwrapped. Runtime expression entrypoints now accept that expression directly. `RuntimeScopeRequest` still groups independent mode, environment, and prepared-scope inputs and remains useful.
+- **Impossible missing method evidence:** the checked-expression producer and runtime candidate producer always provide a concrete `MethodId`; every test producer does too. `EvidenceReference.evidenceMethod` is now required, removing the unused missing-method state and the branch that silently omitted such candidates from the method index. Selection still checks implementation identity, capability identity, target compatibility, and exactly one evidence reference. Existing malformed-evidence and candidate-selection assertions are preserved.
+
+### Retained after inspection
+
+- Closure type hints are truly optional: lambda evaluation constructs an unannotated closure, and later result policies attach a hint when appropriate. The absent-hint paths still govern argument handling, integer defaulting, and collection behavior.
+- Runtime constructor-name ownership remains necessary: resolved constructor binders retain their declaration spelling, and runtime publication/pattern matching attach or compare the source owner. Synthetic analyzed fixtures also intentionally exercise local-name compatibility.
+- Sequential module-body support in expression resolution has active direct-expression callers. Removing it would change accepted behavior rather than finish an unused-code migration.
+- Legacy signature payloads preserve structured diagnostics and hosted comparison values. Runtime exit adapters serve callers of the diagnostic-only evaluation API. Semantic metadata and observation formats remain documented contracts.
+
+The removals reuse existing behavioral coverage rather than adding tests that merely assert implementation shape. No hosted frontend, benchmark, profiling, performance, scale, or corpus-budget execution was added.
+
+### Follow-up verification
+
+Fourteen affected correctness suites passed with `--skip-performance`: name semantics, core normalization, recursive bindings, rebinding warnings, source ranges, pattern coverage, binding/signature coherence, runtime semantics, module pipeline contracts, loading, prelude loading, CLI, module resolution, and module exports. The first batch exposed a test-variable shadowing warning after removing a callback scope; the fixture was corrected and its suite passed on rerun. The clean production/full-component builds, both Weeder checks, full HLint, and `generated-invariants-spec` also passed, for 15 distinct correctness suites in this follow-up. Documentation and execution-queue checks passed. All test/tooling components were compiled; benchmark, profiling, performance, scale, and corpus-budget tests were not executed.
