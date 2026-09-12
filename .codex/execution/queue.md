@@ -13,7 +13,7 @@ public behavior.
 | id  | title | priority | size | kind | autonomous_ready | depends_on | plan | plan_section | target_paths | deliverable | verification | last_verified |
 | --- | ----- | -------- | ---- | ---- | ---------------- | ---------- | ---- | ------------ | ------------ | ----------- | ------------ | ------------- |
 
-Current executor status (`2026-09-11`): Compiler architecture T01–T14 and the CodeRabbit CLI follow-up are complete. Code fixes are committed at `54a0f1c7`; all 15 focused correctness suites, complete consumer compilation, formatting/lint, and documentation checks pass. Nine review findings are addressed and two retain verified no-change dispositions in the plan. No benchmark or performance tests ran during the follow-up. Ready Now is empty; there is no source-backed next curation target and no named candidate currently. Completion details are in the [remediation plan](../plans/2026-09-10-compiler-architecture-remediation.md#follow-up-verification-and-closure).
+Current executor status (`2026-09-11`): Ready Now is empty. The maintainer-requested compiler quality audit is complete: 59 notes, 35 addressed, 22 follow-ups, and two investigated cases retained. Verified commits and evidence are recorded in [the compiler quality audit](../plans/2026-09-11-compiler-quality-audit.md) for PR #158. There is no source-backed next curation target selected for execution and no named candidate currently promoted; remaining audit notes require prioritization and, where specified, measurement or a design decision. Benchmarks and performance tests remained excluded.
 
 ## Next Curation Target
 
