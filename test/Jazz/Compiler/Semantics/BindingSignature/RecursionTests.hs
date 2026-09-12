@@ -47,7 +47,7 @@ recursionTests =
     ("mutual recursion group is accepted", testMutualRecursionGroup),
     ("three-node mutual recursion group is accepted", testThreeNodeMutualRecursionGroup),
     ("non-recursive forward reference in bindings is rejected", testNonRecursiveForwardReference),
-    ("prepared analyzer scopes cannot cross-pair statements and facts", testPreparedScopesCannotCrossPairStatementsAndFacts),
+    ("prepared analyzer scopes preserve recursive visibility", testPreparedScopesPreserveRecursiveVisibility),
     ("ordinary roots stay lazy while owned prepared statements detach", testAnalyzerRootLaziness),
     ("rebinding cannot retroactively create recursion group", testRebindingDoesNotCreateRetroactiveRecursion),
     ("source pipeline preserves inferred method constraints across mutual recursion", testSourcePreservesInferredMethodConstraintsAcrossMutualRecursion),
@@ -91,8 +91,8 @@ testNonRecursiveForwardReference = do
     "unbound variable 'y'"
     (compileErrors result)
 
-testPreparedScopesCannotCrossPairStatementsAndFacts :: IO ()
-testPreparedScopesCannotCrossPairStatementsAndFacts = do
+testPreparedScopesPreserveRecursiveVisibility :: IO ()
+testPreparedScopesPreserveRecursiveVisibility = do
   AnalysisResult recursiveExpr recursiveDiagnostics <-
     Analyzer.analyzeProgramWithInputsAndPreparedScope
       analysisInputs
@@ -162,7 +162,6 @@ analysisInputs =
     { analysisWarningSettings = defaultWarningSettings,
       analysisExternalUses = Set.empty,
       analysisImportedValues = Map.empty,
-      analysisForwardFunctions = Map.empty,
       analysisImportedClasses = Set.empty
     }
 

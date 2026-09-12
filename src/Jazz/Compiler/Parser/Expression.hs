@@ -872,15 +872,22 @@ caseArmPipeStartsBoundary context parentOperator minPrecedence leftExpr tokensAf
     Right (_, Token {tokenKind = TArrow} :< _) -> True
     Right (_, Token {tokenKind = TIf} :< afterGuard) -> guardTokensEndAtArrow afterGuard
     Right (_, Token {tokenKind = TOperator "|"} :< _) ->
-      startsDefiniteOrPatternCaseArm tokensAfterPipe
-        && not
-          ( startsAllLiteralOrPatternCaseArm tokensAfterPipe
-              && casePipeCanContinueExpression context parentOperator minPrecedence leftExpr
-          )
+      case Pattern.parseCaseArmPatternTokenStream tokensAfterPipe of
+        Right (casePattern, Token {tokenKind = TArrow} :< _) -> isBoundaryPattern casePattern
+        Right (casePattern, Token {tokenKind = TIf} :< afterGuard) ->
+          isBoundaryPattern casePattern && guardTokensEndAtArrow afterGuard
+        _ -> False
     Left _
       | startsCasePatternTokens tokensAfterPipe ->
           hasTopLevelArrowBeforeCaseArmBoundary tokensAfterPipe
     _ -> False
+  where
+    isBoundaryPattern casePattern =
+      orPatternStartsDefiniteArmBoundary casePattern
+        && not
+          ( orPatternIsAllLiteral casePattern
+              && casePipeCanContinueExpression context parentOperator minPrecedence leftExpr
+          )
 
 caseGuardPipeStartsBoundary ::
   ParserContext ->
@@ -890,10 +897,13 @@ caseGuardPipeStartsBoundary ::
   TokenStream ->
   Bool
 caseGuardPipeStartsBoundary context parentOperator minPrecedence leftExpr tokensAfterPipe =
-  startsDefiniteGuardedCaseArmAfterGuardBoundary tokensAfterPipe
-    || ( startsDefiniteUnguardedCaseArmAfterGuardBoundary tokensAfterPipe
-           && not (casePipeCanContinueExpression context parentOperator minPrecedence leftExpr)
-       )
+  case Pattern.parseCaseArmPatternTokenStream tokensAfterPipe of
+    Right (casePattern, Token {tokenKind = TIf} :< afterGuard) ->
+      guardBoundaryPatternIsDefinite casePattern && guardTokensEndAtArrow afterGuard
+    Right (casePattern, Token {tokenKind = TArrow} :< _) ->
+      guardBoundaryPatternIsDefinite casePattern
+        && not (casePipeCanContinueExpression context parentOperator minPrecedence leftExpr)
+    _ -> False
 
 casePipeCanContinueExpression :: ParserContext -> Maybe Text -> Int -> SurfaceExpr -> Bool
 casePipeCanContinueExpression context parentOperator minPrecedence leftExpr =
@@ -943,58 +953,20 @@ startsDefiniteCaseArm remainingTokens =
           hasTopLevelArrowBeforeCaseArmBoundary remainingTokens
     _ -> False
 
-startsDefiniteUnguardedCaseArmAfterGuardBoundary :: TokenStream -> Bool
-startsDefiniteUnguardedCaseArmAfterGuardBoundary remainingTokens =
-  case Pattern.parseCaseArmPatternTokenStream remainingTokens of
-    Right (casePattern, Token {tokenKind = TArrow} :< _) ->
-      guardBoundaryPatternIsDefinite casePattern
-    _ -> False
-
-startsDefiniteGuardedCaseArmAfterGuardBoundary :: TokenStream -> Bool
-startsDefiniteGuardedCaseArmAfterGuardBoundary remainingTokens =
-  case Pattern.parseCaseArmPatternTokenStream remainingTokens of
-    Right (casePattern, Token {tokenKind = TIf} :< afterGuard) ->
-      guardBoundaryPatternIsDefinite casePattern && guardTokensEndAtArrow afterGuard
-    _ -> False
-
-guardTokensEndAtArrow :: TokenStream -> Bool
-guardTokensEndAtArrow tokens =
-  hasTopLevelGuardArrow tokens
-    && not (hasTopLevelElseBeforeArrow tokens)
-
 -- A top-level `else` before the arrow means the preceding `if` belongs to the
 -- expression on the left of the pipe. Treating the constructor-shaped prefix
 -- as a guarded arm would split that valid expression too early.
-hasTopLevelElseBeforeArrow :: TokenStream -> Bool
-hasTopLevelElseBeforeArrow =
-  hasTopLevelTokenBefore isElse isArrow
+guardTokensEndAtArrow :: TokenStream -> Bool
+guardTokensEndAtArrow =
+  hasTopLevelTokenBefore (== TArrow) isTerminator
   where
-    isElse tokenKind' = tokenKind' == TElse
-    isArrow tokenKind' = tokenKind' == TArrow
+    isTerminator kind = kind `elem` [TElse, TDot, TRBrace]
 
 guardBoundaryPatternIsDefinite :: SurfacePattern -> Bool
 guardBoundaryPatternIsDefinite casePattern =
   case surfacePatternForm casePattern of
     SPVariable {} -> False
     _ -> True
-
-startsDefiniteOrPatternCaseArm :: TokenStream -> Bool
-startsDefiniteOrPatternCaseArm remainingTokens =
-  case Pattern.parseCaseArmPatternTokenStream remainingTokens of
-    Right (casePattern, Token {tokenKind = TArrow} :< _) ->
-      orPatternStartsDefiniteArmBoundary casePattern
-    Right (casePattern, Token {tokenKind = TIf} :< afterGuard) ->
-      orPatternStartsDefiniteArmBoundary casePattern && guardTokensEndAtArrow afterGuard
-    _ -> False
-
-startsAllLiteralOrPatternCaseArm :: TokenStream -> Bool
-startsAllLiteralOrPatternCaseArm remainingTokens =
-  case Pattern.parseCaseArmPatternTokenStream remainingTokens of
-    Right (casePattern, Token {tokenKind = TArrow} :< _) ->
-      orPatternIsAllLiteral casePattern
-    Right (casePattern, Token {tokenKind = TIf} :< afterGuard) ->
-      orPatternIsAllLiteral casePattern && guardTokensEndAtArrow afterGuard
-    _ -> False
 
 orPatternStartsDefiniteArmBoundary :: SurfacePattern -> Bool
 orPatternStartsDefiniteArmBoundary casePattern =

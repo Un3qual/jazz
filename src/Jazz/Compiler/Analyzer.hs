@@ -114,7 +114,6 @@ data AnalysisInputs = AnalysisInputs
   { analysisWarningSettings :: WarningSettings,
     analysisExternalUses :: Set CoreBinderId,
     analysisImportedValues :: Map ResolvedName AnalysisBinding,
-    analysisForwardFunctions :: Map Int (ResolvedName, AnalysisBinding),
     analysisImportedClasses :: Set ResolvedName
   }
   deriving (Eq, Show)
@@ -148,7 +147,6 @@ analyzeProgram settings expr =
       { analysisWarningSettings = settings,
         analysisExternalUses = Set.empty,
         analysisImportedValues = Map.empty,
-        analysisForwardFunctions = Map.empty,
         analysisImportedClasses = Set.empty
       }
     False
@@ -162,12 +160,11 @@ analyzeProgramWithInputs inputs hideRootBindings expr =
     collectedDiagnostics =
       case expr of
         EBlock node statements ->
-          either (const mempty) (collectScopeDiagnostics (analysisExternalUses inputs) hideRootBindings settings importedBindings forwardBindings importedClasses topLevelContext) (prepareResolvedScope node statements)
+          either (const mempty) (collectScopeDiagnostics (analysisExternalUses inputs) hideRootBindings settings importedBindings importedClasses topLevelContext) (prepareResolvedScope node statements)
         _ ->
           collectExprDiagnostics settings importedBindings importedClasses topLevelContext expr
     settings = analysisWarningSettings inputs
     importedBindings = analysisVisibleBindings inputs
-    forwardBindings = analysisVisibleForwardBindings inputs
     importedClasses = Set.map identifierText (analysisImportedClasses inputs)
 
 analyzeProgramWithInputsAndPreparedScope ::
@@ -186,7 +183,6 @@ analyzeProgramWithInputsAndPreparedScope inputs hideRootBindings expr preparedSc
           hideRootBindings
           (analysisWarningSettings inputs)
           (analysisVisibleBindings inputs)
-          (analysisVisibleForwardBindings inputs)
           (Set.map identifierText (analysisImportedClasses inputs))
           topLevelContext
    in analysisScope `seq`
@@ -220,12 +216,6 @@ analysisVisibleBindings =
   Map.mapKeys resolvedValueScopeName
     . Map.map analysisBindingToVisibleBinding
     . analysisImportedValues
-
-analysisVisibleForwardBindings :: AnalysisInputs -> Map Int (ResolvedName, VisibleBinding)
-analysisVisibleForwardBindings inputs =
-  Map.map
-    (\(name, binding) -> (resolvedValueScopeName name, analysisBindingToVisibleBinding binding))
-    (analysisForwardFunctions inputs)
 
 analysisBindingToVisibleBinding :: AnalysisBinding -> VisibleBinding
 analysisBindingToVisibleBinding binding =
@@ -370,7 +360,7 @@ collectExprDiagnostics settings visibleBindings visibleClassNames context expr =
       collectExprDiagnostics settings visibleBindings visibleClassNames context leftExpr
     ESectionRight _ _ rightExpr ->
       collectExprDiagnostics settings visibleBindings visibleClassNames context rightExpr
-    EBlock node statements -> either (const mempty) (collectScopeDiagnostics Set.empty False settings visibleBindings Map.empty visibleClassNames context) (prepareResolvedScope node statements)
+    EBlock node statements -> either (const mempty) (collectScopeDiagnostics Set.empty False settings visibleBindings visibleClassNames context) (prepareResolvedScope node statements)
 
 collectExprListDiagnostics ::
   WarningSettings ->
@@ -391,19 +381,17 @@ collectScopeDiagnostics ::
   Bool ->
   WarningSettings ->
   Map ResolvedName VisibleBinding ->
-  Map Int (ResolvedName, VisibleBinding) ->
   Set Text ->
   AnalysisContext ->
   PreparedRecursiveScope 'Resolved ->
   CollectedDiagnostics
-collectScopeDiagnostics externalUses hideRootBindings settings outerScope forwardBindings outerClassNames context preparedScope =
+collectScopeDiagnostics externalUses hideRootBindings settings outerScope outerClassNames context preparedScope =
   collectScopeDiagnosticsWithPreparedScope
     (preparedAnalysisScope preparedScope)
     externalUses
     hideRootBindings
     settings
     outerScope
-    forwardBindings
     outerClassNames
     context
 
@@ -413,11 +401,10 @@ collectScopeDiagnosticsWithPreparedScope ::
   Bool ->
   WarningSettings ->
   Map ResolvedName VisibleBinding ->
-  Map Int (ResolvedName, VisibleBinding) ->
   Set Text ->
   AnalysisContext ->
   CollectedDiagnostics
-collectScopeDiagnosticsWithPreparedScope (PreparedAnalysisScope statements rawRecursiveGroupsByStatement) externalUses hideRootBindings settings outerScope forwardBindings outerClassNames context =
+collectScopeDiagnosticsWithPreparedScope (PreparedAnalysisScope statements rawRecursiveGroupsByStatement) externalUses hideRootBindings settings outerScope outerClassNames context =
   flushPendingSignature finalPendingSignature finalDiagnostics
   where
     indexedStatements = zip [0 ..] statements
@@ -622,12 +609,9 @@ collectScopeDiagnosticsWithPreparedScope (PreparedAnalysisScope statements rawRe
               visible =
                 -- Recursive peer names in the same SCC are visible while
                 -- analyzing the binding body.
-                withForwardFunctionBindings
+                withRecursivePeerBindings
                   statementIndex
-                  ( withRecursivePeerBindings
-                      statementIndex
-                      (currentVisibleBindings nextScope)
-                  )
+                  (currentVisibleBindings nextScope)
               bindingContext = contextForBinding bindingName
               valueDiagnostics =
                 collectExprDiagnostics
@@ -729,19 +713,6 @@ collectScopeDiagnosticsWithPreparedScope (PreparedAnalysisScope statements rawRe
                 Map.notMember (resolvedValueScopeName peerName) visibleNow
               ]
        in visibleNow `Map.union` peerEntries
-
-    withForwardFunctionBindings ::
-      Int ->
-      Map ResolvedName VisibleBinding ->
-      Map ResolvedName VisibleBinding
-    withForwardFunctionBindings statementIndex visibleNow =
-      case Map.lookup statementIndex forwardBindings of
-        Nothing -> visibleNow
-        Just _ ->
-          foldl'
-            (\visibleAcc (_, (name, binding)) -> Map.insertWith (\_ existing -> existing) (resolvedValueScopeName name) binding visibleAcc)
-            visibleNow
-            (filter ((> statementIndex) . fst) (Map.toAscList forwardBindings))
 
 -- | Signature bookkeeping is intentionally small: only one immediately
 -- preceding signature may be waiting for a matching binding.
@@ -962,32 +933,17 @@ mkImpureCallInPureContextError ::
   Maybe SourceSpan ->
   Diagnostic
 mkImpureCallInPureContextError context calleeName maybeCalleeSpan =
-  withMaybe
-    (contextSubject context)
-    setDiagnosticSubject
-    ( withMaybe
-        (contextPrimarySpan context)
-        setDiagnosticPrimarySpan
-        ( withMaybe
-            maybeCalleeSpan
-            setDiagnosticRelatedSpan
-            ( mkErrorDiagnostic
-                E1010
-                CompilationOrigin
-                ( contextLabel context
-                    <> " cannot call impure callee '"
-                    <> identifierText calleeName
-                    <> "'"
-                )
-            )
-        )
-    )
-
-withMaybe :: Maybe a -> (a -> b -> b) -> b -> b
-withMaybe maybeValue setter value =
-  case maybeValue of
-    Nothing -> value
-    Just presentValue -> setter presentValue value
+  maybe id setDiagnosticSubject (contextSubject context) $
+    maybe id setDiagnosticPrimarySpan (contextPrimarySpan context) $
+      maybe id setDiagnosticRelatedSpan maybeCalleeSpan $
+        mkErrorDiagnostic
+          E1010
+          CompilationOrigin
+          ( contextLabel context
+              <> " cannot call impure callee '"
+              <> identifierText calleeName
+              <> "'"
+          )
 
 collectBindingDeclarations ::
   [(Int, Statement 'Resolved)] ->

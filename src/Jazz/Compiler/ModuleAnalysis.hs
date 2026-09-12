@@ -507,7 +507,6 @@ analysisInputsForInference inputs =
       analysisExternalUses = inferenceExternalUses inputs,
       analysisImportedValues =
         Map.mapKeys typeEnvName (Map.map (const (AnalysisBinding Nothing True)) (inferenceImportedTypes inputs)),
-      analysisForwardFunctions = Map.empty,
       analysisImportedClasses =
         Set.union
           (Set.map (resolvedAmbientName CapabilityNamespace . mkIdentifier) (inferenceImportedClassNames inputs))

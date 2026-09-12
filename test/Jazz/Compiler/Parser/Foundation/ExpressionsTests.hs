@@ -1,3 +1,4 @@
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 module Jazz.Compiler.Parser.Foundation.ExpressionsTests
@@ -5,6 +6,7 @@ module Jazz.Compiler.Parser.Foundation.ExpressionsTests
   )
 where
 
+import Data.List.NonEmpty (NonEmpty (..))
 import Data.Text (Text)
 import qualified Data.Text as Text
 import Jazz.Compiler.AST
@@ -20,6 +22,8 @@ import Jazz.Compiler.Parser.AST
   ( SurfaceCaseArm (..),
     SurfaceExpr (..),
     SurfaceExprForm (..),
+    SurfaceImplMethod (..),
+    SurfaceLambdaParameter (..),
     SurfaceLiteral (..),
     SurfaceName (..),
     SurfaceStatement (..),
@@ -27,7 +31,7 @@ import Jazz.Compiler.Parser.AST
 import Jazz.Compiler.Parser.Lower
   ( lowerSurfaceExpr,
   )
-import Jazz.Compiler.TypeRepresentation (SignatureType (..))
+import Jazz.Compiler.TypeRepresentation (NumericType (..), SignatureType (..))
 import Jazz.TestCore
   ( assertLoweredCoreEqual,
     loweredBlock,
@@ -41,7 +45,6 @@ import Jazz.TestCore
   )
 import Jazz.TestHarness
   ( NamedTest,
-    assertContains,
     assertEqual,
     assertRight,
     failTest,
@@ -224,11 +227,15 @@ testParseFractionalLiteral =
         y = 2.
         """
     )
-    ( \surfaceProgram ->
-        assertContains
-          "surface fractional literal"
-          "SLFloat 1.5"
-          (Text.pack (show surfaceProgram))
+    ( \case
+        SurfaceExpr
+          _
+          ( SEBlock
+              [ SSLet "x" _ (SurfaceExpr _ (SELit (SLFloat 1.5 _ Nothing))),
+                SSLet "y" _ (SurfaceExpr _ (SELit (SLInt 2)))
+                ]
+            ) -> pure ()
+        other -> failTest ("unexpected surface fractional literals: " <> Text.pack (show other))
     )
 
 testParseFractionalLiteralSuffixes :: IO ()
@@ -242,11 +249,16 @@ testParseFractionalLiteralSuffixes =
         x64 = 3.5f64.
         """
     )
-    ( \surfaceProgram -> do
-        let renderedProgram = Text.pack (show surfaceProgram)
-        assertContains "Float16 suffix target" "Just NumericFloat16" renderedProgram
-        assertContains "Float32 suffix target" "Just NumericFloat32" renderedProgram
-        assertContains "Float64 suffix target" "Just NumericFloat64" renderedProgram
+    ( \case
+        SurfaceExpr
+          _
+          ( SEBlock
+              [ SSLet "x16" _ (SurfaceExpr _ (SELit (SLFloat 1.5 _ (Just NumericFloat16)))),
+                SSLet "x32" _ (SurfaceExpr _ (SELit (SLFloat 2.5 _ (Just NumericFloat32)))),
+                SSLet "x64" _ (SurfaceExpr _ (SELit (SLFloat 3.5 _ (Just NumericFloat64))))
+                ]
+            ) -> pure ()
+        other -> failTest ("unexpected surface fractional suffix targets: " <> Text.pack (show other))
     )
 
 testIgnoresHashLineComments :: IO ()
@@ -344,11 +356,9 @@ testLowerFractionalLiteralProgram =
   assertRight
     "surface parse"
     (parseSurfaceProgramPoints "1.5.")
-    ( \surfaceProgram ->
-        assertContains
-          "lowered fractional literal"
-          "LFloat 1.5"
-          (Text.pack (show (lowerSurfaceExpr surfaceProgram)))
+    ( \surfaceProgram -> case lowerSurfaceExpr surfaceProgram of
+        EBlock _ [SExpr _ (ELit _ (LFloat 1.5 _ Nothing))] -> pure ()
+        other -> failTest ("unexpected lowered fractional literal: " <> Text.pack (show other))
     )
 
 testLowerFractionalLiteralSuffixesProgram :: IO ()
@@ -362,11 +372,14 @@ testLowerFractionalLiteralSuffixesProgram =
         x64 = 3.5f64.
         """
     )
-    ( \surfaceProgram -> do
-        let renderedProgram = Text.pack (show (lowerSurfaceExpr surfaceProgram))
-        assertContains "lowered Float16 suffix target" "Just NumericFloat16" renderedProgram
-        assertContains "lowered Float32 suffix target" "Just NumericFloat32" renderedProgram
-        assertContains "lowered Float64 suffix target" "Just NumericFloat64" renderedProgram
+    ( \surfaceProgram -> case lowerSurfaceExpr surfaceProgram of
+        EBlock
+          _
+          [ SLet _ "x16" (ELit _ (LFloat 1.5 _ (Just NumericFloat16))),
+            SLet _ "x32" (ELit _ (LFloat 2.5 _ (Just NumericFloat32))),
+            SLet _ "x64" (ELit _ (LFloat 3.5 _ (Just NumericFloat64)))
+            ] -> pure ()
+        other -> failTest ("unexpected lowered fractional suffix targets: " <> Text.pack (show other))
     )
 
 testParsesLargeIntegerLiteral :: IO ()
@@ -509,11 +522,28 @@ testParsesImplMethodBindingMetadata =
         }.
         """
     )
-    ( \surfaceProgram -> do
-        let rendered = Text.pack (show surfaceProgram)
-        assertContains "surface impl method metadata" "SurfaceImplMethod" rendered
-        assertContains "surface impl method name" "Identifier \"equals\" Pure" rendered
-        assertContains "surface impl method expression" "SEBinary \"==\"" rendered
+    ( \case
+        SurfaceExpr
+          _
+          ( SEBlock
+              [ SSImpl
+                  _
+                  (SurfaceName "Eq" _ _)
+                  [TypeInt]
+                  [ SurfaceImplMethod
+                      "equals"
+                      _
+                      ( SurfaceExpr
+                          _
+                          ( SELambda
+                              (SurfaceLambdaIdentifier _ "left" :| [SurfaceLambdaIdentifier _ "right"])
+                              (SurfaceExpr _ (SEBinary "==" (SurfaceExpr _ (SEVar "left")) (SurfaceExpr _ (SEVar "right"))))
+                            )
+                        )
+                    ]
+                ]
+            ) -> pure ()
+        other -> failTest ("unexpected surface impl method shape: " <> Text.pack (show other))
     )
 
 testLowersImplMethodBindingMetadata :: IO ()

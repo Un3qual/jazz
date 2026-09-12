@@ -57,29 +57,16 @@ collectUnusedBindingWarnings settings hideRootBindings externalUses indexedState
       Map.fromList
         [ (statementIndex, [mkUnusedBindingWarning bindingNameText bindingSpan])
         | (statementIndex, SLet node bindingName _) <- indexedStatements,
-          maybe True (`Set.notMember` externalUses) (resolvedNodeBinder (coreNodeFacts node)),
+          maybe True (`Set.notMember` usedBindingIds) (resolvedNodeBinder (coreNodeFacts node)),
           let bindingNameText = identifierText bindingName,
           let bindingSpan = coreNodeSpan node,
-          not (Set.member statementIndex usedBindingStatementIndices),
           not
             ( isWarningEnabled settings SameScopeRebinding
                 && Set.member statementIndex rebindingStatementIndices
             )
         ]
   where
-    declarationsById =
-      Map.fromList
-        [ (binder, index)
-        | (index, SLet node _ _) <- indexedStatements,
-          Just binder <- [resolvedNodeBinder (coreNodeFacts node)]
-        ]
-    usedBindingStatementIndices =
-      Set.fromList
-        [ index
-        | (_, statement) <- indexedStatements,
-          binder <- Map.keys (statementReferences statement),
-          Just index <- [Map.lookup binder declarationsById]
-        ]
+    usedBindingIds = externalUses `Set.union` referencedScopeBindingIds (map snd indexedStatements)
     rebindingStatementIndices = snd (foldl' markRebinding (Set.empty, Set.empty) indexedStatements)
 
     markRebinding :: (Set ResolvedName, Set Int) -> (Int, Statement 'Resolved) -> (Set ResolvedName, Set Int)

@@ -5,7 +5,6 @@
 -- | Signature grammar helpers for the surface parser.
 module Jazz.Compiler.Parser.Signature
   ( parseConstrainedSignatureTypeDetailed,
-    parseConstraintBlockHeadsDetailed,
     parseSignatureTypeParser,
     parseSignatureTypePrefixDetailed,
     parseSignaturePayload,
@@ -16,7 +15,6 @@ where
 
 import Control.Applicative ((<|>))
 import Control.Monad (void)
-import Data.Bifunctor (first)
 import Data.Char (isLower)
 import Data.Text (Text)
 import qualified Data.Text as Text
@@ -45,6 +43,7 @@ import Jazz.Compiler.Parser.Lexer
     isImmediatelyAfter,
   )
 import qualified Jazz.Compiler.Parser.TokenParser as TokenParser
+import Jazz.Compiler.Parser.TokenStream (tokenStreamToList)
 import Jazz.Compiler.TypeRepresentation
   ( NumericType (..),
     pattern ConstrainedSignature,
@@ -91,15 +90,14 @@ parseSignaturePayload signatureTokens =
 parseSignaturePayloadDetailed :: [Token] -> Either ParserFailure SurfaceSignaturePayload
 parseSignaturePayloadDetailed tokens = do
   case tokens of
-    Token {tokenKind = TAt} : Token {tokenKind = TLBrace} : rest -> void (parseConstraintBlockHeadsDetailed rest)
+    Token {tokenKind = TAt} : Token {tokenKind = TLBrace} : rest -> validateConstraintBlockHeads rest
     _ -> Right ()
   pure (parseSignaturePayload tokens)
 
--- | Validate and retain qualified heads in a constraint block, leaving the
--- tokens after its closing brace. Type arguments are not class references;
--- an unfinished legacy payload must not consume the next statement.
-parseConstraintBlockHeadsDetailed :: [Token] -> Either ParserFailure ([(Token, Token)], [Token])
-parseConstraintBlockHeadsDetailed = validateHead 0
+-- | Validate qualified heads without treating type arguments as class
+-- references or consuming the next statement after an unfinished legacy payload.
+validateConstraintBlockHeads :: [Token] -> Either ParserFailure ()
+validateConstraintBlockHeads = validateHead 0
   where
     validateHead depth (Token {tokenKind = TLParen} : rest) = validateHead (depth + 1) rest
     validateHead depth (alias : colon@Token {tokenKind = TColonColon} : member : rest) = do
@@ -114,19 +112,19 @@ parseConstraintBlockHeadsDetailed = validateHead 0
         _ -> invalid member "class name after '::'"
       case rest of
         extra@Token {tokenKind = TColonColon} : _ -> invalid extra "two-component class name"
-        _ -> first ((alias, member) :) <$> scan depth rest
+        _ -> scan depth rest
     validateHead depth rest = scan depth rest
 
-    scan :: Int -> [Token] -> Either ParserFailure ([(Token, Token)], [Token])
-    scan _ [] = Right ([], [])
+    scan :: Int -> [Token] -> Either ParserFailure ()
+    scan _ [] = Right ()
     scan depth (token : rest) = case tokenKind token of
-      TDot -> Right ([], token : rest)
+      TDot -> Right ()
       TLParen -> scan (depth + 1) rest
       TLBracket -> scan (depth + 1) rest
       TRParen -> scan (max 0 (depth - 1)) rest
       TRBracket -> scan (max 0 (depth - 1)) rest
       TComma | depth == 0 -> validateHead 0 rest
-      TRBrace | depth == 0 -> Right ([], rest)
+      TRBrace | depth == 0 -> Right ()
       _ -> scan depth rest
 
     invalid token expected =
@@ -307,36 +305,31 @@ topLevelCommaTokensParser = commaTokenGroupParser `MP.sepBy1` commaParser
 
 commaTokenGroupParser :: TokenParser.Parser [Token]
 commaTokenGroupParser =
-  concat <$> MP.some topLevelCommaGroupPartParser
+  tokenStreamToList . fst <$> MP.match (MP.skipSome topLevelCommaGroupPartParser)
 
-topLevelCommaGroupPartParser :: TokenParser.Parser [Token]
+topLevelCommaGroupPartParser :: TokenParser.Parser ()
 topLevelCommaGroupPartParser =
   wrappedCommaTokensParser TLParen TRParen
     <|> wrappedCommaTokensParser TLBracket TRBracket
     <|> singleTopLevelCommaTokenParser
 
-nestedCommaGroupPartParser :: TokenParser.Parser [Token]
+nestedCommaGroupPartParser :: TokenParser.Parser ()
 nestedCommaGroupPartParser =
   wrappedCommaTokensParser TLParen TRParen
     <|> wrappedCommaTokensParser TLBracket TRBracket
     <|> singleNestedCommaTokenParser
 
-wrappedCommaTokensParser :: TokenKind -> TokenKind -> TokenParser.Parser [Token]
-wrappedCommaTokensParser openKind closeKind = do
-  openToken <- TokenParser.parseToken openKind
-  innerTokens <- concat <$> MP.many nestedCommaGroupPartParser
-  closeToken <- TokenParser.parseToken closeKind
-  pure (openToken : innerTokens ++ [closeToken])
+wrappedCommaTokensParser :: TokenKind -> TokenKind -> TokenParser.Parser ()
+wrappedCommaTokensParser openKind closeKind =
+  betweenTokenKinds openKind closeKind (MP.skipMany nestedCommaGroupPartParser)
 
-singleTopLevelCommaTokenParser :: TokenParser.Parser [Token]
+singleTopLevelCommaTokenParser :: TokenParser.Parser ()
 singleTopLevelCommaTokenParser =
-  singleton
-    <$> TokenParser.parseTokenWhere isTopLevelCommaGroupToken "top-level comma group token"
+  void (TokenParser.parseTokenWhere isTopLevelCommaGroupToken "top-level comma group token")
 
-singleNestedCommaTokenParser :: TokenParser.Parser [Token]
+singleNestedCommaTokenParser :: TokenParser.Parser ()
 singleNestedCommaTokenParser =
-  singleton
-    <$> TokenParser.parseTokenWhere isNestedCommaGroupToken "nested comma group token"
+  void (TokenParser.parseTokenWhere isNestedCommaGroupToken "nested comma group token")
 
 isTopLevelCommaGroupToken :: Token -> Bool
 isTopLevelCommaGroupToken token =
@@ -360,9 +353,6 @@ commaParser =
 betweenTokenKinds :: TokenKind -> TokenKind -> TokenParser.Parser a -> TokenParser.Parser a
 betweenTokenKinds openKind closeKind =
   MP.between (TokenParser.parseTokenKind openKind) (TokenParser.parseTokenKind closeKind)
-
-singleton :: a -> [a]
-singleton value = [value]
 
 parseNamedSignatureType :: Text -> Maybe SurfaceSignatureType
 parseNamedSignatureType typeName =

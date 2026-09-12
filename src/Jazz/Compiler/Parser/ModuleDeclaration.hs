@@ -151,19 +151,19 @@ parseImportSymbolList = do
   case next of
     Just token@Token {tokenKind = TRParen} ->
       failTokenParserAt (tokenSpan token) (ExpectedSyntax "at least one import symbol" (ParserBeforeToken TRParen ")" Nothing))
-    _ -> parseNonEmptyUniqueList ImportSymbolList "import symbol list" (\name -> "'" <> name <> "'") parseImportSymbol
+    _ -> NonEmpty.toList <$> parseNonEmptyUniqueList ImportSymbolList "import symbol list" (\name -> "'" <> name <> "'") parseImportSymbol
 
 parseModuleExportList :: Parser [ModuleExportSelector]
 parseModuleExportList = do
   next <- peekToken
   case next of
     Just Token {tokenKind = TRParen} -> [] <$ parseAnyToken
-    _ -> parseNonEmptyUniqueList ModuleExportList "module export list" renderModuleExportSelector parseModuleExport
+    _ -> NonEmpty.toList <$> parseNonEmptyUniqueList ModuleExportList "module export list" renderModuleExportSelector parseModuleExport
 
-parseNonEmptyUniqueList :: ParserListKind -> Text -> (item -> Text) -> Parser (item, SourceSpan) -> Parser [item]
+parseNonEmptyUniqueList :: ParserListKind -> Text -> (item -> Text) -> Parser (item, SourceSpan) -> Parser (NonEmpty.NonEmpty item)
 parseNonEmptyUniqueList listKind description renderItem parseItem = do
   (first, _) <- parseItem
-  go [first] (Set.singleton (renderItem first))
+  go (first NonEmpty.:| []) (Set.singleton (renderItem first))
   where
     go reversedItems seen = do
       next <- peekToken
@@ -174,8 +174,8 @@ parseNonEmptyUniqueList listKind description renderItem parseItem = do
           let key = renderItem item
           if Set.member key seen
             then failTokenParserAt spanValue (DeclarationFailure (DuplicateListItem listKind key))
-            else go (item : reversedItems) (Set.insert key seen)
-        Just Token {tokenKind = TRParen} -> reverse reversedItems <$ parseAnyToken
+            else go (item NonEmpty.<| reversedItems) (Set.insert key seen)
+        Just Token {tokenKind = TRParen} -> NonEmpty.reverse reversedItems <$ parseAnyToken
         Nothing -> failTokenParser (ExpectedSyntax "')'" (ParserEndOfInputIn description))
         Just token -> failTokenParserAt (tokenSpan token) (ExpectedSyntax "',' or ')'" (foundToken token))
 
@@ -209,9 +209,7 @@ parseTypeModuleExport name spanValue = do
           parseAnyToken *> parseAllTypeConstructors name spanValue (tokenSpan dotToken)
         _ -> do
           constructors <- parseNonEmptyUniqueList ConstructorExportList "constructor export group" (\located -> "'" <> locatedModuleExportName located <> "'") parseLocatedModuleExportName
-          case NonEmpty.nonEmpty constructors of
-            Nothing -> failTokenParserAt spanValue (ExpectedSyntax "at least one constructor export" ParserImplicitBoundary)
-            Just nonEmpty -> pure (ModuleTypeExportSelector name spanValue (SelectedTypeConstructors nonEmpty), spanValue)
+          pure (ModuleTypeExportSelector name spanValue (SelectedTypeConstructors constructors), spanValue)
     _ -> pure (ModuleTypeExportSelector name spanValue AbstractType, spanValue)
 
 parseAllTypeConstructors :: Text -> SourceSpan -> SourceSpan -> Parser (ModuleExportSelector, SourceSpan)

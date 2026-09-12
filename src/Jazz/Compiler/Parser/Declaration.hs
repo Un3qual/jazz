@@ -317,9 +317,9 @@ parseStatement expression context = do
       case statementContext of
         NestedBlockContext -> liftOwnedResult (rejectNestedDataDeclaration dataToken)
         _ -> pure <$> parseDataStatementParser
-    nameToken@Token {tokenKind = TIdentifier name} :< afterName@(Token {tokenKind = TColonColon} :< _)
+    nameToken@Token {tokenKind = TIdentifier name} :< colonToken@Token {tokenKind = TColonColon} :< _
       | isReservedLiteralName name -> rejectName nameToken name
-      | otherwise -> pure <$> parseSignatureOrQualifiedAlias expression knownAliases name nameToken afterName
+      | otherwise -> pure <$> parseSignatureOrQualifiedAlias expression knownAliases name nameToken colonToken
     nameToken@Token {tokenKind = TIdentifier name} :< Token {tokenKind = TEquals} :< _
       | isReservedLiteralName name -> rejectName nameToken name
       | otherwise -> MP.takeP Nothing 2 *> (pure <$> parseLet expression (mkIdentifier name) nameToken)
@@ -331,17 +331,21 @@ parseStatement expression context = do
     rejectName token name =
       failTokenParserAt (tokenSpan token) (DeclarationFailure (ReservedLiteralName BindingName name))
 
-parseSignatureOrQualifiedAlias :: Parser SurfaceExpr -> Set Text -> Text -> Token -> TokenStream -> Parser SurfaceStatement
-parseSignatureOrQualifiedAlias expression knownAliases name nameToken tokensAfterName = do
-  original <- MP.getParserState
-  result <- MP.observing $ do
-    _ <- parseAnyToken
-    statement <- parseSignature (mkIdentifier name) nameToken
-    remaining <- MP.getInput
-    pure (statement, remaining)
-  if shouldParseQualifiedAliasStatement knownAliases name nameToken tokensAfterName result
-    then MP.setParserState original *> parseExprStatement expression
-    else either MP.parseError (pure . fst) result
+parseSignatureOrQualifiedAlias :: Parser SurfaceExpr -> Set Text -> Text -> Token -> Token -> Parser SurfaceStatement
+parseSignatureOrQualifiedAlias expression knownAliases name nameToken colonToken
+  | adjacentQualifier && Set.member name knownAliases = parseExprStatement expression
+  | otherwise = do
+      original <- MP.getParserState
+      result <- MP.observing $ do
+        _ <- parseAnyToken
+        statement <- parseSignature (mkIdentifier name) nameToken
+        remaining <- MP.getInput
+        pure (statement, remaining)
+      if adjacentQualifier && not (isCompactSignatureCandidate name result)
+        then MP.setParserState original *> parseExprStatement expression
+        else either MP.parseError (pure . fst) result
+  where
+    adjacentQualifier = isImmediatelyAfter nameToken colonToken
 
 parseOperatorBinding :: Parser SurfaceExpr -> StatementContext -> OperatorTable -> Token -> Parser SurfaceStatement
 parseOperatorBinding expression context declaredOperators operatorToken =
@@ -494,22 +498,6 @@ isDeclarationContext context =
     TopLevelContext -> True
     ModuleBodyContext -> True
     NestedBlockContext -> False
-
-shouldParseQualifiedAliasStatement ::
-  Set Text ->
-  Text ->
-  Token ->
-  TokenStream ->
-  Either failure (SurfaceStatement, TokenStream) ->
-  Bool
-shouldParseQualifiedAliasStatement knownAliases name nameToken tokensAfterName parsedSignature =
-  case tokensAfterName of
-    colonToken@Token {tokenKind = TColonColon} :< _ ->
-      isImmediatelyAfter nameToken colonToken
-        && ( Set.member name knownAliases
-               || not (isCompactSignatureCandidate name parsedSignature)
-           )
-    _ -> False
 
 isCompactSignatureCandidate :: Text -> Either failure (SurfaceStatement, TokenStream) -> Bool
 isCompactSignatureCandidate name parsedSignature =
