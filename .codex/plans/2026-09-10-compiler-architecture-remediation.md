@@ -7,14 +7,14 @@ kind: impl
 autonomous_ready: yes
 depends_on: []
 last_verified: 2026-09-11
-plan_section: "T14 — Remove obsolete adapters and make phase ownership navigable"
+plan_section: "CodeRabbit CLI follow-up"
 target_paths:
-  - src/Jazz/Compiler/ModuleRuntime.hs
-  - src/Jazz/Compiler/Runtime/Engine.hs
+  - src/Jazz/Compiler/Runtime/Types.hs
+  - src/Jazz/Compiler/Parser/Declaration.hs
 verification:
-  - cabal test runtime-semantics-spec recursive-bindings-spec purity-semantics-spec adt-pattern-runtime-spec module-pipeline-contract-spec cli-spec --test-options=--skip-performance --jobs=4
+  - cabal test source-ranges-spec runtime-semantics-spec --test-options=--skip-performance --jobs=4
   - bash scripts/check-execution-queue.sh
-deliverable: Remove obsolete phase adapters and complete compiler architecture correctness and repository checks.
+deliverable: Apply verified review corrections and document no-change dispositions.
 supersedes: []
 ---
 
@@ -367,9 +367,9 @@ The table is a dependency order, not a request for parallel agents. Work inline.
 - [x] Make one scope traversal consume T05's resolved groups/IDs and preserve sequential expression execution, definition-site environments, recursive initialization, and lazy forcing.
 - [x] Initially preserve the current lazy pure cells and explicit host deferred cells as small storage operations under that traversal. This isolates lexical-rule consolidation from a storage/performance change.
 - [x] Remove host-to-pure request partitioning once one traversal can execute host-free and host-capable statements. Observation hooks must observe this traversal rather than select a second lexical algorithm.
-- [x] Prototype one explicit memoized cell representation with unevaluated/evaluating/evaluated/failed states, source-unit-qualified IDs, and evaluation-instance identity. Distinct closure invocations must not share a cache entry accidentally. Preserve blackhole diagnostics and no duplicate host effects on force.
-- [x] Compare against T01 on host-free opaque environments, recursion/rebinding/alias cases, tail recursion, deep lambdas, lists, and observed/unobserved workloads. Check time and maximum residency/allocations where the configured profiling build supports them.
-- [x] If unified explicit cells pass semantics and the performance gate, remove the old pure cell representation. If they regress materially and the regression cannot be eliminated locally, retain two small storage strategies under the **one** scope algorithm and record the measured reason. Do not retain two scope interpreters.
+- **Waived (maintainer override, 2026-09-11):** Prototype one explicit memoized cell representation with unevaluated/evaluating/evaluated/failed states, source-unit-qualified IDs, and evaluation-instance identity. Distinct closure invocations must not share a cache entry accidentally. Preserve blackhole diagnostics and no duplicate host effects on force.
+- **Waived (maintainer override, 2026-09-11):** Compare against T01 on host-free opaque environments, recursion/rebinding/alias cases, tail recursion, deep lambdas, lists, and observed/unobserved workloads. Check time and maximum residency/allocations where the configured profiling build supports them.
+- **Waived (maintainer override, 2026-09-11):** If unified explicit cells pass semantics and the performance gate, remove the old pure cell representation. If they regress materially and the regression cannot be eliminated locally, retain two small storage strategies under the **one** scope algorithm and record the measured reason. Do not retain two scope interpreters.
 - [x] Run runtime, recursion, purity, ADT runtime, module-pipeline, runtime-observation, profiling, and CLI suites. Assert identical program results/host traces across observation modes and coherent profile finalization for value, error, and exit.
 - [x] Commit shared traversal separately from any accepted storage replacement.
 
@@ -724,3 +724,21 @@ Documentation verification at plan completion checks local evidence targets/line
 - Ormolu checks all 109 changed Haskell files. Full HLint passes after fixing its three reported hints; CI policy/action lint, RFC/documentation/stdlib API/authority/queue checks and their checker regressions pass. The final documentation checks are recorded in `/private/tmp/jazz-t14-docs-closeout.log`. The platform-specific release artifact verification test remains skipped on macOS.
 - Source delta against `2695289b1e9a7555855eb6b00147a478ae010c6d`: 61 changed files, 5,466 added lines, 8,268 removed lines, net -2,802 across `src/`, `jazz/`, and `app/`; 110 changed files, 6,786 added lines, 9,374 removed lines, net -2,588 including `test/` and `jazz.cabal`. Five concrete ownership modules were added and the old inference evidence module was deleted. There is no line-count target or performance claim.
 - Code closeout is committed at `f58dbb8f`, following `df5dcd04` for artifact/diagnostic ownership. T01–T14 deletion criteria are met. Retentions are explicit: graph sequence/index, export discovery inventory versus typed public interface, private nominal declarations, semantic annotations and dynamic dispatch, distinct runtime outcomes, and existing pure/deferred cell storage sharing one lexical executor. The benchmark waiver supersedes measurement-dependent comparisons; no alternate compiler pipeline or outstanding implementation child remains.
+
+## CodeRabbit CLI follow-up
+
+The maintainer requested fixes for the 11 CLI findings against `60e2cf5d`. Completed nine localized changes: distinguish waived T13 items; consolidate module inference ownership, parser token rendering, operator target selection, pattern fallback syntax, method-instantiation identity, and binder/index pairs; locate duplicate-constructor diagnostics; preserve selected method state when filtering retains the candidate.
+
+Keep analyzer failure recovery unchanged: root and nested missing scopes already fail checked-tree finalization. Keep declaration-parameter allocation unchanged: current binding traversal preallocates its variables, and the proposed count-based fallback does not account for sparse indices. These two findings do not establish a current defect.
+
+- [x] Extend existing correctness tests for the duplicate constructor range and selected candidate filtering, and observe the failures before fixing them.
+- [x] Apply the nine accepted corrections and retain the two verified no-change dispositions.
+- [x] Run focused correctness suites, formatting/lint and queue/documentation checks; compile affected consumers. No benchmarks or performance tests.
+- [x] Commit the verified follow-up and close the queue row.
+
+### Follow-up verification and closure
+
+- Code and focused coverage are committed at `54a0f1c7`. The duplicate-constructor diagnostic now identifies the repeated constructor token. Filtering a selected runtime method retains selection when the predicate accepts it and removes the candidate when rejected. The remaining code changes consolidate equivalent representations or remove duplication. The three measurement-dependent T13 checklist items explicitly show their waived status.
+- Existing tests reproduced both behavior gaps before the fixes: the constructor range was absent, and candidate filtering cleared selection. All 15 focused suites pass after the fixes: source ranges, ADT/declaration/module-import/token parsers, canonical parser comparison, module pipeline, prelude loading, module exports, pattern coverage, runtime semantics, binding/signature coherence, recursive bindings, name semantics, and operator sections. Command: `cabal test source-ranges-spec adt-pattern-parser-spec declaration-parser-spec module-import-parser-spec token-parser-spec canonical-parser-comparison-spec module-pipeline-contract-spec prelude-loading-spec module-exports-spec pattern-coverage-spec runtime-semantics-spec binding-signature-coherence-spec recursive-bindings-spec name-semantics-spec operator-section-spec -ffull-parser-scale --builddir=/private/tmp/jazz-t14-quality-build --ghc-options=-fwrite-ide-info --test-options=--skip-performance --test-show-details=failures --jobs=4 --keep-going`. Log: `/private/tmp/jazz-coderabbit-fixes-green.log`.
+- Complete consumer compilation passes with `cabal build all --enable-tests --enable-benchmarks -ffull-parser-scale --builddir=/private/tmp/jazz-t14-quality-build --ghc-options=-fwrite-ide-info --jobs=4`; benchmark and scale targets were built only, never executed. Log: `/private/tmp/jazz-coderabbit-fixes-build.log`. All Cabal commands used the pinned Nix development shell. Changed-file Ormolu, HLint, whitespace checks, execution-queue validation, and full documentation checks pass; documentation log: `/private/tmp/jazz-coderabbit-fixes-docs.log`.
+- Findings 2 and 8 need no changes. Missing root/nested scope facts already reject the analyzed artifact at checked-tree finalization. Declaration variables are preallocated by the current binding traversal; indices are opaque and may be sparse, so the proposed per-binder count is not a justified replacement. No benchmark or performance tests ran during this follow-up. The review follow-up is complete and its Ready Now row is removed.

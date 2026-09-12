@@ -13,7 +13,7 @@ public behavior.
 | id  | title | priority | size | kind | autonomous_ready | depends_on | plan | plan_section | target_paths | deliverable | verification | last_verified |
 | --- | ----- | -------- | ---- | ---- | ---------------- | ---------- | ---- | ------------ | ------------ | ----------- | ------------ | ------------- |
 
-Current executor status (`2026-09-11`): Compiler architecture remediation T01–T14 is complete; the final code closeout is `f58dbb8f`. The 55-suite correctness matrix has 54 passing suites and the same ten maintainer-deferred RFC 0017 hosted-parser failures. Full API compilation, production/full unused-code checks, package metadata, examples, and repository/documentation checks pass. Benchmarks and performance execution are excluded for this rewrite under the maintainer instruction. Ready Now is empty; there is no source-backed next curation target and no named candidate currently. Completion details are in the [remediation plan](../plans/2026-09-10-compiler-architecture-remediation.md#t14-closeout).
+Current executor status (`2026-09-11`): Compiler architecture T01–T14 and the CodeRabbit CLI follow-up are complete. Code fixes are committed at `54a0f1c7`; all 15 focused correctness suites, complete consumer compilation, formatting/lint, and documentation checks pass. Nine review findings are addressed and two retain verified no-change dispositions in the plan. No benchmark or performance tests ran during the follow-up. Ready Now is empty; there is no source-backed next curation target and no named candidate currently. Completion details are in the [remediation plan](../plans/2026-09-10-compiler-architecture-remediation.md#follow-up-verification-and-closure).
 
 ## Next Curation Target
 
