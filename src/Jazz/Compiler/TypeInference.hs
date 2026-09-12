@@ -96,7 +96,7 @@ import Jazz.Compiler.TypeInference.Pattern
 import Jazz.Compiler.TypeInference.Scope
   ( inferExplicitTypeApplication,
     inferNestedScopeTypeWithMode,
-    inferScopeTypeWithModeAndForwardBindingsUsingPreparedScope,
+    inferScopeTypeWithMode,
     instantiateNonBuiltinTypeBinding,
   )
 import Jazz.Compiler.TypeInference.Solver
@@ -170,13 +170,13 @@ inferExpressionWork inputs expr =
    in case expr of
         EBlock node statements
           | Right preparedScope <- prepareResolvedScope node statements ->
-              let (blockCheck, rawBlockState, _) =
-                    inferScopeTypeWithModeAndForwardBindingsUsingPreparedScope
-                      preparedScope
+              let (blockCheck, rawBlockState) =
+                    inferScopeTypeWithMode
                       inferExprTypeWithMode
                       InferenceOnly
                       importedEnvironment
                       initialState
+                      preparedScope
                   blockResult = checkedScopeType blockCheck
                   blockType = fromMaybe unitType blockResult
                   blockState = rawBlockState
@@ -219,11 +219,7 @@ moduleInterfaceFromState inputs expr state =
               Just binding <- [Map.lookup (TypeEnvKey (LexicalReference binder) name) (inferVisibleTypes state)]
             ],
         interfaceDataTypes = Map.restrictKeys (inferDataTypes state) declaredDataTypes,
-        interfaceClassFacts = scopeClassFacts localCapabilities,
-        interfaceGeneratedEqualityClassFacts = scopeGeneratedEqualityClassFacts localCapabilities,
-        interfaceConcreteImplFacts = scopeConcreteImplFacts localCapabilities,
-        interfaceClassMethods = scopeClassMethodSignatures localCapabilities,
-        interfaceConcreteImplMethods = scopeConcreteImplMethods localCapabilities
+        interfaceCapabilities = localCapabilities
       }
   where
     (declaredValues, declaredDataTypes) = declaredModuleBindings expr
@@ -476,31 +472,29 @@ inferLeafExpression env state expr = case expr of
 -- the polymorphic callable from the head argument, so refine the recorded
 -- callable spine from the tail here when it carries the more specific
 -- Int64/Float64 representation behind an Int/Float alias.
-specializeListPrependRawResult :: Expr 'Resolved -> Maybe ExpressionType -> Maybe ExpressionType -> InferState -> (Maybe ExpressionType, InferState)
-specializeListPrependRawResult functionExpr argumentResult expressionType state =
-  case (functionExpr, argumentResult, expressionType) of
-    (EApply _ builtinExpr _, Just (SemanticList elementType), Just _)
-      | builtinListPrependRawExpr builtinExpr -> (Just (SemanticList (resolveType state elementType)), state)
-    _ -> (expressionType, state)
-
-builtinListPrependRawExpr :: Expr 'Resolved -> Bool
-builtinListPrependRawExpr expression =
+builtinListPrependRawExpr :: TypeEnv -> Expr 'Resolved -> Bool
+builtinListPrependRawExpr env expression =
   case expression of
-    EVar _ name ->
-      lookupKernelBuiltinSymbol (identifierText name)
-        == Just BuiltinListPrependRaw
+    EVar node name ->
+      case Map.lookup (typeEnvReferenceKey (coreNodeFacts node) name) env of
+        Just (BuiltinAliasTypeBinding symbol) -> symbol == BuiltinListPrependRaw
+        Just _ -> False
+        Nothing -> case resolvedValueReference (coreNodeFacts node) name of
+          BuiltinReference identifier -> lookupKernelBuiltinSymbol (identifierText identifier) == Just BuiltinListPrependRaw
+          _ -> False
     _ -> False
 
 inferCheckedApplication :: TypeEnv -> InferState -> Expr 'Resolved -> Expr 'Resolved -> Expr 'Resolved -> (CheckedExpr, InferState)
 inferCheckedApplication env state expr function argument =
   let (functionCheck, afterFunction) = inferExprTypeDetailed env state function
       (argumentCheck, afterArgument) = inferExprTypeDetailed env afterFunction argument
-      (rawType, rawState) = inferApplicationFromResults env state function argument (checkedExprType functionCheck) (checkedExprType argumentCheck) afterArgument
-      (result, finalState) = specializeListPrependRawResult function (checkedExprType argumentCheck) rawType rawState
-      functionDraft = case (function, checkedExprType argumentCheck, result) of
+      (rawType, finalState) = inferApplicationFromResults env state function argument (checkedExprType functionCheck) (checkedExprType argumentCheck) afterArgument
+      (result, functionDraft) = case (function, checkedExprType argumentCheck, rawType) of
         (EApply _ builtin _, Just (SemanticList elementType), Just _)
-          | builtinListPrependRawExpr builtin -> refineListPrependDraft function (resolveType finalState elementType) (checkedExprTree functionCheck)
-        _ -> checkedExprTree functionCheck
+          | builtinListPrependRawExpr env builtin ->
+              let resolvedElement = resolveType finalState elementType
+               in (Just (SemanticList resolvedElement), refineListPrependDraft function resolvedElement (checkedExprTree functionCheck))
+        _ -> (rawType, checkedExprTree functionCheck)
       draft = EApply <$> draftExpressionNode result expr <*> functionDraft <*> checkedExprTree argumentCheck
    in (CheckedExpr result draft, finalState)
 

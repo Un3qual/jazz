@@ -35,7 +35,6 @@ module Jazz.Compiler.Runtime.Types
         VSectionRight,
         VConstructor,
         VConstructorApplication,
-        VQualifiedMethod,
         VAnnotated,
         VDeferredHostBinding
       ),
@@ -278,47 +277,10 @@ pattern VConstructorApplication :: RuntimeConstructorShape -> RuntimeAppliedArgu
 pattern VConstructorApplication shape capturedArgs =
   VConstructorState shape capturedArgs
 
--- | Historical ordered-list view retained for public runtime consumers.
-pattern VQualifiedMethod :: Text -> InferenceVariable -> AnalyzedType -> [RuntimeMethodCandidate] -> [RuntimeValue] -> RuntimeValue
-pattern VQualifiedMethod methodKey classParameter methodSignature candidates capturedArgs <-
-  VQualifiedMethodState
-    methodKey
-    classParameter
-    methodSignature
-    (runtimeMethodCandidatesInOrder -> candidates)
-    (runtimeAppliedArgumentsInOrder -> capturedArgs)
-  where
-    VQualifiedMethod methodKey classParameter methodSignature candidates capturedArgs =
-      VQualifiedMethodState
-        methodKey
-        classParameter
-        methodSignature
-        (runtimeMethodCandidatesFromList candidates)
-        (runtimeAppliedArgumentsFromList capturedArgs)
-
 -- | Internal evaluator view retaining append-efficient ordered collections.
 pattern VQualifiedMethodApplication :: Text -> InferenceVariable -> AnalyzedType -> RuntimeMethodCandidates -> RuntimeAppliedArguments -> RuntimeValue
 pattern VQualifiedMethodApplication methodKey classParameter methodSignature candidates capturedArgs =
   VQualifiedMethodState methodKey classParameter methodSignature candidates capturedArgs
-
-{-# COMPLETE
-  VInt,
-  VFloat,
-  VBool,
-  VChar,
-  VText,
-  VList,
-  VTuple,
-  VClosure,
-  VBuiltin,
-  VOperator,
-  VSectionLeft,
-  VSectionRight,
-  VConstructor,
-  VQualifiedMethod,
-  VAnnotated,
-  VDeferredHostBinding
-  #-}
 
 {-# COMPLETE
   VInt,

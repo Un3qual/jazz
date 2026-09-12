@@ -71,6 +71,7 @@ import Jazz.Compiler.TypeInference.Types
     ConstructorArgumentType (ConstructorArgumentType),
     DataTypeBinding (DataTypeBinding),
     ImplMethodType (ImplMethodType),
+    ScopeCapabilityFacts (..),
     SemanticBinding (PlainTypeBinding),
     SemanticType (..),
   )
@@ -204,19 +205,25 @@ testDeepModuleInterfaceForcing =
       ( "class method",
         "nested signature type was forced",
         emptyModuleInterface
-          { interfaceClassMethods =
-              Map.singleton
-                (CapabilityId (resolvedLocalName CapabilityNamespace (mkIdentifier "Capability")), mkIdentifier "method")
-                (ClassMethodType "Capability" (SemanticList (throw (userError "nested signature type was forced"))))
+          { interfaceCapabilities =
+              mempty
+                { scopeClassMethodSignatures =
+                    Map.singleton
+                      (CapabilityId (resolvedLocalName CapabilityNamespace (mkIdentifier "Capability")), mkIdentifier "method")
+                      (ClassMethodType "Capability" (SemanticList (throw (userError "nested signature type was forced"))))
+                }
           }
       ),
       ( "impl method",
         "nested signature type was forced",
         emptyModuleInterface
-          { interfaceConcreteImplMethods =
-              Map.singleton
-                (CapabilityId (resolvedLocalName CapabilityNamespace (mkIdentifier "Capability")), mkIdentifier "method")
-                [ImplMethodType (SemanticList (throw (userError "nested signature type was forced"))) (CapabilityId (resolvedLocalName CapabilityNamespace (mkIdentifier "Capability"))) (MethodId (ImplId (StandaloneSourceUnit standaloneModulePath, CoreNodeId 0), mkIdentifier "method"))]
+          { interfaceCapabilities =
+              mempty
+                { scopeConcreteImplMethods =
+                    Map.singleton
+                      (CapabilityId (resolvedLocalName CapabilityNamespace (mkIdentifier "Capability")), mkIdentifier "method")
+                      [ImplMethodType (SemanticList (throw (userError "nested signature type was forced"))) (CapabilityId (resolvedLocalName CapabilityNamespace (mkIdentifier "Capability"))) (MethodId (ImplId (StandaloneSourceUnit standaloneModulePath, CoreNodeId 0), mkIdentifier "method"))]
+                }
           }
       )
     ]

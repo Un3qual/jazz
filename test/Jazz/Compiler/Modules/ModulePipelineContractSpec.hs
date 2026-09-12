@@ -305,7 +305,7 @@ testSingleModuleAnalysis = do
     (Set.singleton (resolvedImportedName (nominalModulePath ("Lib" :| ["Facts"])) TypeNamespace (mkIdentifier "Box")))
     (Map.keysSet (interfaceDataTypes factsInterface))
   imports <- traverse (dependencyInterface (resolvedModuleImportScope (coreModuleFacts entry)) interfaces) (coreModuleImports entry)
-  (inference, actual) <- analyzeModule inputs NamedSourceUnit False (mconcat imports) entry
+  (inference, actual) <- analyzeModule inputs False (mconcat imports) entry
   assertEqual "single-module diagnostics" [] (inferredDiagnostics inference)
   assertEqual "single-module facts, binders and evidence match program analysis" (Just expected) actual
   runtime <- either (fail . show) pure (evaluateAnalyzedProgram analyzed)
@@ -313,7 +313,7 @@ testSingleModuleAnalysis = do
   failing <- resolveFixtureProgram (Map.singleton "src/App/Main.jz" "module App::Main { 1 True. }")
   let failingEntry = NonEmpty.head (coreProgramModules failing)
   (programDiagnostics, _) <- analyzeProgram inputs failing
-  (failedInference, failedModule) <- analyzeModule inputs NamedSourceUnit False mempty failingEntry
+  (failedInference, failedModule) <- analyzeModule inputs False mempty failingEntry
   assertEqual "failed module has no analyzed artifact" Nothing failedModule
   assertEqual "single-module diagnostic order matches program analysis" programDiagnostics (inferredDiagnostics failedInference)
   where

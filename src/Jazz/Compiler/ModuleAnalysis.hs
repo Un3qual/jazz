@@ -38,7 +38,7 @@ import Jazz.Compiler.CapabilityFacts
   ( ConcreteImplFact (..),
     concreteImplFactCapability,
   )
-import Jazz.Compiler.CoreIdentity (CapabilityMethodKey, ResolvedReference (LexicalReference), capabilityExportName, capabilityResolvedName)
+import Jazz.Compiler.CoreIdentity (CapabilityMethodKey, ResolvedReference (LexicalReference), capabilityExportName, capabilityResolvedName, resolvedNodeOwner)
 import Jazz.Compiler.Diagnostics (CompilationDiagnostics (..), Diagnostic, diagnosticWarningCategory, isErrorDiagnostic)
 import Jazz.Compiler.Diagnostics.Strictness (forceDiagnostic)
 import Jazz.Compiler.ModuleExports
@@ -106,14 +106,14 @@ import Jazz.Compiler.TypeInference.Types
 import Jazz.Compiler.WarningConfig (WarningSettings, defaultWarningSettings)
 
 -- | Analyze one resolved module against its complete imported interface. The
--- caller supplies source ownership and the bundled-prelude warning policy,
+-- resolved root supplies source ownership and the caller selects warning policy,
 -- while dependency availability and diagnostic accumulation belong to the driver.
-analyzeModule :: CompileInputs -> (ModulePath -> SourceUnitOwner) -> Bool -> ImportedInterface -> CoreModule 'Resolved -> IO (InferenceResult, Maybe (CoreModule 'Analyzed))
-analyzeModule inputs owner hideRootBindings importedInterface resolvedModule = do
+analyzeModule :: CompileInputs -> Bool -> ImportedInterface -> CoreModule 'Resolved -> IO (InferenceResult, Maybe (CoreModule 'Analyzed))
+analyzeModule inputs hideRootBindings importedInterface resolvedModule = do
   let modulePath = coreModulePath resolvedModule
   (inference, attachment) <-
     analyzeExpressionWithInputs
-      (moduleInferenceInputs inputs owner resolvedModule importedInterface)
+      (moduleInferenceInputs inputs resolvedModule importedInterface)
       hideRootBindings
       (coreModuleExpr resolvedModule)
   maybeAnalyzedExpression <- checkedAttachment modulePath attachment
@@ -144,8 +144,8 @@ checkedAnalyzedModule modulePath result =
     Left failure -> fail ("semantic fact invariant failure in " <> Text.unpack (renderModulePath modulePath) <> ": " <> show failure)
     Right value -> pure value
 
-moduleInferenceInputs :: CompileInputs -> (ModulePath -> SourceUnitOwner) -> CoreModule 'Resolved -> ImportedInterface -> InferenceInputs
-moduleInferenceInputs inputs owner resolvedModule importedInterface =
+moduleInferenceInputs :: CompileInputs -> CoreModule 'Resolved -> ImportedInterface -> InferenceInputs
+moduleInferenceInputs inputs resolvedModule importedInterface =
   InferenceInputs
     { inferencePublicExports = Just (ModuleGraph.resolvedModuleExports (coreModuleFacts resolvedModule)),
       inferenceWarningSettings = compileInputWarningSettings inputs,
@@ -155,7 +155,7 @@ moduleInferenceInputs inputs owner resolvedModule importedInterface =
       inferenceImportedConstructorWitnessNames = importedConstructorWitnessNames importedInterface,
       inferenceImportedCapabilities = importedCapabilities importedInterface,
       inferenceImportedClassNames = importedClassNames importedInterface,
-      inferenceCurrentModulePath = case owner modulePath of StandaloneSourceUnit _ -> Nothing; _ -> Just modulePath
+      inferenceCurrentModulePath = case resolvedNodeOwner (coreNodeFacts (ModuleGraph.coreModuleBodyNode resolvedModule)) of StandaloneSourceUnit _ -> Nothing; _ -> Just modulePath
     }
   where
     modulePath = coreModulePath resolvedModule
@@ -295,23 +295,24 @@ importSelectedInterface origin maybeAlias selectedInventory moduleInterface =
         (\export _ -> inventoryHasExport export selectedInventory)
         (interfaceValueBindings moduleInterface)
     selectedClassNames = exportNamesInNamespace CapabilityNamespace selectedInventory
+    capabilities = interfaceCapabilities moduleInterface
     selectedClassFacts =
       Map.filterWithKey
         (\capability _ -> Set.member (capabilityExportName capability) selectedClassNames)
-        (interfaceClassFacts moduleInterface)
+        (scopeClassFacts capabilities)
     selectedCapabilities =
-      ScopeCapabilityFacts
+      capabilities
         { scopeClassFacts = selectedClassFacts,
           scopeGeneratedEqualityClassFacts =
             Set.filter
               (\capability -> Set.member (capabilityExportName capability) selectedClassNames)
-              (interfaceGeneratedEqualityClassFacts moduleInterface),
+              (scopeGeneratedEqualityClassFacts capabilities),
           scopeConcreteImplFacts =
-            Set.filter (factUsesClass selectedClassNames) (interfaceConcreteImplFacts moduleInterface),
+            Set.filter (factUsesClass selectedClassNames) (scopeConcreteImplFacts capabilities),
           scopeClassMethodSignatures =
-            Map.filterWithKey (methodUsesClass selectedClassNames) (interfaceClassMethods moduleInterface),
+            Map.filterWithKey (methodUsesClass selectedClassNames) (scopeClassMethodSignatures capabilities),
           scopeConcreteImplMethods =
-            Map.filterWithKey (methodUsesClass selectedClassNames) (interfaceConcreteImplMethods moduleInterface)
+            Map.filterWithKey (methodUsesClass selectedClassNames) (scopeConcreteImplMethods capabilities)
         }
 
 factUsesClass :: Set.Set Text -> ConcreteImplFact -> Bool
@@ -471,11 +472,13 @@ forceModuleInterfaceContainers :: ModuleInterface -> ()
 forceModuleInterfaceContainers moduleInterface =
   Map.foldrWithKey (\export (ModuleValueBinding binder binding) forced -> export `seq` binder `seq` binding `seq` forced) () (interfaceValueBindings moduleInterface) `seq`
     forceMapEntriesWhnf (interfaceDataTypes moduleInterface) `seq`
-      forceMapEntriesWhnf (interfaceClassFacts moduleInterface) `seq`
-        forceSetEntriesWhnf (interfaceGeneratedEqualityClassFacts moduleInterface) `seq`
-          forceSetEntriesWhnf (interfaceConcreteImplFacts moduleInterface) `seq`
-            forceMapEntriesWhnf (interfaceClassMethods moduleInterface) `seq`
-              forceMapEntriesWhnf (interfaceConcreteImplMethods moduleInterface)
+      forceMapEntriesWhnf (scopeClassFacts capabilities) `seq`
+        forceSetEntriesWhnf (scopeGeneratedEqualityClassFacts capabilities) `seq`
+          forceSetEntriesWhnf (scopeConcreteImplFacts capabilities) `seq`
+            forceMapEntriesWhnf (scopeClassMethodSignatures capabilities) `seq`
+              forceMapEntriesWhnf (scopeConcreteImplMethods capabilities)
+  where
+    capabilities = interfaceCapabilities moduleInterface
 
 forceMapEntriesWhnf :: Map key value -> ()
 forceMapEntriesWhnf = Map.foldrWithKey (\key value forced -> key `seq` value `seq` forced) ()

@@ -69,7 +69,7 @@ resolveRuntimeFixtureWith owner external fixture =
           | [capability, method] <- Text.splitOn "::" (identifierText identifier) ->
               CapabilityMethodReference (CapabilityId (UserName (ResolvedUserName (if origin == CurrentModule then sourceUnitOwnerOrigin owner else origin) CapabilityNamespace (mkIdentifier capability)))) (mkIdentifier method)
         _ -> UnresolvedReference name
-    allocateExpression binder target (CoreNode _ spanValue facts) = state $ \(next, es, ps, ss) ->
+    allocateExpression _ binder target (CoreNode _ spanValue facts) = state $ \(next, es, ps, ss) ->
       let index = CoreNodeId next
           resolution = nodeFacts index binder target
           operatorResolution = case resolvedNodeReference (expressionResolution facts) of
@@ -82,9 +82,32 @@ resolveRuntimeFixtureWith owner external fixture =
     allocateStatement binder target (CoreNode _ spanValue facts) = state $ \(next, es, ps, ss) ->
       let index = CoreNodeId next
        in (CoreNode index spanValue (nodeFacts index binder target), (next + 1, es, ps, Map.insert index facts ss))
-    restoreExpression _ _ (CoreNode index spanValue facts) = pure (CoreNode index spanValue ((expressions Map.! index) {expressionResolution = facts}))
+    restoreExpression syntax _ _ (CoreNode index spanValue facts) =
+      let original = expressions Map.! index
+          repair instantiation = case (syntax, instantiatedTarget instantiation) of
+            (Just (ETypeApplication _ function _ _), LexicalInstantiation (CoreBinderId (StandaloneSourceUnit path, CoreNodeId (-1))))
+              | path == standaloneModulePath -> instantiation {instantiatedTarget = callableTarget function}
+            _ -> instantiation
+       in pure (CoreNode index spanValue (original {expressionResolution = facts, expressionInstantiations = map repair (expressionInstantiations original)}))
     restorePattern _ _ (CoreNode index spanValue facts) = pure (CoreNode index spanValue ((patterns Map.! index) {patternResolution = facts}))
-    restoreStatement _ _ (CoreNode index spanValue facts) = pure (CoreNode index spanValue ((statements Map.! index) {statementResolution = facts}))
+    restoreStatement _ _ (CoreNode index spanValue facts) =
+      let original = statements Map.! index
+          repaired = case (resolvedNodeBinder facts, statementBinderIds original) of
+            (Just binder, [previous]) ->
+              original
+                { statementBinderIds = [binder],
+                  statementGeneralizedSchemes = Map.mapKeys (\key -> if key == previous then binder else key) (statementGeneralizedSchemes original)
+                }
+            _ -> original
+       in pure (CoreNode index spanValue (repaired {statementResolution = facts}))
+
+    -- Only synthetic placeholders are repaired. Authored targets, evidence and
+    -- types remain unchanged so rejection fixtures can retain malformed facts.
+    callableTarget (ETypeApplication _ function _ _) = callableTarget function
+    callableTarget function = case resolvedNodeReference (coreNodeFacts (expressionNode function)) of
+      Just (LexicalReference binder) -> LexicalInstantiation binder
+      Just (CapabilityMethodReference capability method) -> MethodInstantiation (capability, method)
+      target -> error ("runtime fixture explicit instantiation requires a resolved lexical or capability-method target, got " <> show target)
 
 fixtureDeclarations :: Expr 'Analyzed -> Map.Map ResolvedName ResolvedReference
 fixtureDeclarations (EBlock _ statements) = Map.fromList [(name, resolvedBinderReference (statementResolution (coreNodeFacts node)) name) | SLet node name _ <- statements]
@@ -94,16 +117,13 @@ fixtureDeclarations _ = Map.empty
 -- exact semantic payloads needed to exercise runtime checking independently.
 traverseFixture ::
   (Applicative f, CoreUserNameAt from ~ ResolvedUserName, CoreUserNameAt to ~ ResolvedUserName) =>
-  (Bool -> Maybe ResolvedName -> CoreNode from 'ExpressionSort -> f (CoreNode to 'ExpressionSort)) ->
+  (Maybe (Expr from) -> Bool -> Maybe ResolvedName -> CoreNode from 'ExpressionSort -> f (CoreNode to 'ExpressionSort)) ->
   (Bool -> Maybe ResolvedName -> CoreNode from 'PatternSort -> f (CoreNode to 'PatternSort)) ->
   (Bool -> Maybe ResolvedName -> CoreNode from 'StatementSort -> f (CoreNode to 'StatementSort)) ->
   Expr from ->
   f (Expr to)
 traverseFixture expressionNodeVisit patternNodeVisit statementNodeVisit = expression
   where
-    node = expressionNodeVisit False Nothing
-    binding = expressionNodeVisit True Nothing
-    reference name = expressionNodeVisit False (Just name)
     plainStatement = statementNodeVisit False Nothing
     bindingStatement = statementNodeVisit True Nothing
     expression value = case value of
@@ -121,7 +141,11 @@ traverseFixture expressionNodeVisit patternNodeVisit statementNodeVisit = expres
       ESectionLeft n left symbol -> ESectionLeft <$> reference (operatorBindingName symbol) n <*> expression left <*> pure symbol
       ESectionRight n symbol right -> ESectionRight <$> reference (operatorBindingName symbol) n <*> pure symbol <*> expression right
       EBlock n statements -> EBlock <$> node n <*> traverse statement statements
-    arm (CaseArm n p guard body) = CaseArm <$> node n <*> pattern p <*> traverse expression guard <*> expression body
+      where
+        node = expressionNodeVisit (Just value) False Nothing
+        binding = expressionNodeVisit (Just value) True Nothing
+        reference name = expressionNodeVisit (Just value) False (Just name)
+    arm (CaseArm n p guard body) = CaseArm <$> expressionNodeVisit Nothing False Nothing n <*> pattern p <*> traverse expression guard <*> expression body
     pattern value = case value of
       PWildcard n -> PWildcard <$> patternNodeVisit False Nothing n
       PVariable n name -> PVariable <$> patternNodeVisit True Nothing n <*> pure name

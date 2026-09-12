@@ -52,7 +52,7 @@ import Jazz.Compiler.Runtime
     renderRuntimeValue,
     runtimeValueExactlyMatchesConstraint,
   )
-import Jazz.Compiler.Runtime.Semantics (applyRuntimeTypeHint, runtimeValueMatchesConstraint)
+import Jazz.Compiler.Runtime.Semantics (applyExplicitTypeApplicationResultHint, applyRuntimeTypeHint, runtimeValueMatchesConstraint)
 import Jazz.Compiler.Runtime.Types
   ( RuntimeMethodCandidate (..),
     appendRuntimeMethodCandidate,
@@ -103,6 +103,7 @@ capabilityTests =
     ("runtime data constraints accept defining and importing views of one owner", testRuntimeDataConstraintsAcceptNominalViews),
     ("runtime data constraints reject identical names from different owners", testRuntimeDataConstraintsRejectDifferentOwners),
     ("runtime data hints preserve nominal identity", testRuntimeDataHintsPreserveNominalIdentity),
+    ("unrelated explicit result hints preserve phantom type arguments", testExplicitResultHintsPreserveUnrelatedPhantomArguments),
     ("qualified method application preserves argument order", testQualifiedMethodApplicationPreservesArgumentOrder),
     ("qualified method dispatch executes selected impl body", testQualifiedMethodDispatchExecutesImplBody),
     ("let-bound qualified method dispatch executes selected impl body", testLetBoundQualifiedMethodDispatchExecutesImplBody),
@@ -250,16 +251,32 @@ testRuntimeDataHintsPreserveNominalIdentity =
     checkShape (label, parameters, fields, arguments, typeArguments) = do
       let value name = VConstructor name parameters (resolvedLocalName ConstructorNamespace (mkIdentifier "Wrap")) fields arguments
           hint name = SemanticData name typeArguments
-      checkHint (label <> " imported hint accepts defining value") (Just (hint imported)) (hint imported) (value local)
-      checkHint (label <> " defining hint accepts imported value") (Just (hint local)) (hint local) (value imported)
-      checkHint (label <> " unrelated hint leaves value unannotated") Nothing (hint unrelated) (value local)
-    checkHint label expected hint value =
-      case applyRuntimeTypeHint hint value of
+      checkHint applyRuntimeTypeHint (label <> " imported hint accepts defining value") (Just (hint imported)) (hint imported) (value local)
+      checkHint applyRuntimeTypeHint (label <> " defining hint accepts imported value") (Just (hint local)) (hint local) (value imported)
+      checkHint applyRuntimeTypeHint (label <> " unrelated hint leaves value unannotated") Nothing (hint unrelated) (value local)
+      checkHint applyExplicitTypeApplicationResultHint (label <> " imported explicit hint accepts defining value") (Just (hint imported)) (hint imported) (value local)
+      checkHint applyExplicitTypeApplicationResultHint (label <> " defining explicit hint accepts imported value") (Just (hint local)) (hint local) (value imported)
+      checkHint applyExplicitTypeApplicationResultHint (label <> " unrelated explicit hint leaves value unannotated") Nothing (hint unrelated) (value local)
+    checkHint applyHint label expected hint value =
+      case applyHint hint value of
         Right hinted ->
           assertEqual label expected $ case hinted of
             VAnnotated (RuntimeTypeHint actual) _ -> Just actual
             _ -> Nothing
         Left diagnostic -> failTest (label <> ": " <> renderDiagnostic diagnostic)
+
+testExplicitResultHintsPreserveUnrelatedPhantomArguments :: IO ()
+testExplicitResultHintsPreserveUnrelatedPhantomArguments = do
+  let (local, _, unrelated) = runtimeNominalTypeViews
+      value =
+        VAnnotated
+          (RuntimeTypeHint (SemanticData local [SemanticBool]))
+          (VConstructor local [InferenceVariable 0] (resolvedLocalName ConstructorNamespace (mkIdentifier "Wrap")) [] [])
+  case applyExplicitTypeApplicationResultHint (SemanticData unrelated [SemanticBool]) value of
+    Right hinted -> do
+      assertEqual "existing phantom Bool argument still matches" True (runtimeValueExactlyMatchesConstraint (SemanticData local [SemanticBool]) hinted)
+      assertEqual "unrelated hint does not erase the phantom argument" False (runtimeValueExactlyMatchesConstraint (SemanticData local [SemanticInt]) hinted)
+    Left diagnostic -> failTest ("unrelated explicit result hint: " <> renderDiagnostic diagnostic)
 
 runtimeNominalTypeViews :: (ResolvedName, ResolvedName, ResolvedName)
 runtimeNominalTypeViews =

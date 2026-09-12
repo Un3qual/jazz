@@ -1,8 +1,6 @@
 # Reviewed GHC 9.14 baseline; keep new unreachable declarations visible.
 roots = [
   '^Main\.main$',
-  # VQualifiedMethod pattern builder support; CLI only matches the pattern.
-  '^Jazz\.Compiler\.Runtime\.Types\.runtimeMethodCandidatesFromList$',
   # Explicit compiler inspection/testing API; retained migration baseline.
   # src/Jazz/CLI/Main.hs
   '^Jazz\.CLI\.Main\.(runCliWith)$',

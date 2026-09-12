@@ -11,7 +11,6 @@ module Jazz.Compiler.TypeInference.Scope
     inferNestedScopeTypeWithMode,
     inferScopeType,
     inferScopeTypeWithMode,
-    inferScopeTypeWithModeAndForwardBindingsUsingPreparedScope,
     instantiateNonBuiltinTypeBinding,
   )
 where
@@ -303,23 +302,6 @@ publishVisibleTypes env state =
 
 inferScopeTypeWithMode :: InferExprWithModeFn -> InferenceMode -> TypeEnv -> InferState -> PreparedRecursiveScope 'Resolved -> (CheckedScope, InferState)
 inferScopeTypeWithMode inferExpression mode initialEnv initialState preparedScope =
-  let (inferredResult, finalState, _) =
-        inferScopeTypeWithModeAndForwardBindingsUsingPreparedScope
-          preparedScope
-          inferExpression
-          mode
-          initialEnv
-          initialState
-   in (inferredResult, finalState)
-
-inferScopeTypeWithModeAndForwardBindingsUsingPreparedScope ::
-  PreparedRecursiveScope 'Resolved ->
-  InferExprWithModeFn ->
-  InferenceMode ->
-  TypeEnv ->
-  InferState ->
-  (CheckedScope, InferState, Map Int (ResolvedName, SourceSpan))
-inferScopeTypeWithModeAndForwardBindingsUsingPreparedScope preparedScope inferExpression mode initialEnv initialState =
   preparedScope `seq`
     inferScopeTypeInternal
       ScopeInferenceRequest
@@ -333,17 +315,15 @@ inferScopeTypeWithModeAndForwardBindingsUsingPreparedScope preparedScope inferEx
 
 inferNestedScopeTypeWithMode :: InferExprWithModeFn -> InferenceMode -> TypeEnv -> InferState -> PreparedRecursiveScope 'Resolved -> (CheckedScope, InferState)
 inferNestedScopeTypeWithMode inferExpression mode initialEnv initialState preparedScope =
-  let (inferredResult, finalState, _) =
-        inferScopeTypeInternal
-          ScopeInferenceRequest
-            { scopeForwardSignedFunctionsPolicy = ForbidForwardSignedFunctions,
-              scopeInferExpression = inferExpression,
-              scopeInferenceMode = mode,
-              scopeInitialEnv = initialEnv,
-              scopeInitialState = initialState,
-              scopePreparedInference = preparedScope
-            }
-   in (inferredResult, finalState)
+  inferScopeTypeInternal
+    ScopeInferenceRequest
+      { scopeForwardSignedFunctionsPolicy = ForbidForwardSignedFunctions,
+        scopeInferExpression = inferExpression,
+        scopeInferenceMode = mode,
+        scopeInitialEnv = initialEnv,
+        scopeInitialState = initialState,
+        scopePreparedInference = preparedScope
+      }
 
 inferScopeType :: InferExprWithModeFn -> TypeEnv -> InferState -> PreparedRecursiveScope 'Resolved -> (CheckedScope, InferState)
 inferScopeType inferExpression initialEnv initialState preparedScope =
@@ -389,7 +369,7 @@ data ScopeWalkState = ScopeWalkState
     scopeWalkInferState :: !InferState
   }
 
-inferScopeTypeInternal :: ScopeInferenceRequest -> (CheckedScope, InferState, Map Int (ResolvedName, SourceSpan))
+inferScopeTypeInternal :: ScopeInferenceRequest -> (CheckedScope, InferState)
 inferScopeTypeInternal
   ScopeInferenceRequest
     { scopeForwardSignedFunctionsPolicy,
@@ -417,8 +397,7 @@ inferScopeTypeInternal
           go initialWalkState indexedStatements
         stateWithPublishedModuleFacts = flushCurrentModuleCapabilityFacts finalState
      in ( scopeType,
-          restoreCapabilityFacts initialState stateWithPublishedModuleFacts,
-          forwardAnalysisBindings
+          restoreCapabilityFacts initialState stateWithPublishedModuleFacts
         )
     where
       statements = preparedRecursiveScopeStatements preparedScope
@@ -613,12 +592,6 @@ inferScopeTypeInternal
       bindingSeedsByStatement = preparedBindingSeeds scopePreparation
       preparedSignaturesByStatement = preparedSignatures scopePreparation
       forwardFunctionBindings = preparedForwardFunctions scopePreparation
-      forwardAnalysisBindings =
-        Map.fromList
-          [ (statementIndex, (bindingName, coreNodeSpan bindingNode))
-          | (statementIndex, SLet bindingNode bindingName _) <- indexedStatements,
-            Map.member statementIndex forwardFunctionBindings
-          ]
       stateAfterBindingSeeds = preparedScopeState scopePreparation
       initialModuleBaselineFacts = capabilityFactsFromState initialState
 

@@ -35,7 +35,7 @@ import Jazz.Compiler.AST
     Literal (..),
   )
 import qualified Jazz.Compiler.AST as AST
-import Jazz.Compiler.CoreIdentity (resolvedBinderReference)
+import Jazz.Compiler.CoreIdentity (ResolvedNodeFacts (..), ResolvedReference (..), resolvedBinderReference)
 import Jazz.Compiler.Diagnostics (SourceSpan (..))
 import Jazz.Compiler.Driver
   ( runCompileErrors,
@@ -68,7 +68,12 @@ import Jazz.Compiler.RuntimeHost
     mapRuntimeHost,
     productionRuntimeHost,
   )
-import Jazz.Compiler.SemanticFacts (ExpressionFacts (expressionResolution))
+import Jazz.Compiler.SemanticFacts
+  ( ExpressionFacts (expressionInstantiations, expressionResolution),
+    InstantiationTarget (..),
+    SemanticInstantiation (..),
+    StatementFacts (..),
+  )
 import Jazz.Compiler.Semantics.Runtime.Fixtures
 import Jazz.Compiler.Semantics.Runtime.ResolvedFixture
 import Jazz.Compiler.Semantics.Runtime.Shared (assertRuntimeBool)
@@ -119,6 +124,7 @@ hostIOTests =
     ("public host scopes keep imported deferred cells on the active host", testPublicHostScopeKeepsImportedDeferredCellOnActiveHost),
     ("host dependency scopes keep deferred cells on the active host", testHostDependencyScopeKeepsDeferredCellsOnActiveHost),
     ("host dependency bindings retain their analyzed runtime facts", testHostDependencyBindingRetainsRuntimeFacts),
+    ("runtime fixtures align constructor and method identities", testRuntimeFixtureIdentityAgreement),
     ("stacked result obligations preserve recursive unwind order", testStackedResultObligationsPreserveRecursiveUnwindOrder),
     ("host binding cache separates dynamic scope invocations", testHostBindingCacheSeparatesDynamicScopeInvocations),
     ("host scopes force zero-argument impl methods", testHostZeroArgumentImplMethod),
@@ -716,13 +722,14 @@ testHostDependencyBindingRetainsRuntimeFacts = do
             )
         ]
       entryStatements = [statementExpression (SourceSpan 3 1) (expressionVariable "token!")]
+      dependencyFixture = resolveRuntimeFixtureWith dependencyOwner Map.empty (expressionBlock dependencyStatements)
       action = do
         dependencyResult <-
           evaluateModuleScopeWithRequiredHost
             statefulHost
             EvaluateDependencyModule
             Map.empty
-            (resolveRuntimeFixtureWith dependencyOwner Map.empty (expressionBlock dependencyStatements))
+            dependencyFixture
         case dependencyResult of
           Left diagnostic -> pure (Left diagnostic)
           Right dependencyScope ->
@@ -730,8 +737,16 @@ testHostDependencyBindingRetainsRuntimeFacts = do
               statefulHost
               EvaluateEntryModule
               (scopeResultEnvironment dependencyScope)
-              (resolveRuntimeFixtureWith entryOwner (fixtureDeclarations (resolveRuntimeFixtureWith dependencyOwner Map.empty (expressionBlock dependencyStatements))) (expressionBlock entryStatements))
+              (resolveRuntimeFixtureWith entryOwner (fixtureDeclarations dependencyFixture) (expressionBlock entryStatements))
       (result, calls) = runState action []
+  case dependencyFixture of
+    AST.EBlock _ [AST.SLet definition _ _, AST.SLet _ _ (AST.EApply _ (AST.ETypeApplication application (AST.EVar reference _) _ _) _)] ->
+      case resolvedNodeBinder (statementResolution (AST.coreNodeFacts definition)) of
+        Just binder -> do
+          assertEqual "dependency reference selects its resolved declaration" (Just (LexicalReference binder)) (resolvedNodeReference (expressionResolution (AST.coreNodeFacts reference)))
+          assertEqual "explicit instantiation selects the same dependency declaration" [LexicalInstantiation binder] (map instantiatedTarget (expressionInstantiations (AST.coreNodeFacts application)))
+        Nothing -> failTest "dependency declaration has no resolved binder"
+    _ -> failTest "unexpected explicit dependency fixture shape"
   assertEqual "planned dependency host calls" [] calls
   case result of
     Right scopeResult ->
@@ -743,6 +758,41 @@ testHostDependencyBindingRetainsRuntimeFacts = do
             (runtimeValueExactlyMatchesConstraint (SemanticNumeric NumericUInt8) itemValue)
         Nothing -> assertEqual "dependency produces a hinted itemValue" True False
     Left _ -> assertEqual "dependency hint evaluation succeeds" True False
+
+testRuntimeFixtureIdentityAgreement :: IO ()
+testRuntimeFixtureIdentityAgreement = do
+  let fixture =
+        expressionBlock
+          [ statementData (SourceSpan 1 1) "Token" [] [dataConstructor "First" [], dataConstructor "Second" []],
+            statementClass
+              (SourceSpan 2 1)
+              "Factory"
+              ["a"]
+              [classMethodSignature "make" (SourceSpan 3 1) (SignatureType (fixtureTypeVariable "a"))],
+            statementExpression
+              (SourceSpan 4 1)
+              (expressionTypeApplication (expressionQualifiedMethod "Factory" "make") (SourceSpan 4 16) TypeInt)
+          ]
+  case (fixture, resolveRuntimeFixtureWith dependencyOwner Map.empty fixture) of
+    (AST.EBlock _ (AST.SData _ _ _ constructors : _), AST.EBlock _ [AST.SData _ _ _ resolvedConstructors, AST.SClass {}, AST.SExpr _ (AST.ETypeApplication application (AST.EVar reference _) _ _)]) -> do
+      assertEqual "constructor count" (length constructors) (length resolvedConstructors)
+      mapM_ checkConstructor (zip constructors resolvedConstructors)
+      case resolvedNodeReference (expressionResolution (AST.coreNodeFacts reference)) of
+        Just (CapabilityMethodReference capability method) -> do
+          assertEqual "method instantiation selects its resolved capability method" [MethodInstantiation (capability, method)] (map instantiatedTarget (expressionInstantiations (AST.coreNodeFacts application)))
+          assertEqual "method instantiation keeps its authored type argument" [SemanticInt :| []] (map instantiatedTypes (expressionInstantiations (AST.coreNodeFacts application)))
+        _ -> failTest "fixture method has no resolved capability identity"
+    _ -> failTest "unexpected constructor/method identity fixture shape"
+  where
+    checkConstructor :: (AST.DataConstructor 'Analyzed, AST.DataConstructor 'Analyzed) -> IO ()
+    checkConstructor (AST.DataConstructor authored _ _, AST.DataConstructor resolved _ _) =
+      let facts = AST.coreNodeFacts resolved
+       in case resolvedNodeBinder (statementResolution facts) of
+            Just binder -> do
+              assertEqual "constructor semantic binder agrees with resolution" [binder] (statementBinderIds facts)
+              assertEqual "constructor scheme is keyed by its resolved binder" [binder] (Map.keys (statementGeneralizedSchemes facts))
+              assertEqual "constructor scheme retains its authored semantic types" (Map.elems (statementGeneralizedSchemes (AST.coreNodeFacts authored))) (Map.elems (statementGeneralizedSchemes facts))
+            Nothing -> failTest "fixture constructor has no resolved binder"
 
 testDirectRuntimeWrapperUsesDisabledHost :: IO ()
 testDirectRuntimeWrapperUsesDisabledHost = do

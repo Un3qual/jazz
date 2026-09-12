@@ -7,6 +7,7 @@ import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
 import Jazz.Compiler.AST (CoreNode (..), Expr (..), Statement (..))
 import Jazz.Compiler.CoreIdentity (CoreBinderId (..), ResolvedNodeFacts (..), ResolvedReference (..))
+import Jazz.Compiler.Driver (runCompileErrors, runOutput, runRuntimeErrors, runSourceWithPrelude)
 import Jazz.Compiler.ModuleExports (exportInventory)
 import Jazz.Compiler.ModuleIdentity (SourceUnitOwner (..), mkModulePath)
 import Jazz.Compiler.ModuleResolver (resolveStandaloneExprNames)
@@ -33,6 +34,7 @@ import Jazz.Compiler.Name
   )
 import Jazz.Compiler.Purity (Purity (..))
 import Jazz.Compiler.SourceProgram (parseAndLowerStandaloneSource)
+import Jazz.Compiler.WarningConfig (defaultWarningSettings)
 import Jazz.TestHarness (NamedTest, assertEqual, assertRight, runTestSuite)
 
 main :: IO ()
@@ -45,6 +47,7 @@ tests =
     ("declaration views preserve source identity", testDeclarationViews),
     ("generated names do not acquire user purity", testGeneratedNamesDoNotAcquireUserPurity),
     ("kernel bridge binders remain local while their targets resolve as builtins", testKernelBridgeTargetResolution),
+    ("kernel builtin spelling does not specialize a shadowing callable", testKernelBuiltinShadowing),
     ("references select source-owned declarations across rebinding and lambda shadowing", testDeclarationTargets)
   ]
 
@@ -114,6 +117,16 @@ testKernelBridgeTargetResolution =
               (BuiltinName (mkIdentifier "__kernel_hd"))
               target
           _ -> assertEqual "kernel bridge core shape" "single let block" (show resolved)
+
+testKernelBuiltinShadowing :: IO ()
+testKernelBuiltinShadowing = mapM_ check ["f", "__kernel_listPrependRaw"]
+  where
+    check name = do
+      let source = "invoke = \\(" <> name <> ") -> " <> name <> " 1 [True]. invoke (\\(n, xs) -> n) + 1."
+      result <- runSourceWithPrelude defaultWarningSettings Nothing source
+      assertEqual "shadowed callable compile errors" [] (runCompileErrors result)
+      assertEqual "shadowed callable runtime errors" [] (runRuntimeErrors result)
+      assertEqual "shadowed callable arithmetic result" (Just "2") (runOutput result)
 
 testDeclarationTargets :: IO ()
 testDeclarationTargets =

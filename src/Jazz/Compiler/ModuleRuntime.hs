@@ -97,6 +97,7 @@ import Jazz.Compiler.RuntimeHost
   ( RuntimeHost,
     disabledRuntimeHost,
   )
+import Jazz.Compiler.SemanticDeclarations (ScopeCapabilityFacts (scopeClassMethodSignatures))
 
 -- | Runtime-facing exports keep capability methods structurally distinct from
 -- ordinary values instead of encoding their owner in a value-name string.
@@ -370,7 +371,7 @@ exportReference interface runtimeExport = case runtimeExport of
 interfaceExports :: ModuleInterface -> [RuntimeExport]
 interfaceExports interface =
   map RuntimeBindingExport (Map.keys (interfaceValueBindings interface))
-    <> map (uncurry RuntimeCapabilityMethodExport) (Map.keys (interfaceClassMethods interface))
+    <> map (uncurry RuntimeCapabilityMethodExport) (Map.keys (scopeClassMethodSignatures (interfaceCapabilities interface)))
 
 runtimeExportSelected :: Set ModuleExport -> RuntimeExport -> Bool
 runtimeExportSelected visibleExports runtimeExport =

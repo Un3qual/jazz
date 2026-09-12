@@ -74,11 +74,7 @@ data ModuleInterface = ModuleInterface
   { interfacePublicExports :: ModuleExportInventory,
     interfaceValueBindings :: Map ModuleExport ModuleValueBinding,
     interfaceDataTypes :: Map ResolvedName DataTypeBinding,
-    interfaceClassFacts :: Map CapabilityId Int,
-    interfaceGeneratedEqualityClassFacts :: Set CapabilityId,
-    interfaceConcreteImplFacts :: Set ConcreteImplFact,
-    interfaceClassMethods :: Map CapabilityMethodKey ClassMethodType,
-    interfaceConcreteImplMethods :: Map CapabilityMethodKey [ImplMethodType]
+    interfaceCapabilities :: ScopeCapabilityFacts
   }
   deriving stock (Eq, Generic, Show)
   deriving anyclass (NFData)
@@ -94,11 +90,7 @@ publishModuleInterface requested typeDefinitions declarations =
   public
     { interfaceValueBindings = Map.map (\binding -> binding {interfaceBindingType = publishBindingNames (interfaceBindingType binding)}) (interfaceValueBindings public),
       interfaceDataTypes = Map.mapKeys publishedName (Map.map publishDataNames (reachableTypes roots)),
-      interfaceClassFacts = Map.mapKeys publishedCapability (interfaceClassFacts public),
-      interfaceGeneratedEqualityClassFacts = Set.map publishedCapability (interfaceGeneratedEqualityClassFacts public),
-      interfaceConcreteImplFacts = Set.map publishImplFact (interfaceConcreteImplFacts public),
-      interfaceClassMethods = Map.mapKeys publishedMethod (Map.map publishMethodType (interfaceClassMethods public)),
-      interfaceConcreteImplMethods = Map.mapKeys publishedMethod (Map.map (map publishImplType) (interfaceConcreteImplMethods public))
+      interfaceCapabilities = publishCapabilityNames publicCapabilities
     }
   where
     available = declaredInterfaceInventory declarations
@@ -107,20 +99,25 @@ publishModuleInterface requested typeDefinitions declarations =
       declarations
         { interfacePublicExports = exports,
           interfaceValueBindings = Map.filterWithKey (\name _ -> inventoryHasExport name exports) (interfaceValueBindings declarations),
-          interfaceClassFacts = Map.filterWithKey (\capability _ -> publicCapability capability) (interfaceClassFacts declarations),
-          interfaceGeneratedEqualityClassFacts = Set.filter publicCapability (interfaceGeneratedEqualityClassFacts declarations),
-          interfaceConcreteImplFacts = Set.filter (\(ConcreteImplFact capability _) -> publicCapability capability) (interfaceConcreteImplFacts declarations),
-          interfaceClassMethods = Map.filterWithKey (\(capability, _) _ -> publicCapability capability) (interfaceClassMethods declarations),
-          interfaceConcreteImplMethods = Map.filterWithKey (\(capability, _) _ -> publicCapability capability) (interfaceConcreteImplMethods declarations)
+          interfaceCapabilities = publicCapabilities
+        }
+    capabilities = interfaceCapabilities declarations
+    publicCapabilities =
+      capabilities
+        { scopeClassFacts = Map.filterWithKey (\capability _ -> publicCapability capability) (scopeClassFacts capabilities),
+          scopeGeneratedEqualityClassFacts = Set.filter publicCapability (scopeGeneratedEqualityClassFacts capabilities),
+          scopeConcreteImplFacts = Set.filter (\(ConcreteImplFact capability _) -> publicCapability capability) (scopeConcreteImplFacts capabilities),
+          scopeClassMethodSignatures = Map.filterWithKey (\(capability, _) _ -> publicCapability capability) (scopeClassMethodSignatures capabilities),
+          scopeConcreteImplMethods = Map.filterWithKey (\(capability, _) _ -> publicCapability capability) (scopeConcreteImplMethods capabilities)
         }
     publicCapability capability = inventoryHasExport (ModuleExport CapabilityNamespace (renderCapabilityId capability)) exports
     roots =
       Set.unions
         [ Map.keysSet (Map.filterWithKey (\name _ -> inventoryHasExport (ModuleExport TypeNamespace (renderName name)) exports) (interfaceDataTypes declarations)),
           foldMap (bindingNames . interfaceBindingType) (interfaceValueBindings public),
-          foldMap (\(ClassMethodType _ value) -> typeNames value) (interfaceClassMethods public),
-          foldMap (\(ConcreteImplFact _ value) -> typeNames value) (interfaceConcreteImplFacts public),
-          foldMap (foldMap (typeNames . implMethodTarget)) (interfaceConcreteImplMethods public)
+          foldMap (\(ClassMethodType _ value) -> typeNames value) (scopeClassMethodSignatures publicCapabilities),
+          foldMap (\(ConcreteImplFact _ value) -> typeNames value) (scopeConcreteImplFacts publicCapabilities),
+          foldMap (foldMap (typeNames . implMethodTarget)) (scopeConcreteImplMethods publicCapabilities)
         ]
     reachableTypes = visitTypes Set.empty
     visitTypes seen pending = case Set.minView pending of
@@ -158,7 +155,7 @@ declaredInterfaceInventory interface =
            | name <- Map.keys (interfaceDataTypes interface)
            ]
         <> [ ModuleExport CapabilityNamespace (renderCapabilityId name)
-           | name <- Map.keys (interfaceClassFacts interface)
+           | name <- Map.keys (scopeClassFacts (interfaceCapabilities interface))
            ]
     )
 
@@ -168,11 +165,7 @@ emptyModuleInterface =
     { interfacePublicExports = exportInventory [],
       interfaceValueBindings = Map.empty,
       interfaceDataTypes = Map.empty,
-      interfaceClassFacts = Map.empty,
-      interfaceGeneratedEqualityClassFacts = Set.empty,
-      interfaceConcreteImplFacts = Set.empty,
-      interfaceClassMethods = Map.empty,
-      interfaceConcreteImplMethods = Map.empty
+      interfaceCapabilities = mempty
     }
 
 -- Publication gives nominal names their external diagnostic spelling once.

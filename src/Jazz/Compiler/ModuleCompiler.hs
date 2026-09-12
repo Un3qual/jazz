@@ -41,7 +41,6 @@ import Jazz.Compiler.ModuleGraph
     orderedProgramDiagnostics,
   )
 import qualified Jazz.Compiler.ModuleGraph as ModuleGraph
-import Jazz.Compiler.ModuleIdentity (SourceUnitOwner (..))
 import Jazz.Compiler.ModuleInterface (CompileInputs (..))
 import Jazz.Compiler.Name (ResolvedNameOrigin (AmbientPrelude), identifierText)
 import Jazz.Compiler.TypeInference.Result (InferenceResult (..))
@@ -84,9 +83,8 @@ analyzeProgram inputs resolvedProgram =
                   Just dependency <- [Map.lookup (ModuleGraph.importedModule importDecl) dependenciesByPath]
                 ]
           modulePath = coreModulePath resolvedModule
-          owner = const (resolvedNodeOwner (coreNodeFacts (ModuleGraph.coreModuleBodyNode resolvedModule)))
       (inference, maybeAnalyzedModule) <-
-        analyzeModule inputs owner False importedInterface resolvedModule
+        analyzeModule inputs False importedInterface resolvedModule
       let sourceDiagnostics = addPreludeRebindingWarnings resolvedModule (inferredDiagnosticGroups inference)
           withDiagnostics analyzed = analyzed {ModuleGraph.coreModuleFacts = (coreModuleFacts analyzed) {ModuleGraph.analyzedModuleDiagnosticGroups = sourceDiagnostics}}
           dependency = inferredModuleInterface inference
@@ -139,7 +137,7 @@ analyzePrelude inputs prelude =
         )
     Just resolvedPreludeModule -> do
       (inference, maybeAnalyzedModule) <-
-        analyzeModule inputs PreludeSourceUnit (ModuleGraph.preludeIdentity prelude == bundledPreludeIdentity) mempty resolvedPreludeModule
+        analyzeModule inputs (ModuleGraph.preludeIdentity prelude == bundledPreludeIdentity) mempty resolvedPreludeModule
       let diagnostics = inferredDiagnosticGroups inference
           maybeAnalyzedPrelude =
             (\analyzedModule -> ModuleGraph.PreludeArtifact (ModuleGraph.preludeIdentity prelude) (Just analyzedModule))

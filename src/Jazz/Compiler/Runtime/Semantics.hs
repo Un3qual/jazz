@@ -519,10 +519,10 @@ runtimeValueCanAcceptTypeHint typeHint runtimeValue =
         (SemanticChar, VChar {}) -> True
         (SemanticText, VText {}) -> True
         (SemanticData typeName [], VConstructorApplication shape capturedArgs) ->
-          identifierText typeName == identifierText (runtimeConstructorTypeName shape)
+          typeName == runtimeConstructorTypeName shape
             && constructorApplicationIsSaturated shape capturedArgs
         (SemanticData typeName arguments, VConstructorApplication shape capturedArgs) ->
-          identifierText typeName == identifierText (runtimeConstructorTypeName shape)
+          typeName == runtimeConstructorTypeName shape
             && length arguments == length (runtimeConstructorTypeParameters shape)
             && constructorApplicationIsSaturated shape capturedArgs
         (SemanticList {}, VList {}) ->

@@ -34,7 +34,7 @@ import Jazz.Compiler.ModuleInterface
     publishModuleInterface,
   )
 import Jazz.Compiler.Name (NameNamespace (..), mkIdentifier, resolvedLocalName)
-import Jazz.Compiler.SemanticDeclarations (ConstructorArgumentType (..), DataTypeBinding (..))
+import Jazz.Compiler.SemanticDeclarations (ConstructorArgumentType (..), DataTypeBinding (..), ScopeCapabilityFacts (..))
 import Jazz.Compiler.TypeInference.Types
   ( SemanticBinding (PlainTypeBinding),
     SemanticType (..),
@@ -284,7 +284,7 @@ testInterfaceInventory =
             Map.singleton
               (ModuleExport ValueNamespace "answer")
               (ModuleValueBinding (CoreBinderId (StandaloneSourceUnit standaloneModulePath, CoreNodeId 1)) (PlainTypeBinding SemanticInt)),
-          interfaceClassFacts = Map.singleton (CapabilityId (resolvedLocalName CapabilityNamespace (mkIdentifier "Eq"))) 1
+          interfaceCapabilities = mempty {scopeClassFacts = Map.singleton (CapabilityId (resolvedLocalName CapabilityNamespace (mkIdentifier "Eq"))) 1}
         }
 
 testPublicationRetainsReachablePrivateTypes :: IO ()
