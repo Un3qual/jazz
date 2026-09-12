@@ -23,6 +23,7 @@ import Data.Text
   ( Text,
   )
 import qualified Data.Text as Text
+import Jazz.Compiler.Diagnostics (SourceSpan)
 import Jazz.Compiler.Name
   ( Identifier,
     identifierText,
@@ -105,6 +106,7 @@ import Jazz.Compiler.Parser.TokenParser
     failParserFailure,
     failTokenParser,
     failTokenParserAt,
+    foundToken,
     parseAnyToken,
     parseToken,
     peekToken,
@@ -259,9 +261,6 @@ operatorDeclarationFixityLabel :: OperatorDeclarationFixityKeyword -> Text
 operatorDeclarationFixityLabel keyword = case keyword of
   OperatorTierKeyword -> "tier"
   OperatorPrecedenceKeyword -> "precedence"
-
-foundToken :: Token -> ParserEncountered
-foundToken token = ParserFoundToken (tokenKind token) (tokenLexeme token)
 
 validateDeclaredOperatorSymbol :: OperatorTable -> Token -> Text -> Either ParserFailure ()
 validateDeclaredOperatorSymbol declaredOperators operatorToken declaredSymbol
@@ -425,7 +424,7 @@ parseDataTypeParameters = go Set.empty []
 
 parseDataConstructors :: Identifier -> [Identifier] -> Parser [SurfaceDataConstructor]
 parseDataConstructors typeName parameters = do
-  first <- parseDataConstructor typeName parameterNames
+  (_, first) <- parseDataConstructor typeName parameterNames
   go (Set.singleton (constructorName first)) [first]
   where
     parameterNames = Set.fromList (map identifierText parameters)
@@ -436,20 +435,23 @@ parseDataConstructors typeName parameters = do
         Just Token {tokenKind = TDot} -> reverse reversed <$ parseAnyToken
         Just Token {tokenKind = TOperator "|"} -> do
           _ <- parseAnyToken
-          constructor <- parseDataConstructor typeName parameterNames
+          (constructorSpan, constructor) <- parseDataConstructor typeName parameterNames
           let name = constructorName constructor
           if Set.member name seen
-            then failTokenParser (DeclarationFailure (DuplicateName DataConstructorName name DataDeclaration))
+            then failTokenParserAt constructorSpan (DeclarationFailure (DuplicateName DataConstructorName name DataDeclaration))
             else go (Set.insert name seen) (constructor : reversed)
         Nothing -> failTokenParser (ExpectedSyntax "'.'" (ParserEndOfInputIn "data declaration"))
         Just token -> failTokenParserAt (tokenSpan token) (ExpectedSyntax "'|' or '.'" (foundToken token))
 
-parseDataConstructor :: Identifier -> Set Text -> Parser SurfaceDataConstructor
+parseDataConstructor :: Identifier -> Set Text -> Parser (SourceSpan, SurfaceDataConstructor)
 parseDataConstructor typeName parameters = do
   next <- peekToken
   case next of
-    Just Token {tokenKind = TIdentifier name}
-      | isConstructorIdentifierText name -> parseAnyToken *> (SurfaceDataConstructor (mkIdentifier name) <$> arguments [])
+    Just token@Token {tokenKind = TIdentifier name}
+      | isConstructorIdentifierText name -> do
+          _ <- parseAnyToken
+          fields <- arguments []
+          pure (tokenSpan token, SurfaceDataConstructor (mkIdentifier name) fields)
     Nothing -> failTokenParser (ExpectedSyntax "constructor declaration" (ParserEndOfInputIn "data declaration"))
     Just token -> failTokenParserAt (tokenSpan token) (ExpectedSyntax "constructor declaration" (foundToken token))
   where

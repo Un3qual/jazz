@@ -346,10 +346,11 @@ resolveExprNames context rootExpression = Right (publishResolvedCaptures (resolv
       where
         name :: ResolvedName
         name = operatorBindingName symbol
-        target = case Map.lookup (identifierText name) boundValues of
-          Just _ -> UnresolvedReference name
-          Nothing | isBuiltinOperatorSymbol symbol -> BuiltinOperatorReference symbol
-          Nothing -> UnresolvedReference name
+        target
+          | Map.notMember (identifierText name) boundValues,
+            isBuiltinOperatorSymbol symbol =
+              BuiltinOperatorReference symbol
+          | otherwise = UnresolvedReference name
 
     resolveReferenceNode owner name node =
       (resolveNode owner node) {coreNodeFacts = (emptyResolvedNodeFacts owner) {resolvedNodeReference = Just (referenceTarget owner name)}}

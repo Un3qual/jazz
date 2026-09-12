@@ -59,6 +59,7 @@ import Jazz.Compiler.Parser.TokenParser
   ( Parser,
     failTokenParser,
     failTokenParserAt,
+    foundToken,
     parseAnyToken,
     parseToken,
     peekToken,
@@ -246,9 +247,6 @@ parseImportSymbol = do
       (name, spanValue) <$ parseAnyToken
     Nothing -> failTokenParser (ExpectedSyntax "import symbol" ParserEndOfInput)
     Just token -> failTokenParserAt (tokenSpan token) (ExpectedSyntax "import symbol" (foundToken token))
-
-foundToken :: Token -> ParserEncountered
-foundToken token = ParserFoundToken (tokenKind token) (tokenLexeme token)
 
 registerImportAliases :: Set Text -> [SurfaceStatement] -> Set Text
 registerImportAliases =

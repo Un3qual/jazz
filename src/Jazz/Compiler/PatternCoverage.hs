@@ -19,7 +19,7 @@ import Data.Foldable (asum)
 import Data.List (find, sortOn)
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
-import Data.Maybe (isJust)
+import Data.Maybe (fromMaybe, isJust)
 import qualified Data.Set as Set
 import Data.Text (Text)
 import qualified Data.Text as Text
@@ -600,7 +600,7 @@ instantiateArgument :: Map Text ExpressionType -> ConstructorArgumentType -> Exp
 instantiateArgument typeArguments argument =
   case argument of
     ConstructorArgumentType fieldType ->
-      maybe unknownFieldType id (instantiateDeclarationType typeArguments fieldType)
+      fromMaybe unknownFieldType (instantiateDeclarationType typeArguments fieldType)
     ConstructorArgumentFresh -> unknownFieldType
 
 unknownFieldType :: ExpressionType

@@ -182,11 +182,12 @@ resolveLexicalScopes externalReferences externalNames = expression (Map.mapMaybe
         groups = recursiveScopeGroups recursion
         definitions = Map.fromList [(index, (bindingNode, name)) | (index, SLet bindingNode name _) <- indexed]
         (_, resolvedStatements) = mapAccumL statement bound indexed
-        binderIndices = Map.fromList [(binder, index) | (index, (bindingNode, _)) <- Map.toList definitions, Just binder <- [resolvedNodeBinder (coreNodeFacts bindingNode)]]
+        binderPairs = [(index, binder) | (index, (bindingNode, _)) <- Map.toList definitions, Just binder <- [resolvedNodeBinder (coreNodeFacts bindingNode)]]
+        binderIndices = Map.fromList [(binder, index) | (index, binder) <- binderPairs]
         facts =
           ResolvedScopeFacts
             { resolvedScopeBindingNames = recursiveScopeBindingNames recursion,
-              resolvedScopeBinderIds = Map.fromList [(index, binder) | (index, (bindingNode, _)) <- Map.toList definitions, Just binder <- [resolvedNodeBinder (coreNodeFacts bindingNode)]],
+              resolvedScopeBinderIds = Map.fromList binderPairs,
               resolvedScopeBindingReplacements = Map.fromList [(previousIndex, index) | (index, SLet bindingNode _ _) <- zip [0 ..] resolvedStatements, Just (LexicalReference previous) <- [resolvedNodeShadowedReference (coreNodeFacts bindingNode)], Just previousIndex <- [Map.lookup previous binderIndices]],
               resolvedScopeRecursiveGroups = groups,
               resolvedScopeSelfRecursiveFunctions = inferSelfRecursiveBindings outerNames exprContainsFunctionBranch indexed,

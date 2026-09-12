@@ -1,5 +1,6 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE PatternSynonyms #-}
 
 module Jazz.Compiler.Semantics.Runtime.CapabilitiesTests
   ( capabilityTests,
@@ -51,6 +52,11 @@ import Jazz.Compiler.Runtime
   )
 import Jazz.Compiler.Runtime.Types
   ( RuntimeMethodCandidate (..),
+    filterRuntimeMethodCandidates,
+    runtimeMethodCandidatesInOrder,
+    runtimeMethodIsSelected,
+    selectRuntimeMethodCandidate,
+    pattern VQualifiedMethodApplication,
   )
 import Jazz.Compiler.SemanticFacts
   ( AnalyzedType,
@@ -229,7 +235,8 @@ testSelectedMethodRejectsMismatchedEvidence = do
 testQualifiedMethodCandidateCarriesRuntimeEvidence :: IO ()
 testQualifiedMethodCandidateCarriesRuntimeEvidence =
   case evaluateFixture qualifiedMethodEvidenceExpr of
-    Right (Just methodValue@(VQualifiedMethod _ _ _ candidates _)) -> do
+    Right (Just methodValue@(VQualifiedMethodApplication _ _ _ candidateSet _)) -> do
+      let candidates = runtimeMethodCandidatesInOrder candidateSet
       assertEqual
         "runtime candidate evidence target order"
         [SemanticInt, SemanticBool]
@@ -247,6 +254,17 @@ testQualifiedMethodCandidateCarriesRuntimeEvidence =
         "Int"
         (Text.pack (show methodValue))
       assertEqual "runtime evidence stays non-user-visible" "<function>" (renderRuntimeValue methodValue)
+      case candidates of
+        RuntimeMethodCandidate EvidenceReference {evidenceMethod = Just method} _ : _ ->
+          case selectRuntimeMethodCandidate method candidateSet of
+            Just selected -> do
+              let retained = filterRuntimeMethodCandidates (const True) selected
+                  removed = filterRuntimeMethodCandidates (const False) selected
+              assertEqual "filtering retains the checked selection" True (runtimeMethodIsSelected retained)
+              assertEqual "filtering retains exactly the selected method" [Just method] [evidenceMethod evidence | RuntimeMethodCandidate evidence _ <- runtimeMethodCandidatesInOrder retained]
+              assertEqual "filtering can reject the selected method" 0 (length (runtimeMethodCandidatesInOrder removed))
+            Nothing -> failTest "expected evidence to select its candidate"
+        _ -> failTest "expected a candidate with method evidence"
     Right otherValue ->
       failTest ("expected qualified method runtime itemValue, got " <> Text.pack (show otherValue))
     Left runtimeError ->

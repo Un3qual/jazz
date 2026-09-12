@@ -446,6 +446,9 @@ appendRuntimeMethodCandidate candidate@(RuntimeMethodCandidate evidence _) (Runt
 appendRuntimeMethodCandidate candidate (SelectedRuntimeMethod selected) = runtimeMethodCandidatesFromList [selected, candidate]
 
 filterRuntimeMethodCandidates :: (RuntimeMethodCandidate -> Bool) -> RuntimeMethodCandidates -> RuntimeMethodCandidates
+filterRuntimeMethodCandidates predicate selected@(SelectedRuntimeMethod candidate)
+  | predicate candidate = selected
+  | otherwise = emptyRuntimeMethodCandidates
 filterRuntimeMethodCandidates predicate candidates =
   runtimeMethodCandidatesFromList (filter predicate (runtimeMethodCandidatesInOrder candidates))
 

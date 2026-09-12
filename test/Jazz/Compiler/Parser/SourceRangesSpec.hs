@@ -157,9 +157,13 @@ lambdaExtents = do
     _ -> failTest "expected pattern lambda"
 
 parserDiagnosticRange :: IO ()
-parserDiagnosticRange = case parseSurfaceProgram "[1,\n ] ." of
-  Left diagnostic -> assertEqual "offending delimiter" (Just (SourceRange 2 2 2 3)) (diagnosticPrimarySpan diagnostic)
-  Right _ -> failTest "expected missing list element diagnostic"
+parserDiagnosticRange = do
+  case parseSurfaceProgram "[1,\n ] ." of
+    Left diagnostic -> assertEqual "offending delimiter" (Just (SourceRange 2 2 2 3)) (diagnosticPrimarySpan diagnostic)
+    Right _ -> failTest "expected missing list element diagnostic"
+  case parseSurfaceProgram "data Choice = Same |\n  Same Int." of
+    Left diagnostic -> assertEqual "duplicate constructor name" (Just (SourceRange 2 3 2 7)) (diagnosticPrimarySpan diagnostic)
+    Right _ -> failTest "expected duplicate constructor diagnostic"
 
 typeApplicationExtent :: IO ()
 typeApplicationExtent = expression "f @Bool." $ \value -> do

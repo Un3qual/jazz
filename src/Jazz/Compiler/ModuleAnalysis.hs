@@ -113,7 +113,7 @@ analyzeModule inputs owner hideRootBindings importedInterface resolvedModule = d
   let modulePath = coreModulePath resolvedModule
   (inference, attachment) <-
     analyzeExpressionWithInputs
-      ((moduleInferenceInputs inputs resolvedModule importedInterface) {inferenceCurrentModulePath = case owner modulePath of StandaloneSourceUnit _ -> Nothing; _ -> Just modulePath})
+      (moduleInferenceInputs inputs owner resolvedModule importedInterface)
       hideRootBindings
       (coreModuleExpr resolvedModule)
   maybeAnalyzedExpression <- checkedAttachment modulePath attachment
@@ -144,8 +144,8 @@ checkedAnalyzedModule modulePath result =
     Left failure -> fail ("semantic fact invariant failure in " <> Text.unpack (renderModulePath modulePath) <> ": " <> show failure)
     Right value -> pure value
 
-moduleInferenceInputs :: CompileInputs -> CoreModule 'Resolved -> ImportedInterface -> InferenceInputs
-moduleInferenceInputs inputs resolvedModule importedInterface =
+moduleInferenceInputs :: CompileInputs -> (ModulePath -> SourceUnitOwner) -> CoreModule 'Resolved -> ImportedInterface -> InferenceInputs
+moduleInferenceInputs inputs owner resolvedModule importedInterface =
   InferenceInputs
     { inferencePublicExports = Just (ModuleGraph.resolvedModuleExports (coreModuleFacts resolvedModule)),
       inferenceWarningSettings = compileInputWarningSettings inputs,
@@ -155,8 +155,10 @@ moduleInferenceInputs inputs resolvedModule importedInterface =
       inferenceImportedConstructorWitnessNames = importedConstructorWitnessNames importedInterface,
       inferenceImportedCapabilities = importedCapabilities importedInterface,
       inferenceImportedClassNames = importedClassNames importedInterface,
-      inferenceCurrentModulePath = Just (coreModulePath resolvedModule)
+      inferenceCurrentModulePath = case owner modulePath of StandaloneSourceUnit _ -> Nothing; _ -> Just modulePath
     }
+  where
+    modulePath = coreModulePath resolvedModule
 
 analyzedModuleFromExpression :: CoreModule 'Resolved -> InferenceResult -> Expr 'Analyzed -> Either SemanticFactInvariantFailure (CoreModule 'Analyzed)
 analyzedModuleFromExpression resolvedModule inference analyzedExpression =

@@ -211,7 +211,7 @@ explicitInstantiationFacts nodeId expression instantiation evidence =
                 ExplicitQualifiedMethodInstantiation _ ->
                   case (resolvedReference function, evidence) of
                     (Just (CapabilityMethodReference capability method), Just _) ->
-                      pure [SemanticInstantiation (MethodInstantiation capability method) resolvedArguments]
+                      pure [SemanticInstantiation (MethodInstantiation (capability, method)) resolvedArguments]
                     (_, Nothing) -> missing (MissingExpressionEvidence nodeId)
                     (_, Just _) -> missing (UnexpectedExplicitInstantiationSeed nodeId)
       where

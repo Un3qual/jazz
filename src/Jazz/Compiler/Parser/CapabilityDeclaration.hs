@@ -60,7 +60,7 @@ import Jazz.Compiler.Parser.Signature
     parseSignaturePayloadDetailed,
     splitTopLevelCommaTokensDetailed,
   )
-import Jazz.Compiler.Parser.TokenParser (Parser, failParserFailure, failTokenParser, failTokenParserAt, parseAnyToken, parseToken, peekToken)
+import Jazz.Compiler.Parser.TokenParser (Parser, failParserFailure, failTokenParser, failTokenParserAt, foundToken, parseAnyToken, parseToken, peekToken)
 import Jazz.Compiler.Parser.TokenStream
   ( TokenStream,
     pattern EmptyTokens,
@@ -212,9 +212,6 @@ parseImplBody expression declaration seen reversed = do
     Token {tokenKind = TIdentifier name, tokenSpan = spanValue} :< Token {tokenKind = TColonColon} :< _ ->
       failTokenParserAt spanValue (DeclarationFailure (ExpectedOrdinaryImplMethodBinding name))
     token :< _ -> failTokenParserAt (tokenSpan token) (ExpectedSyntax "ordinary method binding or '}' in impl declaration body" (foundToken token))
-
-foundToken :: Token -> ParserEncountered
-foundToken token = ParserFoundToken (tokenKind token) (tokenLexeme token)
 
 surfaceConcreteImplArguments :: [SurfaceSignatureType] -> Bool
 surfaceConcreteImplArguments arguments =
