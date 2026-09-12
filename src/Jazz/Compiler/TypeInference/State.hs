@@ -21,7 +21,6 @@ module Jazz.Compiler.TypeInference.State
     inferDeferredExplicitConstraints,
     inferErrorCount,
     inferErrorsRev,
-    inferGeneratedEqualityClassFacts,
     inferInferredClassConstraintCount,
     inferInferredClassConstraints,
     inferModuleCapabilityFacts,
@@ -214,9 +213,6 @@ inferDataTypes = declarationDataTypes . inferDeclarations
 
 inferClassFacts :: InferState -> Map CapabilityId Int
 inferClassFacts = scopeClassFacts . declarationCapabilities . inferDeclarations
-
-inferGeneratedEqualityClassFacts :: InferState -> Set CapabilityId
-inferGeneratedEqualityClassFacts = scopeGeneratedEqualityClassFacts . declarationCapabilities . inferDeclarations
 
 inferConcreteImplFacts :: InferState -> Set ConcreteImplFact
 inferConcreteImplFacts = scopeConcreteImplFacts . declarationCapabilities . inferDeclarations

@@ -778,11 +778,11 @@ module ParserDeclaration (
     })
     tokenPeek.
 
-  parseDataConstructor :: Text -> Set(Text) -> TokenParser(SurfaceDataConstructor).
+  parseDataConstructor :: Text -> Set(Text) -> TokenParser((CanonicalSpan, SurfaceDataConstructor)).
   parseDataConstructor = \(typeName, typeParameters) -> tokenAndThen
     (\(constructorToken) -> case canonicalTokenKind constructorToken {
       | IdentifierKind constructorName -> tokenAndThen
-        (\(arguments) -> tokenSucceed (SurfaceDataConstructor constructorName arguments))
+        (\(arguments) -> tokenSucceed (canonicalTokenSpan constructorToken, SurfaceDataConstructor constructorName arguments))
         (parseDataConstructorArguments typeName typeParameters [])
       | other -> tokenFailAtSpan
         (canonicalTokenSpan constructorToken)
@@ -806,15 +806,17 @@ module ParserDeclaration (
         | OperatorKind symbol -> if symbol == "|" then tokenKeepRight
           dataPipe
           (tokenAndThen
-            (\(constructor) -> {
-              name = dataConstructorName constructor.
-              if setContains seen name then tokenFailAt Nothing
-                (DeclarationFailure (DuplicateName DataConstructorName name DataDeclaration))
-                else parseDataConstructorTail
-                  typeName
-                  typeParameters
-                  (setInsert seen name)
-                  (listPrepend constructor reversed).
+            (\(locatedConstructor) -> case locatedConstructor {
+              | (constructorSpan, constructor) -> {
+                name = dataConstructorName constructor.
+                if setContains seen name then tokenFailAtSpan constructorSpan
+                  (DeclarationFailure (DuplicateName DataConstructorName name DataDeclaration))
+                  else parseDataConstructorTail
+                    typeName
+                    typeParameters
+                    (setInsert seen name)
+                    (listPrepend constructor reversed).
+              }
             })
             (parseDataConstructor typeName typeParameters))
           else tokenFailAtSpan
@@ -829,9 +831,11 @@ module ParserDeclaration (
 
   parseDataConstructors :: Text -> Set(Text) -> TokenParser([SurfaceDataConstructor]).
   parseDataConstructors = \(typeName, typeParameters) -> tokenAndThen
-    (\(first) -> {
-      name = dataConstructorName first.
-      parseDataConstructorTail typeName typeParameters (setInsert setEmpty name) [first].
+    (\(locatedFirst) -> case locatedFirst {
+      | (_, first) -> {
+        name = dataConstructorName first.
+        parseDataConstructorTail typeName typeParameters (setInsert setEmpty name) [first].
+      }
     })
     (parseDataConstructor typeName typeParameters).
 
