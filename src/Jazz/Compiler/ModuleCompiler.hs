@@ -112,7 +112,8 @@ analyzeProgram inputs resolvedProgram =
           _ -> warning
         extraWarnings =
           [ mkSameScopeRebindingWarning (identifierText name) (coreNodeSpan node) previousSpan
-          | SLet node name _ <- ModuleGraph.coreModuleStatements resolvedModule,
+          | statement <- ModuleGraph.coreModuleStatements resolvedModule,
+            (node, name) <- declarationBindings statement,
             Just (LexicalReference previous) <- [resolvedNodeShadowedReference (coreNodeFacts node)],
             Just previousSpan <- [Map.lookup previous preludeBindingSpans]
           ]
@@ -120,12 +121,12 @@ analyzeProgram inputs resolvedProgram =
       Map.fromList
         [ (binder, coreNodeSpan node)
         | prelude <- maybe [] (pure . ModuleGraph.coreModuleStatements) (ModuleGraph.preludeModule (coreProgramPrelude resolvedProgram)),
-          node <- concatMap declarationNodes prelude,
+          (node, _) <- concatMap declarationBindings prelude,
           Just binder <- [resolvedNodeBinder (coreNodeFacts node)]
         ]
-    declarationNodes (SLet node _ _) = [node]
-    declarationNodes (SData _ _ _ constructors) = [node | DataConstructor node _ _ <- constructors]
-    declarationNodes _ = []
+    declarationBindings (SLet node name _) = [(node, name)]
+    declarationBindings (SData _ _ _ constructors) = [(node, name) | DataConstructor node name _ <- constructors]
+    declarationBindings _ = []
 
 analyzePrelude :: CompileInputs -> PreludeArtifact 'Resolved -> IO (CompilationDiagnostics, Maybe (PreludeArtifact 'Analyzed), ImportedInterface)
 analyzePrelude inputs prelude =

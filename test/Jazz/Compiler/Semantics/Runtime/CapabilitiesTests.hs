@@ -54,6 +54,7 @@ import Jazz.Compiler.Runtime
 import Jazz.Compiler.Runtime.Semantics (applyRuntimeTypeHint, runtimeValueMatchesConstraint)
 import Jazz.Compiler.Runtime.Types
   ( RuntimeMethodCandidate (..),
+    appendRuntimeMethodCandidate,
     filterRuntimeMethodCandidates,
     runtimeMethodCandidatesInOrder,
     runtimeMethodIsSelected,
@@ -309,7 +310,7 @@ testQualifiedMethodCandidateCarriesRuntimeEvidence =
         (Text.pack (show methodValue))
       assertEqual "runtime evidence stays non-user-visible" "<function>" (renderRuntimeValue methodValue)
       case candidates of
-        RuntimeMethodCandidate EvidenceReference {evidenceMethod = Just method} _ : _ ->
+        RuntimeMethodCandidate EvidenceReference {evidenceMethod = Just method} _ : additional : _ ->
           case selectRuntimeMethodCandidate method candidateSet of
             Just selected -> do
               let retained = filterRuntimeMethodCandidates (const True) selected
@@ -317,6 +318,9 @@ testQualifiedMethodCandidateCarriesRuntimeEvidence =
               assertEqual "filtering retains the checked selection" True (runtimeMethodIsSelected retained)
               assertEqual "filtering retains exactly the selected method" [Just method] [evidenceMethod evidence | RuntimeMethodCandidate evidence _ <- runtimeMethodCandidatesInOrder retained]
               assertEqual "filtering can reject the selected method" 0 (length (runtimeMethodCandidatesInOrder removed))
+              let extended = appendRuntimeMethodCandidate additional selected
+              assertEqual "adding an implementation retains the checked selection" True (runtimeMethodIsSelected extended)
+              assertEqual "adding an implementation retains exactly the selected method" [Just method] [evidenceMethod evidence | RuntimeMethodCandidate evidence _ <- runtimeMethodCandidatesInOrder extended]
             Nothing -> failTest "expected evidence to select its candidate"
         _ -> failTest "expected a candidate with method evidence"
     Right otherValue ->

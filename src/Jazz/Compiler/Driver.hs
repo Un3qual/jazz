@@ -471,7 +471,9 @@ buildAnalyzedSourceProgram settings resolvedPrelude expression =
         resolveStandaloneProgram prelude (preparedPreludeVisibleExports preparedPrelude) expression of
         Left diagnostic -> pure (Left diagnostic)
         Right program -> do
-          (diagnostics, analyzed) <- analyzeProgram (emptyCompileInputs settings) program
+          (diagnostics, analyzed) <-
+            withCompilerStageResult RuntimePreparationStage (evaluate . forceAnalyzedProgramResult) $
+              analyzeProgram (emptyCompileInputs settings) program
           pure (Right (program, diagnostics, analyzed))
 
 buildAnalyzedProgram ::

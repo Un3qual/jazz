@@ -21,7 +21,7 @@ import Data.List (partition, sortOn, union)
 import qualified Data.List.NonEmpty as NonEmpty
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
-import Data.Maybe (isJust)
+import Data.Maybe (isJust, isNothing)
 import Data.Set (Set)
 import qualified Data.Set as Set
 import Data.Text (Text)
@@ -199,7 +199,10 @@ analyzedImport importDecl =
 
 dependencyImportInterface :: ValidatedImportScope -> ModulePath -> ModuleInterface -> ImportedInterface
 dependencyImportInterface scope path interface =
-  foldMap (\(alias, selected) -> importSelectedInterface (ImportedModule path) alias selected interface) (dependencyImportViews path scope)
+  -- Prefer a qualified witness when available: local declarations can shadow
+  -- the unqualified spelling. Alias order must not depend on import order.
+  foldMap (\(alias, selected) -> importSelectedInterface (ImportedModule path) alias selected interface) $
+    sortOn (\(alias, _) -> (isNothing alias, alias)) (dependencyImportViews path scope)
 
 data ImportedInterface = ImportedInterface
   { importedTypes :: Map TypeEnvKey (SemanticBinding DeclarationVariable),

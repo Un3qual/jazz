@@ -441,7 +441,7 @@ emptyRuntimeMethodCandidates = RuntimeMethodCandidates Seq.empty Map.empty
 appendRuntimeMethodCandidate :: RuntimeMethodCandidate -> RuntimeMethodCandidates -> RuntimeMethodCandidates
 appendRuntimeMethodCandidate candidate@(RuntimeMethodCandidate evidence _) (RuntimeMethodCandidates candidates index) =
   RuntimeMethodCandidates (candidates Seq.|> candidate) (maybe index (\method -> Map.insertWith (\_ existing -> existing) method candidate index) (evidenceMethod evidence))
-appendRuntimeMethodCandidate candidate (SelectedRuntimeMethod selected) = runtimeMethodCandidatesFromList [selected, candidate]
+appendRuntimeMethodCandidate _ selected@SelectedRuntimeMethod {} = selected
 
 filterRuntimeMethodCandidates :: (RuntimeMethodCandidate -> Bool) -> RuntimeMethodCandidates -> RuntimeMethodCandidates
 filterRuntimeMethodCandidates predicate selected@(SelectedRuntimeMethod candidate)

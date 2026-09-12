@@ -65,6 +65,7 @@ visibilityTests =
     ("run module graph keeps alias-hidden data constructor from shadowing prelude", testRunModuleGraphAliasHiddenDataConstructorUsesPrelude),
     ("run module graph resolves qualified alias data constructor lookup", testRunModuleGraphQualifiedAliasDataConstructorLookup),
     ("compile module graph qualifies alias-only pattern coverage witnesses", testCompileModuleGraphQualifiesAliasOnlyPatternCoverageWitness),
+    ("mixed imports retain qualified coverage witnesses regardless of order", testMixedImportCoverageWitness),
     ("compile module graph hides shadowed imported constructor witnesses", testCompileModuleGraphHidesShadowedImportedConstructorWitness),
     ("compile module graph retains visible constructor payload coverage", testCompileModuleGraphRetainsVisibleConstructorPayloadCoverage),
     ("compile module graph preserves alias-qualified generic constructor schemes", testCompileModuleGraphPreservesAliasQualifiedGenericConstructorSchemes),
@@ -707,6 +708,29 @@ testCompileModuleGraphQualifiesAliasOnlyPatternCoverageWitness = do
           ("src/Lib/Choice.jz", "data Choice = Second Int | Third.")
         ]
     lookupSource path = pure (Map.lookup path sourceMap)
+
+testMixedImportCoverageWitness :: IO ()
+testMixedImportCoverageWitness =
+  mapM_
+    checkImports
+    [ "import Lib::Choice. import Lib::Choice as Choice.",
+      "import Lib::Choice as Choice. import Lib::Choice."
+    ]
+  where
+    checkImports imports = do
+      let sourceMap =
+            Map.fromList
+              [ ( "src/App/Main.jz",
+                  imports <> " data Other = Second. selected = Choice::First. case selected { | First -> 0 }."
+                ),
+                ("src/Lib/Choice.jz", "data Choice = First | Second.")
+              ]
+      result <- compileModuleGraphWithPrelude defaultWarningSettings Nothing resolverConfig ["App", "Main"] (pure . (`Map.lookup` sourceMap))
+      case compileErrors result of
+        [diagnostic] -> do
+          assertContains "mixed-import coverage code" "E2018" (renderDiagnostic diagnostic)
+          assertContains "accessible qualified witness" "missing pattern: Choice::Second" (renderDiagnostic diagnostic)
+        diagnostics -> failTest ("expected one qualified coverage diagnostic, got " <> Text.pack (show diagnostics))
 
 testCompileModuleGraphHidesShadowedImportedConstructorWitness :: IO ()
 testCompileModuleGraphHidesShadowedImportedConstructorWitness = do
