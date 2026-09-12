@@ -1,6 +1,6 @@
 ---
 id: JN-COMPILER-ARCHITECTURE-CLOSEOUT-001
-status: ready
+status: complete
 priority: P1
 size: L
 kind: impl
@@ -30,7 +30,7 @@ supersedes: []
 
 **Spec:** [Validated audit findings](2026-09-10-compiler-architecture-validation.md), together with the target contracts and preservation rules below. The report preserves the disposition of all three input audits. The two Luna drafts were withdrawn after validation; their rejected or qualified recommendations are not implementation guidance.
 
-**Status:** Execution requested on 2026-09-11. T14 is the active bounded milestone in the execution queue. Execute the remaining tasks inline in dependency order; promote the next milestone when its prerequisites pass.
+**Status:** T01–T14, including T11a/T11b/T11c, are complete on 2026-09-11. The implementation was executed inline. The final correctness matrix has 54 passing suites and the same ten maintainer-deferred RFC 0017 hosted-parser failures in one suite. Benchmark comparisons and performance execution are excluded under the maintainer override; the retained storage decision is recorded under T13.
 
 **Existing architecture decision:** [RFC 0016](../../rfcs/accepted/0016-optional-backend-removal.md) explicitly says to keep “attached analysis facts, and runtime plans.” Direct construction still retains attached facts, but T11a proposes changing the retained runtime-plan contract. Approval of this plan should therefore include that specific architectural decision and a narrow amendment through the repository's RFC process before removal. This is a dependency of T11a, not a reason to block unrelated tasks or ask for another confirmation while preparing this plan. If runtime plans are to remain, retain the small sequence and pursue direct identity/ownership improvements around it; do not claim its deletion completed.
 
@@ -381,14 +381,14 @@ The table is a dependency order, not a request for parallel agents. Work inline.
 
 **Files:** `src/Jazz/Compiler/Driver.hs`, `src/Jazz/Compiler/ModuleGraph.hs`, `src/Jazz/Compiler/ModuleCompiler.hs`, `src/Jazz/Compiler/ModuleAnalysis.hs`, `src/Jazz/Compiler/ModuleRuntime.hs`, `src/Jazz/Compiler/TypeInference/{Result,State,Analyzed}.hs`, `src/Jazz/Compiler/Runtime/{Request,Outcome,Observation}.hs`, `src/Jazz/CLI/Main.hs`, `jazz.cabal`; affected tests and the compiler stage documentation.
 
-- [ ] Move analyzed-program diagnostic queries out of `ModuleCompiler` into the analyzed graph/artifact owner. Remove the runtime's import of the compiler coordinator.
-- [ ] Keep artifact-local diagnostics and an ordered failure-capable compilation result. Deduplicate projection/assembly code where present; do not lose diagnostics because a failed module has no analyzed artifact.
-- [ ] Route convenience Driver entrypoints through the unified program path and existing common result assembler. Remove obsolete internal option combinations and positional parameters. Keep cheap public adapters that real callers use.
-- [ ] Retain runtime control, outcome, observation report, and run-status roles. Remove only adapters with no caller or now-identical internal assembly, preserving compile-not-run, valueless success, explicit exit, and runtime failure.
-- [ ] Remove dead exports, compatibility records, old attachment entrypoints, identity rebase helpers, and obsolete source-shape branches. Check consumers in tests, CLI, and benchmarks before deletion.
-- [ ] Update module comments and compiler-stage documentation around ownership and flow. Split a central file only if it separates an actual transformation; do not replace one hub with many pass-through modules.
-- [ ] Run final gates below, review the full diff for semantic changes and stale compatibility paths, and record actual source/file/line changes and benchmark comparisons.
-- [ ] Commit closeout. Only mark the architecture milestone complete if every accepted finding has either met its deletion criterion or has an explicit measured/semantic retention decision.
+- [x] Move analyzed-program diagnostic queries out of `ModuleCompiler` into the analyzed graph/artifact owner. Remove the runtime's import of the compiler coordinator.
+- [x] Keep artifact-local diagnostics and an ordered failure-capable compilation result. Deduplicate projection/assembly code where present; do not lose diagnostics because a failed module has no analyzed artifact.
+- [x] Route convenience Driver entrypoints through the unified program path and existing common result assembler. Remove obsolete internal option combinations and positional parameters. Keep cheap public adapters that real callers use.
+- [x] Retain runtime control, outcome, observation report, and run-status roles. Remove only adapters with no caller or now-identical internal assembly, preserving compile-not-run, valueless success, explicit exit, and runtime failure.
+- [x] Remove dead exports, compatibility records, old attachment entrypoints, identity rebase helpers, and obsolete source-shape branches. Check consumers in tests, CLI, and benchmarks before deletion.
+- [x] Update module comments and compiler-stage documentation around ownership and flow. Split a central file only if it separates an actual transformation; do not replace one hub with many pass-through modules.
+- [x] Run final gates below, review the full diff for semantic changes and stale compatibility paths, and record actual source/file/line changes and benchmark comparisons.
+- [x] Commit closeout. Only mark the architecture milestone complete if every accepted finding has either met its deletion criterion or has an explicit measured/semantic retention decision.
 
 **Deletion criterion:** The compiler's main path is visible from program construction through resolution, checking, and execution; each old recovery protocol has been removed or narrowly justified. No permanent alternate pipeline was added.
 
@@ -440,14 +440,14 @@ Use `--jazz-case` or `--jazz-scale-case` with exact identifiers selected from th
 
 Before each milestone commit:
 
-- [ ] Required focused tests pass; failures are explained rather than skipped.
-- [ ] Changed Haskell files pass `scripts/check-haskell-format.sh` and the repository lint checks used by CI.
-- [ ] `git diff --check` passes.
-- [ ] The task's old mechanism is removed, or the task is explicitly incomplete.
-- [ ] New nominal IDs preserve diagnostic spelling and source-unit ownership.
-- [ ] No temporary adapter has become an untracked permanent compatibility API.
+- [x] Required focused tests pass; failures are explained rather than skipped.
+- [x] Changed Haskell files pass `scripts/check-haskell-format.sh` and the repository lint checks used by CI.
+- [x] `git diff --check` passes.
+- [x] The task's old mechanism is removed, or the task is explicitly incomplete.
+- [x] New nominal IDs preserve diagnostic spelling and source-unit ownership.
+- [x] No temporary adapter has become an untracked permanent compatibility API.
 
-Final closeout additionally runs the full default test suite, the enabled parser-scale suites applicable to parser changes, benchmark smoke, changed-path documentation checks, and the repository's current CI checks. Inspect current CI configuration at execution time for exact flags; this plan does not invent a second quality pipeline.
+Final closeout uses the non-performance subset of the current CI gates under the maintainer override: all 55 eligible correctness suites, explicit `--skip-performance` for embedded cases, complete compile-only API coverage, production/full Weeder, formatting/lint, package metadata, examples, and documentation/repository policy checks. Benchmark smoke, resource-budget, profiling/observation, and parser-scale execution are excluded. This replaces the original full-default/performance gate for this rewrite; no post-closeout benchmark run is requested.
 
 ## Rejected work and decisions that need separate scope
 
@@ -495,19 +495,19 @@ Documentation verification at plan completion checks local evidence targets/line
 - Compiler inventory: 88 Haskell files / 37,171 physical lines in `src/Jazz/Compiler`, exactly matching the audit. Toolchain: GHC 9.14.1, cabal-install 3.16.1.0; ordinary build profile `-O1`.
 - Preservation coverage inventory (existing tests retained; no redundant snapshot framework or test-only commit):
 
-  | Contract | Verified existing coverage |
-  | --- | --- |
+  | Contract                                                                                    | Verified existing coverage                                                                                                                                                                                                                                    |
+  | ------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
   | Lexical identity, builtin/import shadowing, ordered quantification, definition-site schemes | `ModulePipelineContractSpec`: `testLexicalBindersShadowImportedAndBuiltinNames`, `testExplicitInstantiationBinderShadowing`, `testExplicitOperatorInstantiationBinder`, `testStatementSchemesAreDefinitionSiteFacts`; binding-signature `GeneralizationTests` |
-  | Recursion, interleaved groups, rebinding, pattern captures | `RecursiveBindingsSpec` nearest-prior, conditional-alias, nested-pattern and group cases; binding-signature `RecursionTests`; runtime semantics component suites |
-  | Checked facts, numeric operation choice, literal ranges, declaration execution | `ModulePipelineContractSpec`: completeness, binary alias selection, literal-range facts, runtime source-type erasure, generic constructor fields; primitive-semantics suites |
-  | ADT patterns, guards, coverage | `adt-pattern-type-spec`, `adt-pattern-runtime-spec`, `pattern-semantics-spec`, `pattern-coverage-spec` |
-  | Namespace exports, aliases, private/transitive visibility | `ModulePipelineContractSpec` explicit/namespace-selected exports and transitive non-leakage; loader `AliasClassTests`, `VisibilityTests`, `CapabilitiesTests` |
-  | Pure/host parity, source ownership, skipped dependency expressions | `ModulePipelineContractSpec`: `testModuleRuntimePathParity`, `testDependencyExpressionContract`, `testAnalyzedDependencyTerminalExpressionIsSkipped`, `testSourcePathContract`; `prelude-loading-spec` and `cli-spec` |
-  | Deterministic host trace and force caching | `ModulePipelineContractSpec.testModuleGraphInjectsRuntimeHost` injects `recordingHost` and checks exact call order; observation `StatisticsTests` checks deferred cache hits/misses and recursion |
-  | Value, valueless completion, exit, failure, no execution | `ModulePipelineContractSpec.testRunResultProjectionInvariants`, runtime `OutcomeTests`, observation/CLI exit and failure cases |
-  | Observation semantics and profile finalization | `StatisticsTests` disabled-result parity and retained failure reports; `ProfileTests` balanced frames, determinism and incomplete failure profiles; CLI exit finalization |
-  | Grammar, exact ranges, diagnostics and warning policy | `SourceRangesSpec`; loader `AliasClassTests.testDiagnosticComponents` already distinguishes a type argument from a repeated same-spelled class head, including parentheses; structured diagnostics, warning configuration and rebinding suites |
-  | Hosted compatibility | Existing canonical lexer/parser/core comparison and Jazz parser parity suites run in the default test gate |
+  | Recursion, interleaved groups, rebinding, pattern captures                                  | `RecursiveBindingsSpec` nearest-prior, conditional-alias, nested-pattern and group cases; binding-signature `RecursionTests`; runtime semantics component suites                                                                                              |
+  | Checked facts, numeric operation choice, literal ranges, declaration execution              | `ModulePipelineContractSpec`: completeness, binary alias selection, literal-range facts, runtime source-type erasure, generic constructor fields; primitive-semantics suites                                                                                  |
+  | ADT patterns, guards, coverage                                                              | `adt-pattern-type-spec`, `adt-pattern-runtime-spec`, `pattern-semantics-spec`, `pattern-coverage-spec`                                                                                                                                                        |
+  | Namespace exports, aliases, private/transitive visibility                                   | `ModulePipelineContractSpec` explicit/namespace-selected exports and transitive non-leakage; loader `AliasClassTests`, `VisibilityTests`, `CapabilitiesTests`                                                                                                 |
+  | Pure/host parity, source ownership, skipped dependency expressions                          | `ModulePipelineContractSpec`: `testModuleRuntimePathParity`, `testDependencyExpressionContract`, `testAnalyzedDependencyTerminalExpressionIsSkipped`, `testSourcePathContract`; `prelude-loading-spec` and `cli-spec`                                         |
+  | Deterministic host trace and force caching                                                  | `ModulePipelineContractSpec.testModuleGraphInjectsRuntimeHost` injects `recordingHost` and checks exact call order; observation `StatisticsTests` checks deferred cache hits/misses and recursion                                                             |
+  | Value, valueless completion, exit, failure, no execution                                    | `ModulePipelineContractSpec.testRunResultProjectionInvariants`, runtime `OutcomeTests`, observation/CLI exit and failure cases                                                                                                                                |
+  | Observation semantics and profile finalization                                              | `StatisticsTests` disabled-result parity and retained failure reports; `ProfileTests` balanced frames, determinism and incomplete failure profiles; CLI exit finalization                                                                                     |
+  | Grammar, exact ranges, diagnostics and warning policy                                       | `SourceRangesSpec`; loader `AliasClassTests.testDiagnosticComponents` already distinguishes a type argument from a repeated same-spelled class head, including parentheses; structured diagnostics, warning configuration and rebinding suites                |
+  | Hosted compatibility                                                                        | Existing canonical lexer/parser/core comparison and Jazz parser parity suites run in the default test gate                                                                                                                                                    |
 
 - Baseline result: 61 of 62 default suites pass. `jazz-parser-types-declarations-modules-spec` reports the same ten qualified-name/signature parity failures recorded in the RFC 0017 implementation plan's "Deferred hosted parity" section. No compiler or hosted source was modified. The initial `cabal test all` stopped after that failure; the 22 not-yet-completed suites then passed using `cabal test <remaining suites> --keep-going --test-show-details=failures --jobs=4`, with output in `/private/tmp/jazz-architecture-t01-remaining.log`.
 - These are explicitly pre-existing, maintainer-deferred bootstrap failures, not a new regression or a green full-suite claim. Preserve the exact failure set while executing the Haskell architecture work; do not change the hosted grammar to hide the baseline.
@@ -520,14 +520,12 @@ Documentation verification at plan completion checks local evidence targets/line
 - Existing parser fixtures now include actual retained locations; the structured constructor fixture distinguishes repeated `Tree` occurrences. Existing alias-class diagnostic tests already cover same-spelled type arguments and class constraints, so no redundant test was added.
 - Verification: focused resolver, loader, source-range, structured-diagnostic and canonical compatibility suites passed. Full `cabal test all --keep-going --test-show-details=failures --jobs=4` plus the corrected ADT parser fixture rerun retains 61 passing suites and exactly the same ten deferred hosted-parser failures. Logs: `/private/tmp/jazz-architecture-t02-full.log`, `/private/tmp/jazz-architecture-t02-adt.log`. Ormolu, changed-file HLint and `git diff --check` pass.
 
-
 ### T03 — native declaration parser control (complete, 2026-09-11)
 
 - Migrated modules/imports (`9921a2a5`), bindings/signatures (`ee6f7b30`), and classes/implementations (`977f0372`) through the existing Megaparsec parser. The final slice moves data and operator declarations and deletes the last consumed-token adapters.
 - Preserved the existing signature/alias classification, parser commitment, source spans, and structured error causes. Bounded signature payload inspection remains pure; declaration parsing no longer re-enters a token-stream runner.
 - All 61 previously passing default suites pass; the same ten RFC 0017 hosted-parser cases fail. Default parser scale and opt-in full declaration/expression suites pass. Stopped the two remaining opt-in hosted resource-statistics suites in accordance with the maintainer's request to focus on code. They are not claimed as passing.
 - Verification: changed-file HLint and Ormolu; focused declaration, operator, import, canonical parser and ADT suites; full default-suite results captured in `/private/tmp/jazz-architecture-t03-full.log` with the opt-in results above. The maintainer subsequently specified that no benchmark or performance tests may run until the ENTIRE plan is complete; implementation verification uses focused correctness suites only.
-
 
 ### T04 — resolved declaration identities (complete, 2026-09-11)
 
@@ -537,7 +535,6 @@ Documentation verification at plan completion checks local evidence targets/line
 - Preserved constructor-before-value rebinding, kernel uses before prelude bridge declarations, and conditional self-reference identity without granting an eager initializer a recursive runtime cell. Existing loader/runtime tests caught and verified these distinctions. Added one resolution-boundary case covering rebinding, lambda shadowing, and three source-owner categories sharing a display path.
 - Verification: name semantics, recursive bindings, binding/signature coherence, module pipeline contracts, loader, prelude loading, runtime semantics, and ADT runtime suites pass. The final runtime correctness run explicitly excludes timing and deep-recursion scale groups through `--skip-performance`; default test coverage remains available for final-plan verification. Changed Haskell files pass Ormolu/HLint and the diff whitespace check.
 - Logs: `/private/tmp/jazz-architecture-t04-correctness.log`, `/private/tmp/jazz-architecture-t04-runtime-correctness.log`. No benchmark or performance tests are authorized during the remaining implementation milestones; always pass `--skip-performance` when running runtime semantics and leave parser scale/resource-statistics suites until the ENTIRE plan is complete.
-
 
 ### T05 — lexical consumers (complete, 2026-09-11)
 
@@ -595,7 +592,6 @@ Documentation verification at plan completion checks local evidence targets/line
 
 - T06 complete: compilation diagnostics retain warnings, scope errors, type errors, and coverage errors separately until the coordinator combines artifacts. Standalone prelude/source diagnostics preserve their previous phase order and coverage suppression; named graph ordering remains artifact-local. Added a cross-artifact scope/type error case to the existing prelude-failure test.
 - Final focused correctness verification: prelude, module pipeline, rebinding, structured diagnostics, and binding/signature coherence pass. Earlier T06 runs also passed loader, CLI, name semantics, and runtime correctness with performance disabled. All test targets compile, including compile-only observation/profiling/harness compatibility updates. No performance tests ran. Final logs: `/private/tmp/jazz-architecture-t06-diagnostic-order-prelude.log`, `/private/tmp/jazz-architecture-t06-diagnostic-phases-pipeline.log`, `/private/tmp/jazz-architecture-t06-diagnostic-phases.log` (three suites pass; the two build-only import/name warnings were fixed and verified in the final reruns). HLint and diff whitespace checks pass.
-
 
 ### T07 — normalized declarations (complete, 2026-09-11)
 
@@ -718,3 +714,13 @@ Documentation verification at plan completion checks local evidence targets/line
 - Analyzed-program diagnostics and standalone artifact classification now belong to `ModuleGraph`, removing the runtime's dependency on `ModuleCompiler` and source construction. The compiler still accumulates diagnostics for failed modules independently of successful artifacts.
 - Removed import fact seed transport, the remaining statement-ID fact join, and duplicate standalone/module attachment orchestration. Each resolved import directly publishes its own analyzed declaration. Updated compiler stage documentation to describe identity, checked-tree ownership, and shared execution.
 - Module pipeline, loader, prelude, structured diagnostics, and runtime correctness pass in `/private/tmp/jazz-t14-phase-cleanup.log`. That command also accidentally launched `stdlib-spec`, which ignored the supplied performance opt-out; it was interrupted immediately after discovering bundled scale/work-budget cases. Added an explicit `--skip-performance` opt-out to the standard-library suite, preserving all default tests. Its correctness-only rerun passes in `/private/tmp/jazz-t14-stdlib-correctness.log`. Full HLint and formatting checks pass. No further performance tests are permitted during closeout; all benchmark, profiling, parser-scale, and corpus-budget suites remain excluded. T14 remains active for unused-code checks and the final correctness matrix.
+
+### T14 closeout
+
+- Removed unused Driver attachment, recursion-capture, inference, and runtime adapters, obsolete fields and instances, and stale lint/Weeder entries. Retained compiler inspection APIs have actual test/tooling consumers. The full build covers the executable, all 66 suites (including opt-in parser components), and the benchmark executable; only correctness tests execute.
+- Final-matrix review found and fixed two new regressions: resolver peer insertion now preserves a declaration-site outer binding instead of replacing it with a later recursive peer, and compiler partial lookups are replaced by total projection/allocation and explicit malformed-fact rejection. The existing lambda regression and repository totality policy pass. Checked-tree boundary tests cover absent references, lambda binders, and lexical scope facts. Scope preparation returns an explicit failure to both compiler and runtime callers.
+- The focused lambda, repository audit, module pipeline, and binding/signature suites pass (`/private/tmp/jazz-t14-final-fixes.log`). Complete API compilation, full Weeder, and generated invariants pass (`/private/tmp/jazz-t14-quality-closeout.log`). Full and production-only Weeder, `cabal check`, all five executable examples, and executable public-documentation checks pass (`/private/tmp/jazz-t14-final-tools.log`). Production Weeder uses 94 freshly built library/CLI HIE files, excluding test roots.
+- Final correctness matrix: 54 of 55 eligible suites pass (`/private/tmp/jazz-t14-correctness-final.log`). The sole failing suite is `jazz-parser-types-declarations-modules-spec`; its ten failing case names exactly match the pre-existing, maintainer-deferred RFC 0017 failures. No new failures remain. `runtime-semantics-spec`, `pattern-coverage-spec`, and `stdlib-spec` use `--skip-performance`. Runtime-observation, profiling, benchmark, program-corpus resource-budget, lexer-scale parity, and every parser-scale suite are excluded from execution. The earlier interrupted standard-library launch is disclosed in the preceding note.
+- Ormolu checks all 109 changed Haskell files. Full HLint passes after fixing its three reported hints; CI policy/action lint, RFC/documentation/stdlib API/authority/queue checks and their checker regressions pass. The final documentation checks are recorded in `/private/tmp/jazz-t14-docs-closeout.log`. The platform-specific release artifact verification test remains skipped on macOS.
+- Source delta against `2695289b1e9a7555855eb6b00147a478ae010c6d`: 61 changed files, 5,466 added lines, 8,268 removed lines, net -2,802 across `src/`, `jazz/`, and `app/`; 110 changed files, 6,786 added lines, 9,374 removed lines, net -2,588 including `test/` and `jazz.cabal`. Five concrete ownership modules were added and the old inference evidence module was deleted. There is no line-count target or performance claim.
+- Code closeout is committed at `f58dbb8f`, following `df5dcd04` for artifact/diagnostic ownership. T01–T14 deletion criteria are met. Retentions are explicit: graph sequence/index, export discovery inventory versus typed public interface, private nominal declarations, semantic annotations and dynamic dispatch, distinct runtime outcomes, and existing pure/deferred cell storage sharing one lexical executor. The benchmark waiver supersedes measurement-dependent comparisons; no alternate compiler pipeline or outstanding implementation child remains.
