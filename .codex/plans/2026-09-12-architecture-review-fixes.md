@@ -1,6 +1,6 @@
 ---
 id: JN-COMPILER-ARCHITECTURE-REVIEW-FIXES-20260912
-status: ready
+status: complete
 priority: P2
 size: M
 kind: impl
@@ -40,7 +40,7 @@ Input: `59b5762f`. The maintainer approved all six findings in the [architecture
 - [x] A5: store interface capability facts in `ScopeCapabilityFacts`; preserve public filtering and import deduplication.
 - [x] A6: repair synthetic fixture binder/scheme and explicit-instantiation identities locally, preserving intentionally malformed semantic tests.
 - [x] Retire `VQualifiedMethod`, its export/completeness alternative, and stale Weeder rationale; retain active candidate helpers and `VConstructor`.
-- [ ] Verify affected correctness suites, all consumer builds, formatting, HLint, both Weeder policies, documentation and queue checks; review the final diff and commit locally.
+- [x] Verify affected correctness suites, all consumer builds, formatting, HLint, both Weeder policies, documentation and queue checks; review the final diff and commit locally.
 
 ## Coordination and constraints
 
@@ -58,4 +58,12 @@ Ten targeted correctness suites passed under pinned GHC 9.14.1 with `--skip-perf
 
 A1 shares one recognition/refinement decision and preserves builtin aliases. A3 uses the existing `inferScopeTypeWithMode` entrypoint, removing the long obsolete wrapper rather than adding another name. A5 retains the exact import deduplication and public-filter predicates. A6 replaces only synthetic explicit targets and updates constructor binder/scheme keys locally; authored types, evidence, and explicit non-placeholder targets remain untouched. The retired method pattern's historical `Show` label remains a display contract, not a pattern API.
 
-Full clean quality, Haskell instance contracts, and documentation/queue verification are running; final closeout remains pending.
+Implementation committed locally as `3e20b7a9`. Final verification passed:
+
+- All ten targeted suites above, plus `haskell-typeclass-contracts-spec` and `generated-invariants-spec`: 12 distinct correctness suites.
+- The complete clean Haskell quality gate: policy probes, repository-wide HLint, fresh production build and Weeder, all-component build and full Weeder, and generated invariants. Every test/tooling component compiled, including profiling, opt-in scale, and benchmark components; those excluded workloads were not executed.
+- Ormolu for every changed Haskell file, Prettier for the internal records, whitespace checks, the full documentation check and its regressions, and execution-queue checks. The first documentation pass rejected mismatched queue metadata; the row was aligned with its plan and the full check passed on rerun.
+
+Evidence logs are `/private/tmp/jazz-review-fixes-a1-red.log`, `/private/tmp/jazz-review-fixes-a2-red.log`, `/private/tmp/jazz-review-fixes-a6-red.log`, `/private/tmp/jazz-review-fixes-correctness.log`, `/private/tmp/jazz-review-fixes-contracts-docs.log`, `/private/tmp/jazz-review-fixes-quality.log`, and `/private/tmp/jazz-review-fixes-docs-final.log`. The combined contracts/docs log retains the initial queue validation failure; the final docs log records the successful rerun.
+
+All seven approved items are complete. Hosted frontend/Bootstrap retention, deferred hosted qualification behavior, excluded workload execution, and the no-push instruction remain unchanged. No new PR comments were fetched or posted. The full test matrix was not executed.

@@ -136,4 +136,8 @@ The current library build was confirmed under pinned GHC 9.14.1 with `cabal buil
 
 Local evidence: `/private/tmp/jazz-pr158-kernel-shadow-review.hs`, `/private/tmp/jazz-pr158-kernel-shadow-review.log`, `/private/tmp/jazz-runtime-nominal-result-hint-probe.hs`, `/private/tmp/jazz-pr158-nominal-hint-review.log`, and `/private/tmp/jazz-pr158-prelude-review.hs`.
 
-This review did not modify compiler or test code, rerun the full test matrix, execute benchmark/performance/profiling/scale/corpus-budget workloads, refresh PR comments, or publish anything. The review report is the only repository change. Implementation and verification of any fixes remain separate work.
+This review did not modify compiler or test code, rerun the full test matrix, execute benchmark/performance/profiling/scale/corpus-budget workloads, refresh PR comments, or publish anything. The review report is the only repository change. The subsequent approved implementation is recorded below.
+
+## Implemented follow-up
+
+The maintainer approved all six findings and explicit retirement of `VQualifiedMethod`. All seven are implemented locally in `3e20b7a9`; the [fixes plan](2026-09-12-architecture-review-fixes.md) records the exact scope, red-to-green evidence, cross-reviews, and completed verification. Twelve distinct correctness suites, complete clean builds, both Weeder checks, HLint, formatting and documentation checks passed. Nothing was pushed, and the retained architecture and execution exclusions remain in force.
