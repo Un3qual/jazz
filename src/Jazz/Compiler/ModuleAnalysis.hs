@@ -10,7 +10,6 @@ module Jazz.Compiler.ModuleAnalysis
     inferredDiagnostics,
     analyzeResolvedExpression,
     inferExpressionWithInputs,
-    inferExpressionDefault,
     analyzeModule,
     dependencyImportInterface,
     importWholeInterface,
@@ -99,7 +98,7 @@ import Jazz.Compiler.TypeInference.Types
     TypeEnvKey (..),
     emptyScopeCapabilityFacts,
   )
-import Jazz.Compiler.WarningConfig (WarningSettings, defaultWarningSettings)
+import Jazz.Compiler.WarningConfig (WarningSettings)
 
 -- | Analyze one resolved module against its complete imported interface. The
 -- resolved root supplies source ownership and the caller selects warning policy,
@@ -460,6 +459,3 @@ analysisInputsForInference inputs =
           (Set.map (resolvedAmbientName CapabilityNamespace . mkIdentifier) (inferenceImportedClassNames inputs))
           (Set.map capabilityResolvedName (Map.keysSet (scopeClassFacts (inferenceImportedCapabilities inputs))))
     }
-
-inferExpressionDefault :: Expr 'Resolved -> IO InferenceResult
-inferExpressionDefault = inferExpressionWithInputs (emptyInferenceInputs defaultWarningSettings)

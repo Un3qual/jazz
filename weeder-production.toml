@@ -75,7 +75,7 @@ roots = [
   '^Jazz\.Compiler\.SourceSpan\.(sourceSpanStart)$',
   # Explicit compiler inspection/testing API; retained migration baseline.
   # src/Jazz/Compiler/ModuleAnalysis.hs
-  '^Jazz\.Compiler\.ModuleAnalysis\.(analyzeResolvedExpression|inferExpressionDefault|inferExpressionWithInputs)$',
+  '^Jazz\.Compiler\.ModuleAnalysis\.(analyzeResolvedExpression|inferExpressionWithInputs)$',
   # Explicit compiler inspection/testing API; retained migration baseline.
   # src/Jazz/Compiler/TypeInference/Diagnostics.hs
   '^Jazz\.Compiler\.TypeInference\.Diagnostics\.(renderType)$',
