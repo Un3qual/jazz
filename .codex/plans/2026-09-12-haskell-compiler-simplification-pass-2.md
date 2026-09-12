@@ -19,9 +19,9 @@ hosted feature work deferred; do not execute benchmarks or scale suites.
   construction where their semantic rules agree.
 - [x] Inspect analyzed representations, runtime scope preparation and observation
   support; remove repeated operations without adding a generic pass framework.
-- [ ] Independently review each change, run relevant existing correctness suites,
+- [x] Independently review each change, run relevant existing correctness suites,
   then the eligible correctness matrix and pinned Haskell quality gate.
-- [ ] Record inspected-but-retained areas, exact reductions and verification;
+- [x] Record inspected-but-retained areas, exact reductions and verification;
   commit reviewed batches along the way.
 
 Use GHC 9.14.1 / Cabal 3.16.1.0 from the pinned Nix shell. The first-pass
@@ -55,11 +55,19 @@ the second-pass base rather than treating a baseline mismatch as a regression.
   removed; that equivalent simplification is applied and HLint now passes.
 - The hosted suite retained the same ten failures: all test messages match the
   verified original baseline, with only a trailing blank-line difference.
-- The full Haskell quality gate remains in progress. A concurrent final Cabal
-  rerun failed with `semWait: invalid argument (Bad file descriptor)` before
-  running the coverage test; its stalled process was stopped. The isolated
-  quality build subsequently reported the same semaphore failure. The quality
-  gate and final checks are now running sequentially with one Cabal job.
+- The full Haskell quality gate passed with one Cabal job: HLint, clean
+  production/component builds, both Weeder policies and generated invariants.
+  The final coverage rerun also passed. Earlier concurrent Cabal invocations
+  encountered semaphore errors; serial execution completed those checks.
+- Formatting passed for the committed `e6bbf365..HEAD` source diff. Cabal metadata
+  checks, the executable build, all five CLI examples and public-documentation
+  checks passed. Benchmarks and scale suites were built for Weeder but not
+  executed.
+
+Implementation is committed as `3719cd14` on the original
+`codex/simplify-haskell-compiler` branch. This pass shares no changed source
+file with the first pass and brings the combined reduction to 1,469 lines in
+36 `src/Jazz` files. No remaining review findings or implementation work.
 
 ## Inspected and retained
 
