@@ -69,9 +69,11 @@ module Jazz.Compiler.TypeInference.Diagnostics
   )
 where
 
+import Data.Bifoldable (bifoldMap)
 import Data.Bifunctor (first)
 import Data.Foldable (asum)
 import qualified Data.Map.Strict as Map
+import Data.Monoid (Any (..))
 import Data.Set (Set)
 import qualified Data.Set as Set
 import Data.Text (Text)
@@ -154,12 +156,6 @@ import Jazz.Compiler.TypeRepresentation
     pattern SignatureRBracketToken,
     pattern SignatureRParenToken,
     pattern SignatureType,
-    pattern TypeApplication,
-    pattern TypeFunction,
-    pattern TypeList,
-    pattern TypeName,
-    pattern TypeTuple,
-    pattern TypeVariable,
     pattern UnsupportedSignature,
   )
 
@@ -518,42 +514,20 @@ mkInvalidSignatureTypeError state symbol signatureSpan signaturePayload =
 
 invalidSignatureSummary :: InferState -> Text -> SignaturePayload 'Resolved -> Text
 invalidSignatureSummary state symbol signaturePayload =
-  case signaturePayloadNamedTypeFailure state signaturePayload of
-    Just reason ->
-      "invalid or unsupported signature for '" <> symbol <> "': " <> reason
-    Nothing ->
-      case signaturePayload of
-        ConstrainedSignature constraints _
-          | Just duplicateName <- Signature.duplicateConstraintName constraints ->
-              "invalid or unsupported signature for '"
-                <> symbol
-                <> "': duplicate constraint '"
-                <> duplicateName
-                <> "' in '"
-                <> renderSignaturePayload signaturePayload
-                <> "'"
+  "invalid or unsupported signature for '" <> symbol <> "': " <> reason
+  where
+    quotedPayload = "'" <> renderSignaturePayload signaturePayload <> "'"
+    reason = case signaturePayloadNamedTypeFailure state signaturePayload of
+      Just failure -> failure
+      Nothing -> case signaturePayload of
         ConstrainedSignature constraints signatureType
+          | Just duplicateName <- Signature.duplicateConstraintName constraints ->
+              "duplicate constraint '" <> duplicateName <> "' in " <> quotedPayload
           | constrainedSignatureHasTypeVariable constraints signatureType ->
-              "invalid or unsupported signature for '"
-                <> symbol
-                <> "': type-variable constrained signatures require every constrained variable to appear in the signature body before inference can accept '"
-                <> renderSignaturePayload signaturePayload
-                <> "'"
-        ConstrainedSignature constraints _
-          | Just reason <- concreteConstraintFailureSummary state constraints ->
-              "invalid or unsupported signature for '"
-                <> symbol
-                <> "': "
-                <> reason
-                <> " in '"
-                <> renderSignaturePayload signaturePayload
-                <> "'"
-        _ ->
-          "invalid or unsupported signature for '"
-            <> symbol
-            <> "': '"
-            <> renderSignaturePayload signaturePayload
-            <> "'"
+              "type-variable constrained signatures require every constrained variable to appear in the signature body before inference can accept " <> quotedPayload
+          | Just failure <- concreteConstraintFailureSummary state constraints ->
+              failure <> " in " <> quotedPayload
+        _ -> quotedPayload
 
 mkInvalidExplicitTypeApplicationArgumentError :: InferState -> SourceSpan -> SignatureType 'Resolved -> Diagnostic
 mkInvalidExplicitTypeApplicationArgumentError state spanValue signatureType =
@@ -633,16 +607,4 @@ constraintHasTypeVariable (SignatureConstraint _ arguments) =
 
 constraintTypeHasTypeVariable :: SignatureType 'Resolved -> Bool
 constraintTypeHasTypeVariable signatureType =
-  case signatureType of
-    TypeVariable {} -> True
-    TypeName name ->
-      identifierLooksLikeTypeVariable name
-    TypeApplication name arguments ->
-      identifierLooksLikeTypeVariable name || any constraintTypeHasTypeVariable arguments
-    TypeList innerType ->
-      constraintTypeHasTypeVariable innerType
-    TypeTuple elementTypes ->
-      any constraintTypeHasTypeVariable elementTypes
-    TypeFunction argumentType resultType ->
-      constraintTypeHasTypeVariable argumentType || constraintTypeHasTypeVariable resultType
-    _ -> False
+  getAny (bifoldMap (Any . identifierLooksLikeTypeVariable) (const (Any True)) signatureType)

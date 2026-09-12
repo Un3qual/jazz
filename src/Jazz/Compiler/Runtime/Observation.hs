@@ -280,115 +280,66 @@ restoreRuntimeContinuationDepth continuationDepth observationState =
     }
 
 recordRuntimeForcedValue :: RuntimeObservationState -> RuntimeObservationState
-recordRuntimeForcedValue observationState
-  | not (runtimeObservationStatisticsEnabled observationState) = observationState
-  | otherwise =
-      observationState
-        { observationStatistics =
-            statistics
-              { runtimeForcedValues = runtimeForcedValues statistics + 1
-              }
-        }
-  where
-    statistics = observationStatistics observationState
+recordRuntimeForcedValue =
+  updateRuntimeStatistics $ \statistics ->
+    statistics {runtimeForcedValues = runtimeForcedValues statistics + 1}
 
 recordRuntimeApplication :: RuntimeApplicationKind -> RuntimeObservationState -> RuntimeObservationState
-recordRuntimeApplication applicationKind observationState
-  | not (runtimeObservationStatisticsEnabled observationState) = observationState
-  | otherwise =
-      observationState
-        { observationStatistics =
-            incrementApplicationKind
-              applicationKind
-              statistics
-                { runtimeApplications = runtimeApplications statistics + 1
-                }
-        }
-  where
-    statistics = observationStatistics observationState
+recordRuntimeApplication applicationKind =
+  updateRuntimeStatistics $ \statistics ->
+    incrementApplicationKind
+      applicationKind
+      statistics {runtimeApplications = runtimeApplications statistics + 1}
 
 recordRuntimeClosureCreation :: Int -> RuntimeObservationState -> RuntimeObservationState
-recordRuntimeClosureCreation captureWidth observationState
-  | not (runtimeObservationStatisticsEnabled observationState) = observationState
-  | otherwise =
-      observationState
-        { observationStatistics =
-            statistics
-              { runtimeClosuresCreated = runtimeClosuresCreated statistics + 1,
-                runtimeBindingsCaptured = runtimeBindingsCaptured statistics + width,
-                runtimeMaximumCaptureWidth = max width (runtimeMaximumCaptureWidth statistics)
-              }
-        }
+recordRuntimeClosureCreation captureWidth =
+  updateRuntimeStatistics $ \statistics ->
+    statistics
+      { runtimeClosuresCreated = runtimeClosuresCreated statistics + 1,
+        runtimeBindingsCaptured = runtimeBindingsCaptured statistics + width,
+        runtimeMaximumCaptureWidth = max width (runtimeMaximumCaptureWidth statistics)
+      }
   where
-    statistics = observationStatistics observationState
     width = fromIntegral (max 0 captureWidth)
 
 recordRuntimeConstruction :: RuntimeConstructionKind -> Word64 -> RuntimeObservationState -> RuntimeObservationState
-recordRuntimeConstruction constructionKind amount observationState
-  | not (runtimeObservationStatisticsEnabled observationState) = observationState
-  | otherwise =
-      observationState
-        { observationStatistics = incrementConstruction constructionKind amount statistics
-        }
-  where
-    statistics = observationStatistics observationState
+recordRuntimeConstruction constructionKind amount =
+  updateRuntimeStatistics (incrementConstruction constructionKind amount)
 
 recordRuntimePatternAttempt :: RuntimeObservationState -> RuntimeObservationState
-recordRuntimePatternAttempt observationState
-  | not (runtimeObservationStatisticsEnabled observationState) = observationState
-  | otherwise =
-      observationState
-        { observationStatistics =
-            statistics {runtimePatternAttempts = runtimePatternAttempts statistics + 1}
-        }
-  where
-    statistics = observationStatistics observationState
+recordRuntimePatternAttempt =
+  updateRuntimeStatistics $ \statistics ->
+    statistics {runtimePatternAttempts = runtimePatternAttempts statistics + 1}
 
 recordRuntimePatternMatch :: Int -> RuntimeObservationState -> RuntimeObservationState
-recordRuntimePatternMatch bindingCount observationState
-  | not (runtimeObservationStatisticsEnabled observationState) = observationState
-  | otherwise =
-      observationState
-        { observationStatistics =
-            statistics
-              { runtimePatternMatches = runtimePatternMatches statistics + 1,
-                runtimePatternBindings = runtimePatternBindings statistics + fromIntegral (max 0 bindingCount)
-              }
-        }
-  where
-    statistics = observationStatistics observationState
+recordRuntimePatternMatch bindingCount =
+  updateRuntimeStatistics $ \statistics ->
+    statistics
+      { runtimePatternMatches = runtimePatternMatches statistics + 1,
+        runtimePatternBindings = runtimePatternBindings statistics + fromIntegral (max 0 bindingCount)
+      }
 
 recordRuntimeBuiltinCall :: RuntimeBuiltinKind -> RuntimeObservationState -> RuntimeObservationState
-recordRuntimeBuiltinCall _ observationState
-  | not (runtimeObservationStatisticsEnabled observationState) = observationState
-  | otherwise =
-      observationState
-        { observationStatistics =
-            statistics {runtimeBuiltinCalls = runtimeBuiltinCalls statistics + 1}
-        }
-  where
-    statistics = observationStatistics observationState
+recordRuntimeBuiltinCall _ =
+  updateRuntimeStatistics $ \statistics ->
+    statistics {runtimeBuiltinCalls = runtimeBuiltinCalls statistics + 1}
 
 recordRuntimeHostOperation :: RuntimeHostOperationKind -> RuntimeObservationState -> RuntimeObservationState
-recordRuntimeHostOperation _ observationState
-  | not (runtimeObservationStatisticsEnabled observationState) = observationState
-  | otherwise =
-      observationState
-        { observationStatistics =
-            statistics {runtimeHostOperations = runtimeHostOperations statistics + 1}
-        }
-  where
-    statistics = observationStatistics observationState
+recordRuntimeHostOperation _ =
+  updateRuntimeStatistics $ \statistics ->
+    statistics {runtimeHostOperations = runtimeHostOperations statistics + 1}
 
 recordRuntimeDeferredCacheOutcome :: RuntimeDeferredCacheKind -> RuntimeObservationState -> RuntimeObservationState
-recordRuntimeDeferredCacheOutcome cacheKind observationState
+recordRuntimeDeferredCacheOutcome cacheKind =
+  updateRuntimeStatistics (incrementDeferredCacheKind cacheKind)
+
+updateRuntimeStatistics :: (RuntimeStatistics -> RuntimeStatistics) -> RuntimeObservationState -> RuntimeObservationState
+updateRuntimeStatistics update observationState
   | not (runtimeObservationStatisticsEnabled observationState) = observationState
   | otherwise =
       observationState
-        { observationStatistics = incrementDeferredCacheKind cacheKind statistics
+        { observationStatistics = update (observationStatistics observationState)
         }
-  where
-    statistics = observationStatistics observationState
 
 recordRuntimeProfileOpen :: RuntimeCallableIdentity -> RuntimeObservationState -> RuntimeObservationState
 recordRuntimeProfileOpen callableIdentity observationState =

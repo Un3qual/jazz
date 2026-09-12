@@ -279,9 +279,8 @@ canonicalCapabilityClasses =
 defaultCapabilityImpls :: [DefaultCapabilityImpl]
 defaultCapabilityImpls =
   defaultAliasCapabilityImpls
-    <> concatMap integralNumericCapabilityImplFacts signedIntegerWidthTypes
-    <> concatMap integralNumericCapabilityImplFacts unsignedIntegerWidthTypes
-    <> concatMap floatingNumericCapabilityImplFacts floatingWidthTypes
+    <> concatMap (numericCapabilityImpls IntegralMarker) (signedIntegerWidthTypes <> unsignedIntegerWidthTypes)
+    <> concatMap (numericCapabilityImpls FractionalMarker) floatingWidthTypes
 
 defaultAliasCapabilityImpls :: [DefaultCapabilityImpl]
 defaultAliasCapabilityImpls =
@@ -310,24 +309,12 @@ defaultAliasCapabilityImpls =
     ShowableImpl PreludeText
   ]
 
-integralNumericCapabilityImplFacts :: NumericType -> [DefaultCapabilityImpl]
-integralNumericCapabilityImplFacts numericType =
+numericCapabilityImpls :: MarkerCapability -> NumericType -> [DefaultCapabilityImpl]
+numericCapabilityImpls marker numericType =
   [ EqualityImpl targetType,
     OrderingImpl (OrderedPreludeNumeric numericType),
     MarkerImpl NumericMarker targetType,
-    MarkerImpl IntegralMarker targetType,
-    DefaultImpl targetType,
-    ShowableImpl targetType
-  ]
-  where
-    targetType = PreludeNumeric numericType
-
-floatingNumericCapabilityImplFacts :: NumericType -> [DefaultCapabilityImpl]
-floatingNumericCapabilityImplFacts numericType =
-  [ EqualityImpl targetType,
-    OrderingImpl (OrderedPreludeNumeric numericType),
-    MarkerImpl NumericMarker targetType,
-    MarkerImpl FractionalMarker targetType,
+    MarkerImpl marker targetType,
     DefaultImpl targetType,
     ShowableImpl targetType
   ]

@@ -56,6 +56,7 @@ import Jazz.Compiler.Parser.DeclarationTokens
     isTypeParameterIdentifierText,
     looksLikeOperatorDeclaration,
     looksLikeReservedAbstractionDeclaration,
+    rejectNestedDeclaration,
     rejectNestedOperatorDeclaration,
   )
 import Jazz.Compiler.Parser.Failure
@@ -81,8 +82,6 @@ import Jazz.Compiler.Parser.ModuleDeclaration
     parseImportStatementParser,
     parseModuleStatementParser,
     registerImportAliases,
-    rejectNestedImportDeclaration,
-    rejectNestedModuleDeclaration,
   )
 import Jazz.Compiler.Parser.Operator
   ( Associativity (..),
@@ -130,17 +129,6 @@ import Jazz.Compiler.TypeRepresentation
     pattern SignatureRBracketToken,
     pattern SignatureRParenToken,
     pattern SignatureType,
-    pattern TypeApplication,
-    pattern TypeBool,
-    pattern TypeChar,
-    pattern TypeFloat,
-    pattern TypeFunction,
-    pattern TypeInt,
-    pattern TypeList,
-    pattern TypeName,
-    pattern TypeNumeric,
-    pattern TypeText,
-    pattern TypeTuple,
     pattern TypeVariable,
     pattern UnsupportedSignature,
   )
@@ -175,10 +163,10 @@ parseStatementParser parseExpression parseBlock context = do
     moduleToken@Token {tokenKind = TModule} :< _ ->
       case parserStatementContext context of
         TopLevelContext -> finish <$> parseModuleStatementParser (parseBlock moduleBodyContext)
-        _ -> liftOwnedResult (rejectNestedModuleDeclaration moduleToken)
+        _ -> liftOwnedResult (rejectNestedDeclaration ModuleDeclaration moduleToken)
     importToken@Token {tokenKind = TImport} :< _ ->
       case parserStatementContext context of
-        NestedBlockContext -> liftOwnedResult (rejectNestedImportDeclaration importToken)
+        NestedBlockContext -> liftOwnedResult (rejectNestedDeclaration ImportDeclaration importToken)
         _ -> finish . pure <$> parseImportStatementParser
     operatorToken@Token {tokenKind = TIdentifier "operator"} :< rest
       | looksLikeOperatorDeclaration rest -> do
@@ -315,7 +303,7 @@ parseStatement expression context = do
           liftOwnedResult (rejectReservedAbstractionSyntax abstractionToken)
     dataToken@Token {tokenKind = TData} :< _ ->
       case statementContext of
-        NestedBlockContext -> liftOwnedResult (rejectNestedDataDeclaration dataToken)
+        NestedBlockContext -> liftOwnedResult (rejectNestedDeclaration DataDeclaration dataToken)
         _ -> pure <$> parseDataStatementParser
     nameToken@Token {tokenKind = TIdentifier name} :< colonToken@Token {tokenKind = TColonColon} :< _
       | isReservedLiteralName name -> rejectName nameToken name
@@ -350,7 +338,7 @@ parseSignatureOrQualifiedAlias expression knownAliases name nameToken colonToken
 parseOperatorBinding :: Parser SurfaceExpr -> StatementContext -> OperatorTable -> Token -> Parser SurfaceStatement
 parseOperatorBinding expression context declaredOperators operatorToken =
   case context of
-    NestedBlockContext -> liftOwnedResult (rejectNestedOperatorBinding operatorToken)
+    NestedBlockContext -> liftOwnedResult (rejectNestedDeclaration OperatorBinding operatorToken)
     _ -> case tokenKind operatorToken of
       TOperator symbol
         | isBuiltinOperatorSymbol symbol ->
@@ -363,7 +351,7 @@ parseOperatorBinding expression context declaredOperators operatorToken =
 parseOperatorSignature :: StatementContext -> OperatorTable -> Token -> Parser SurfaceStatement
 parseOperatorSignature context declaredOperators operatorToken =
   case context of
-    NestedBlockContext -> liftOwnedResult (rejectNestedOperatorSignature operatorToken)
+    NestedBlockContext -> liftOwnedResult (rejectNestedDeclaration OperatorSignature operatorToken)
     _ -> case tokenKind operatorToken of
       TOperator symbol
         | isBuiltinOperatorSymbol symbol ->
@@ -472,25 +460,7 @@ parseDataConstructor typeName parameters = do
             [] -> arguments (field : reversed)
 
 surfaceSignatureTypeVariables :: SurfaceSignatureType -> Set Text
-surfaceSignatureTypeVariables signatureType =
-  case signatureType of
-    TypeInt -> Set.empty
-    TypeFloat -> Set.empty
-    TypeNumeric _ -> Set.empty
-    TypeBool -> Set.empty
-    TypeChar -> Set.empty
-    TypeText -> Set.empty
-    TypeVariable name -> Set.singleton (identifierText name)
-    TypeName _ -> Set.empty
-    TypeApplication _ arguments ->
-      Set.unions (map surfaceSignatureTypeVariables arguments)
-    TypeList elementType ->
-      surfaceSignatureTypeVariables elementType
-    TypeTuple elementTypes ->
-      Set.unions (map surfaceSignatureTypeVariables elementTypes)
-    TypeFunction argumentType resultType ->
-      surfaceSignatureTypeVariables argumentType
-        `Set.union` surfaceSignatureTypeVariables resultType
+surfaceSignatureTypeVariables = foldMap (Set.singleton . identifierText)
 
 isDeclarationContext :: StatementContext -> Bool
 isDeclarationContext context =
@@ -566,27 +536,3 @@ nextStatementStartsMatchingBinding name tokens =
     Token {tokenKind = TIdentifier nextName} :< Token {tokenKind = TEquals} :< _ ->
       nextName == name
     _ -> False
-
-rejectNestedDataDeclaration :: Token -> Either ParserFailure a
-rejectNestedDataDeclaration dataToken =
-  Left
-    ( parserFailureAt
-        (tokenSpan dataToken)
-        (DeclarationFailure (DeclarationOutsideAllowedScope DataDeclaration))
-    )
-
-rejectNestedOperatorBinding :: Token -> Either ParserFailure a
-rejectNestedOperatorBinding operatorToken =
-  Left
-    ( parserFailureAt
-        (tokenSpan operatorToken)
-        (DeclarationFailure (DeclarationOutsideAllowedScope OperatorBinding))
-    )
-
-rejectNestedOperatorSignature :: Token -> Either ParserFailure a
-rejectNestedOperatorSignature operatorToken =
-  Left
-    ( parserFailureAt
-        (tokenSpan operatorToken)
-        (DeclarationFailure (DeclarationOutsideAllowedScope OperatorSignature))
-    )

@@ -176,11 +176,8 @@ lowerSurfaceModuleDetailed identity surfaceExpr =
 
     qualifyImport importDecl =
       importDecl
-        { moduleImportNode = qualifyNode (moduleImportNode importDecl)
+        { moduleImportNode = qualifyLoweredNode sourcePath (moduleImportNode importDecl)
         }
-      where
-        qualifyNode (CoreNode nodeId spanValue facts) =
-          CoreNode nodeId (qualifySourceSpan sourcePath spanValue) facts
 
     lowerModuleBody = do
       bodyNode <- freshNode (surfaceExprSpan surfaceExpr)
@@ -488,10 +485,7 @@ lowerSurfaceLambda firstNode lambdaSpan parameters bodyExpr =
     lowerParameters node ((parameterIndex, parameter) : rest) =
       case parameter of
         SurfaceLambdaIdentifier _ parameterName -> do
-          loweredBody <-
-            case rest of
-              [] -> lowerSurfaceExprWithoutCostCentre bodyExpr
-              _ -> freshNode lambdaSpan >>= \bodyNode -> lowerParameters bodyNode rest
+          loweredBody <- lowerBody rest
           pure (ELambda node (sourceName parameterName) loweredBody)
         SurfaceLambdaPattern parameterPattern -> do
           let parameterName = generatedName (LambdaPatternArgument parameterIndex)
@@ -499,10 +493,7 @@ lowerSurfaceLambda firstNode lambdaSpan parameters bodyExpr =
           variableNode <- freshNode (surfacePatternSpan parameterPattern)
           armNode <- freshNode (surfacePatternSpan parameterPattern)
           loweredPattern <- lowerSurfacePattern parameterPattern
-          loweredBody <-
-            case rest of
-              [] -> lowerSurfaceExprWithoutCostCentre bodyExpr
-              _ -> freshNode lambdaSpan >>= \bodyNode -> lowerParameters bodyNode rest
+          loweredBody <- lowerBody rest
           pure
             ( ELambda
                 node
@@ -513,6 +504,9 @@ lowerSurfaceLambda firstNode lambdaSpan parameters bodyExpr =
                     [CaseArm armNode loweredPattern Nothing loweredBody]
                 )
             )
+
+    lowerBody [] = lowerSurfaceExprWithoutCostCentre bodyExpr
+    lowerBody rest = freshNode lambdaSpan >>= \bodyNode -> lowerParameters bodyNode rest
 
 lowerSurfacePatternLambda :: CoreNode 'Lowered 'ExpressionSort -> SourceSpan -> NonEmpty SurfacePatternLambdaClause -> Lowering (Expr 'Lowered)
 lowerSurfacePatternLambda firstNode lambdaSpan clauses =

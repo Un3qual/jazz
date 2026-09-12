@@ -20,9 +20,10 @@ where
 
 import Control.Monad
   ( foldM,
+    unless,
   )
 import Data.List
-  ( sortOn,
+  ( find,
   )
 import qualified Data.List.NonEmpty as NonEmpty
 import Data.Map.Strict
@@ -142,7 +143,26 @@ validateImportBindings sourcePath importerPath imports localClassNames reference
     dependencyInventory importDecl =
       Map.lookup (resolverImportModulePath importDecl) inventoriesByModule
 
-    eligibleImportNames = selectorEligibleNames
+    requireDependencyInventory importKind importDecl =
+      case dependencyInventory importDecl of
+        Just inventory -> Right inventory
+        Nothing ->
+          Left
+            ( mkErrorDiagnostic
+                E4010
+                CompilationOrigin
+                ( "internal resolver error while validating "
+                    <> importKind
+                    <> " for '"
+                    <> renderModulePath importerPath
+                    <> "': missing exports for module '"
+                    <> renderModulePath (resolverImportModulePath importDecl)
+                    <> "'"
+                )
+            )
+
+    importOrigin importDecl =
+      BindingOrigin (resolverImportModulePath importDecl) (resolverImportSpan importDecl)
 
     visibleUnqualifiedInventory importDecl inventory =
       case resolverImportAlias importDecl of
@@ -151,16 +171,6 @@ validateImportBindings sourcePath importerPath imports localClassNames reference
           selectExportNames
             (resolverImportSymbols importDecl)
             inventory
-
-    aliasMemberNames inventory =
-      exportNamesInNamespaces
-        [ValueNamespace, ConstructorNamespace]
-        (selectExportNames Nothing inventory)
-
-    aliasTypeNames inventory =
-      exportNamesInNamespace
-        TypeNamespace
-        (selectExportNames Nothing inventory)
 
     valueAndConstructorNames =
       exportNamesInNamespaces [ValueNamespace, ConstructorNamespace]
@@ -185,158 +195,75 @@ validateImportBindings sourcePath importerPath imports localClassNames reference
             Just previousOrigin ->
               Left (mkImportAliasCollisionError aliasName previousOrigin importDecl)
             Nothing ->
-              Right
-                ( Map.insert
-                    aliasName
-                    BindingOrigin
-                      { bindingOriginModulePath = resolverImportModulePath importDecl,
-                        bindingOriginSpan = resolverImportSpan importDecl
-                      }
-                    seenAliases
-                )
+              Right (Map.insert aliasName (importOrigin importDecl) seenAliases)
 
     validateImportSymbols :: Map Text BindingOrigin -> ResolverImport -> Either Diagnostic (Map Text BindingOrigin)
     validateImportSymbols seenSymbols importDecl =
       case resolverImportAlias importDecl of
         Just _ ->
           Right seenSymbols
-        Nothing ->
-          case dependencyInventory importDecl of
-            Nothing ->
-              Left
-                ( mkErrorDiagnostic
-                    E4010
-                    CompilationOrigin
-                    ( "internal resolver error while validating imports for '"
-                        <> renderModulePath importerPath
-                        <> "': missing exports for module '"
-                        <> renderModulePath (resolverImportModulePath importDecl)
-                        <> "'"
-                    )
-                )
-            Just inventory ->
-              let exportedImportSymbols = eligibleImportNames inventory
-                  importedSymbolNames =
-                    case resolverImportSymbols importDecl of
-                      Nothing -> Set.toAscList exportedImportSymbols
-                      Just explicitSymbolNames -> explicitSymbolNames
-               in foldM
-                    (validateImportSymbol importDecl exportedImportSymbols)
-                    seenSymbols
-                    importedSymbolNames
+        Nothing -> do
+          inventory <- requireDependencyInventory "imports" importDecl
+          let exportedImportSymbols = selectorEligibleNames inventory
+              importedSymbolNames =
+                case resolverImportSymbols importDecl of
+                  Nothing -> Set.toAscList exportedImportSymbols
+                  Just explicitSymbolNames -> explicitSymbolNames
+          foldM
+            (validateImportSymbol importDecl exportedImportSymbols)
+            seenSymbols
+            importedSymbolNames
 
     validateImportTypes :: Map Text BindingOrigin -> ResolverImport -> Either Diagnostic (Map Text BindingOrigin)
     validateImportTypes seenTypes importDecl =
       case resolverImportAlias importDecl of
         Just _ ->
           Right seenTypes
-        Nothing ->
-          case dependencyInventory importDecl of
-            Nothing ->
-              Left
-                ( mkErrorDiagnostic
-                    E4010
-                    CompilationOrigin
-                    ( "internal resolver error while validating type imports for '"
-                        <> renderModulePath importerPath
-                        <> "': missing exports for module '"
-                        <> renderModulePath (resolverImportModulePath importDecl)
-                        <> "'"
-                    )
-                )
-            Just inventory ->
-              foldM
-                (validateImportType importDecl)
-                seenTypes
-                ( Set.toAscList
-                    (exportNamesInNamespace TypeNamespace (visibleUnqualifiedInventory importDecl inventory))
-                )
+        Nothing -> do
+          inventory <- requireDependencyInventory "type imports" importDecl
+          foldM
+            (validateImportName (mkImportNameCollisionError "type collision for") importDecl)
+            seenTypes
+            ( Set.toAscList
+                (exportNamesInNamespace TypeNamespace (visibleUnqualifiedInventory importDecl inventory))
+            )
 
-    validateImportType :: ResolverImport -> Map Text BindingOrigin -> Text -> Either Diagnostic (Map Text BindingOrigin)
-    validateImportType importDecl seenTypes typeName =
-      case Map.lookup typeName seenTypes of
+    validateImportName ::
+      (Text -> BindingOrigin -> ResolverImport -> Diagnostic) ->
+      ResolverImport ->
+      Map Text BindingOrigin ->
+      Text ->
+      Either Diagnostic (Map Text BindingOrigin)
+    validateImportName collisionError importDecl seenNames name =
+      case Map.lookup name seenNames of
         Just previousOrigin
           | bindingOriginModulePath previousOrigin == resolverImportModulePath importDecl ->
-              Right seenTypes
+              Right seenNames
           | otherwise ->
-              Left (mkImportTypeCollisionError typeName previousOrigin importDecl)
+              Left (collisionError name previousOrigin importDecl)
         Nothing ->
-          Right
-            ( Map.insert
-                typeName
-                BindingOrigin
-                  { bindingOriginModulePath = resolverImportModulePath importDecl,
-                    bindingOriginSpan = resolverImportSpan importDecl
-                  }
-                seenTypes
-            )
+          Right (Map.insert name (importOrigin importDecl) seenNames)
 
     validateQualifiedReferences :: Set Text -> Either Diagnostic ()
     validateQualifiedReferences visibleClassNames =
-      foldM
-        validateQualifiedReference
-        ()
-        (Set.toList qualifiedReferences)
-      where
-        validateQualifiedReference :: () -> (Text, Text) -> Either Diagnostic ()
-        validateQualifiedReference () (aliasName, symbolName)
-          | Set.member aliasName visibleClassNames =
-              Right ()
-          | otherwise =
-              case findAliasImport aliasName of
-                Nothing ->
-                  Left (mkUnknownQualifiedAliasError aliasName symbolName)
-                Just importDecl ->
-                  case dependencyInventory importDecl of
-                    Nothing ->
-                      Left
-                        ( mkErrorDiagnostic
-                            E4010
-                            CompilationOrigin
-                            ( "internal resolver error while validating imports for '"
-                                <> renderModulePath importerPath
-                                <> "': missing exports for module '"
-                                <> renderModulePath (resolverImportModulePath importDecl)
-                                <> "'"
-                            )
-                        )
-                    Just inventory ->
-                      let exportedSymbols = aliasMemberNames inventory
-                       in if Set.member symbolName exportedSymbols
-                            then Right ()
-                            else Left (mkMissingQualifiedAliasSymbolError symbolName importDecl aliasName exportedSymbols)
+      mapM_
+        (validateQualifiedImportReference "imports" valueAndConstructorNames)
+        [reference | reference@(aliasName, _) <- Set.toList qualifiedReferences, Set.notMember aliasName visibleClassNames]
 
     validateQualifiedTypeReferences :: Either Diagnostic ()
     validateQualifiedTypeReferences =
-      foldM
-        validateQualifiedTypeReference
-        ()
+      mapM_
+        (validateQualifiedImportReference "type imports" (exportNamesInNamespace TypeNamespace))
         (Set.toList qualifiedTypeReferences)
-      where
-        validateQualifiedTypeReference :: () -> (Text, Text) -> Either Diagnostic ()
-        validateQualifiedTypeReference () (aliasName, typeName) =
-          case findAliasImport aliasName of
-            Nothing ->
-              Left (mkUnknownQualifiedAliasError aliasName typeName)
-            Just importDecl ->
-              case dependencyInventory importDecl of
-                Nothing ->
-                  Left
-                    ( mkErrorDiagnostic
-                        E4010
-                        CompilationOrigin
-                        ( "internal resolver error while validating type imports for '"
-                            <> renderModulePath importerPath
-                            <> "': missing exports for module '"
-                            <> renderModulePath (resolverImportModulePath importDecl)
-                            <> "'"
-                        )
-                    )
-                Just inventory ->
-                  let exportedTypes = aliasTypeNames inventory
-                   in if Set.member typeName exportedTypes
-                        then Right ()
-                        else Left (mkMissingQualifiedAliasSymbolError typeName importDecl aliasName exportedTypes)
+
+    validateQualifiedImportReference importKind exportNames (aliasName, name) =
+      case findAliasImport aliasName of
+        Nothing -> Left (mkUnknownQualifiedAliasError aliasName name)
+        Just importDecl -> do
+          inventory <- requireDependencyInventory importKind importDecl
+          let exportedNames = exportNames inventory
+          unless (Set.member name exportedNames) $
+            Left (mkMissingQualifiedAliasSymbolError name importDecl aliasName exportedNames)
 
     validateQualifiedClassReference ((aliasName, className), (aliasSpan, classSpan)) =
       case findAliasImport aliasName of
@@ -352,11 +279,7 @@ validateImportBindings sourcePath importerPath imports localClassNames reference
 
     findAliasImport :: Text -> Maybe ResolverImport
     findAliasImport aliasName =
-      listToMaybe
-        [ importDecl
-        | importDecl <- imports,
-          resolverImportAlias importDecl == Just aliasName
-        ]
+      find ((== Just aliasName) . resolverImportAlias) imports
 
     validateImportSymbol ::
       ResolverImport ->
@@ -368,22 +291,7 @@ validateImportBindings sourcePath importerPath imports localClassNames reference
       | not (Set.member symbolName exportedSymbols) =
           Left (mkMissingImportSymbolError symbolName importDecl exportedSymbols)
       | otherwise =
-          case Map.lookup symbolName seenSymbols of
-            Just previousOrigin
-              | bindingOriginModulePath previousOrigin == resolverImportModulePath importDecl ->
-                  Right seenSymbols
-              | otherwise ->
-                  Left (mkImportSymbolCollisionError symbolName previousOrigin importDecl)
-            Nothing ->
-              Right
-                ( Map.insert
-                    symbolName
-                    BindingOrigin
-                      { bindingOriginModulePath = resolverImportModulePath importDecl,
-                        bindingOriginSpan = resolverImportSpan importDecl
-                      }
-                    seenSymbols
-                )
+          validateImportName (mkImportNameCollisionError "binding collision for symbol") importDecl seenSymbols symbolName
 
     mkMissingImportSymbolError :: Text -> ResolverImport -> Set Text -> Diagnostic
     mkMissingImportSymbolError symbolName importDecl exportedSymbols =
@@ -406,9 +314,9 @@ validateImportBindings sourcePath importerPath imports localClassNames reference
               )
           )
 
-    mkImportSymbolCollisionError :: Text -> BindingOrigin -> ResolverImport -> Diagnostic
-    mkImportSymbolCollisionError symbolName previousOrigin importDecl =
-      setDiagnosticSubject symbolName $
+    mkImportNameCollisionError :: Text -> Text -> BindingOrigin -> ResolverImport -> Diagnostic
+    mkImportNameCollisionError nameKind name previousOrigin importDecl =
+      setDiagnosticSubject name $
         setDiagnosticRelatedSpan
           (bindingOriginSpan previousOrigin)
           ( setDiagnosticPrimarySpan
@@ -416,33 +324,10 @@ validateImportBindings sourcePath importerPath imports localClassNames reference
               ( mkErrorDiagnostic
                   E4008
                   CompilationOrigin
-                  ( "import binding collision for symbol '"
-                      <> symbolName
-                      <> "' in module '"
-                      <> renderModulePath importerPath
-                      <> "' at '"
-                      <> Text.pack sourcePath
-                      <> "'; already imported from '"
-                      <> renderModulePath (bindingOriginModulePath previousOrigin)
-                      <> "', cannot re-import from '"
-                      <> renderModulePath (resolverImportModulePath importDecl)
-                      <> "'"
-                  )
-              )
-          )
-
-    mkImportTypeCollisionError :: Text -> BindingOrigin -> ResolverImport -> Diagnostic
-    mkImportTypeCollisionError typeName previousOrigin importDecl =
-      setDiagnosticSubject typeName $
-        setDiagnosticRelatedSpan
-          (bindingOriginSpan previousOrigin)
-          ( setDiagnosticPrimarySpan
-              (resolverImportSpan importDecl)
-              ( mkErrorDiagnostic
-                  E4008
-                  CompilationOrigin
-                  ( "import type collision for '"
-                      <> typeName
+                  ( "import "
+                      <> nameKind
+                      <> " '"
+                      <> name
                       <> "' in module '"
                       <> renderModulePath importerPath
                       <> "' at '"
@@ -500,26 +385,13 @@ validateImportBindings sourcePath importerPath imports localClassNames reference
 
     -- One namespace-aware selection serves reference validation and resolution.
     -- Check every dependency, including alias-only imports, in source order.
-    collectImportScope scope importDecl =
-      case dependencyInventory importDecl of
-        Nothing ->
-          Left
-            ( mkErrorDiagnostic
-                E4010
-                CompilationOrigin
-                ( "internal resolver error while validating imports for '"
-                    <> renderModulePath importerPath
-                    <> "': missing exports for module '"
-                    <> renderModulePath (resolverImportModulePath importDecl)
-                    <> "'"
-                )
-            )
-        Just inventory ->
-          let selected = visibleUnqualifiedInventory importDecl inventory
-              origin = BindingOrigin (resolverImportModulePath importDecl) (resolverImportSpan importDecl)
-              addNamespace current namespace =
-                Map.insertWith Map.union namespace (Map.fromSet (const origin) (exportNamesInNamespace namespace selected)) current
-           in Right scope {importScopeNames = foldl' addNamespace (importScopeNames scope) [ValueNamespace, ConstructorNamespace, TypeNamespace, CapabilityNamespace]}
+    collectImportScope scope importDecl = do
+      inventory <- requireDependencyInventory "imports" importDecl
+      let selected = visibleUnqualifiedInventory importDecl inventory
+          origin = importOrigin importDecl
+          addNamespace current namespace =
+            Map.insertWith Map.union namespace (Map.fromSet (const origin) (exportNamesInNamespace namespace selected)) current
+      Right scope {importScopeNames = foldl' addNamespace (importScopeNames scope) [ValueNamespace, ConstructorNamespace, TypeNamespace, CapabilityNamespace]}
 
     findHiddenExplicitImportReference :: Set Text -> Maybe (Text, ResolverImport)
     findHiddenExplicitImportReference visibleSymbols =
@@ -618,4 +490,4 @@ validateImportBindings sourcePath importerPath imports localClassNames reference
     renderExports :: Set Text -> Text
     renderExports exports
       | Set.null exports = "<none>"
-      | otherwise = Text.intercalate ", " (sortOn id (Set.toList exports))
+      | otherwise = Text.intercalate ", " (Set.toAscList exports)

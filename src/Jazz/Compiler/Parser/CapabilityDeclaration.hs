@@ -247,47 +247,24 @@ surfaceIdentifierLooksLikeTypeVariable name =
 validateClassHeaderParameters :: Token -> Maybe [SurfaceSignatureType] -> Either ParserFailure [Identifier]
 validateClassHeaderParameters declarationToken maybeHeaderArguments =
   case maybeHeaderArguments of
-    Nothing ->
-      Left
-        ( parserFailureAt
-            (tokenSpan declarationToken)
-            (DeclarationFailure ClassRequiresExplicitParameterList)
-        )
-    Just [] ->
-      Left
-        ( parserFailureAt
-            (tokenSpan declarationToken)
-            (DeclarationFailure ClassRequiresLowercaseParameter)
-        )
+    Nothing -> reject ClassRequiresExplicitParameterList
+    Just [] -> reject ClassRequiresLowercaseParameter
     Just headerArguments -> do
       classParameters <- traverse classParameterFromHeaderArgument headerArguments
       case duplicateClassParameterName classParameters of
-        Just duplicateName ->
-          Left
-            ( parserFailureAt
-                (tokenSpan declarationToken)
-                (DeclarationFailure (DuplicateClassParameter duplicateName))
-            )
+        Just duplicateName -> reject (DuplicateClassParameter duplicateName)
         Nothing ->
           case classParameters of
             [_] -> Right classParameters
-            _ ->
-              Left
-                ( parserFailureAt
-                    (tokenSpan declarationToken)
-                    (DeclarationFailure ClassSupportsExactlyOneParameter)
-                )
+            _ -> reject ClassSupportsExactlyOneParameter
   where
+    reject = Left . parserFailureAt (tokenSpan declarationToken) . DeclarationFailure
+
     classParameterFromHeaderArgument argument =
       case argument of
         TypeVariable parameterName ->
           Right parameterName
-        _ ->
-          Left
-            ( parserFailureAt
-                (tokenSpan declarationToken)
-                (DeclarationFailure ClassParameterMustBeLowercase)
-            )
+        _ -> reject ClassParameterMustBeLowercase
 
     duplicateClassParameterName classParameters =
       go Set.empty classParameters

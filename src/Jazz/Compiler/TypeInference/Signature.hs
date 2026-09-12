@@ -37,7 +37,7 @@ import Jazz.Compiler.CoreIdentity (CapabilityId (..))
 import Jazz.Compiler.Name (identifierText)
 import Jazz.Compiler.SemanticDeclarations (ConcreteImplFact (..), SignatureTypeFailure (..), concreteImplementationType, normalizeSignatureType)
 import Jazz.Compiler.TypeInference.Solver
-  ( freshTypeVar,
+  ( freshTypeVars,
   )
 import Jazz.Compiler.TypeInference.State
   ( InferState,
@@ -161,11 +161,8 @@ signaturePayloadToSignatureType signaturePayload state =
 
 allocateSignatureTypeVariables :: [Text] -> InferState -> (Map Text ExpressionType, InferState)
 allocateSignatureTypeVariables variableNames state =
-  foldl' allocate (Map.empty, state) variableNames
-  where
-    allocate (signatureVariables, stateAcc) variableName =
-      let (variableType, nextState) = freshTypeVar stateAcc
-       in (Map.insert variableName variableType signatureVariables, nextState)
+  let (variableTypes, nextState) = freshTypeVars (length variableNames) state
+   in (Map.fromList (zip variableNames variableTypes), nextState)
 
 duplicateConstraintName :: [SignatureConstraint 'Resolved] -> Maybe Text
 duplicateConstraintName constraints =

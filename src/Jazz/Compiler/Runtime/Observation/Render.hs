@@ -8,7 +8,8 @@ module Jazz.Compiler.Runtime.Observation.Render
 where
 
 import Data.Aeson
-  ( Value,
+  ( Key,
+    Value,
     eitherDecode,
     withObject,
     (.:),
@@ -27,6 +28,7 @@ import Data.Aeson.Types (Parser, parseEither)
 import Data.ByteString.Lazy (ByteString)
 import Data.Text (Text)
 import qualified Data.Text as Text
+import Data.Word (Word64)
 import Jazz.Compiler.Runtime.Observation
   ( RuntimeObservationReport (..),
     RuntimeStatistics (..),
@@ -64,31 +66,8 @@ statisticsEncoding statistics =
   pairs (statisticsSeries statistics)
 
 statisticsSeries :: RuntimeStatistics -> Series
-statisticsSeries statistics =
-  pair "evaluatorTransitions" (word64 (runtimeEvaluatorTransitions statistics))
-    <> pair "forcedValues" (word64 (runtimeForcedValues statistics))
-    <> pair "applications" (word64 (runtimeApplications statistics))
-    <> pair "closureApplications" (word64 (runtimeClosureApplications statistics))
-    <> pair "builtinApplications" (word64 (runtimeBuiltinApplications statistics))
-    <> pair "operatorApplications" (word64 (runtimeOperatorApplications statistics))
-    <> pair "constructorApplications" (word64 (runtimeConstructorApplications statistics))
-    <> pair "methodApplications" (word64 (runtimeMethodApplications statistics))
-    <> pair "currentContinuationDepth" (word64 (runtimeCurrentContinuationDepth statistics))
-    <> pair "maximumContinuationDepth" (word64 (runtimeMaximumContinuationDepth statistics))
-    <> pair "closuresCreated" (word64 (runtimeClosuresCreated statistics))
-    <> pair "bindingsCaptured" (word64 (runtimeBindingsCaptured statistics))
-    <> pair "maximumCaptureWidth" (word64 (runtimeMaximumCaptureWidth statistics))
-    <> pair "listCellsConstructed" (word64 (runtimeListCellsConstructed statistics))
-    <> pair "tuplesConstructed" (word64 (runtimeTuplesConstructed statistics))
-    <> pair "saturatedAdtValuesConstructed" (word64 (runtimeSaturatedAdtValuesConstructed statistics))
-    <> pair "patternAttempts" (word64 (runtimePatternAttempts statistics))
-    <> pair "patternMatches" (word64 (runtimePatternMatches statistics))
-    <> pair "patternBindings" (word64 (runtimePatternBindings statistics))
-    <> pair "builtinCalls" (word64 (runtimeBuiltinCalls statistics))
-    <> pair "hostOperations" (word64 (runtimeHostOperations statistics))
-    <> pair "deferredCacheHits" (word64 (runtimeDeferredCacheHits statistics))
-    <> pair "deferredCacheMisses" (word64 (runtimeDeferredCacheMisses statistics))
-    <> pair "deferredCacheRecursiveEvaluations" (word64 (runtimeDeferredCacheRecursiveEvaluations statistics))
+statisticsSeries =
+  foldMap (\(key, _, value) -> pair key (word64 value)) . statisticFields
 
 parseReport :: Value -> Parser RuntimeObservationReport
 parseReport = withObject "runtime observation report" $ \object -> do
@@ -137,35 +116,36 @@ parseStatistics = withObject "runtime statistics" $ \object ->
     <*> object .: "deferredCacheRecursiveEvaluations"
 
 statisticLines :: RuntimeStatistics -> [Text]
-statisticLines statistics =
-  [ statisticLine "evaluator transitions" (runtimeEvaluatorTransitions statistics),
-    statisticLine "forced values" (runtimeForcedValues statistics),
-    statisticLine "applications" (runtimeApplications statistics),
-    statisticLine "closure applications" (runtimeClosureApplications statistics),
-    statisticLine "builtin applications" (runtimeBuiltinApplications statistics),
-    statisticLine "operator applications" (runtimeOperatorApplications statistics),
-    statisticLine "constructor applications" (runtimeConstructorApplications statistics),
-    statisticLine "method applications" (runtimeMethodApplications statistics),
-    statisticLine "current continuation depth" (runtimeCurrentContinuationDepth statistics),
-    statisticLine "maximum continuation depth" (runtimeMaximumContinuationDepth statistics),
-    statisticLine "closures created" (runtimeClosuresCreated statistics),
-    statisticLine "bindings captured" (runtimeBindingsCaptured statistics),
-    statisticLine "maximum capture width" (runtimeMaximumCaptureWidth statistics),
-    statisticLine "list cells constructed" (runtimeListCellsConstructed statistics),
-    statisticLine "tuples constructed" (runtimeTuplesConstructed statistics),
-    statisticLine "saturated ADT values constructed" (runtimeSaturatedAdtValuesConstructed statistics),
-    statisticLine "pattern attempts" (runtimePatternAttempts statistics),
-    statisticLine "pattern matches" (runtimePatternMatches statistics),
-    statisticLine "pattern bindings" (runtimePatternBindings statistics),
-    statisticLine "builtin calls" (runtimeBuiltinCalls statistics),
-    statisticLine "host operations" (runtimeHostOperations statistics),
-    statisticLine "deferred cache hits" (runtimeDeferredCacheHits statistics),
-    statisticLine "deferred cache misses" (runtimeDeferredCacheMisses statistics),
-    statisticLine "deferred cache recursive evaluations" (runtimeDeferredCacheRecursiveEvaluations statistics)
-  ]
+statisticLines =
+  map (\(_, label, value) -> label <> ": " <> Text.pack (show value)) . statisticFields
 
-statisticLine :: (Show value) => Text -> value -> Text
-statisticLine label value = label <> ": " <> Text.pack (show value)
+statisticFields :: RuntimeStatistics -> [(Key, Text, Word64)]
+statisticFields statistics =
+  [ ("evaluatorTransitions", "evaluator transitions", runtimeEvaluatorTransitions statistics),
+    ("forcedValues", "forced values", runtimeForcedValues statistics),
+    ("applications", "applications", runtimeApplications statistics),
+    ("closureApplications", "closure applications", runtimeClosureApplications statistics),
+    ("builtinApplications", "builtin applications", runtimeBuiltinApplications statistics),
+    ("operatorApplications", "operator applications", runtimeOperatorApplications statistics),
+    ("constructorApplications", "constructor applications", runtimeConstructorApplications statistics),
+    ("methodApplications", "method applications", runtimeMethodApplications statistics),
+    ("currentContinuationDepth", "current continuation depth", runtimeCurrentContinuationDepth statistics),
+    ("maximumContinuationDepth", "maximum continuation depth", runtimeMaximumContinuationDepth statistics),
+    ("closuresCreated", "closures created", runtimeClosuresCreated statistics),
+    ("bindingsCaptured", "bindings captured", runtimeBindingsCaptured statistics),
+    ("maximumCaptureWidth", "maximum capture width", runtimeMaximumCaptureWidth statistics),
+    ("listCellsConstructed", "list cells constructed", runtimeListCellsConstructed statistics),
+    ("tuplesConstructed", "tuples constructed", runtimeTuplesConstructed statistics),
+    ("saturatedAdtValuesConstructed", "saturated ADT values constructed", runtimeSaturatedAdtValuesConstructed statistics),
+    ("patternAttempts", "pattern attempts", runtimePatternAttempts statistics),
+    ("patternMatches", "pattern matches", runtimePatternMatches statistics),
+    ("patternBindings", "pattern bindings", runtimePatternBindings statistics),
+    ("builtinCalls", "builtin calls", runtimeBuiltinCalls statistics),
+    ("hostOperations", "host operations", runtimeHostOperations statistics),
+    ("deferredCacheHits", "deferred cache hits", runtimeDeferredCacheHits statistics),
+    ("deferredCacheMisses", "deferred cache misses", runtimeDeferredCacheMisses statistics),
+    ("deferredCacheRecursiveEvaluations", "deferred cache recursive evaluations", runtimeDeferredCacheRecursiveEvaluations statistics)
+  ]
 
 terminationName :: RuntimeTermination -> Text
 terminationName termination =
