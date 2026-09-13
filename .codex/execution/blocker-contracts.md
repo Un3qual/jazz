@@ -77,6 +77,7 @@ Each blocked item should answer these questions:
 - Smallest unblocker: implement the accepted, unimplemented contract in
   [RFC 0019](../../rfcs/accepted/0019-generic-capabilities-and-library-names.md)
   through the ready core child.
+- Decision needed: none; RFC 0019 is accepted and no further decision is pending.
 - Accepted contract: one-parameter classes, constructor-preserving mapping,
   variable-only declaration prerequisites, and separate Text/Set operations.
   Defer parenthesized application heads, functional dependencies, associated types,
@@ -100,14 +101,73 @@ Each blocked item should answer these questions:
   library migration, combining instances, names, consumers, and docs per module.
   Preserve nominal identities and the existing analyzed-core interpreter.
 - Ready child: `JN-GENERIC-CAPABILITIES-CORE-001`.
+- Candidate child: `JN-GENERIC-CAPABILITIES-LIBRARY-001`.
+  Promote after verified core closeout using Task 5 and the rename CSV. The
+  curation row records library targets and verification; the lists below cover
+  the current core child.
 - Active plan: [generic capabilities and library names](../plans/2026-09-13-generic-capabilities-and-library-names.md),
   Tasks 1-4. Task 5 specifies the dependent library child, including Reduce.
 - Target paths: `src/Jazz/Compiler/TypeRepresentation.hs`,
   `src/Jazz/Compiler/SemanticDeclarations.hs`,
+  `src/Jazz/Compiler/AST.hs`,
+  `src/Jazz/Compiler/Parser/AST.hs`,
+  `src/Jazz/Compiler/Parser/Signature.hs`,
   `src/Jazz/Compiler/Parser/CapabilityDeclaration.hs`,
+  `src/Jazz/Compiler/Parser/Lower.hs`,
+  `src/Jazz/Compiler/SignatureRendering.hs`,
+  `src/Jazz/Compiler/TypeInference/Signature.hs`,
+  `src/Jazz/Compiler/TypeInference/Solver.hs`,
+  `src/Jazz/Compiler/TypeInference/Scope.hs`,
+  `src/Jazz/Compiler/CapabilityFacts.hs`,
+  `src/Jazz/Compiler/TypeInference.hs`,
   `src/Jazz/Compiler/TypeInference/Capabilities.hs`,
+  `src/Jazz/Compiler/TypeInference/ImplChecking.hs`,
+  `src/Jazz/Compiler/TypeInference/Instantiation.hs`,
+  `src/Jazz/Compiler/TypeInference/State.hs`,
+  `src/Jazz/Compiler/TypeInference/Analyzed.hs`,
+  `src/Jazz/Compiler/CoreIdentity.hs`,
+  `src/Jazz/Compiler/SemanticFacts.hs`,
+  `src/Jazz/Compiler/Runtime/Types.hs`,
+  `src/Jazz/Compiler/Runtime/Engine.hs`,
+  `src/Jazz/Compiler/Runtime/Semantics.hs`,
+  `src/Jazz/Compiler/ModuleResolver.hs`,
+  `src/Jazz/Compiler/ModuleResolver/Names.hs`,
+  `src/Jazz/Compiler/ModuleResolver/Imports.hs`,
+  `src/Jazz/Compiler/ModuleExports.hs`,
   `src/Jazz/Compiler/ModuleInterface.hs`,
-  `test/Jazz/Compiler/Semantics/BindingSignature/ConstraintsTests.hs`.
+  `src/Jazz/Compiler/ModuleAnalysis.hs`,
+  `src/Jazz/Compiler/ModuleRuntime.hs`,
+  `src/Jazz/Compiler/TypeInference/Interface.hs`,
+  `jazz/compiler/ParserDeclaration.jz`,
+  `jazz/compiler/ParserTypes.jz`,
+  `jazz/compiler/CoreTypes.jz`,
+  `jazz/compiler/CoreLower.jz`,
+  `test/Jazz/Compiler/Parser/Foundation/SignaturesTests.hs`,
+  `test/Jazz/Compiler/Parser/Foundation/InvalidSyntaxTests.hs`,
+  `test/Jazz/Compiler/Parser/DeclarationParserSpec.hs`,
+  `test/Jazz/Compiler/Diagnostics/SignatureRenderingSpec.hs`,
+  `test/Jazz/Compiler/Parser/SourceRangesSpec.hs`,
+  `test/Jazz/Compiler/Semantics/BindingSignature/ConstraintsTests.hs`,
+  `test/Jazz/Compiler/Semantics/BindingSignature/InferenceOwnershipTests.hs`,
+  `test/Jazz/Compiler/Semantics/Runtime/CapabilitiesTests.hs`,
+  `test/Jazz/Compiler/Semantics/PuritySemanticsSpec.hs`,
+  `test/Jazz/Compiler/Modules/Loader/CapabilitiesTests.hs`,
+  `test/Jazz/Compiler/Modules/Loader/AliasClassTests.hs`,
+  `test/Jazz/Compiler/Modules/ModuleExportsSpec.hs`,
+  `test/Jazz/Compiler/Modules/ModuleResolutionSpec.hs`,
+  `test/Jazz/Compiler/Modules/ModulePipelineContractSpec.hs`,
+  `test/Jazz/Compiler/ProfilingSpec.hs`,
+  `test/Jazz/Compiler/HaskellTypeclassContractsSpec.hs`,
+  `test/Jazz/Compiler/Bootstrap/CanonicalParserComparison.hs`,
+  `test/Jazz/Compiler/Bootstrap/CanonicalCoreComparison.hs`,
+  `test/Jazz/Compiler/Bootstrap/CanonicalParserComparisonSpec.hs`,
+  `test/Jazz/Compiler/Bootstrap/CanonicalCoreComparisonSpec.hs`,
+  `test/Jazz/Compiler/Bootstrap/JazzParserTypesDeclarationsModulesSpec.hs`,
+  `docs/language/capabilities.md`,
+  `docs/language/types-and-signatures.md`,
+  `docs/language/modules.md`,
+  `docs/reference/expression-grammar.md`,
+  `docs/reference/module-resolution.md`.
 - Verification: `cabal build all --jobs=1`;
   `cabal test all --jobs=1 --test-show-details=failures`;
   `cabal test jazz-parser-scale-full-expression-spec jazz-parser-scale-full-declarations-spec jazz-parser-scale-full-control-flow-spec jazz-parser-scale-full-operator-spec -ffull-parser-scale --jobs=1 --test-show-details=failures`;
@@ -176,6 +236,7 @@ Each blocked item should answer these questions:
 - Smallest unblocker: the shared
   [generic-capability contract](../../rfcs/accepted/0019-generic-capabilities-and-library-names.md)
   implementation under `JN-ABSTRACTION-SEMANTICS-PLAN-001`.
+- Decision needed: none; RFC 0019 is accepted and no further decision is pending.
 - Accepted contract: single-parameter classes, inferred constructor kinds, and
   variable-only declaration prerequisites in RFC 0019. Reuse ordinary schemes
   and one parameterized kind tree; retain the surface application encoding.
@@ -184,11 +245,16 @@ Each blocked item should answer these questions:
   abstraction-owned core child, followed by the library migration.
 - Candidate child: none independently; use `JN-GENERIC-CAPABILITIES-CORE-001`
   through the abstraction blocker rather than creating a duplicate candidate.
-- Target paths: the shared [implementation plan](../plans/2026-09-13-generic-capabilities-and-library-names.md).
-- Verification: the core child's ordered full verification commands.
+- Target paths: the ordered `target_paths` list in
+  [JN-GENERIC-CAPABILITIES-CORE-001](../plans/2026-09-13-generic-capabilities-and-library-names.md)
+  frontmatter.
+- Verification: the ordered `verification` commands in that same
+  `JN-GENERIC-CAPABILITIES-CORE-001` frontmatter, including full parser-scale
+  execution. This is the shared core deliverable, not a separate verification batch.
 - Not in scope: re-promoting completed solver children, numeric promotion changes,
-  associated types, explicit higher-rank types, overlapping instances, or a
-  separate speculative solver rewrite.
+  associated types, explicit higher-rank types, accepting overlapping instances,
+  or a separate speculative solver rewrite. Rejecting overlapping visible heads,
+  including `[a]` and `[Int]`, remains required by RFC 0019 and Task 2.
 
 ### JN-PATTERN-FUTURE-FORMS-PLAN-001
 

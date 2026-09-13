@@ -10,10 +10,65 @@ plan_section: "Implementation"
 target_paths:
   - src/Jazz/Compiler/TypeRepresentation.hs
   - src/Jazz/Compiler/SemanticDeclarations.hs
+  - src/Jazz/Compiler/AST.hs
+  - src/Jazz/Compiler/Parser/AST.hs
+  - src/Jazz/Compiler/Parser/Signature.hs
   - src/Jazz/Compiler/Parser/CapabilityDeclaration.hs
+  - src/Jazz/Compiler/Parser/Lower.hs
+  - src/Jazz/Compiler/SignatureRendering.hs
+  - src/Jazz/Compiler/TypeInference/Signature.hs
+  - src/Jazz/Compiler/TypeInference/Solver.hs
+  - src/Jazz/Compiler/TypeInference/Scope.hs
+  - src/Jazz/Compiler/CapabilityFacts.hs
+  - src/Jazz/Compiler/TypeInference.hs
   - src/Jazz/Compiler/TypeInference/Capabilities.hs
+  - src/Jazz/Compiler/TypeInference/ImplChecking.hs
+  - src/Jazz/Compiler/TypeInference/Instantiation.hs
+  - src/Jazz/Compiler/TypeInference/State.hs
+  - src/Jazz/Compiler/TypeInference/Analyzed.hs
+  - src/Jazz/Compiler/CoreIdentity.hs
+  - src/Jazz/Compiler/SemanticFacts.hs
+  - src/Jazz/Compiler/Runtime/Types.hs
+  - src/Jazz/Compiler/Runtime/Engine.hs
+  - src/Jazz/Compiler/Runtime/Semantics.hs
+  - src/Jazz/Compiler/ModuleResolver.hs
+  - src/Jazz/Compiler/ModuleResolver/Names.hs
+  - src/Jazz/Compiler/ModuleResolver/Imports.hs
+  - src/Jazz/Compiler/ModuleExports.hs
   - src/Jazz/Compiler/ModuleInterface.hs
+  - src/Jazz/Compiler/ModuleAnalysis.hs
+  - src/Jazz/Compiler/ModuleRuntime.hs
+  - src/Jazz/Compiler/TypeInference/Interface.hs
+  - jazz/compiler/ParserDeclaration.jz
+  - jazz/compiler/ParserTypes.jz
+  - jazz/compiler/CoreTypes.jz
+  - jazz/compiler/CoreLower.jz
+  - test/Jazz/Compiler/Parser/Foundation/SignaturesTests.hs
+  - test/Jazz/Compiler/Parser/Foundation/InvalidSyntaxTests.hs
+  - test/Jazz/Compiler/Parser/DeclarationParserSpec.hs
+  - test/Jazz/Compiler/Diagnostics/SignatureRenderingSpec.hs
+  - test/Jazz/Compiler/Parser/SourceRangesSpec.hs
   - test/Jazz/Compiler/Semantics/BindingSignature/ConstraintsTests.hs
+  - test/Jazz/Compiler/Semantics/BindingSignature/InferenceOwnershipTests.hs
+  - test/Jazz/Compiler/Semantics/Runtime/CapabilitiesTests.hs
+  - test/Jazz/Compiler/Semantics/PuritySemanticsSpec.hs
+  - test/Jazz/Compiler/Modules/Loader/CapabilitiesTests.hs
+  - test/Jazz/Compiler/Modules/Loader/AliasClassTests.hs
+  - test/Jazz/Compiler/Modules/ModuleExportsSpec.hs
+  - test/Jazz/Compiler/Modules/ModuleResolutionSpec.hs
+  - test/Jazz/Compiler/Modules/ModulePipelineContractSpec.hs
+  - test/Jazz/Compiler/ProfilingSpec.hs
+  - test/Jazz/Compiler/HaskellTypeclassContractsSpec.hs
+  - test/Jazz/Compiler/Bootstrap/CanonicalParserComparison.hs
+  - test/Jazz/Compiler/Bootstrap/CanonicalCoreComparison.hs
+  - test/Jazz/Compiler/Bootstrap/CanonicalParserComparisonSpec.hs
+  - test/Jazz/Compiler/Bootstrap/CanonicalCoreComparisonSpec.hs
+  - test/Jazz/Compiler/Bootstrap/JazzParserTypesDeclarationsModulesSpec.hs
+  - docs/language/capabilities.md
+  - docs/language/types-and-signatures.md
+  - docs/language/modules.md
+  - docs/reference/expression-grammar.md
+  - docs/reference/module-resolution.md
 verification:
   - cabal build all --jobs=1
   - cabal test all --jobs=1 --test-show-details=failures
@@ -85,8 +140,10 @@ ordered target and verification list. The first queue child covers Tasks 1-4
 as one complete compiler deliverable; do not close it at parser-only support.
 
 Task 5 is the dependent library migration, child
-`JN-GENERIC-CAPABILITIES-LIBRARY-001`. At core closeout, create its ready plan
-from that task, naming the concrete stdlib, catalog, and test files. Preserve
+`JN-GENERIC-CAPABILITIES-LIBRARY-001`, recorded in Next Curation Target behind
+`JN-GENERIC-CAPABILITIES-CORE-001`. At core closeout, create its ready plan
+from Task 5 and the rename CSV, naming the concrete stdlib, catalog, consumer,
+and test files. Preserve
 the approved scope and continue to that milestone without reopening it for
 permission. The separate child is an integration/verification boundary, not a
 request to leave the rename undone.
@@ -99,8 +156,10 @@ request to leave the rename undone.
 `SemanticDeclarations.hs`, `AST.hs`, `Parser/AST.hs`, `Parser/Signature.hs`,
 `Parser/CapabilityDeclaration.hs`, `Parser/Lower.hs`, `SignatureRendering.hs`,
 `TypeInference/Signature.hs`, `TypeInference/Solver.hs`, `TypeInference/Scope.hs`,
-`jazz/compiler/ParserDeclaration.jz`, and
-the canonical/hosted adapters that consume those declarations.
+`jazz/compiler/{ParserDeclaration,ParserTypes,CoreTypes,CoreLower}.jz`, and
+`test/Jazz/Compiler/Bootstrap/{CanonicalParserComparison,CanonicalCoreComparison}.hs`.
+The frontmatter includes the corresponding fixture and public-documentation
+owners for Tasks 1-4; these paths describe the same approved core scope.
 
 **Interfaces:** Keep surface `SignatureType` applications as `TypeApplication
 name [arguments]`. Existing parsing already accepts `f(a)`, `f(a, b)`, and
@@ -373,9 +432,10 @@ value export map rather than adding a parallel method-value table. Update
 fixtures, including `test/Jazz/Compiler/ProfilingSpec.hs`, for the reference field;
 this is fixture maintenance, not new profiling work.
 
-- [ ] Add an A -> B -> C graph: A exports a class/method; B declares an
-      implementation; C imports B with no values and uses A's method. Expect
-      successful dispatch. Repeated aliases must deduplicate the same instance;
+- [ ] Add modules A, B, and C: A exports a class/method; B imports A and
+      declares an implementation. C imports A for the method and B with an empty
+      selection for its instance, then calls A's method. The empty B selection
+      exposes no names. Expect successful dispatch. Repeated aliases must deduplicate the same instance;
       an additional overlapping instance must fail regardless of import order.
 - [ ] Add fixtures for existing `class C` and method-value-only selections.
       Class selection provides its method names, including alias-qualified
