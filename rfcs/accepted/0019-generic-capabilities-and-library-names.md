@@ -20,13 +20,13 @@ requested-destination mapping proposal; it does not add functional dependencies,
 `determines` syntax, associated types, multi-parameter classes, or a matrix of
 cross-collection mapping implementations.
 
-The maintainer approved the revised contract and seven implementation
-simplifications on 2026-09-13, explicitly retaining the Reduce module and its
-safe seedless helper. This is an accepted, unimplemented contract delta. Public
-documentation continues to describe shipped behavior until implementation lands.
-Keep Jazz's evaluation
-strategy, numeric widths and promotion rules, purity boundary, and analyzed-core
-interpreter. Automatic deriving, overlapping instances, explicit higher-rank
+The maintainer approved the revised contract, the initial simplifications,
+and all seven compiler-reuse requirements on 2026-09-13, explicitly retaining
+the Reduce module and its safe seedless helper. This is an accepted,
+unimplemented contract delta. Public documentation continues to describe shipped
+behavior until implementation lands. Keep Jazz's evaluation strategy, numeric
+widths and promotion rules, purity boundary, and analyzed-core interpreter.
+Automatic deriving, overlapping instances, explicit higher-rank
 types, re-exports, new operator transport, and broader self-hosting/native work
 remain outside this change.
 
@@ -313,6 +313,42 @@ independently of prerequisites. Keep diagnostics outside silent trials and
 defer obligations whose generic targets remain unknown. This requires no
 whole-compiler monad migration or additional dependency.
 
+Apply the seven approved reuse requirements within those existing owners:
+
+1. Share one evidence representation between inference and analyzed facts.
+   Replace the duplicate `ExpressionEvidenceSeed` record with the shared
+   `EvidenceReference` representation before adding generic evidence. Apply
+   solved substitutions through the existing draft finalizer; add no separate
+   evidence-lowering pass or runtime instruction sequence.
+2. Extend `DeferredExplicitConstraint`, the existing constraint queue, and
+   statement-local finalization/entailment for instance prerequisites and
+   superclasses. Keep one obligation-solving path, including generic head
+   matching, deferred targets, and superclass entailment.
+3. Extend `ModuleInterface` and `ImportedInterface` publication, selection,
+   and merging for complete instance metadata and runtime method-cell transport.
+   Their existing public inventories continue to govern source visibility;
+   add no separate instance-import graph or registry.
+4. Use the existing `CapabilityMethodReference` for ordinary method values.
+   Generalize `ModuleValueBinding`'s lexical-binder-only identity field to
+   `ResolvedReference`, so all method spellings publish the same method cell
+   without synthetic wrapper bindings or a parallel method-value export table.
+5. Factor the shared expected-type and constraint checking in
+   `checkImplMethodBodies` for defaults checked under class assumptions.
+   Defaults remain ordinary expressions with their defining scope and use
+   existing runtime method cells. Add no separate default-body representation,
+   checker, or evaluator; supplied implementations override defaults.
+6. Integrate kind skeletons and implementation-template preparation into
+   `prepareScope` and its checked declaration cache. Any additional local
+   dependency traversal needs a concrete requirement; add no separate compiler
+   phase or prepared-module representation by default.
+7. Share the existing constraint-prefix parser and `SignatureConstraint`
+   representation for declaration contexts. Reuse method expression-binding
+   parsing for defaults; enforce declaration-specific restrictions in validation.
+
+These requirements preserve the new kind tree and isolated candidate trials.
+`previewInference` is not a replacement for those trials: its contract discards
+outputs and outstanding constraints. Keep that distinct speculation behavior.
+
 ## Acceptance evidence
 
 1. One unannotated map helper runs on List, Queue, Maybe, Result, NonEmpty, Map,
@@ -349,8 +385,8 @@ The release gains reusable generic classes with ordinary inference. Separate
 Text/Set functions and explicit conversions keep collection restrictions in
 library signatures. Functional dependencies, associated types, multi-parameter
 classes, automatic cross-collection mapping, the Empty class, parenthesized
-application heads, and new class export selectors are deferred. Generic library instance transport remains
-necessary and is retained in the compiler batch.
+application heads, and new class export selectors are deferred. Generic library
+instance transport remains necessary and is retained in the compiler batch.
 
 Implementation follows this accepted contract under RFC 0001.
 The execution plan remains internal coordination state and defines no public

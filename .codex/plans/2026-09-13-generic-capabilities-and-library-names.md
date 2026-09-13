@@ -46,7 +46,8 @@ library functions. Imported modules transport generic instance evidence.
 the repository-pinned Nix development/quality shells.
 
 **Spec:** [RFC 0019](../../rfcs/accepted/0019-generic-capabilities-and-library-names.md).
-The revised contract and seven simplifications are approved on 2026-09-13.
+The revised contract, initial simplifications, and all seven compiler-reuse
+requirements are approved on 2026-09-13.
 The maintainer explicitly retained the Reduce module and safe seedless helper.
 This accepted future contract is not yet implemented.
 
@@ -62,6 +63,10 @@ This accepted future contract is not yet implemented.
   classes, automatic cross-collection mapping, Empty, parenthesized application
   heads, and new class selectors. Keep the explicit-import Reduce module.
 - Keep the single analyzed-core interpreter and nominal class/impl identities.
+- Reuse the existing scope preparation, constraint queue, draft finalization,
+  module interfaces, reference identities, and method-body checking. Implement
+  the seven reuse requirements within Tasks 1-4, without separate setup tasks
+  or parallel representations.
 - Preserve numeric widths, builtin structural equality semantics, direct-call
   purity rules, host behavior, and permanent rejection of `trait` syntax.
 - Extend retained hosted syntax/lowering conformance for changed grammar;
@@ -90,9 +95,9 @@ request to leave the rename undone.
 ### Task 1: Kinded applications and generic declaration templates
 
 **Files:** `src/Jazz/Compiler/TypeRepresentation.hs`,
-`SemanticDeclarations.hs`, `AST.hs`, `Parser/AST.hs`,
+`SemanticDeclarations.hs`, `AST.hs`, `Parser/AST.hs`, `Parser/Signature.hs`,
 `Parser/CapabilityDeclaration.hs`, `Parser/Lower.hs`, `SignatureRendering.hs`,
-`TypeInference/Signature.hs`, `TypeInference/Solver.hs`,
+`TypeInference/Signature.hs`, `TypeInference/Solver.hs`, `TypeInference/Scope.hs`,
 `jazz/compiler/ParserDeclaration.jz`, and
 the canonical/hosted adapters that consume those declarations.
 
@@ -100,7 +105,8 @@ the canonical/hosted adapters that consume those declarations.
 name [arguments]`. Existing parsing already accepts `f(a)`, `f(a, b)`, and
 `Result(error)`; extend name resolution and kind-aware normalization to give
 them meaning. Defer parenthesized application heads without changing the
-surface AST or hosted type-application encoding.
+surface application AST or hosted type-application encoding. Changes to
+`Parser/Signature.hs` extract shared constraint-prefix parsing only.
 
 Use one shared kind tree:
 
@@ -132,6 +138,13 @@ method scheme. One checked implementation template carries `ImplId`,
 quantifiers/kinds, one head target, prerequisites, and method identities,
 replacing the concrete-only catalog.
 
+Use `prepareScope`, `ScopePreparation.preparedDeclarations`, and
+`PreparedDeclaration` in `TypeInference/Scope.hs` to prepare kind skeletons and
+checked implementation templates. Extend the existing registration/cache flow
+so real checking consumes those prepared declarations. Add a local dependency
+traversal only where kind dependencies require it; do not introduce another
+compiler phase or prepared-module representation.
+
 - [ ] In parser/signature and binding suites, add focused source cases:
 
   ```jazz
@@ -152,14 +165,22 @@ replacing the concrete-only catalog.
 - [ ] Run `cabal test parser-foundation-spec declaration-parser-spec
 binding-signature-coherence-spec signature-rendering-spec --jobs=1
 --test-show-details=failures`; confirm the new behavior fails on the baseline.
-- [ ] Extend parsing/lowering for `@{...}:` declaration contexts and class
-      default bodies. Retain the one-parameter class/impl arity checks. Reject
+- [ ] Extract the existing `@{...}:` prefix from
+      `constrainedSignaturePayloadParser`/`constraintBlockParser` in
+      `Parser/Signature.hs` for use by both signatures and declaration headers.
+      Retain `SignatureConstraint` and its shared lowering/traversal. Factor
+      expression-binding parsing from `parseImplBody` for class default bodies,
+      retaining ordinary expressions and their source spans. Apply class/impl
+      context restrictions in declaration validation, not a second constraint
+      grammar. Retain the one-parameter class/impl arity checks. Reject
       multi-parameter declarations and dependency clauses in focused syntax tests.
       Normalize the existing named-head applications through the shared owner;
       substitutions and renderers must agree on one semantic shape. Validate
       implementation contexts as `C(a)` for head-bound variables and superclass
       contexts as `C(classParameter)`. Keep method-local and use-site constraints
       governed by ordinary schemes, including compound targets.
+- [ ] Extend `prepareScope` and its declaration cache for kind/template
+      preparation, retaining forward declaration behavior and diagnostic ownership.
 - [ ] Extend hosted declaration encodings for contexts/default bodies and complete
       their exhaustive adapters; reuse existing type-application encodings and
       retain structural differential checks for the changed declaration syntax.
@@ -171,18 +192,24 @@ binding-signature-coherence-spec signature-rendering-spec --jobs=1
 ### Task 2: Generic resolution and runtime evidence
 
 **Files:** `src/Jazz/Compiler/CapabilityFacts.hs`, `SemanticDeclarations.hs`,
-`TypeInference/Capabilities.hs`, `TypeInference/ImplChecking.hs`,
+`TypeInference.hs`, `TypeInference/Capabilities.hs`, `TypeInference/ImplChecking.hs`,
 `TypeInference/Solver.hs`, `TypeInference/Instantiation.hs`,
 `TypeInference/State.hs`, `TypeInference/Analyzed.hs`, `CoreIdentity.hs`,
-`SemanticFacts.hs`, `Runtime/Types.hs`, `Runtime/ScopePlan.hs`,
+`SemanticFacts.hs`, `Runtime/Types.hs`,
 `Runtime/Engine.hs`, and `Runtime/Semantics.hs`.
 
 **Interfaces:** The template from Task 1 is the sole declaration environment.
-Class obligations contain the class identity and one kinded target.
+Class obligations retain `DeferredExplicitConstraint` and the existing
+constraint queue, with the class identity and one kinded target.
 Selected evidence identifies an implementation plus substitution and prerequisite
-evidence; deferred evidence refers to an enclosing scheme parameter. Extend
-existing analyzed facts and method cells with these forms. Preserve the public
-driver result APIs.
+evidence; deferred evidence refers to an enclosing scheme parameter. Replace
+the duplicate `ExpressionEvidenceSeed` record with shared `EvidenceReference`
+values before extending evidence. Both current records have the same fields
+and underlying target type. `expressionEvidenceFacts` resolves their types
+through the existing `Draft`/`finalizeCheckedExpression` path, including nested
+prerequisite evidence once added. Extend existing analyzed facts and method
+cells; do not add another evidence-lowering pass or runtime instruction plan.
+Preserve the public driver result APIs.
 
 - [ ] Add compile/run cases using the existing `assertSourceOkWithoutPrelude`
       helper in `BindingSignature/ConstraintsTests.hs` and driver-based runtime
@@ -216,6 +243,12 @@ driver result APIs.
       Reject overlapping heads independently of prerequisites and runtime values.
       Reject compound/unbound declaration prerequisites, while accepting inferred
       and use-site compound obligations such as `Same([[Int]])`.
+- [ ] Extend `resolveDeferredExplicitConstraint`,
+      `finalizeDeferredExplicitConstraintsAtWithEntailments`, and
+      `deferredConstraintIsEntailed` for generic prerequisites and superclass
+      entailment. Reuse the existing queue and statement checkpoints, preserving
+      source diagnostics and generalization of unresolved constraints. Do not
+      introduce a second obligation type, work queue, or solving pass.
 - [ ] Wrap candidate trials locally in `StateT InferState Maybe`, using existing
       `transformers` and unification functions. Run every candidate from the same
       immutable pre-trial state, discard failures, and examine all successes
@@ -224,11 +257,16 @@ driver result APIs.
       targets deferred; do not select the first plausible concrete implementation.
       Cover failed-trial isolation through observable inference/dispatch behavior
       and reject overlapping heads even when one prerequisite is unavailable.
+      Do not substitute `previewInference`: it deliberately discards outputs and
+      outstanding constraints and has a different allocation/continuation contract.
 - [ ] Check bodies under declared prerequisites. Register method types as ordinary
       constrained `SemanticScheme` values and reuse `instantiateTypeScheme` in
       `TypeInference/Instantiation.hs`; instantiate method-local variables freshly
       per use while preserving the explicit class-parameter binding order.
-- [ ] Pass selected/deferred evidence through analyzed binders and callables.
+- [ ] Unify the two evidence records and update their producers/consumers, then
+      pass selected/deferred evidence through analyzed binders and callables.
+      Finalize substitutions in the existing draft finalizer and consume the
+      attached facts directly at runtime, as required by RFC 0018.
       Cover stored/partial methods, expected-result methods, empty collections,
       returned closures, and recursive dictionaries. Assert distinguishable results
       for competing test types so an incorrect instance cannot accidentally pass.
@@ -240,11 +278,14 @@ driver result APIs.
 **Files:** `src/Jazz/Compiler/ModuleResolver.hs`,
 `ModuleResolver/Names.hs`, `CoreIdentity.hs`, `TypeInference.hs`,
 `TypeInference/Capabilities.hs`, `TypeInference/ImplChecking.hs`,
-`Runtime/ScopePlan.hs`, and the binding/runtime/purity suites.
+`Runtime/Engine.hs`, `Runtime/Types.hs`, and the binding/runtime/purity suites.
 
 **Interfaces:** A plain method value, `Class::method`, and qualified alias
 spelling resolve to the same `CapabilityMethodKey`. Evidence from Task 2
-supports superclass projection and omitted-method default bodies.
+supports superclass projection and omitted-method default bodies. Use the
+existing `CapabilityMethodReference` identity for every spelling. Defaults
+remain ordinary `Expr` values checked with shared method-body checking and
+executed through existing method cells; preserve their defining lexical scope.
 
 - [ ] Change the generic helper above to call plain `same`; add stored aliases
       and local shadowing cases. Add a class with `same` and default `different`,
@@ -255,10 +296,18 @@ supports superclass projection and omitted-method default bodies.
 - [ ] Publish class methods with the ordinary schemes from Tasks 1-2 into the
       normal local value environment and resolve them before inference. Do not
       add a separate method generalization or value-lookup path. Follow current
-      lexical rules and reject same-scope
-      duplicate values. Resolve defaults through the implementation's evidence,
-      with supplied methods overriding defaults. Derive superclass evidence from
-      its declared graph, never from coincidental same-spelled facts.
+      lexical rules and reject same-scope duplicate values. Do not synthesize
+      wrapper bindings or fresh lexical identities for ordinary method spellings.
+- [ ] Factor expected-type and constraint checking from `checkImplMethodBodies`
+      into one shared body-checking operation. Use implementation prerequisites
+      for supplied bodies and class/superclass/method assumptions for defaults.
+      Check a default once in its defining scope, then select it with the
+      implementation's evidence when no supplied body overrides it. Reuse ordinary
+      expression inference and runtime method cells, including recursion; do not
+      add a default-body AST, separate checker, or evaluator.
+- [ ] Supply superclass evidence through the existing entailment path extended
+      in Task 2, using declared nominal superclass relationships. Preserve the
+      acyclic superclass requirement and missing-superclass diagnostics.
 - [ ] Confirm class-method aliases preserve bang-name purity checks. Run the
       three focused suites and `source-ranges-spec`; update public capability and
       grammar documentation for this completed behavior and commit.
@@ -266,7 +315,8 @@ supports superclass projection and omitted-method default bodies.
 ### Task 4: Existing module selectors and generic instance transport
 
 **Files:** `src/Jazz/Compiler/ModuleExports.hs`, `ModuleInterface.hs`,
-`ModuleResolver.hs`, `ModuleResolver/Imports.hs`, `ModuleAnalysis.hs`,
+`ModuleResolver.hs`, `ModuleResolver/Imports.hs`, `ModuleAnalysis.hs`, `ModuleRuntime.hs`,
+`TypeInference/Interface.hs`,
 `test/Jazz/Compiler/Modules/Loader/CapabilitiesTests.hs`,
 `Loader/AliasClassTests.hs`, `ModuleExportsSpec.hs`,
 `ModulePipelineContractSpec.hs`. Existing module selector grammar is unchanged.
@@ -277,6 +327,19 @@ inventory from the dependency instance environment, which includes instances
 for imported classes. Preserve hidden supporting type/class metadata and
 original declaration identities.
 
+Extend `ModuleInterface.interfaceCapabilities` and
+`ImportedInterface.importedCapabilities` through their existing publication,
+selection, and merge functions. Keep source visibility governed by
+`interfacePublicExports`, selected inventories, and `importedClassNames`.
+Generalize `ModuleValueBinding.interfaceBindingId` from `CoreBinderId` to an
+`interfaceBindingReference :: ResolvedReference` field. Ordinary bindings use
+`LexicalReference`; method values use `CapabilityMethodReference`. Update
+inference imports and runtime `exportReference` consumers together. Reuse this
+value export map rather than adding a parallel method-value table. Update
+`closeModuleBindings` in `TypeInference/Interface.hs` and existing constructor
+fixtures, including `test/Jazz/Compiler/ProfilingSpec.hs`, for the reference field;
+this is fixture maintenance, not new profiling work.
+
 - [ ] Add an A -> B -> C graph: A exports a class/method; B declares an
       implementation; C imports B with no values and uses A's method. Expect
       successful dispatch. Repeated aliases must deduplicate the same instance;
@@ -286,10 +349,20 @@ original declaration identities.
       spellings; value-only selection preserves hidden class metadata. Assert
       private names remain inaccessible, exported helpers receive caller evidence,
       and concrete exported bindings retain defining-module evidence.
+      Include an imported default that calls a private helper in its defining
+      module, with a same-named helper in the implementing module, to verify
+      that default reuse preserves lexical ownership.
 - [ ] Add a Prelude-owned test class implemented in a Queue-like library module.
       Importing that library, even by alias, must make its generic instance usable.
       This case prevents retaining the current public-class filter on instances.
-- [ ] Implement the interface/resolver changes with focused loader tests.
+- [ ] Extend `publishModuleInterface`, `importSelectedInterface`, and existing
+      capability merges for transitive instances and supporting metadata, including
+      empty-selection imports. Update `ModuleRuntime` publication, selection, and
+      merging to transport the corresponding method cells and deduplicate by
+      nominal identity. Retain the existing module dependency order; add no
+      instance-import graph, registry, or separate transport pass.
+- [ ] Complete the `ModuleValueBinding` reference-field migration and method
+      export inventory changes with the existing class/value/alias loader cases.
       Retain re-export rejection and add no new selector grammar. Run
       `module-exports-spec`, `module-resolution-spec`, `loader-spec`, and
       `module-pipeline-contract-spec`.
@@ -428,5 +501,13 @@ queue, docs, and whitespace checks for the design documents themselves.
      where useful, without changing Jazz pattern syntax (Task 1).
   8. Use local `StateT InferState Maybe` candidate trials with isolated state,
      all-match uniqueness, and independent overlap checks (Task 2).
+- Second review: all seven compiler-reuse requirements approved on 2026-09-13:
+  1. Share inference/analyzed evidence and use existing draft finalization (Task 2).
+  2. Extend the current constraint queue and entailment checks (Tasks 2-3).
+  3. Transport instances through existing module interfaces and runtime cells (Task 4).
+  4. Export method values through existing resolved reference identities (Tasks 3-4).
+  5. Share implementation/default body checking and ordinary expressions (Task 3).
+  6. Prepare kinds and templates in the existing scope preparation/cache (Task 1).
+  7. Share constraint-prefix and method expression-binding parsing (Task 1).
 - RFC acceptance and ready plan metadata record this approval. Compiler and
   library implementation are not claimed by the documentation change.

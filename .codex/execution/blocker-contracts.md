@@ -86,10 +86,15 @@ Each blocked item should answer these questions:
   Reduce on 2026-09-13. Reuse ordinary schemes, a parameterized kind tree,
   canonical semantic applications with Haskell pattern-synonym views, and local
   state-isolated candidate trials as specified in the plan.
+- Second review approved on 2026-09-13: share inference/analyzed evidence and
+  draft finalization; extend the existing constraint queue/entailment, module
+  interfaces and runtime method-cell transport, resolved reference identities,
+  method-body checker, scope preparation/cache, and constraint/body parsers.
+  These seven requirements belong within Tasks 1-4 of the ready core child;
+  they do not add another compiler phase, instance registry, or setup child.
 - Recommended default: execute the ready general core, then the dependent
   library migration, combining instances, names, consumers, and docs per module.
-  Preserve nominal
-  identities and the existing analyzed-core interpreter.
+  Preserve nominal identities and the existing analyzed-core interpreter.
 - Ready child: `JN-GENERIC-CAPABILITIES-CORE-001`.
 - Active plan: [generic capabilities and library names](../plans/2026-09-13-generic-capabilities-and-library-names.md),
   Tasks 1-4. Task 5 specifies the dependent library child, including Reduce.
