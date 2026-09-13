@@ -17,6 +17,7 @@ target_paths:
 verification:
   - cabal build all --jobs=1
   - cabal test all --jobs=1 --test-show-details=failures
+  - cabal test jazz-parser-scale-full-expression-spec jazz-parser-scale-full-declarations-spec jazz-parser-scale-full-control-flow-spec jazz-parser-scale-full-operator-spec -ffull-parser-scale --jobs=1 --test-show-details=failures
   - JAZZ_CABAL_JOBS=1 bash scripts/ci/haskell-quality.sh
   - bash scripts/check-examples.sh --jazz-bin "$(cabal list-bin jazz)"
   - bash scripts/check-docs.sh
@@ -46,8 +47,8 @@ library functions. Imported modules transport generic instance evidence.
 the repository-pinned Nix development/quality shells.
 
 **Spec:** [RFC 0019](../../rfcs/accepted/0019-generic-capabilities-and-library-names.md).
-The revised contract, initial simplifications, and all seven compiler-reuse
-requirements are approved on 2026-09-13.
+The revised contract, initial simplifications, compiler-reuse requirements,
+and final correctness refinements are approved on 2026-09-13.
 The maintainer explicitly retained the Reduce module and safe seedless helper.
 This accepted future contract is not yet implemented.
 
@@ -122,6 +123,10 @@ Inference uses `Kind KindVariableId`; solved kinds use `Kind Void`. Derive
 traversals for renaming and collecting variables and checking that solving and
 defaulting leave no unresolved variables. Keep substitutions local to kind
 inference; do not introduce a general solver framework or a second kind tree.
+After solving each declaration group's kind constraints, default any remaining
+unconstrained kind variables to `Type`, then publish fixed kinds. Reuse that
+metadata across imports; do not infer kinds from later uses or add kind
+polymorphism.
 
 Normalize named and variable applications, including partial constructors and
 List, into one semantic application form. Use bidirectional Haskell pattern
@@ -160,7 +165,9 @@ compiler phase or prepared-module representation.
   Reject `Wrapped(Int, Int)`, applying Int as a constructor, excessive Result
   arguments, and kind-occurs-check cycles. Accept partial `Result(error)` and
   normalize `[a]` and `List(a)` identically. Check error locations as behavior,
-  not serialized private representation strings.
+  not serialized private representation strings. Include an unused marker/phantom
+  parameter that defaults to `Type` and a constructor parameter whose inferred
+  kind survives module transport; extend the Task 4 import fixture for the latter.
 
 - [ ] Run `cabal test parser-foundation-spec declaration-parser-spec
 binding-signature-coherence-spec signature-rendering-spec --jobs=1
@@ -229,18 +236,32 @@ Preserve the public driver result APIs.
   (check [[1]] [[1]], check [[1]] [[2]]).
   ```
 
-  Expect `(True, False)`. Missing `Same(Bool)` must fail at the use site.
+  Expect `(True, False)`. This also checks that one implementation body can use
+  the same overloaded method at both element and list types. Missing `Same(Bool)`
+  must fail at the use site.
   Also implement `Transforming(List)` and `Transforming(Result(error))` for
   the Task 1 custom class. Check element-type changes, preserved Result errors,
   method-local quantifier reuse at different types, and the inferred unchanged
   collection constructor. Reject a Queue result annotation on a List mapping.
+  Reject `transform = \(change, values) -> values` for `Transforming(List)`,
+  which incorrectly equates the method's independent element variables. Also
+  reject an `impl Keeping([a])` of `class Keeping(t) { keep :: t -> t. }`
+  with `keep = \(values) -> [True]`, specializing its instance parameter to Bool.
 
 - [ ] Run binding/runtime suites and confirm failures concern unsupported new
       semantics, not fixture/import mistakes.
-- [ ] Freshen each instance's variables, unify the entire head against the
-      obligation, and solve its variable-only declaration prerequisites. The
-      declaration restrictions provide descent; add no size/occurrence accounting.
-      Reject overlapping heads independently of prerequisites and runtime values.
+- [ ] Freshen each instance's variables and match the entire head against the
+      obligation. Use exact constructor identity for overlap and exact-match
+      preference: Int/Int64 and Float/Float64 heads remain distinct. Reuse the
+      solver's structural traversal, variable binding, and occurs checks with
+      narrowly scoped exact primitive matching; do not add a second unifier or
+      change ordinary expression numeric compatibility. Reject `[a]`/`[Int]`
+      overlap regardless of prerequisites. Retain the existing numeric dispatch
+      fixtures and Prelude loading, extending them only for gaps in exact-head
+      preference and numeric-compatible fallback.
+      Select the head before solving its variable-only prerequisites; failure
+      must not select a different head. The declaration restrictions provide
+      descent; add no size/occurrence accounting.
       Reject compound/unbound declaration prerequisites, while accepting inferred
       and use-site compound obligations such as `Same([[Int]])`.
 - [ ] Extend `resolveDeferredExplicitConstraint`,
@@ -251,18 +272,27 @@ Preserve the public driver result APIs.
       introduce a second obligation type, work queue, or solving pass.
 - [ ] Wrap candidate trials locally in `StateT InferState Maybe`, using existing
       `transformers` and unification functions. Run every candidate from the same
-      immutable pre-trial state, discard failures, and examine all successes
-      before accepting a unique match. Preserve inference allocation/rollback
-      policies and report diagnostics outside silent trials. Keep unknown generic
-      targets deferred; do not select the first plausible concrete implementation.
+      immutable pre-trial state, discard failures, and examine all matching heads.
+      Apply exact-match preference and require a unique selection before checking
+      prerequisites. Preserve inference allocation/rollback policies and report
+      diagnostics outside silent trials. Defer obligations whose instance head
+      is not yet determined; do not select the first plausible implementation.
       Cover failed-trial isolation through observable inference/dispatch behavior
       and reject overlapping heads even when one prerequisite is unavailable.
       Do not substitute `previewInference`: it deliberately discards outputs and
       outstanding constraints and has a different allocation/continuation contract.
-- [ ] Check bodies under declared prerequisites. Register method types as ordinary
-      constrained `SemanticScheme` values and reuse `instantiateTypeScheme` in
+- [ ] Check bodies under declared prerequisites and self evidence. Reuse
+      `inferRigidTypeVars` and the signed-binding checker's rigidity discipline
+      for instance parameters and method-local quantified variables. Restore the
+      surrounding rigid set after checking and constraint finalization, including
+      failures. Register method types as ordinary constrained `SemanticScheme`
+      values and reuse `instantiateTypeScheme` in
       `TypeInference/Instantiation.hs`; instantiate method-local variables freshly
       per use while preserving the explicit class-parameter binding order.
+      Remove `implMethodEnv`'s target-specialized `PlainTypeBinding` treatment
+      of method names; references in bodies use the same overloaded schemes,
+      with prerequisites and self evidence supplied through the entailment path.
+      Reuse the recursive `Same([a])` fixture above to verify both evidence targets.
 - [ ] Unify the two evidence records and update their producers/consumers, then
       pass selected/deferred evidence through analyzed binders and callables.
       Finalize substitutions in the existing draft finalizer and consume the
@@ -302,8 +332,11 @@ executed through existing method cells; preserve their defining lexical scope.
       into one shared body-checking operation. Use implementation prerequisites
       for supplied bodies and class/superclass/method assumptions for defaults.
       Check a default once in its defining scope, then select it with the
-      implementation's evidence when no supplied body overrides it. Reuse ordinary
-      expression inference and runtime method cells, including recursion; do not
+      implementation's evidence when no supplied body overrides it. Reuse Task 2's
+      rigidity handling for class and method-local variables; include a default
+      that illegally specializes a quantified variable in the existing default
+      checks. Reuse ordinary expression inference and runtime method cells,
+      including recursion; do not
       add a default-body AST, separate checker, or evaluator.
 - [ ] Supply superclass evidence through the existing entailment path extended
       in Task 2, using declared nominal superclass relationships. Preserve the
@@ -367,8 +400,10 @@ this is fixture maintenance, not new profiling work.
       `module-exports-spec`, `module-resolution-spec`, `loader-spec`, and
       `module-pipeline-contract-spec`.
 - [ ] Complete the core queue child only after Tasks 1-4 work end to end and
-      the frontmatter verification commands pass. Publish matching public contract
-      changes, promote the library child from Task 5, and commit closeout.
+      the frontmatter verification commands pass, including execution of all
+      four full parser-scale suites with `-ffull-parser-scale`. The quality gate
+      only builds those components; it does not run them. Publish matching public
+      contract changes, promote the library child from Task 5, and commit closeout.
 
 ### Task 5: Bundled capabilities, final library names, and consumers
 
@@ -437,6 +472,15 @@ module values. There is no separate second pass to rename newly added adapters.
       Text implementation may use `toChars`, `Mappable::map`, and `fromChars`,
       with the existing linear cost and no new kernel operation. Qualify the
       generic map reference so Text's local `map` does not shadow it.
+- [ ] Implement collection equality through element `Equatable` methods, not
+      structural `==`. Queue compares FIFO contents using existing `toList`
+      and list equality; do not change its representation or normalization.
+      Check queues built with `fromList [1, 2]` and `enqueue (fromList [1]) 2`
+      compare equal, and use a custom element equality to catch structural
+      fallback across the listed generic equality instances. Implement ordinary
+      Prelude tuple instances for pairs and triples only, with one prerequisite
+      per component. Preserve existing builtin tuple equality at every supported
+      arity; add no variadic instances, generator, or deriving mechanism.
 - [ ] Implement the RFC's Reducible and Combinable families while migrating their
       owning modules. Keep existing empty values. Check mapping identity/composition,
       FIFO/key order, and empty/NonEmpty behavior.
@@ -458,11 +502,9 @@ module values. There is no separate second pass to rename newly added adapters.
       and migration documentation. Add no compiler workaround unless a focused
       source case demonstrates a real required compatibility issue.
 - [ ] Run the complete frontmatter verification commands in pinned shells.
-      Record each command/result and any explicit new waiver. Also run the four
-      `jazz-parser-scale-full-{expression,declarations,control-flow,operator}-spec`
-      suites with `-ffull-parser-scale --jobs=1 --test-show-details=failures`
-      because declaration grammar changed; they are disabled in the default
-      Cabal configuration. No performance claim follows from functional tests.
+      Record each command/result and any explicit new waiver. This includes
+      full parser-scale coverage after migrating the library used by the hosted
+      parser. No performance claim follows from functional tests.
 - [ ] Review the full RFC acceptance matrix against observed behavior. Update
       shipped status and public API docs, close the library queue child, refresh
       curation/blocker state, and commit the completed migration.
@@ -509,5 +551,13 @@ queue, docs, and whitespace checks for the design documents themselves.
   5. Share implementation/default body checking and ordinary expressions (Task 3).
   6. Prepare kinds and templates in the existing scope preparation/cache (Task 1).
   7. Share constraint-prefix and method expression-binding parsing (Task 1).
+- Final review fixes approved on 2026-09-13:
+  1. Distinguish exact instance heads from numeric compatibility (Task 2).
+  2. Reuse rigid-variable checking for implementation/default definitions (Tasks 2-3).
+  3. Keep method references overloaded within implementations (Tasks 2-3).
+  4. Default unconstrained kinds at declaration finalization (Task 1).
+  5. Compare logical collection contents through element equality (Task 5).
+  6. Bound initial tuple instances to ordinary pairs and triples (Task 5).
+  7. Execute full parser-scale checks before core closeout (Task 4/frontmatter).
 - RFC acceptance and ready plan metadata record this approval. Compiler and
   library implementation are not claimed by the documentation change.

@@ -92,6 +92,10 @@ Each blocked item should answer these questions:
   method-body checker, scope preparation/cache, and constraint/body parsers.
   These seven requirements belong within Tasks 1-4 of the ready core child;
   they do not add another compiler phase, instance registry, or setup child.
+- Final review refinements are approved in RFC 0019 and the plan. Reuse existing
+  rigidity and numeric dispatch behavior, keep methods overloaded in bodies,
+  finalize kinds at declarations, and specify logical collection equality and
+  initial pair/triple instances. Full parser-scale execution gates core closeout.
 - Recommended default: execute the ready general core, then the dependent
   library migration, combining instances, names, consumers, and docs per module.
   Preserve nominal identities and the existing analyzed-core interpreter.
@@ -106,6 +110,7 @@ Each blocked item should answer these questions:
   `test/Jazz/Compiler/Semantics/BindingSignature/ConstraintsTests.hs`.
 - Verification: `cabal build all --jobs=1`;
   `cabal test all --jobs=1 --test-show-details=failures`;
+  `cabal test jazz-parser-scale-full-expression-spec jazz-parser-scale-full-declarations-spec jazz-parser-scale-full-control-flow-spec jazz-parser-scale-full-operator-spec -ffull-parser-scale --jobs=1 --test-show-details=failures`;
   `JAZZ_CABAL_JOBS=1 bash scripts/ci/haskell-quality.sh`;
   `bash scripts/check-examples.sh --jazz-bin "$(cabal list-bin jazz)"`;
   `bash scripts/check-docs.sh`; `bash scripts/check-execution-queue.sh`;

@@ -21,10 +21,10 @@ requested-destination mapping proposal; it does not add functional dependencies,
 cross-collection mapping implementations.
 
 The maintainer approved the revised contract, the initial simplifications,
-and all seven compiler-reuse requirements on 2026-09-13, explicitly retaining
-the Reduce module and its safe seedless helper. This is an accepted,
-unimplemented contract delta. Public documentation continues to describe shipped
-behavior until implementation lands. Keep Jazz's evaluation strategy, numeric
+the compiler-reuse requirements, and the final correctness refinements on
+2026-09-13, explicitly retaining the Reduce module and its safe seedless helper.
+This is an accepted, unimplemented contract delta. Public documentation continues
+to describe shipped behavior until implementation lands. Keep Jazz's evaluation strategy, numeric
 widths and promotion rules, purity boundary, and analyzed-core interpreter.
 Automatic deriving, overlapping instances, explicit higher-rank
 types, re-exports, new operator transport, and broader self-hosting/native work
@@ -55,6 +55,12 @@ Infer kinds from declarations and signatures. A complete value type has kind
 `Type`; List and Queue have kind `Type -> Type`. Result has kind
 `Type -> Type -> Type`; `Result(error)` fixes its first argument. Kinds remain
 implicit in source code.
+
+After solving a declaration group's kind constraints, default any remaining
+unconstrained kind variables to `Type` before finalizing its metadata. An unused
+parameter in `class Marker(a) { }` therefore has kind `Type`; a parameter used
+as `f(a)` retains its inferred constructor kind. Imports consume those fixed
+kinds; later uses do not choose them. Kind polymorphism is deferred.
 
 Allow a variable as an application head: `f(a)` and `f(a, b)`. Retain the
 existing named-head surface grammar; defer parenthesized application heads
@@ -131,12 +137,26 @@ inferred constraints, use-site constraints such as `Equatable([Int])`, and
 method-local prerequisites continue to use ordinary constrained schemes.
 
 Two visible heads for the same class overlap if their targets unify after
-freshening. Reject overlap independently of prerequisites. A generic list
-implementation cannot coexist with an `[Int]` specialization. Repeated aliases
+freshening with exact constructor identity. Numeric compatibility is not head
+identity: `Int` and `Int64`, and `Float` and `Float64`, remain distinct, so their
+existing Prelude implementations can coexist. Reject overlap independently of
+prerequisites. A generic list implementation cannot coexist with an `[Int]`
+specialization. Repeated aliases
 of one declaration deduplicate by implementation identity.
 
+For resolved targets, preserve the existing preference for exact matches over
+numeric-compatible candidates. Select the head before solving its prerequisites;
+a missing prerequisite does not permit falling back to a different head.
+Expression-level numeric compatibility and literal defaulting are unchanged.
+
 Check generic method bodies once under their prerequisites and their own
-implementation evidence. Callers select evidence and recursively solve its
+implementation evidence. Instance parameters and method-local quantified
+variables are rigid during definition checking: a body must work for every
+type it promises. Referenced methods still instantiate freshly at each use,
+including inside implementation bodies. Self evidence does not specialize the
+method name to the enclosing target; the list example above uses both element
+and list evidence. Defaults follow the same rule for their class parameter and
+method-local variables. Callers select evidence and recursively solve its
 prerequisites. Generic functions carry evidence parameters; concrete calls
 supply the selected `ImplId` and `MethodId`. Extend existing analyzed facts and
 runtime method cells. No second interpreter, runtime type inspection, or
@@ -198,13 +218,22 @@ Define the five classes in the Prelude. Collection-owned instances live in
 their library modules; list instances live in the Prelude. Avoid a Prelude
 dependency on those modules. Implement the classes in ordinary Jazz code.
 
-| Class           | Methods                                                                                       | Initial instances                                                                                                  |
-| --------------- | --------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
-| `Equatable(a)`  | `equals`; default `differs`                                                                   | Existing scalar equality targets; generic lists, tuples, Maybe, Result, NonEmpty, Queue with element prerequisites |
-| `Comparable(a)` | `compare`; superclass Equatable                                                               | Existing scalar ordering targets                                                                                   |
-| `Mappable(f)`   | `map :: (a -> b) -> f(a) -> f(b)`                                                             | List, Queue, Maybe, NonEmpty, Result(error), Map(key), Dictionary(key)                                             |
-| `Reducible(f)`  | `foldLeft :: (b -> a -> b) -> b -> f(a) -> b`; `foldRight :: (a -> b -> b) -> b -> f(a) -> b` | The Mappable families plus Set                                                                                     |
-| `Combinable(a)` | `combine :: a -> a -> a`, with associative behavior                                           | Text, lists, Queue, NonEmpty; Set with Comparable element evidence                                                 |
+| Class           | Methods                                                                                       | Initial instances                                                                                                          |
+| --------------- | --------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
+| `Equatable(a)`  | `equals`; default `differs`                                                                   | Existing scalar equality targets; generic lists, pairs, triples, Maybe, Result, NonEmpty, Queue with element prerequisites |
+| `Comparable(a)` | `compare`; superclass Equatable                                                               | Existing scalar ordering targets                                                                                           |
+| `Mappable(f)`   | `map :: (a -> b) -> f(a) -> f(b)`                                                             | List, Queue, Maybe, NonEmpty, Result(error), Map(key), Dictionary(key)                                                     |
+| `Reducible(f)`  | `foldLeft :: (b -> a -> b) -> b -> f(a) -> b`; `foldRight :: (a -> b -> b) -> b -> f(a) -> b` | The Mappable families plus Set                                                                                             |
+| `Combinable(a)` | `combine :: a -> a -> a`, with associative behavior                                           | Text, lists, Queue, NonEmpty; Set with Comparable element evidence                                                         |
+
+Collection `equals` compares logical contents using the supplied element
+equality, preserving sequence order and datatype alternatives. Queue equality
+compares FIFO contents regardless of its front/rear split or cached fields;
+use existing traversals or `toList`. It must not substitute builtin structural
+`==` for element methods. The bundled tuple instances cover pairs and triples
+as ordinary Jazz implementations; other arities require their own instances.
+Tuple syntax and builtin structural `==` retain their existing arity support
+and behavior. No variadic tuple-instance machinery is introduced.
 
 Mapping preserves element positions, optional absence, Result errors, and map
 keys, as applicable. Same-constructor mapping obeys identity and composition.
@@ -307,10 +336,11 @@ path, preserving nominal method identity and explicit class-parameter binding
 order. Do not create a separate method generalization mechanism.
 
 Use a local `StateT InferState Maybe` adapter for candidate trials. Every trial
-starts from the same state; failures discard trial changes. Inspect all successful
-matches and require a unique instance, retaining declaration overlap checks
-independently of prerequisites. Keep diagnostics outside silent trials and
-defer obligations whose generic targets remain unknown. This requires no
+starts from the same state; failures discard trial changes. Inspect all matching
+heads, apply exact-match preference, and require a unique selection before
+solving its prerequisites. Retain independent declaration overlap checks.
+Keep diagnostics outside silent trials and defer obligations whose instance
+head is not yet determined. This requires no
 whole-compiler monad migration or additional dependency.
 
 Apply the seven approved reuse requirements within those existing owners:
@@ -354,9 +384,12 @@ outputs and outstanding constraints. Keep that distinct speculation behavior.
 1. One unannotated map helper runs on List, Queue, Maybe, Result, NonEmpty, Map,
    Dictionary, and a user-defined collection, with changed element types and
    preserved collection structure. No destination annotations are introduced.
-2. Generic constrained implementations recursively obtain element evidence.
+2. Generic constrained implementations recursively obtain element evidence,
+   including calls at both element and collection types inside one body.
    Missing prerequisites, overlapping heads, escaping variables, bare-variable
    targets, kind errors, and compound declaration prerequisites produce diagnostics.
+   Reject bodies that specialize quantified variables. Preserve exact numeric
+   instance selection and fix unconstrained kinds at declaration finalization.
 3. Stored, partial, higher-order, exported, and result-constrained methods use
    correct evidence, including on empty collections and in returned closures.
 4. Defaults, overrides, missing bodies, superclass evidence, and superclass
@@ -370,6 +403,9 @@ outputs and outstanding constraints. Keep that distinct speculation behavior.
    and Set conversions permit element-type changes through generic List map.
 7. Reducible, safe reduce, and Combinable execute on representative values,
    including empty inputs and NonEmpty. Preserve numeric, purity, and host rules.
+   Generic equality uses custom element evidence; equal FIFO contents compare
+   equal across different Queue construction histories. Pairs and triples use
+   component evidence while builtin tuple equality remains unchanged.
 8. All 183 renamed exports and their consumers agree. Existing supported hosted
    syntax/lowering comparisons are extended for declaration contexts and default
    bodies; the surface type-application encoding is retained. This does not
@@ -377,6 +413,8 @@ outputs and outstanding constraints. Keep that distinct speculation behavior.
 
 Run the compiler/stdlib/module suites, retained hosted frontend comparisons,
 examples, quality gates, and repository checks in the implementation plan.
+Run all four opt-in full parser-scale suites before closing the compiler core
+child; compiling those suites in the quality gate does not execute them.
 Previous run-specific full-scale-test waivers do not apply automatically.
 
 ## Consequences
