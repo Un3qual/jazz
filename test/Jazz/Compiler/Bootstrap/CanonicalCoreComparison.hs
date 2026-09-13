@@ -446,9 +446,9 @@ coreGeneratedNameKindRuntimeValue generated =
     LambdaPatternArgument parameterIndex ->
       pure (constructor1 "CoreLambdaPatternArgument" (runtimeIntValue parameterIndex))
     OperatorBinding storageName -> pure (constructor1 "CoreOperatorBinding" (VText storageName))
-    OperatorSectionFunction -> Left "post-lowering generated section name cannot enter canonical lowering comparison"
-    OperatorSectionLeft -> Left "post-lowering generated section name cannot enter canonical lowering comparison"
-    OperatorSectionRight -> Left "post-lowering generated section name cannot enter canonical lowering comparison"
+    OperatorSectionFunction _ -> Left "post-lowering generated section name cannot enter canonical lowering comparison"
+    OperatorSectionLeft _ -> Left "post-lowering generated section name cannot enter canonical lowering comparison"
+    OperatorSectionRight _ -> Left "post-lowering generated section name cannot enter canonical lowering comparison"
 
 coreSpanRuntimeValue :: SourceSpan -> Either Text RuntimeValue
 -- The hosted CoreSpan schema deliberately stores only the start position.

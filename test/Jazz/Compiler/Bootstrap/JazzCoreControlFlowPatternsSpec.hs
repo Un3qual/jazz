@@ -237,11 +237,11 @@ patternInventory =
     (seVar "value")
     [ SurfaceCaseArm spWildcard Nothing (seInt 0),
       SurfaceCaseArm (spVariable "name") Nothing (seInt 1),
-      SurfaceCaseArm (spLiteral (SLInt 2)) Nothing (seInt 2),
-      SurfaceCaseArm (spLiteral (SLFloat 1.5 (mkFractionalLiteralSource 1 5 1) Nothing)) Nothing (seInt 3),
-      SurfaceCaseArm (spLiteral (SLBool True)) Nothing (seInt 4),
-      SurfaceCaseArm (spLiteral (SLChar 'x')) Nothing (seInt 5),
-      SurfaceCaseArm (spLiteral (SLText "Jazz")) Nothing (seInt 6),
+      SurfaceCaseArm (spLiteral (LInt 2)) Nothing (seInt 2),
+      SurfaceCaseArm (spLiteral (LFloat 1.5 (mkFractionalLiteralSource 1 5 1) Nothing)) Nothing (seInt 3),
+      SurfaceCaseArm (spLiteral (LBool True)) Nothing (seInt 4),
+      SurfaceCaseArm (spLiteral (LChar 'x')) Nothing (seInt 5),
+      SurfaceCaseArm (spLiteral (LText "Jazz")) Nothing (seInt 6),
       SurfaceCaseArm (spConstructor "Just" [spVariable "item"]) Nothing (seInt 7),
       SurfaceCaseArm (spList [spVariable "head", spVariable "tail"]) Nothing (seInt 8),
       SurfaceCaseArm (spConsList (spVariable "head") (spVariable "tail")) Nothing (seInt 9),
@@ -329,7 +329,7 @@ unsupportedFixtures =
     ( "impl-lambda-block",
       seLambda
         (SurfaceLambdaIdentifier span1 "value" :| [])
-        (seBlock [SSImpl span1 "Show" [TypeText] []])
+        (seBlock [SSImpl span1 (SurfaceName "Show" span1 Nothing) [TypeText] []])
     ),
     ( "operator-storage-nested-block",
       seBlock
@@ -399,7 +399,7 @@ spConstructor name arguments = sp (SPConstructor name arguments)
 spList :: [SurfacePattern] -> SurfacePattern
 spList = sp . SPList
 
-spLiteral :: SurfaceLiteral -> SurfacePattern
+spLiteral :: Literal -> SurfacePattern
 spLiteral = sp . SPLiteral
 
 spOr :: [SurfacePattern] -> SurfacePattern
@@ -415,10 +415,10 @@ spWildcard :: SurfacePattern
 spWildcard = sp SPWildcard
 
 seInt :: Integer -> SurfaceExpr
-seInt = se . SELit . SLInt
+seInt = se . SELit . LInt
 
 seBool :: Bool -> SurfaceExpr
-seBool = se . SELit . SLBool
+seBool = se . SELit . LBool
 
 assertSuccessfulOutput :: Text.Text -> Text.Text -> RunResult -> IO ()
 assertSuccessfulOutput label expected result = do

@@ -42,16 +42,16 @@ import Control.DeepSeq (NFData (..))
 import Data.Kind (Constraint, Type)
 import Data.Text (Text)
 import GHC.Generics (Generic)
+import Jazz.Compiler.CoreIdentity (CoreNodeId (..), ResolvedNodeFacts)
 import Jazz.Compiler.Diagnostics (SourceSpan)
-import Jazz.Compiler.FractionalLiteral (FractionalLiteralSource)
+import Jazz.Compiler.Literal (Literal (..))
 import Jazz.Compiler.Name
   ( Name,
     ResolvedUserName,
     SourceName,
   )
 import Jazz.Compiler.SemanticFacts
-  ( CoreNodeId (..),
-    ExpressionFacts,
+  ( ExpressionFacts,
     PatternFacts,
     StatementFacts,
   )
@@ -70,7 +70,7 @@ type CoreNameAt phase = Name (CoreUserNameAt phase)
 
 type family FactsAt (phase :: CorePhase) (sort :: CoreSort) :: Type where
   FactsAt 'Lowered sort = ()
-  FactsAt 'Resolved sort = ()
+  FactsAt 'Resolved sort = ResolvedNodeFacts
   FactsAt 'Analyzed 'ExpressionSort = ExpressionFacts
   FactsAt 'Analyzed 'PatternSort = PatternFacts
   FactsAt 'Analyzed 'StatementSort = StatementFacts
@@ -100,16 +100,6 @@ type SignatureConstraint phase = TypeRepresentation.SignatureConstraint (CoreNam
 type SignatureToken phase = TypeRepresentation.SignatureToken (CoreNameAt phase)
 
 type SignaturePayload phase = TypeRepresentation.SignaturePayload (CoreNameAt phase) (CoreNameAt phase) (CoreNameAt phase)
-
-data Literal
-  = LInt Integer
-  | LFloat Double FractionalLiteralSource (Maybe NumericType)
-  | LBool Bool
-  | LChar Char
-  | LText Text
-  deriving stock (Eq, Generic, Show)
-
-instance NFData Literal
 
 data Pattern (phase :: CorePhase)
   = PWildcard (CoreNode phase 'PatternSort)

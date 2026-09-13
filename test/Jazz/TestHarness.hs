@@ -5,7 +5,6 @@ module Jazz.TestHarness
     assertContains,
     assertDiagnosticContains,
     assertEqual,
-    assertJust,
     assertLeftDiagnosticCodeAndContains,
     assertLeftContains,
     assertLeftDiagnosticContains,
@@ -96,12 +95,6 @@ assertEqual label expected actual =
             <> ", got "
             <> Text.pack (show actual)
         )
-
-assertJust :: Text -> Maybe a -> IO ()
-assertJust label value =
-  case value of
-    Just _ -> pure ()
-    Nothing -> failTest (label <> ": expected Just, got Nothing")
 
 assertLeftContains :: (Show a) => Text -> Text -> Either Diagnostic a -> IO ()
 assertLeftContains label needle value =

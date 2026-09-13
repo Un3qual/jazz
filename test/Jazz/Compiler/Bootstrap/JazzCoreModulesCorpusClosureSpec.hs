@@ -484,7 +484,7 @@ completeExpressions =
       ( SEBlock
           [ SSModule span1 ["App", "Main"] (Just []),
             SSImport span2 ["Core", "Text"] (Just "Text") (Just ["length", "uncons"]),
-            SSExpr span3 (e span3 (SELit (SLInt 1)))
+            SSExpr span3 (e span3 (SELit (LInt 1)))
           ]
       ),
     e
@@ -628,7 +628,7 @@ directModuleInputs =
 
 directModuleFixtures :: [DirectModuleFixture]
 directModuleFixtures =
-  [ directFixture "block-no-declaration" (e span1 (SEBlock [SSExpr span1 (e span1 (SELit (SLInt 1)))])),
+  [ directFixture "block-no-declaration" (e span1 (SEBlock [SSExpr span1 (e span1 (SELit (LInt 1)))])),
     directFixture "module-exports-omitted" (moduleBlock Nothing),
     directFixture "module-exports-empty" (moduleBlock (Just [])),
     directFixture
@@ -728,7 +728,7 @@ moduleBlock exports =
     span1
     ( SEBlock
         [ SSModule span1 moduleExpectedPath exports,
-          SSExpr span4 (e span4 (SELit (SLInt 1)))
+          SSExpr span4 (e span4 (SELit (LInt 1)))
         ]
     )
 
@@ -760,9 +760,9 @@ completeSpanExpression =
             [SurfaceClassMethodSignature "equals" span3 (SignatureType TypeBool)],
           SSImpl
             span3
-            "Eq"
+            (SurfaceName "Eq" span3 Nothing)
             [TypeInt]
-            [SurfaceImplMethod "equals" span4 (e span4 (SEBlock [SSExpr span1 (e span1 (SELit (SLBool True)))]))],
+            [SurfaceImplMethod "equals" span4 (e span4 (SEBlock [SSExpr span1 (e span1 (SELit (LBool True)))]))],
           SSLet
             "nested"
             span4
@@ -775,8 +775,8 @@ completeSpanExpression =
                     (e span2 (SEVar "typed"))
                     [ SurfaceCaseArm
                         (p span2 SPWildcard)
-                        (Just (e span2 (SELit (SLBool True))))
-                        (e span2 (SEIf (e span2 (SELit (SLBool True))) (e span2 (SELit (SLInt 1))) (e span2 (SELit (SLInt 0)))))
+                        (Just (e span2 (SELit (LBool True))))
+                        (e span2 (SEIf (e span2 (SELit (LBool True))) (e span2 (SELit (LInt 1))) (e span2 (SELit (LInt 0)))))
                     ]
                 )
             )

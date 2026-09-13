@@ -1,5 +1,6 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE PatternSynonyms #-}
 
 module Jazz.Compiler.Semantics.Runtime.CapabilitiesTests
   ( capabilityTests,
@@ -10,9 +11,7 @@ import Control.Exception
   ( SomeException,
     try,
   )
-import Data.Foldable (toList)
 import qualified Data.List.NonEmpty as NonEmpty
-import qualified Data.Set as Set
 import qualified Data.Text as Text
 import Jazz.Compiler.AST
   ( CaseArm (..),
@@ -23,6 +22,7 @@ import Jazz.Compiler.AST
     Literal (..),
     Statement (..),
   )
+import Jazz.Compiler.CoreIdentity (CapabilityId (..), ImplId (..), MethodId (..))
 import Jazz.Compiler.Diagnostics
   ( SourceSpan (..),
     isErrorDiagnostic,
@@ -38,37 +38,44 @@ import Jazz.Compiler.Driver
     runSource,
     runSourceWithPrelude,
   )
+import Jazz.Compiler.ModuleAnalysis
+  ( analyzeResolvedExpression,
+  )
 import Jazz.Compiler.ModuleExports (exportInventory)
-import Jazz.Compiler.ModuleIdentity (SourceUnitOwner (..), mkModulePath, preludeModulePath, standaloneModulePath)
+import Jazz.Compiler.ModuleIdentity (SourceUnitOwner (..), mkModulePath, standaloneModulePath)
 import Jazz.Compiler.ModuleResolver (resolveStandaloneExprNames)
-import Jazz.Compiler.Name (mkIdentifier, qualifiedName)
+import Jazz.Compiler.Name (NameNamespace (ConstructorNamespace, TypeNamespace), ResolvedName, mkIdentifier, qualifiedName, resolveDeclarationOwner, resolvedImportedName, resolvedLocalName)
 import Jazz.Compiler.Runtime
-  ( RuntimeValue (..),
+  ( RuntimeAnnotation (..),
+    RuntimeValue (..),
     evaluateRuntimeExpr,
     renderRuntimeValue,
     runtimeValueExactlyMatchesConstraint,
   )
+import Jazz.Compiler.Runtime.Semantics (applyExplicitTypeApplicationResultHint, applyRuntimeTypeHint, runtimeValueMatchesConstraint)
 import Jazz.Compiler.Runtime.Types
   ( RuntimeMethodCandidate (..),
+    appendRuntimeMethodCandidate,
+    filterRuntimeMethodCandidates,
+    runtimeMethodCandidatesInOrder,
+    runtimeMethodIsSelected,
+    selectRuntimeMethodCandidate,
+    pattern VQualifiedMethodApplication,
   )
 import Jazz.Compiler.SemanticFacts
-  ( CapabilityId (..),
+  ( AnalyzedType,
     EvidenceReference (..),
     ExpressionFacts (..),
-    ImplId (..),
-    MethodId (..),
-    RuntimeObligation (..),
-    RuntimePlan (..),
+    SemanticInstantiation (..),
   )
 import Jazz.Compiler.Semantics.Runtime.Fixtures
+import Jazz.Compiler.Semantics.Runtime.ResolvedFixture
 import Jazz.Compiler.Semantics.Runtime.Shared
 import Jazz.Compiler.SourceProgram (parseAndLowerStandaloneSource)
-import Jazz.Compiler.TypeInference
-  ( analyzeSourceUnitExpression,
-  )
-import Jazz.Compiler.TypeInference.Result (InferenceResult (..))
+import Jazz.Compiler.TypeInference.Result (InferenceResult, inferredDiagnostics)
 import Jazz.Compiler.TypeRepresentation
-  ( SemanticType (..),
+  ( InferenceVariable (..),
+    SemanticType (..),
     SignaturePayload (..),
     SignatureType (..),
   )
@@ -92,6 +99,11 @@ capabilityTests =
     ("scope with only capability declarations has no runtime output", testCapabilityDeclarationOnlyScopeHasNoOutput),
     ("capability declarations are inert at runtime", testCapabilityDeclarationsRuntimeInert),
     ("qualified method candidates carry compiler-owned runtime evidence", testQualifiedMethodCandidateCarriesRuntimeEvidence),
+    ("selected method evidence rejects a mismatched target type", testSelectedMethodRejectsMismatchedEvidence),
+    ("runtime data constraints accept defining and importing views of one owner", testRuntimeDataConstraintsAcceptNominalViews),
+    ("runtime data constraints reject identical names from different owners", testRuntimeDataConstraintsRejectDifferentOwners),
+    ("runtime data hints preserve nominal identity", testRuntimeDataHintsPreserveNominalIdentity),
+    ("unrelated explicit result hints preserve phantom type arguments", testExplicitResultHintsPreserveUnrelatedPhantomArguments),
     ("qualified method application preserves argument order", testQualifiedMethodApplicationPreservesArgumentOrder),
     ("qualified method dispatch executes selected impl body", testQualifiedMethodDispatchExecutesImplBody),
     ("let-bound qualified method dispatch executes selected impl body", testLetBoundQualifiedMethodDispatchExecutesImplBody),
@@ -163,7 +175,7 @@ capabilityTests =
     ("qualified method dispatch preserves ADT concrete payload hints", testQualifiedMethodDispatchPreservesAdtConcretePayloadHint),
     ("qualified method dispatch preserves monomorphic ADT concrete payload hints", testQualifiedMethodDispatchPreservesMonomorphicAdtConcretePayloadHint),
     ("qualified method dispatch keeps nested inferred hints scoped", testQualifiedMethodDispatchKeepsNestedInferredHintsScoped),
-    ("authored module transitions own standalone plans and evidence", testAuthoredModuleTransitionOwnsPlansAndEvidence),
+    ("authored module transitions own standalone plans and evidence", testAuthoredModuleTransitionOwnsFactsAndEvidence),
     ("qualified method dispatch prefers alias binding over method sentinel at runtime", testQualifiedMethodDispatchPrefersAliasBindingOverMethodSentinelAtRuntime),
     ("qualified zero-argument method dispatch returns itemValue", testQualifiedZeroArgumentMethodDispatchReturnsValue),
     ("qualified method dispatch rejects direct self alias", testQualifiedMethodDispatchRejectsDirectSelfAlias),
@@ -178,7 +190,7 @@ capabilityTests =
 
 testRuntimeFallbackRejectsQualifiedMethodStructuralEquality :: IO ()
 testRuntimeFallbackRejectsQualifiedMethodStructuralEquality = do
-  let result = evaluateRuntimeExpr qualifiedMethodStructuralEqualityExpr
+  let result = evaluateFixture qualifiedMethodStructuralEqualityExpr
   assertRuntimeErrorContains "runtime fallback qualified method structural equality" "E3007" result
   assertRuntimeErrorContains
     "runtime fallback qualified method structural equality callable text"
@@ -213,10 +225,88 @@ testCapabilityDeclarationsRuntimeInert = do
   assertEqual "runtime errors" [] (runRuntimeErrors result)
   assertEqual "capability declarations do not affect runtime output" (Just "1") (runOutput result)
 
+testRuntimeDataConstraintsAcceptNominalViews :: IO ()
+testRuntimeDataConstraintsAcceptNominalViews = do
+  let (local, imported, _) = runtimeNominalTypeViews
+      value name = VConstructor name [] (resolvedLocalName ConstructorNamespace (mkIdentifier "Wrap")) [] []
+  assertEqual "imported constraint accepts defining value" True (runtimeValueMatchesConstraint (SemanticData imported []) (value local))
+  assertEqual "defining constraint accepts imported value" True (runtimeValueMatchesConstraint (SemanticData local []) (value imported))
+
+testRuntimeDataConstraintsRejectDifferentOwners :: IO ()
+testRuntimeDataConstraintsRejectDifferentOwners = do
+  let (local, _, unrelated) = runtimeNominalTypeViews
+      value = VConstructor local [] (resolvedLocalName ConstructorNamespace (mkIdentifier "Wrap")) [] []
+  assertEqual "same spelling does not identify the same data type" False (runtimeValueMatchesConstraint (SemanticData unrelated []) value)
+
+testRuntimeDataHintsPreserveNominalIdentity :: IO ()
+testRuntimeDataHintsPreserveNominalIdentity =
+  mapM_
+    checkShape
+    [ ("monomorphic", [], [], [], []),
+      ("parameterized", [parameter], [SemanticVariable parameter], [VBool True], [SemanticBool])
+    ]
+  where
+    parameter = InferenceVariable 0
+    (local, imported, unrelated) = runtimeNominalTypeViews
+    checkShape (label, parameters, fields, arguments, typeArguments) = do
+      let value name = VConstructor name parameters (resolvedLocalName ConstructorNamespace (mkIdentifier "Wrap")) fields arguments
+          hint name = SemanticData name typeArguments
+      checkHint applyRuntimeTypeHint (label <> " imported hint accepts defining value") (Just (hint imported)) (hint imported) (value local)
+      checkHint applyRuntimeTypeHint (label <> " defining hint accepts imported value") (Just (hint local)) (hint local) (value imported)
+      checkHint applyRuntimeTypeHint (label <> " unrelated hint leaves value unannotated") Nothing (hint unrelated) (value local)
+      checkHint applyExplicitTypeApplicationResultHint (label <> " imported explicit hint accepts defining value") (Just (hint imported)) (hint imported) (value local)
+      checkHint applyExplicitTypeApplicationResultHint (label <> " defining explicit hint accepts imported value") (Just (hint local)) (hint local) (value imported)
+      checkHint applyExplicitTypeApplicationResultHint (label <> " unrelated explicit hint leaves value unannotated") Nothing (hint unrelated) (value local)
+    checkHint applyHint label expected hint value =
+      case applyHint hint value of
+        Right hinted ->
+          assertEqual label expected $ case hinted of
+            VAnnotated (RuntimeTypeHint actual) _ -> Just actual
+            _ -> Nothing
+        Left diagnostic -> failTest (label <> ": " <> renderDiagnostic diagnostic)
+
+testExplicitResultHintsPreserveUnrelatedPhantomArguments :: IO ()
+testExplicitResultHintsPreserveUnrelatedPhantomArguments = do
+  let (local, _, unrelated) = runtimeNominalTypeViews
+      value =
+        VAnnotated
+          (RuntimeTypeHint (SemanticData local [SemanticBool]))
+          (VConstructor local [InferenceVariable 0] (resolvedLocalName ConstructorNamespace (mkIdentifier "Wrap")) [] [])
+  case applyExplicitTypeApplicationResultHint (SemanticData unrelated [SemanticBool]) value of
+    Right hinted -> do
+      assertEqual "existing phantom Bool argument still matches" True (runtimeValueExactlyMatchesConstraint (SemanticData local [SemanticBool]) hinted)
+      assertEqual "unrelated hint does not erase the phantom argument" False (runtimeValueExactlyMatchesConstraint (SemanticData local [SemanticInt]) hinted)
+    Left diagnostic -> failTest ("unrelated explicit result hint: " <> renderDiagnostic diagnostic)
+
+runtimeNominalTypeViews :: (ResolvedName, ResolvedName, ResolvedName)
+runtimeNominalTypeViews =
+  ( resolveDeclarationOwner (NamedSourceUnit definingModule) local,
+    resolvedImportedName definingModule TypeNamespace (mkIdentifier "Box"),
+    resolveDeclarationOwner (NamedSourceUnit unrelatedModule) local
+  )
+  where
+    local = resolvedLocalName TypeNamespace (mkIdentifier "Box")
+    definingModule = mkModulePath (mkIdentifier "Lib" NonEmpty.:| [mkIdentifier "One"])
+    unrelatedModule = mkModulePath (mkIdentifier "Lib" NonEmpty.:| [mkIdentifier "Two"])
+
+testSelectedMethodRejectsMismatchedEvidence :: IO ()
+testSelectedMethodRejectsMismatchedEvidence = do
+  (_, analyzed) <- analyzeRuntimeFacts "class RuntimeDefault(a) { defaultValue :: a. }. impl RuntimeDefault(Int) { defaultValue = 41. }. (RuntimeDefault::defaultValue @Int)."
+  case analyzed of
+    EBlock root statements -> case reverse statements of
+      SExpr statement (ETypeApplication node function spanValue argument) : prefix -> do
+        let facts = coreNodeFacts node
+            mismatched = node {coreNodeFacts = facts {expressionEvidence = [evidence {evidenceType = SemanticBool} | evidence <- expressionEvidence facts]}}
+            expression = EBlock root (reverse prefix <> [SExpr statement (ETypeApplication mismatched function spanValue argument)])
+        assertRuntimeErrorContains "mismatched selected evidence" "inconsistent selected method evidence" (evaluateRuntimeExpr expression)
+      _ -> failTest "expected terminal explicit method instantiation"
+    _ -> failTest "expected analyzed block"
+
 testQualifiedMethodCandidateCarriesRuntimeEvidence :: IO ()
 testQualifiedMethodCandidateCarriesRuntimeEvidence =
-  case evaluateRuntimeExpr qualifiedMethodEvidenceExpr of
-    Right (Just methodValue@(VQualifiedMethod _ _ _ candidates _)) -> do
+  case evaluateFixture qualifiedMethodEvidenceExpr of
+    Right (Just methodValue@(VQualifiedMethodApplication _ _ _ candidateSet _)) -> do
+      let candidates = runtimeMethodCandidatesInOrder candidateSet
       assertEqual
         "runtime candidate evidence target order"
         [SemanticInt, SemanticBool]
@@ -234,6 +324,20 @@ testQualifiedMethodCandidateCarriesRuntimeEvidence =
         "Int"
         (Text.pack (show methodValue))
       assertEqual "runtime evidence stays non-user-visible" "<function>" (renderRuntimeValue methodValue)
+      case candidates of
+        RuntimeMethodCandidate EvidenceReference {evidenceMethod = method} _ : additional : _ ->
+          case selectRuntimeMethodCandidate method candidateSet of
+            Just selected -> do
+              let retained = filterRuntimeMethodCandidates (const True) selected
+                  removed = filterRuntimeMethodCandidates (const False) selected
+              assertEqual "filtering retains the checked selection" True (runtimeMethodIsSelected retained)
+              assertEqual "filtering retains exactly the selected method" [method] [evidenceMethod evidence | RuntimeMethodCandidate evidence _ <- runtimeMethodCandidatesInOrder retained]
+              assertEqual "filtering can reject the selected method" 0 (length (runtimeMethodCandidatesInOrder removed))
+              let extended = appendRuntimeMethodCandidate additional selected
+              assertEqual "adding an implementation retains the checked selection" True (runtimeMethodIsSelected extended)
+              assertEqual "adding an implementation retains exactly the selected method" [method] [evidenceMethod evidence | RuntimeMethodCandidate evidence _ <- runtimeMethodCandidatesInOrder extended]
+            Nothing -> failTest "expected evidence to select its candidate"
+        _ -> failTest "expected a candidate with method evidence"
     Right otherValue ->
       failTest ("expected qualified method runtime itemValue, got " <> Text.pack (show otherValue))
     Left runtimeError ->
@@ -481,8 +585,7 @@ testQualifiedMethodDispatchSelectsNullaryBodyByBindingResultType = do
 testNullaryMethodSelectionRecordsCanonicalAnalyzedEvidence :: IO ()
 testNullaryMethodSelectionRecordsCanonicalAnalyzedEvidence = do
   (inference, analyzedExpression) <-
-    analyzeRuntimePlan
-      Set.empty
+    analyzeRuntimeFacts
       """
       class RuntimeDefault(a) {
       defaultValue :: a.
@@ -514,17 +617,12 @@ testNullaryMethodSelectionRecordsCanonicalAnalyzedEvidence = do
         [expectedResultEvidence, explicitTargetEvidence, uniqueBareEvidence]
         (expressionEvidenceInventory analyzedExpression)
       assertEqual
-        "nullary selection evidence is supplied before its result constraint"
-        [ ([expectedResultEvidence], [SupplyEvidence (expectedResultEvidence NonEmpty.:| []), ConstrainResult SemanticInt]),
-          ( [explicitTargetEvidence],
-            [ InstantiateTypes (SemanticBool NonEmpty.:| []),
-              SupplyEvidence (explicitTargetEvidence NonEmpty.:| []),
-              ConstrainResult SemanticBool
-            ]
-          ),
-          ([uniqueBareEvidence], [SupplyEvidence (uniqueBareEvidence NonEmpty.:| []), ConstrainResult SemanticInt])
+        "nullary selection retains instantiation and result facts"
+        [ ([expectedResultEvidence], [], Just SemanticInt),
+          ([explicitTargetEvidence], [SemanticBool NonEmpty.:| []], Just SemanticBool),
+          ([uniqueBareEvidence], [], Just SemanticInt)
         ]
-        (expressionEvidencePlanInventory analyzedExpression)
+        (expressionEvidenceFactsInventory analyzedExpression)
     implementations ->
       failTest ("expected three nullary implementation identities, got " <> Text.pack (show implementations))
   where
@@ -536,7 +634,7 @@ testNullaryMethodSelectionRecordsCanonicalAnalyzedEvidence = do
       EvidenceReference
         { evidenceCapability = CapabilityId capabilityName,
           evidenceImplementation = implementationId,
-          evidenceMethod = Just (MethodId (implementationId, mkIdentifier "defaultValue")),
+          evidenceMethod = MethodId (implementationId, mkIdentifier "defaultValue"),
           evidenceType = targetType
         }
 
@@ -1929,11 +2027,10 @@ testQualifiedMethodDispatchKeepsNestedInferredHintsScoped = do
   assertEqual "runtime errors" [] (runRuntimeErrors result)
   assertEqual "runtime output" (Just "True") (runOutput result)
 
-testAuthoredModuleTransitionOwnsPlansAndEvidence :: IO ()
-testAuthoredModuleTransitionOwnsPlansAndEvidence = do
+testAuthoredModuleTransitionOwnsFactsAndEvidence :: IO ()
+testAuthoredModuleTransitionOwnsFactsAndEvidence = do
   (inference, analyzedExpression) <-
-    analyzeRuntimePlan
-      Set.empty
+    analyzeRuntimeFacts
       """
       module App::Main {
       class RuntimePick(a) {
@@ -1966,26 +2063,26 @@ sourceUnitStatements expression =
     _ -> []
 
 expressionEvidenceInventory :: Expr 'Analyzed -> [EvidenceReference]
-expressionEvidenceInventory = foldMap fst . expressionEvidencePlanInventory
+expressionEvidenceInventory = foldMap (\(evidence, _, _) -> evidence) . expressionEvidenceFactsInventory
 
-expressionEvidencePlanInventory :: Expr 'Analyzed -> [([EvidenceReference], [RuntimeObligation])]
-expressionEvidencePlanInventory expression =
-  nodeEvidencePlan expression
+expressionEvidenceFactsInventory :: Expr 'Analyzed -> [([EvidenceReference], [NonEmpty.NonEmpty AnalyzedType], Maybe AnalyzedType)]
+expressionEvidenceFactsInventory expression =
+  nodeEvidenceFacts expression
     <> case expression of
-      ELambda _ _ body -> expressionEvidencePlanInventory body
-      EList _ elements -> foldMap expressionEvidencePlanInventory elements
-      ETuple _ elements -> foldMap expressionEvidencePlanInventory elements
-      EApply _ function argument -> expressionEvidencePlanInventory function <> expressionEvidencePlanInventory argument
-      ETypeApplication _ function _ _ -> expressionEvidencePlanInventory function
-      EIf _ condition whenTrue whenFalse -> foldMap expressionEvidencePlanInventory [condition, whenTrue, whenFalse]
-      EPatternCase _ scrutinee arms -> expressionEvidencePlanInventory scrutinee <> foldMap armEvidencePlans arms
-      EBinary _ _ left right -> expressionEvidencePlanInventory left <> expressionEvidencePlanInventory right
-      ESectionLeft _ left _ -> expressionEvidencePlanInventory left
-      ESectionRight _ _ right -> expressionEvidencePlanInventory right
-      EBlock _ statements -> foldMap statementEvidencePlans statements
+      ELambda _ _ body -> expressionEvidenceFactsInventory body
+      EList _ elements -> foldMap expressionEvidenceFactsInventory elements
+      ETuple _ elements -> foldMap expressionEvidenceFactsInventory elements
+      EApply _ function argument -> expressionEvidenceFactsInventory function <> expressionEvidenceFactsInventory argument
+      ETypeApplication _ function _ _ -> expressionEvidenceFactsInventory function
+      EIf _ condition whenTrue whenFalse -> foldMap expressionEvidenceFactsInventory [condition, whenTrue, whenFalse]
+      EPatternCase _ scrutinee arms -> expressionEvidenceFactsInventory scrutinee <> foldMap armEvidenceFacts arms
+      EBinary _ _ left right -> expressionEvidenceFactsInventory left <> expressionEvidenceFactsInventory right
+      ESectionLeft _ left _ -> expressionEvidenceFactsInventory left
+      ESectionRight _ _ right -> expressionEvidenceFactsInventory right
+      EBlock _ statements -> foldMap statementEvidenceFacts statements
       _ -> []
   where
-    nodeEvidencePlan value =
+    nodeEvidenceFacts value =
       case value of
         ELit (CoreNode _ _ facts) _ -> plan facts
         EVar (CoreNode _ _ facts) _ -> plan facts
@@ -2005,52 +2102,40 @@ expressionEvidencePlanInventory expression =
       case expressionEvidence facts of
         [] -> []
         evidence ->
-          [(evidence, toList obligations)]
-          where
-            RuntimePlan obligations = expressionRuntimePlan facts
-    armEvidencePlans (CaseArm (CoreNode _ _ facts) _ guard body) =
-      plan facts <> foldMap expressionEvidencePlanInventory guard <> expressionEvidencePlanInventory body
-    statementEvidencePlans statement =
+          [(evidence, map instantiatedTypes (expressionInstantiations facts), expressionResultRepresentation facts)]
+    armEvidenceFacts (CaseArm (CoreNode _ _ facts) _ guard body) =
+      plan facts <> foldMap expressionEvidenceFactsInventory guard <> expressionEvidenceFactsInventory body
+    statementEvidenceFacts statement =
       case statement of
-        SLet _ _ value -> expressionEvidencePlanInventory value
-        SImpl _ _ _ methods -> foldMap (\(ImplMethod _ _ body) -> expressionEvidencePlanInventory body) methods
-        SExpr _ value -> expressionEvidencePlanInventory value
+        SLet _ _ value -> expressionEvidenceFactsInventory value
+        SImpl _ _ _ methods -> foldMap (\(ImplMethod _ _ body) -> expressionEvidenceFactsInventory body) methods
+        SExpr _ value -> expressionEvidenceFactsInventory value
         _ -> []
 
-analyzeRuntimePlan :: Set.Set Int -> Text.Text -> IO (InferenceResult, Expr 'Analyzed)
-analyzeRuntimePlan preludeStatementIndices source = do
+analyzeRuntimeFacts :: Text.Text -> IO (InferenceResult, Expr 'Analyzed)
+analyzeRuntimeFacts source = do
   expression <-
     case parseAndLowerStandaloneSource source of
       Left diagnostic ->
-        failTest ("runtime-plan fixture failed to lower: " <> renderDiagnostic diagnostic)
-      Right lowered ->
-        case resolveStandaloneExprNames (exportInventory []) lowered of
-          Left diagnostics ->
-            failTest
-              ( "runtime-plan fixture failed to resolve: "
-                  <> Text.unlines (map renderDiagnostic (NonEmpty.toList diagnostics))
-              )
-          Right resolved -> pure resolved
+        failTest ("runtime-facts fixture failed to lower: " <> renderDiagnostic diagnostic)
+      Right lowered -> pure (resolveStandaloneExprNames (exportInventory []) lowered)
   (inference, attachment) <-
-    analyzeSourceUnitExpression
-      preludeModulePath
-      Set.empty
-      preludeStatementIndices
+    analyzeResolvedExpression
       defaultWarningSettings
       expression
   analyzedExpression <-
     case attachment of
       Left failures ->
-        failTest ("analyzed runtime-plan attachment failed: " <> Text.pack (show failures))
+        failTest ("analyzed runtime-facts attachment failed: " <> Text.pack (show failures))
       Right Nothing ->
-        failTest "analyzed runtime-plan attachment produced no expression"
+        failTest ("analyzed runtime-facts attachment produced no expression: " <> Text.unlines (map renderDiagnostic (inferredDiagnostics inference)))
       Right (Just analyzed) -> pure analyzed
   pure (inference, analyzedExpression)
 
 testQualifiedMethodDispatchPrefersAliasBindingOverMethodSentinelAtRuntime :: IO ()
 testQualifiedMethodDispatchPrefersAliasBindingOverMethodSentinelAtRuntime = do
   let result =
-        evaluateRuntimeExpr
+        evaluateFixture
           ( runtimeExpr
               ( expressionBlock
                   [ statementLet "Eq::helper" (SourceSpan 1 1) (expressionLambda "itemValue" (expressionLiteral (LBool True))),
@@ -2280,7 +2365,7 @@ testQualifiedMethodDispatchRejectsFullArityRuntimeAmbiguity =
   assertRuntimeErrorContains
     "fully applied ambiguous qualified method"
     "ambiguous qualified method body 'RuntimePick::choose'"
-    (evaluateRuntimeExpr ambiguousQualifiedMethodRuntimeExpr)
+    (evaluateFixture ambiguousQualifiedMethodRuntimeExpr)
 
 testQualifiedMethodDispatchExecutesLocalAdtImplBody :: IO ()
 testQualifiedMethodDispatchExecutesLocalAdtImplBody = do

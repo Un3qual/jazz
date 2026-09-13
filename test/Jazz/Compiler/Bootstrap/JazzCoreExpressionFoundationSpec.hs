@@ -118,22 +118,22 @@ testComposedBoundaries = do
 
 foundationExpressions :: [SurfaceExpr]
 foundationExpressions =
-  [ seLit (SLInt 1234567890123456789012345678901234567890),
-    seLit (SLFloat 1.05 (mkFractionalLiteralSource 1 50 3) Nothing),
-    seLit (SLFloat 1.05 (mkFractionalLiteralSource 1 50 3) (Just NumericFloat16)),
-    seLit (SLFloat 1.05 (mkFractionalLiteralSource 1 50 3) (Just NumericFloat32)),
-    seLit (SLFloat 1.05 (mkFractionalLiteralSource 1 50 3) (Just NumericFloat64)),
-    seLit (SLBool True),
-    seLit (SLChar 'x'),
-    seLit (SLText "Jazz"),
+  [ seLit (LInt 1234567890123456789012345678901234567890),
+    seLit (LFloat 1.05 (mkFractionalLiteralSource 1 50 3) Nothing),
+    seLit (LFloat 1.05 (mkFractionalLiteralSource 1 50 3) (Just NumericFloat16)),
+    seLit (LFloat 1.05 (mkFractionalLiteralSource 1 50 3) (Just NumericFloat32)),
+    seLit (LFloat 1.05 (mkFractionalLiteralSource 1 50 3) (Just NumericFloat64)),
+    seLit (LBool True),
+    seLit (LChar 'x'),
+    seLit (LText "Jazz"),
     seVar "value",
     seQualifiedVar "Text" "length",
     seOperatorValue "+",
     seList [],
-    seList [seInt 1, seTuple [seVar "value", seLit (SLBool False)]],
+    seList [seInt 1, seTuple [seVar "value", seLit (LBool False)]],
     seTuple [],
-    seTuple [seInt 1, seLit (SLText "two")],
-    seApply (seApply (seVar "f") (seInt 1)) (seLit (SLBool True)),
+    seTuple [seInt 1, seLit (LText "two")],
+    seApply (seApply (seVar "f") (seInt 1)) (seLit (LBool True)),
     seBinary "+" (seInt 1) (seBinary "*" (seInt 2) (seInt 3)),
     seSectionLeft (seInt 1) "+",
     seSectionRight "+" (seInt 2),
@@ -141,7 +141,7 @@ foundationExpressions =
       [ SSLet "answer" (SourceSpan 3 5) (seInt 42),
         SSExpr
           (SourceSpan 4 3)
-          (seApply (seQualifiedVar "Text" "length") (seList [seLit (SLText "Jazz")]))
+          (seApply (seQualifiedVar "Text" "length") (seList [seLit (LText "Jazz")]))
       ],
     seBlock
       [ SSLet "nested" (SourceSpan 7 2) (seBlock [SSExpr (SourceSpan 8 4) (seTuple [])]),
@@ -153,17 +153,17 @@ unsupportedExpressions :: [SurfaceExpr]
 unsupportedExpressions =
   [ seLambda (SurfaceLambdaIdentifier span1 "value" :| []) (seVar "value"),
     seCase (seVar "value") [],
-    seIf (seLit (SLBool True)) (seInt 1) (seInt 0),
+    seIf (seLit (LBool True)) (seInt 1) (seInt 0),
     seTypeApplication (seVar "identity") span1 TypeInt,
     seBinary "$" (seVar "f") (seInt 1),
     seBlock [SSSignature "value" span1 (SignatureType TypeInt)],
     seBlock [SSData span1 "Thing" [] []],
     seBlock [SSClass span1 "Show" ["a"] []],
-    seBlock [SSImpl span1 "Show" [TypeText] []],
+    seBlock [SSImpl span1 (SurfaceName "Show" span1 Nothing) [TypeText] []],
     seBlock [SSModule span1 ["App", "Main"] Nothing],
     seBlock [SSImport span1 ["Core", "Text"] Nothing Nothing],
     seBlock [SSLet "$operator:2B" span1 (seVar "add")],
-    seList [seInt 1, seIf (seLit (SLBool True)) (seInt 2) (seInt 3)],
+    seList [seInt 1, seIf (seLit (LBool True)) (seInt 2) (seInt 3)],
     seApply (seVar "f") (seLambda (SurfaceLambdaIdentifier span1 "x" :| []) (seVar "x")),
     seBlock [SSLet "value" span1 (seCase (seVar "value") [])]
   ]
@@ -215,7 +215,7 @@ seLambda parameters body = se (SELambda parameters body)
 seList :: [SurfaceExpr] -> SurfaceExpr
 seList = se . SEList
 
-seLit :: SurfaceLiteral -> SurfaceExpr
+seLit :: Literal -> SurfaceExpr
 seLit = se . SELit
 
 seOperatorValue :: Text.Text -> SurfaceExpr
@@ -241,7 +241,7 @@ seVar :: Identifier -> SurfaceExpr
 seVar = se . SEVar
 
 seInt :: Integer -> SurfaceExpr
-seInt = seLit . SLInt
+seInt = seLit . LInt
 
 assertSuccessfulOutput :: Text.Text -> Text.Text -> RunResult -> IO ()
 assertSuccessfulOutput label expected result = do

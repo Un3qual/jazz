@@ -30,6 +30,7 @@ import Jazz.Compiler.Diagnostics
     diagnosticSeverity,
     diagnosticSubject,
     diagnosticWarningCategory,
+    sourceSpanStart,
   )
 import Jazz.Compiler.Diagnostics.Render
   ( renderDiagnostic,
@@ -49,6 +50,7 @@ import Jazz.Compiler.Driver
   )
 import Jazz.Compiler.ModuleExports (exportInventory)
 import Jazz.Compiler.ModuleResolver (resolveStandaloneExprNames)
+import Jazz.Compiler.Parser.Lower (reindexLoweredExpr)
 import Jazz.Compiler.TypeRepresentation (SignatureType (..))
 import Jazz.Compiler.WarningConfig
   ( WarningSettings,
@@ -104,6 +106,8 @@ tests =
     ("unused-binding suppresses constructor-rebinding duplicate when W0001 also emits", testUnusedBindingSuppressesConstructorRebindingSiteDuplicate),
     ("unused-binding promotion reports compile errors", testPromotedUnusedBindingReportsCompileErrors),
     ("bundled default prelude aliases do not trigger same-scope rebinding", testBundledPreludeAliasShadowingNoWarning),
+    ("source references count as uses of explicit prelude bindings", testExplicitPreludeExternalUses),
+    ("explicit prelude constructor rebinding retains both declaration spans", testExplicitPreludeConstructorRebinding),
     ("explicit prelude text matching bundled source still emits rebinding warnings", testExplicitPreludeMatchingBundledSourceEmitsWarning),
     ("driver keeps warning-only success diagnostics", testDriverKeepsWarningOnlySuccessDiagnosticOnly),
     ("driver stores native compile failures in one diagnostic stream", testDriverStoresNativeCompileFailure),
@@ -343,6 +347,30 @@ testBundledPreludeAliasShadowingNoWarning = do
   assertEqual "compile errors" [] (compileErrors result)
   assertEqual "warning count" 0 (length (compileWarnings result))
 
+testExplicitPreludeExternalUses :: IO ()
+testExplicitPreludeExternalUses = do
+  settings <- unusedBindingPromotedSettings
+  used <- compileSourceWithPrelude settings (Just "identity = \\(x) -> x.") "identity 1."
+  assertEqual "used prelude binding" [] (compileErrors used)
+  unused <- compileSourceWithPrelude settings (Just "identity = \\(x) -> x.") "1."
+  assertEqual "unused prelude binding retains promoted warning" 1 (length (compileErrors unused))
+
+testExplicitPreludeConstructorRebinding :: IO ()
+testExplicitPreludeConstructorRebinding = do
+  settings <- enabledSettings
+  result <- compileSourceWithPrelude settings (Just "data Earlier = Shared.") "\ndata Later = Shared."
+  assertEqual "constructor rebinding compiles" [] (compileErrors result)
+  case compileWarnings result of
+    [warning] -> do
+      assertEqual "constructor warning category" (Just SameScopeRebinding) (diagnosticWarningCategory warning)
+      assertEqual "constructor warning subject" (Just "Shared") (diagnosticSubject warning)
+      assertEqual "source declaration span" (Just (SourceSpan 2 1)) (sourceSpanStart <$> diagnosticPrimarySpan warning)
+      assertEqual "prelude declaration span" (Just (SourceSpanIn "<explicit-prelude>" 1 1)) (sourceSpanStart <$> diagnosticRelatedSpan warning)
+    warnings -> failTest ("expected one constructor rebinding warning, got " <> Text.pack (show warnings))
+  promoted <- promotedSettings
+  rejected <- compileSourceWithPrelude promoted (Just "data Earlier = Shared.") "data Later = Shared."
+  assertEqual "constructor rebinding promotion" 1 (length (compileErrors rejected))
+
 testExplicitPreludeMatchingBundledSourceEmitsWarning :: IO ()
 testExplicitPreludeMatchingBundledSourceEmitsWarning = do
   settings <- promotedSettings
@@ -430,19 +458,16 @@ rebindingAndUnusedEnabledSettings =
 
 analyzeProgram :: WarningSettings -> Expr 'Lowered -> IO AnalysisResult
 analyzeProgram settings expression = do
-  resolved <- resolveForAnalyzer expression
+  let resolved = resolveForAnalyzer expression
   Analyzer.analyzeProgram settings resolved
 
 analyzeRebindingWarnings :: WarningSettings -> Expr 'Lowered -> IO [Diagnostic]
 analyzeRebindingWarnings settings expression = do
-  resolved <- resolveForAnalyzer expression
+  let resolved = resolveForAnalyzer expression
   Analyzer.analyzeRebindingWarnings settings resolved
 
-resolveForAnalyzer :: Expr 'Lowered -> IO (Expr 'Resolved)
-resolveForAnalyzer expression =
-  case resolveStandaloneExprNames (exportInventory []) expression of
-    Left diagnostics -> failTest ("fixture resolution failed: " <> Text.pack (show diagnostics))
-    Right resolved -> pure resolved
+resolveForAnalyzer :: Expr 'Lowered -> Expr 'Resolved
+resolveForAnalyzer = resolveStandaloneExprNames (exportInventory []) . reindexLoweredExpr
 
 sampleProgram :: Expr 'Lowered
 sampleProgram =

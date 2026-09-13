@@ -1,7 +1,7 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DerivingStrategies #-}
 
--- | Compiler driver that coordinates parsing, prelude injection, module
+-- | Compiler driver that coordinates parsing, prelude artifacts, module
 -- resolution, analysis/type checking, warning promotion, and runtime execution.
 module Jazz.Compiler.Driver
   ( CompileResult (..),
@@ -16,6 +16,7 @@ module Jazz.Compiler.Driver
     compileModuleGraphWithPrelude,
     compileModuleGraphWithResolvedPrelude,
     buildAnalyzedProgram,
+    buildAnalyzedSourceProgram,
     RunExecution (..),
     RunResult,
     runDiagnostics,
@@ -27,7 +28,6 @@ module Jazz.Compiler.Driver
     runCompileErrors,
     runRuntimeErrors,
     runWarnings,
-    withAnalyzedAttachment,
     runSource,
     runSourceObserved,
     runSourceWithPrelude,
@@ -43,9 +43,8 @@ module Jazz.Compiler.Driver
 where
 
 import Control.Exception (evaluate)
-import qualified Data.List.NonEmpty as NonEmpty
-import Data.Set (Set)
-import qualified Data.Set as Set
+import Control.Monad.Trans.Class (lift)
+import Control.Monad.Trans.Except (ExceptT (..), except, runExceptT)
 import Data.Text (Text)
 import qualified Data.Text as Text
 import Jazz.Compiler.AST
@@ -63,32 +62,26 @@ import Jazz.Compiler.Diagnostics
   )
 import Jazz.Compiler.Force
   ( forceAnalyzedProgramResult,
-    forceDiagnostic,
-    forceInferenceResult,
   )
 import Jazz.Compiler.ModuleCompiler
   ( analyzeProgram,
   )
-import Jazz.Compiler.ModuleExports (exportInventory)
-import Jazz.Compiler.ModuleGraph (CoreProgram, preludeIdentity)
-import Jazz.Compiler.ModuleIdentity (ModulePath, moduleIdentityPath, preludeModulePath)
-import Jazz.Compiler.ModuleInterface (compileInputs)
+import Jazz.Compiler.ModuleGraph (CoreProgram)
+import Jazz.Compiler.ModuleInterface (emptyCompileInputs)
 import Jazz.Compiler.ModuleResolver
   ( ModuleResolutionConfig,
     resolvePreludeArtifact,
     resolveProgramWithAmbientExports,
-    resolveStandaloneExprNames,
+    resolveStandaloneProgram,
   )
 import Jazz.Compiler.ModuleRuntime
   ( RuntimeProgram (runtimeProgramOutput),
     evaluateAnalyzedProgramWithHostObserved,
   )
-import Jazz.Compiler.Parser.Lower (reindexLoweredExpr)
 import Jazz.Compiler.Prelude
   ( PreparedPrelude (..),
     ResolvedPrelude (..),
     preparePrelude,
-    preparedPreludeExpr,
     resolvedExplicitPrelude,
   )
 import Jazz.Compiler.Profiling
@@ -98,7 +91,6 @@ import Jazz.Compiler.Profiling
   )
 import Jazz.Compiler.Runtime
   ( RuntimeValue,
-    evaluateRuntimeExprWithHostAndSourceUnitStatementsObserved,
     renderRuntimeValue,
   )
 import Jazz.Compiler.Runtime.Observation
@@ -111,16 +103,9 @@ import Jazz.Compiler.RuntimeHost
   ( RuntimeHost,
     disabledRuntimeHost,
   )
-import Jazz.Compiler.SemanticFacts (SemanticFactInvariantFailure)
 import Jazz.Compiler.SourceProgram
   ( parseAndLowerStandaloneSource,
-    prependLoweredStatements,
-    scopeStatements,
   )
-import Jazz.Compiler.TypeInference
-  ( analyzeSourceUnitExpression,
-  )
-import Jazz.Compiler.TypeInference.Result (InferenceResult (..))
 import Jazz.Compiler.WarningConfig
   ( WarningSettings,
   )
@@ -194,30 +179,9 @@ runRuntimeErrors =
 -- Compiler driver flow for the current implementation slice:
 -- analyze -> collect warnings/errors -> apply warning-as-error policy.
 compileExpr :: WarningSettings -> Expr 'Lowered -> IO CompileResult
-compileExpr = compileExprWithHiddenStatements Set.empty
-
-compileExprWithHiddenStatements ::
-  Set Int ->
-  WarningSettings ->
-  Expr 'Lowered ->
-  IO CompileResult
-compileExprWithHiddenStatements hiddenStatementIndices settings expr =
-  compileExprWithSourceUnitStatements hiddenStatementIndices hiddenStatementIndices preludeModulePath settings expr
-
-compileExprWithSourceUnitStatements ::
-  Set Int ->
-  Set Int ->
-  ModulePath ->
-  WarningSettings ->
-  Expr 'Lowered ->
-  IO CompileResult
-compileExprWithSourceUnitStatements hiddenStatementIndices preludeStatementIndices preludePath settings expr = do
-  (diagnostics, analyzedAttachment) <- analyzeForDriver hiddenStatementIndices preludeStatementIndices preludePath settings expr
-  withAnalyzedAttachment analyzedAttachment $ \_ ->
-    pure
-      CompileResult
-        { compileDiagnostics = diagnostics
-        }
+compileExpr settings expression = do
+  result <- buildAnalyzedSourceProgram settings PreludeAbsent expression
+  pure (analyzedCompileResult result)
 
 compileSource :: WarningSettings -> Text -> IO CompileResult
 compileSource settings source = do
@@ -230,19 +194,14 @@ compileSourceWithPrelude settings preludeSource source =
 
 compileSourceWithResolvedPrelude :: WarningSettings -> ResolvedPrelude -> Text -> IO CompileResult
 compileSourceWithResolvedPrelude settings resolvedPrelude source =
-  case parseAndLowerSource resolvedPrelude source of
-    Left parseErrorCode ->
-      pure
-        CompileResult
-          { compileDiagnostics = [parseErrorCode]
-          }
-    Right loweredProgram ->
-      compileExprWithSourceUnitStatements
-        (parsedHiddenStatementIndices loweredProgram)
-        (parsedPreludeStatementIndices loweredProgram)
-        (parsedPreludeModulePath loweredProgram)
-        settings
-        (parsedExpr loweredProgram)
+  case parseAndLowerStandaloneSource source of
+    Left diagnostic -> pure (CompileResult [diagnostic])
+    Right expression -> do
+      result <- buildAnalyzedSourceProgram settings resolvedPrelude expression
+      pure (analyzedCompileResult result)
+
+analyzedCompileResult :: Either Diagnostic (program, [Diagnostic], analyzed) -> CompileResult
+analyzedCompileResult = CompileResult . either (: []) (\(_, diagnostics, _) -> diagnostics)
 
 compileModuleGraph ::
   WarningSettings ->
@@ -284,56 +243,7 @@ compileModuleGraphWithResolvedPrelude settings resolvedPrelude resolutionConfig 
       resolutionConfig
       entryModulePath
       sourceLookup
-  case analyzedResult of
-    Left diagnostic ->
-      pure
-        CompileResult
-          { compileDiagnostics = [diagnostic]
-          }
-    Right (_, diagnostics, _) ->
-      pure
-        CompileResult
-          { compileDiagnostics = diagnostics
-          }
-
-runExprWithSourceUnitStatementsAndHostObserved ::
-  RuntimeObservationRequest ->
-  RuntimeHost IO ->
-  Set Int ->
-  Set Int ->
-  ModulePath ->
-  WarningSettings ->
-  Expr 'Lowered ->
-  IO RunResult
-runExprWithSourceUnitStatementsAndHostObserved observationRequest host hiddenStatementIndices preludeStatementIndices preludePath settings expr = do
-  (compilePhaseDiagnostics, analyzedAttachment) <-
-    analyzeForDriver hiddenStatementIndices preludeStatementIndices preludePath settings expr
-  if any isErrorDiagnostic compilePhaseDiagnostics
-    then
-      pure
-        RunResult
-          { runDiagnostics = compilePhaseDiagnostics,
-            runExecution = RunNotExecuted,
-            runRuntimeObservation = Nothing
-          }
-    else withAnalyzedAttachment analyzedAttachment $ \maybeAnalyzedExpr ->
-      case maybeAnalyzedExpr of
-        Just analyzedExpr -> do
-          runtimeResult <-
-            evaluateRuntimeExprWithHostAndSourceUnitStatementsObserved
-              observationRequest
-              host
-              preludeStatementIndices
-              preludePath
-              analyzedExpr
-          pure (runtimeObservationRunResult id compilePhaseDiagnostics runtimeResult)
-        Nothing ->
-          pure
-            RunResult
-              { runDiagnostics = compilePhaseDiagnostics,
-                runExecution = RunNotExecuted,
-                runRuntimeObservation = Nothing
-              }
+  pure (analyzedCompileResult analyzedResult)
 
 runSource :: WarningSettings -> Text -> IO RunResult
 runSource = runSourceObserved RuntimeObservationDisabled
@@ -365,23 +275,11 @@ runSourceWithResolvedPreludeAndHost =
 
 runSourceWithResolvedPreludeAndHostObserved :: RuntimeObservationRequest -> RuntimeHost IO -> WarningSettings -> ResolvedPrelude -> Text -> IO RunResult
 runSourceWithResolvedPreludeAndHostObserved observationRequest host settings resolvedPrelude source =
-  case parseAndLowerSource resolvedPrelude source of
-    Left parseErrorCode ->
-      pure
-        RunResult
-          { runDiagnostics = [parseErrorCode],
-            runExecution = RunNotExecuted,
-            runRuntimeObservation = Nothing
-          }
-    Right loweredProgram ->
-      runExprWithSourceUnitStatementsAndHostObserved
-        observationRequest
-        host
-        (parsedHiddenStatementIndices loweredProgram)
-        (parsedPreludeStatementIndices loweredProgram)
-        (parsedPreludeModulePath loweredProgram)
-        settings
-        (parsedExpr loweredProgram)
+  case parseAndLowerStandaloneSource source of
+    Left diagnostic -> executeAnalyzedBuild observationRequest host (Left diagnostic)
+    Right expression ->
+      buildAnalyzedSourceProgram settings resolvedPrelude expression
+        >>= executeAnalyzedBuild observationRequest host
 
 runModuleGraph ::
   WarningSettings ->
@@ -497,6 +395,14 @@ runModuleGraphWithResolvedPreludeAndHostObserved observationRequest host setting
       resolutionConfig
       entryModulePath
       sourceLookup
+  executeAnalyzedBuild observationRequest host analyzedResult
+
+executeAnalyzedBuild ::
+  RuntimeObservationRequest ->
+  RuntimeHost IO ->
+  Either Diagnostic (CoreProgram 'Resolved, [Diagnostic], Maybe (CoreProgram 'Analyzed)) ->
+  IO RunResult
+executeAnalyzedBuild observationRequest host analyzedResult =
   case analyzedResult of
     Left diagnostic ->
       pure
@@ -525,24 +431,29 @@ runtimeObservationRunResult ::
   RunResult
 runtimeObservationRunResult runtimeValueProjection compilePhaseDiagnostics runtimeResult =
   case runtimeObservationOutcome runtimeResult of
-    RuntimeOutcomeFailed runtimeError ->
+    RuntimeOutcomeFailed runtimeError -> finish [runtimeError] RunRuntimeFailed
+    RuntimeOutcomeExited status -> finish [] (RunExited status)
+    RuntimeOutcomeCompleted value -> finish [] (RunCompleted (runtimeValueProjection value))
+  where
+    finish runtimeErrors execution =
       RunResult
-        { runDiagnostics = compilePhaseDiagnostics <> [runtimeError],
-          runExecution = RunRuntimeFailed,
+        { runDiagnostics = compilePhaseDiagnostics <> runtimeErrors,
+          runExecution = execution,
           runRuntimeObservation = runtimeObservationReport runtimeResult
         }
-    RuntimeOutcomeExited status ->
-      RunResult
-        { runDiagnostics = compilePhaseDiagnostics,
-          runExecution = RunExited status,
-          runRuntimeObservation = runtimeObservationReport runtimeResult
-        }
-    RuntimeOutcomeCompleted value ->
-      RunResult
-        { runDiagnostics = compilePhaseDiagnostics,
-          runExecution = RunCompleted (runtimeValueProjection value),
-          runRuntimeObservation = runtimeObservationReport runtimeResult
-        }
+
+-- | Analyze an in-memory source unit through the program coordinator.
+buildAnalyzedSourceProgram ::
+  WarningSettings ->
+  ResolvedPrelude ->
+  Expr 'Lowered ->
+  IO (Either Diagnostic (CoreProgram 'Resolved, [Diagnostic], Maybe (CoreProgram 'Analyzed)))
+buildAnalyzedSourceProgram settings resolvedPrelude expression = runExceptT $ do
+  preparedPrelude <- except (preparePrelude resolvedPrelude)
+  let visibleExports = preparedPreludeVisibleExports preparedPrelude
+  prelude <- except (resolvePreludeArtifact visibleExports (preparedPreludeArtifact preparedPrelude))
+  program <- except (resolveStandaloneProgram prelude visibleExports expression)
+  lift (analyzeResolvedProgram settings program)
 
 buildAnalyzedProgram ::
   WarningSettings ->
@@ -551,32 +462,20 @@ buildAnalyzedProgram ::
   [Text] ->
   (FilePath -> IO (Maybe Text)) ->
   IO (Either Diagnostic (CoreProgram 'Resolved, [Diagnostic], Maybe (CoreProgram 'Analyzed)))
-buildAnalyzedProgram settings resolvedPrelude resolutionConfig entryModulePath sourceLookup =
-  case preparePrelude resolvedPrelude of
-    Left preludeError -> pure (Left preludeError)
-    Right preparedPrelude -> do
-      case resolvePreludeArtifact
-        (preparedPreludeVisibleExports preparedPrelude)
-        (preparedPreludeArtifact preparedPrelude) of
-        Left resolutionError -> pure (Left resolutionError)
-        Right resolvedPreludeArtifact -> do
-          resolvedResult <-
-            withCompilerStage ModuleDiscoveryStage $
-              resolveProgramWithAmbientExports
-                resolutionConfig
-                resolvedPreludeArtifact
-                (preparedPreludeVisibleExports preparedPrelude)
-                profiledSourceLookup
-                entryModulePath
-          case resolvedResult of
-            Left resolutionError -> pure (Left resolutionError)
-            Right resolvedProgram ->
-              withCompilerStageResult RuntimePreparationStage forceAnalyzedBuildResult $ do
-                (diagnostics, maybeAnalyzedProgram) <-
-                  analyzeProgram
-                    (compileInputs settings (preparedPreludeHiddenStatementIndices preparedPrelude))
-                    resolvedProgram
-                pure (Right (resolvedProgram, diagnostics, maybeAnalyzedProgram))
+buildAnalyzedProgram settings resolvedPrelude resolutionConfig entryModulePath sourceLookup = runExceptT $ do
+  preparedPrelude <- except (preparePrelude resolvedPrelude)
+  let visibleExports = preparedPreludeVisibleExports preparedPrelude
+  prelude <- except (resolvePreludeArtifact visibleExports (preparedPreludeArtifact preparedPrelude))
+  program <-
+    ExceptT $
+      withCompilerStage ModuleDiscoveryStage $
+        resolveProgramWithAmbientExports
+          resolutionConfig
+          prelude
+          visibleExports
+          profiledSourceLookup
+          entryModulePath
+  lift (analyzeResolvedProgram settings program)
   where
     profiledSourceLookup sourcePath =
       withCompilerStageResult
@@ -584,91 +483,12 @@ buildAnalyzedProgram settings resolvedPrelude resolutionConfig entryModulePath s
         (\maybeSource -> evaluate (maybe 0 Text.length maybeSource) >> pure ())
         (sourceLookup sourcePath)
 
-    forceAnalyzedBuildResult result =
-      evaluate $
-        case result of
-          Left diagnostic -> forceDiagnostic diagnostic
-          Right (_, diagnostics, maybeProgram) ->
-            forceAnalyzedProgramResult (diagnostics, maybeProgram)
-
--- | Run inference/canonicalization and retain the canonical diagnostic order
--- for downstream compile/run results.
-analyzeForDriver :: Set Int -> Set Int -> ModulePath -> WarningSettings -> Expr 'Lowered -> IO ([Diagnostic], Either (NonEmpty.NonEmpty SemanticFactInvariantFailure) (Maybe (Expr 'Analyzed)))
-analyzeForDriver hiddenStatementIndices preludeStatementIndices preludePath settings expr = do
-  case resolveStandaloneExprNames (exportInventory []) (reindexLoweredExpr expr) of
-    Left diagnostics ->
-      pure (NonEmpty.toList diagnostics, Right Nothing)
-    Right resolvedExpr -> do
-      (inference, analyzedAttachment) <-
-        withCompilerStageResult
-          TypeInferenceStage
-          (evaluate . forceInferenceResult . fst)
-          ( analyzeSourceUnitExpression
-              preludePath
-              hiddenStatementIndices
-              preludeStatementIndices
-              settings
-              resolvedExpr
-          )
-      let diagnostics = inferredDiagnostics inference
-      case analyzedAttachment of
-        Left failures ->
-          pure (diagnostics, Left failures)
-        Right maybeAnalyzed ->
-          pure (diagnostics, Right maybeAnalyzed)
-
-standaloneAttachmentFailure :: NonEmpty.NonEmpty SemanticFactInvariantFailure -> String
-standaloneAttachmentFailure failures =
-  "standalone analyzed facts violated inference invariants: " <> show failures
-
--- | An analyzed-plan invariant failure never enters runtime evaluation, even
--- when the resolved interpreter would independently produce a diagnostic.
-withAnalyzedAttachment ::
-  Either (NonEmpty.NonEmpty SemanticFactInvariantFailure) plan ->
-  (plan -> IO result) ->
-  IO result
-withAnalyzedAttachment attachment continue =
-  case attachment of
-    Left failures -> fail (standaloneAttachmentFailure failures)
-    Right plan -> continue plan
-
--- | Parse the incoming source and splice in prelude statements when required,
--- tracking which synthetic statements should stay hidden from user diagnostics.
-parseAndLowerSource :: ResolvedPrelude -> Text -> Either Diagnostic ParsedProgram
-parseAndLowerSource resolvedPrelude source = do
-  loweredSource <- parseAndLowerStandaloneSource source
-  preparedPrelude <- preparePrelude resolvedPrelude
-  pure (mergePreparedPrelude preparedPrelude loweredSource)
-
-mergePreparedPrelude :: PreparedPrelude -> Expr 'Lowered -> ParsedProgram
-mergePreparedPrelude preparedPrelude loweredSource =
-  case preparedPreludeExpr preparedPrelude of
-    Nothing ->
-      ParsedProgram
-        { parsedExpr = loweredSource,
-          parsedHiddenStatementIndices = Set.empty,
-          parsedPreludeStatementIndices = Set.empty,
-          parsedPreludeModulePath = preparedPreludePath preparedPrelude
-        }
-    Just loweredPrelude ->
-      let preludeStatements = scopeStatements loweredPrelude
-          combinedExpr = prependLoweredStatements preludeStatements loweredSource
-          preludeStatementIndices = Set.fromList [0 .. length preludeStatements - 1]
-       in ParsedProgram
-            { parsedExpr = combinedExpr,
-              parsedHiddenStatementIndices = preparedPreludeHiddenStatementIndices preparedPrelude,
-              parsedPreludeStatementIndices = preludeStatementIndices,
-              parsedPreludeModulePath = preparedPreludePath preparedPrelude
-            }
-  where
-    preparedPreludePath =
-      moduleIdentityPath . preludeIdentity . preparedPreludeArtifact
-
--- | Lowered program paired with statement indices that came from synthetic
--- bundled prelude source.
-data ParsedProgram = ParsedProgram
-  { parsedExpr :: Expr 'Lowered,
-    parsedHiddenStatementIndices :: Set Int,
-    parsedPreludeStatementIndices :: Set Int,
-    parsedPreludeModulePath :: ModulePath
-  }
+analyzeResolvedProgram ::
+  WarningSettings ->
+  CoreProgram 'Resolved ->
+  IO (CoreProgram 'Resolved, [Diagnostic], Maybe (CoreProgram 'Analyzed))
+analyzeResolvedProgram settings program = do
+  (diagnostics, analyzed) <-
+    withCompilerStageResult RuntimePreparationStage (evaluate . forceAnalyzedProgramResult) $
+      analyzeProgram (emptyCompileInputs settings) program
+  pure (program, diagnostics, analyzed)

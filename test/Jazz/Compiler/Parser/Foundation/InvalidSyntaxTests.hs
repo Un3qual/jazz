@@ -45,7 +45,7 @@ invalidSyntaxTests =
     ("rejects qualified class declarations", testRejectsQualifiedClassDeclaration),
     ("rejects malformed alias-qualified class methods", testRejectsMalformedAliasQualifiedClassMethod),
     ("rejects overlong alias-qualified class methods", testRejectsOverlongAliasQualifiedClassMethod),
-    ("rejects non-identifier aliases in constraints", testRejectsNonIdentifierConstraintAliases),
+    ("rejects missing or non-identifier aliases in constraints", testRejectsInvalidConstraintAliases),
     ("rejects statement boundaries inside unfinished signatures", testRejectsUnfinishedSignatures),
     ("rejects trait abstraction declarations as non-canonical syntax", testRejectsTraitAbstractionSyntax),
     ("rejects lowercase trait abstraction declarations", testRejectsLowercaseTraitAbstractionSyntax),
@@ -277,10 +277,17 @@ testRejectsOverlongAliasQualifiedClassMethod =
     "unexpected token '::' in qualified class method name"
     (parseSurfaceProgram "Facts::Eq::equals::extra.")
 
-testRejectsNonIdentifierConstraintAliases :: IO ()
-testRejectsNonIdentifierConstraintAliases =
-  forM_ ["f :: @{1::Eq(a)}: a -> a.", "f :: @{((1::Eq(a)))}: a -> a."] $ \source ->
-    assertLeftDiagnosticContains ("constraint alias: " <> source) "expected alias before '::'" (parseSurfaceProgram source)
+testRejectsInvalidConstraintAliases :: IO ()
+testRejectsInvalidConstraintAliases =
+  forM_
+    [ "f :: @{1::Eq(a)}: a -> a.",
+      "f :: @{((1::Eq(a)))}: a -> a.",
+      "f :: @{::Eq(a)}: a -> a.",
+      "f :: @{(::Eq(a))}: a -> a.",
+      "f :: @{Eq(a), ::Ord(a)}: a -> a."
+    ]
+    $ \source ->
+      assertLeftDiagnosticContains ("constraint alias: " <> source) "expected alias before '::'" (parseSurfaceProgram source)
 
 testRejectsUnfinishedSignatures :: IO ()
 testRejectsUnfinishedSignatures =

@@ -27,6 +27,7 @@ module Jazz.Compiler.ModuleExports
     selectModuleExportSelectors,
     selectValidatedModuleExportSelectors,
     inventoryHasExport,
+    restrictExportInventory,
     firstExportNamespace,
   )
 where
@@ -144,9 +145,12 @@ exportedConstructorOwners constructorName =
 
 exportNamesInNamespace :: NameNamespace -> ModuleExportInventory -> Set Text
 exportNamesInNamespace namespace =
+  namesInNamespace namespace . exportInventoryEntries
+
+namesInNamespace :: NameNamespace -> Set ModuleExport -> Set Text
+namesInNamespace namespace =
   Set.map moduleExportName
     . Set.filter ((== namespace) . moduleExportNamespace)
-    . exportInventoryEntries
 
 exportNamesInNamespaces :: [NameNamespace] -> ModuleExportInventory -> Set Text
 exportNamesInNamespaces namespaces inventory =
@@ -164,7 +168,7 @@ selectorEligibleNames =
 
 inventoryHasSelector :: ModuleExportSelector -> ModuleExportInventory -> Bool
 inventoryHasSelector selector =
-  any (moduleExportSelectorMatches selector) . Set.toList . exportInventoryEntries
+  any (moduleExportSelectorMatches selector) . exportInventoryEntries
 
 renderModuleExportSelector :: ModuleExportSelector -> Text
 renderModuleExportSelector selector =
@@ -198,13 +202,13 @@ selectExportNames maybeNames inventory =
     Nothing -> inventory
     Just names ->
       let selectedNames = Set.fromList names
-       in restrictInventory
+       in restrictExportInventory
             (Set.filter ((`Set.member` selectedNames) . moduleExportName) (exportInventoryEntries inventory))
             inventory
 
 selectModuleExportSelectors :: [ModuleExportSelector] -> ModuleExportInventory -> ModuleExportInventory
 selectModuleExportSelectors selectors inventory =
-  restrictInventory
+  restrictExportInventory
     ( Set.filter
         (\export -> any (`moduleExportSelectorMatches` export) selectors)
         (exportInventoryEntries inventory)
@@ -255,8 +259,8 @@ moduleExportSelectorMatches selector export =
       Nothing -> True
       Just namespace -> namespace == moduleExportNamespace export
 
-restrictInventory :: Set ModuleExport -> ModuleExportInventory -> ModuleExportInventory
-restrictInventory selectedEntries inventory =
+restrictExportInventory :: Set ModuleExport -> ModuleExportInventory -> ModuleExportInventory
+restrictExportInventory selectedEntries inventory =
   ModuleExportInventory
     { inventoryEntries = selectedEntries,
       inventoryConstructorOwners =
@@ -269,13 +273,9 @@ restrictInventory selectedEntries inventory =
     }
   where
     selectedConstructorNames =
-      Set.map
-        moduleExportName
-        (Set.filter ((== ConstructorNamespace) . moduleExportNamespace) selectedEntries)
+      namesInNamespace ConstructorNamespace selectedEntries
     selectedTypeNames =
-      Set.map
-        moduleExportName
-        (Set.filter ((== TypeNamespace) . moduleExportNamespace) selectedEntries)
+      namesInNamespace TypeNamespace selectedEntries
     retainSelectedOwners owners =
       case Set.intersection selectedTypeNames owners of
         selectedOwners

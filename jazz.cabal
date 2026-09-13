@@ -111,6 +111,7 @@ library jazz-internal
       Jazz.Compiler.Force
       Jazz.Compiler.FractionalLiteral
       Jazz.Compiler.Identifier
+      Jazz.Compiler.Literal
       Jazz.Compiler.ModuleGraph
       Jazz.Compiler.ModuleAnalysis
       Jazz.Compiler.ModuleIdentity
@@ -158,6 +159,8 @@ library jazz-internal
       Jazz.Compiler.Runtime.Semantics
       Jazz.Compiler.Runtime.Types
       Jazz.Compiler.RuntimeHost
+      Jazz.Compiler.CoreIdentity
+      Jazz.Compiler.SemanticDeclarations
       Jazz.Compiler.SemanticFacts
       Jazz.Compiler.SignatureRendering
       Jazz.Compiler.SourceProgram
@@ -170,7 +173,7 @@ library jazz-internal
       Jazz.Compiler.TypeInference.DiagnosticCause
       Jazz.Compiler.TypeInference.Diagnostics
       Jazz.Compiler.TypeInference.Environment
-      Jazz.Compiler.TypeInference.Evidence
+      Jazz.Compiler.TypeInference.Interface
       Jazz.Compiler.TypeInference.Instantiation
       Jazz.Compiler.TypeInference.ImplChecking
       Jazz.Compiler.TypeInference.Operator
@@ -186,6 +189,8 @@ library jazz-internal
       Jazz.Compiler.TypeRepresentation
       Jazz.Compiler.WarningConfig
   other-modules:
+      Jazz.Compiler.TypeInference.Draft
+      Jazz.Compiler.ModuleImportScope
   build-depends:
       aeson >= 2.2 && < 2.3,
       base >= 4.22 && < 4.23,
@@ -331,6 +336,7 @@ test-suite runtime-observation-spec
       Jazz.Compiler.Runtime.Observation.ProfileTests
       Jazz.Compiler.Runtime.Observation.StatisticsTests
       Jazz.Compiler.Semantics.Runtime.Fixtures
+      Jazz.Compiler.Semantics.Runtime.ResolvedFixture
   build-depends:
       aeson >= 2.2 && < 2.3
 
@@ -783,6 +789,7 @@ test-suite builtin-catalog-spec
   main-is: Jazz/Compiler/Semantics/BuiltinCatalogSpec.hs
   other-modules:
       Jazz.Compiler.Semantics.Runtime.Fixtures
+      Jazz.Compiler.Semantics.Runtime.ResolvedFixture
       Jazz.Repository.Root
       Jazz.Repository.SourceLayout
       Jazz.TestSource
@@ -850,6 +857,7 @@ test-suite runtime-semantics-spec
       Jazz.Compiler.Semantics.Runtime.CapabilitiesTests
       Jazz.Compiler.Semantics.Runtime.ControlFlowTests
       Jazz.Compiler.Semantics.Runtime.Fixtures
+      Jazz.Compiler.Semantics.Runtime.ResolvedFixture
       Jazz.Compiler.Semantics.Runtime.HostIOTests
       Jazz.Compiler.Semantics.Runtime.NumericTests
       Jazz.Compiler.Semantics.Runtime.RecursionTests

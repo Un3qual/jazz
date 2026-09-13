@@ -17,7 +17,6 @@ import Jazz.Compiler.Parser.AST
   ( SurfaceExpr (..),
     SurfaceExprForm (..),
     SurfaceLambdaParameter (..),
-    SurfaceLiteral (..),
     SurfaceStatement (..),
   )
 import Jazz.Compiler.Parser.Lower
@@ -509,7 +508,7 @@ blockAt :: Int -> Int -> [SurfaceStatement] -> SurfaceExpr
 blockAt line column = e line column . SEBlock
 
 intAt :: Int -> Int -> Integer -> SurfaceExpr
-intAt line column = e line column . SELit . SLInt
+intAt line column = e line column . SELit . LInt
 
 varAt :: Int -> Int -> Identifier -> SurfaceExpr
 varAt line column name = e line column (SEVar name)

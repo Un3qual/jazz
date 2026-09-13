@@ -30,6 +30,8 @@ import Control.Exception
     onException,
     try,
   )
+import Control.Monad.Trans.Class (lift)
+import Control.Monad.Trans.Except (ExceptT (..), except, runExceptT)
 import qualified Data.ByteString.Lazy as LazyByteString
 import Data.Either (isRight)
 import Data.IORef (IORef, newIORef, readIORef, writeIORef)
@@ -436,63 +438,36 @@ runCliWithHostAndProfileWriterCore profileWriter host args envLookup fileLookup 
             cliStderr = ""
           }
   | otherwise =
-      case parseCliOptions args of
-        Left parseError ->
-          pure
-            CliOutput
-              { cliExitCode = 2,
-                cliStdout = "",
-                cliStderr = renderDiagnostic parseError <> "\n"
-              }
-        Right options -> do
-          settingsResult <- resolveSettings options envLookup fileLookup
-          case settingsResult of
-            Left configError ->
-              pure
-                CliOutput
-                  { cliExitCode = 2,
-                    cliStdout = "",
-                    cliStderr = renderDiagnostic configError <> "\n"
-                  }
-            Right settings -> do
-              preludeSourceResult <- resolvePreludeSource options envLookup fileLookup
-              case preludeSourceResult of
-                Left preludeError ->
-                  pure
-                    CliOutput
-                      { cliExitCode = 2,
-                        cliStdout = "",
-                        cliStderr = renderDiagnostic preludeError <> "\n"
-                      }
-                Right preludeSource -> do
-                  case cliInput options of
-                    CliModuleGraph entryModulePath configuredRoots ->
-                      if cliExecutionRuns (cliExecutionMode options)
-                        then
-                          runExecuteModuleGraph
-                            profileWriter
-                            host
-                            settings
-                            options
-                            preludeSource
-                            entryModulePath
-                            configuredRoots
-                            fileLookup
-                        else runCompileModuleGraph settings preludeSource entryModulePath configuredRoots fileLookup
-                    input -> do
-                      sourceResult <- loadCliSource input fileLookup loadSource
-                      case sourceResult of
-                        Left sourceError ->
-                          pure
-                            CliOutput
-                              { cliExitCode = 2,
-                                cliStdout = "",
-                                cliStderr = renderDiagnostic sourceError <> "\n"
-                              }
-                        Right source ->
-                          if cliExecutionRuns (cliExecutionMode options)
-                            then runExecute profileWriter host settings options preludeSource source
-                            else runCompile settings preludeSource source
+      either argumentFailure id <$> runExceptT execute
+  where
+    argumentFailure diagnostic =
+      CliOutput
+        { cliExitCode = 2,
+          cliStdout = "",
+          cliStderr = renderDiagnostic diagnostic <> "\n"
+        }
+
+    execute = do
+      options <- except (parseCliOptions args)
+      settings <- ExceptT (resolveSettings options envLookup fileLookup)
+      preludeSource <- ExceptT (resolvePreludeSource options envLookup fileLookup)
+      let observationRequest = cliRuntimeObservationRequest options
+          compileOrRun compile run =
+            lift $
+              if cliExecutionRuns (cliExecutionMode options)
+                then run >>= renderRunResult profileWriter options
+                else renderCompileResult <$> compile
+      case cliInput options of
+        CliModuleGraph entryModulePath configuredRoots ->
+          let config = cliModuleConfig configuredRoots
+           in compileOrRun
+                (compileModuleGraphWithResolvedPrelude settings preludeSource config entryModulePath fileLookup)
+                (runModuleGraphWithResolvedPreludeAndHostObserved observationRequest host settings preludeSource config entryModulePath fileLookup)
+        input -> do
+          source <- ExceptT (loadCliSource input fileLookup loadSource)
+          compileOrRun
+            (compileSourceWithResolvedPrelude settings preludeSource source)
+            (runSourceWithResolvedPreludeAndHostObserved observationRequest host settings preludeSource source)
 
 trackRuntimeHostStderr :: IORef (Maybe Bool) -> RuntimeHost IO -> RuntimeHost IO
 trackRuntimeHostStderr lineState host =
@@ -534,11 +509,7 @@ resolveSettings options envLookup configLookup = do
               Just envPath -> ExplicitWarningConfig envPath
               Nothing -> DefaultWarningConfigProbe ".jazz-warnings"
   configContentsResult <- loadWarningConfig selectedConfigPath configLookup
-  pure $
-    case configContentsResult of
-      Left configError -> Left configError
-      Right configContents ->
-        resolveWarningSettings (cliWarningFlags options) envWarningFlags envErrorFlags configContents
+  pure (configContentsResult >>= resolveWarningSettings (cliWarningFlags options) envWarningFlags envErrorFlags)
 
 loadWarningConfig ::
   WarningConfigSelection ->
@@ -546,18 +517,8 @@ loadWarningConfig ::
   IO (Either Diagnostic (Maybe Text))
 loadWarningConfig configSelection configLookup =
   case configSelection of
-    ExplicitWarningConfig configPath -> do
-      configContents <- configLookup configPath
-      pure $
-        case configContents of
-          Just contents -> Right (Just contents)
-          Nothing ->
-            Left
-              ( mkErrorDiagnostic
-                  E5003
-                  ToolingOrigin
-                  ("warning config file could not be read at '" <> Text.pack configPath <> "'")
-              )
+    ExplicitWarningConfig configPath ->
+      fmap Just <$> loadRequiredFile configLookup E5003 ToolingOrigin "warning config" configPath
     DefaultWarningConfigProbe configPath ->
       Right <$> configLookup configPath
 
@@ -569,14 +530,8 @@ loadCliSource ::
 loadCliSource input fileLookup loadStdin =
   case input of
     CliStdin -> Right <$> loadStdin
-    CliSourceFile sourcePath -> do
-      sourceContents <- fileLookup sourcePath
-      pure $
-        case sourceContents of
-          Just contents -> Right contents
-          Nothing ->
-            Left
-              (mkErrorDiagnostic E5004 ToolingOrigin ("source file could not be read at '" <> Text.pack sourcePath <> "'"))
+    CliSourceFile sourcePath ->
+      loadRequiredFile fileLookup E5004 ToolingOrigin "source" sourcePath
     CliModuleGraph _ _ -> Right <$> loadStdin
 
 -- | Resolve the prelude source according to CLI/env flags, defaulting to the
@@ -597,60 +552,23 @@ resolvePreludeSource options envLookup fileLookup = do
         Nothing -> Right . PreludeBundled <$> loadBundledPreludeSource
   where
     loadRequiredPrelude :: FilePath -> IO (Either Diagnostic ResolvedPrelude)
-    loadRequiredPrelude preludePath = do
-      preludeContents <- fileLookup preludePath
-      pure $
-        case preludeContents of
-          Just contents -> Right (PreludeExplicit contents)
-          Nothing ->
-            Left
-              ( mkErrorDiagnostic
-                  E0003
-                  CompilationOrigin
-                  ("prelude file could not be read at '" <> Text.pack preludePath <> "'")
-              )
+    loadRequiredPrelude preludePath =
+      fmap PreludeExplicit <$> loadRequiredFile fileLookup E0003 CompilationOrigin "prelude" preludePath
 
-runCompile :: WarningSettings -> ResolvedPrelude -> Text -> IO CliOutput
-runCompile settings resolvedPrelude source = do
-  result <- compileSourceWithResolvedPrelude settings resolvedPrelude source
-  pure (renderCompileResult result)
-
-runExecute ::
-  RuntimeProfileWriter ->
-  RuntimeHost IO ->
-  WarningSettings ->
-  CliOptions ->
-  ResolvedPrelude ->
-  Text ->
-  IO CliOutput
-runExecute profileWriter host settings options resolvedPrelude source = do
-  result <-
-    runSourceWithResolvedPreludeAndHostObserved
-      (cliRuntimeObservationRequest options)
-      host
-      settings
-      resolvedPrelude
-      source
-  renderRunResult profileWriter options result
-
--- | Compile-mode module graph runs share the same diagnostics-only stdout
--- contract as standalone compile mode.
-runCompileModuleGraph ::
-  WarningSettings ->
-  ResolvedPrelude ->
-  [Text] ->
-  [FilePath] ->
+loadRequiredFile ::
   (FilePath -> IO (Maybe Text)) ->
-  IO CliOutput
-runCompileModuleGraph settings resolvedPrelude entryModulePath configuredRoots sourceLookup = do
-  result <-
-    compileModuleGraphWithResolvedPrelude
-      settings
-      resolvedPrelude
-      (cliModuleConfig configuredRoots)
-      entryModulePath
-      sourceLookup
-  pure (renderCompileResult result)
+  ErrorCode ->
+  DiagnosticOrigin ->
+  Text ->
+  FilePath ->
+  IO (Either Diagnostic Text)
+loadRequiredFile fileLookup code origin description path = do
+  contents <- fileLookup path
+  pure $
+    maybe
+      (Left (mkErrorDiagnostic code origin (description <> " file could not be read at '" <> Text.pack path <> "'")))
+      Right
+      contents
 
 renderCompileResult :: CompileResult -> CliOutput
 renderCompileResult result =
@@ -659,28 +577,6 @@ renderCompileResult result =
       cliStdout = "",
       cliStderr = renderLines (map renderDiagnostic (compileDiagnostics result))
     }
-
-runExecuteModuleGraph ::
-  RuntimeProfileWriter ->
-  RuntimeHost IO ->
-  WarningSettings ->
-  CliOptions ->
-  ResolvedPrelude ->
-  [Text] ->
-  [FilePath] ->
-  (FilePath -> IO (Maybe Text)) ->
-  IO CliOutput
-runExecuteModuleGraph profileWriter host settings options resolvedPrelude entryModulePath configuredRoots sourceLookup = do
-  result <-
-    runModuleGraphWithResolvedPreludeAndHostObserved
-      (cliRuntimeObservationRequest options)
-      host
-      settings
-      resolvedPrelude
-      (cliModuleConfig configuredRoots)
-      entryModulePath
-      sourceLookup
-  renderRunResult profileWriter options result
 
 renderRunResult :: RuntimeProfileWriter -> CliOptions -> RunResult -> IO CliOutput
 renderRunResult profileWriter options result = do
@@ -826,8 +722,7 @@ cliModuleConfig roots =
     }
 
 renderLines :: [Text] -> Text
-renderLines [] = ""
-renderLines linesOut = Text.unlines linesOut
+renderLines = Text.unlines
 
 -- | Read a warning config file as an optional blob. `resolveSettings` decides
 -- whether a missing result is acceptable (the implicit default probe) or a

@@ -6,9 +6,11 @@ module Main (main) where
 import Data.Bifunctor (bimap)
 import Data.List.NonEmpty (NonEmpty (..))
 import qualified Data.Map.Strict as Map
+import Data.Maybe (fromMaybe)
 import qualified Data.Set as Set
 import Data.Text (Text)
 import qualified Data.Text as Text
+import Data.Void (Void)
 import Jazz.Compiler.AST
   ( Expr (EBlock, ELit),
     Literal (LInt),
@@ -16,11 +18,18 @@ import Jazz.Compiler.AST
   )
 import qualified Jazz.Compiler.AST as AST
 import Jazz.Compiler.CapabilityFacts
-  ( ConcreteImplFact (ConcreteImplFact),
+  ( ConcreteImplFact,
+    concreteImplFact,
   )
+import Jazz.Compiler.CoreIdentity (CapabilityId (..), CoreBinderId (..), CoreNodeId (..), ImplId (..), MethodId (..), ResolvedNodeFacts (..), emptyResolvedNodeFacts)
 import Jazz.Compiler.Diagnostics
   ( SourceSpan (SourceSpan),
     isErrorDiagnostic,
+  )
+import Jazz.Compiler.ModuleAnalysis
+  ( InferenceInputs (..),
+    inferExpressionWithInputs,
+    inferredDiagnostics,
   )
 import Jazz.Compiler.ModuleExports
   ( ModuleExport (ModuleExport),
@@ -28,30 +37,25 @@ import Jazz.Compiler.ModuleExports
     exportInventory,
     exportInventoryEntries,
   )
-import Jazz.Compiler.ModuleIdentity (mkModulePath)
+import Jazz.Compiler.ModuleIdentity (SourceUnitOwner (NamedSourceUnit, StandaloneSourceUnit), mkModulePath, standaloneModulePath)
 import Jazz.Compiler.Name
   ( NameNamespace (CapabilityNamespace, TypeNamespace, ValueNamespace),
     ResolvedName,
     mkIdentifier,
+    resolveDeclarationOwner,
     resolvedImportedName,
     resolvedLocalName,
   )
+import Jazz.Compiler.RecursiveBindings (publishResolvedCaptures, resolveLexicalScopes)
 import Jazz.Compiler.StableSet
   ( StableSet,
-    stableSetDelete,
     stableSetDifference,
     stableSetEmpty,
     stableSetFromPreferred,
-    stableSetFromSet,
     stableSetInsert,
     stableSetMembershipSet,
     stableSetOrderedList,
     stableSetSingleton,
-  )
-import Jazz.Compiler.TypeInference
-  ( InferenceInputs (..),
-    InferenceResult (inferredDiagnostics),
-    inferExpressionWithInputs,
   )
 import Jazz.Compiler.TypeInference.Types
   ( ClassMethodType (ClassMethodType),
@@ -86,7 +90,7 @@ tests =
     ("stable set deletion and difference preserve retained order", testStableSetRemoval),
     ("stable sets form their intended left-biased monoid", testStableSetMonoid),
     ("scope capability facts preserve collision order", testScopeCapabilityFacts),
-    ("concrete implementation facts use rendered identity", testConcreteImplFactsUseRenderedIdentity),
+    ("concrete implementation facts use nominal identity", testConcreteImplFactsUseNominalIdentity),
     ("inference accepts imported TypeName facts for source-origin constraints", testInferenceAcceptsImportedTypeNameFact),
     ("inference accepts imported TypeApplication facts for source-origin constraints", testInferenceAcceptsImportedTypeApplicationFact),
     ("signature types traverse constructor names and variables exactly once", testSignatureTypeBitraversal),
@@ -173,7 +177,7 @@ testStableSetMembershipAndOrder :: IO ()
 testStableSetMembershipAndOrder = do
   assertEqual "membership projection agrees with the ordered projection" expectedMembers (stableSetMembershipSet stable)
   assertEqual "first occurrences determine order" [3, 1, 2] (stableSetOrderedList stable)
-  assertEqual "from-set uses deterministic set order" [1, 2, 3] (stableSetOrderedList (stableSetFromSet expectedMembers))
+  assertEqual "from-set uses deterministic set order" [1, 2, 3] (stableSetOrderedList (stableSetFromPreferred [] expectedMembers))
   where
     expectedMembers :: Set.Set Int
     expectedMembers = Set.fromList [1, 2, 3]
@@ -199,7 +203,7 @@ testStableSetInsertion = do
 
 testStableSetRemoval :: IO ()
 testStableSetRemoval = do
-  assertEqual "deletion removes one member without reordering" [3, 2, 4] (stableSetOrderedList (stableSetDelete 1 stable))
+  assertEqual "deletion removes one member without reordering" [3, 2, 4] (stableSetOrderedList (stableSetDifference stable (Set.singleton 1)))
   assertEqual "difference removes all requested members without reordering" [1, 4] (stableSetOrderedList (stableSetDifference stable (Set.fromList [3, 2])))
   where
     stable :: StableSet Int
@@ -231,74 +235,81 @@ testScopeCapabilityFacts = do
   assertEqual
     "class facts remain left-biased"
     (Just 1)
-    (Map.lookup "Comparable" (scopeClassFacts combined))
+    (Map.lookup comparable (scopeClassFacts combined))
   assertEqual
     "method facts remain left-biased"
-    (Just (ClassMethodType "Left" (SignatureType TypeInt)))
-    (Map.lookup "compare" (scopeClassMethodSignatures combined))
+    (Just (ClassMethodType "Left" TypeRepresentation.SemanticInt))
+    (Map.lookup compareMethod (scopeClassMethodSignatures combined))
   assertEqual
     "implementation methods preserve left-to-right order"
-    (Just [ImplMethodType TypeInt, ImplMethodType TypeBool])
-    (Map.lookup "Comparable" (scopeConcreteImplMethods combined))
+    (Just [fixtureImplMethod TypeRepresentation.SemanticInt, fixtureImplMethod TypeRepresentation.SemanticBool])
+    (Map.lookup compareMethod (scopeConcreteImplMethods combined))
   assertEqual
     "three-way implementation collisions preserve left-to-right order"
-    (Just [ImplMethodType TypeInt, ImplMethodType TypeBool, ImplMethodType TypeBool])
-    (Map.lookup "Comparable" (scopeConcreteImplMethods (first <> second <> third)))
+    (Just [fixtureImplMethod TypeRepresentation.SemanticInt, fixtureImplMethod TypeRepresentation.SemanticBool, fixtureImplMethod TypeRepresentation.SemanticBool])
+    (Map.lookup compareMethod (scopeConcreteImplMethods (first <> second <> third)))
   where
+    comparable = CapabilityId (localCapabilityName "Comparable")
+    compareMethod = (comparable, mkIdentifier "compare")
     combined = first <> second
     first =
       mempty
-        { scopeClassFacts = Map.singleton "Comparable" 1,
+        { scopeClassFacts = Map.singleton comparable 1,
           scopeClassMethodSignatures =
-            Map.singleton "compare" (ClassMethodType "Left" (SignatureType TypeInt)),
+            Map.singleton compareMethod (ClassMethodType "Left" TypeRepresentation.SemanticInt),
           scopeConcreteImplMethods =
-            Map.singleton "Comparable" [ImplMethodType TypeInt]
+            Map.singleton compareMethod [fixtureImplMethod TypeRepresentation.SemanticInt]
         }
     second =
       mempty
-        { scopeClassFacts = Map.singleton "Comparable" 2,
+        { scopeClassFacts = Map.singleton comparable 2,
           scopeClassMethodSignatures =
-            Map.singleton "compare" (ClassMethodType "Right" (SignatureType TypeBool)),
+            Map.singleton compareMethod (ClassMethodType "Right" TypeRepresentation.SemanticBool),
           scopeConcreteImplMethods =
-            Map.singleton "Comparable" [ImplMethodType TypeBool]
+            Map.singleton compareMethod [fixtureImplMethod TypeRepresentation.SemanticBool]
         }
     third =
       mempty
-        { scopeClassFacts = Map.singleton "Comparable" 3,
+        { scopeClassFacts = Map.singleton comparable 3,
           scopeClassMethodSignatures =
-            Map.singleton "compare" (ClassMethodType "Third" (SignatureType TypeInt)),
+            Map.singleton compareMethod (ClassMethodType "Third" TypeRepresentation.SemanticInt),
           scopeConcreteImplMethods =
-            Map.singleton "Comparable" [ImplMethodType TypeBool],
-          scopeGeneratedEqualityClassFacts = Set.singleton "Eq",
-          scopeConcreteImplFacts = Set.singleton (ConcreteImplFact (localCapabilityName "Comparable") TypeInt)
+            Map.singleton compareMethod [fixtureImplMethod TypeRepresentation.SemanticBool],
+          scopeGeneratedEqualityClassFacts = Set.singleton (CapabilityId (localCapabilityName "Eq")),
+          scopeConcreteImplFacts = Set.singleton (fixtureConcreteImplFact (localCapabilityName "Comparable") TypeInt)
         }
 
-testConcreteImplFactsUseRenderedIdentity :: IO ()
-testConcreteImplFactsUseRenderedIdentity = do
-  assertEqual "rendered capability facts compare equal" True (sourceFact == importedFact)
-  assertEqual "rendered capability facts share set membership" True (Set.member sourceFact (Set.singleton importedFact))
+testConcreteImplFactsUseNominalIdentity :: IO ()
+testConcreteImplFactsUseNominalIdentity = do
+  assertEqual "defining and imported capability facts compare equal" True (sourceFact == importedFact)
+  assertEqual "defining and imported capability facts share set membership" True (Set.member sourceFact (Set.singleton importedFact))
+  assertEqual "rendered spelling cannot substitute for nominal identity" False (fixtureConcreteImplFact (localCapabilityName "Lib::Marked::Marked!") TypeInt == importedFact)
   assertEqual "nested TypeName origins share set membership" True (Set.member sourceTypeNameFact (Set.singleton importedTypeNameFact))
   assertEqual "nested TypeApplication origins share set membership" True (Set.member sourceTypeApplicationFact (Set.singleton importedTypeApplicationFact))
   assertEqual
-    "legacy rendered argument collisions remain equal"
+    "target facts distinguish nominal owners with the same spelling"
+    False
+    (sourceTypeNameFact == fixtureConcreteImplFact (localCapabilityName "Marked") (TypeName (localTypeName "Tagged")))
+  assertEqual
+    "primitive spelling aliases normalize to the same fact"
     True
-    ( ConcreteImplFact (localCapabilityName "Marked") TypeInt
-        == ConcreteImplFact (localCapabilityName "Marked") (TypeName (localTypeName "Int"))
+    ( fixtureConcreteImplFact (localCapabilityName "Marked") TypeInt
+        == fixtureConcreteImplFact (localCapabilityName "Marked") (TypeName (localTypeName "Int"))
     )
   where
-    sourceFact = ConcreteImplFact (localCapabilityName "Lib::Marked::Marked!") TypeInt
+    sourceFact = fixtureConcreteImplFact (resolveDeclarationOwner (NamedSourceUnit (mkModulePath (mkIdentifier "Lib" :| [mkIdentifier "Marked"]))) (localCapabilityName "Marked!")) TypeInt
     importedFact =
-      ConcreteImplFact
+      fixtureConcreteImplFact
         (resolvedImportedName (mkModulePath (mkIdentifier "Lib" :| [mkIdentifier "Marked"])) CapabilityNamespace (mkIdentifier "Marked!"))
         TypeInt
-    sourceTypeNameFact = ConcreteImplFact (localCapabilityName "Marked") (TypeName (localTypeName "Lib::Types::Tagged"))
-    importedTypeNameFact = ConcreteImplFact (localCapabilityName "Marked") (TypeName (importedTypeName "Tagged"))
+    sourceTypeNameFact = fixtureConcreteImplFact (localCapabilityName "Marked") (TypeName (definedTypeName "Tagged"))
+    importedTypeNameFact = fixtureConcreteImplFact (localCapabilityName "Marked") (TypeName (importedTypeName "Tagged"))
     sourceTypeApplicationFact =
-      ConcreteImplFact
+      fixtureConcreteImplFact
         (localCapabilityName "Marked")
-        (TypeApplication (localTypeName "Lib::Types::Box") [TypeName (localTypeName "Lib::Types::Tagged")])
+        (TypeApplication (definedTypeName "Box") [TypeName (definedTypeName "Tagged")])
     importedTypeApplicationFact =
-      ConcreteImplFact
+      fixtureConcreteImplFact
         (localCapabilityName "Marked")
         (TypeApplication (importedTypeName "Box") [TypeName (importedTypeName "Tagged")])
 
@@ -306,60 +317,68 @@ testInferenceAcceptsImportedTypeNameFact :: IO ()
 testInferenceAcceptsImportedTypeNameFact =
   assertImportedConstraintFactAccepted
     "TypeName imported fact"
-    (TypeName (localTypeName "Lib::Types::Tagged"))
+    (TypeName (definedTypeName "Tagged"))
     (TypeName (importedTypeName "Tagged"))
 
 testInferenceAcceptsImportedTypeApplicationFact :: IO ()
 testInferenceAcceptsImportedTypeApplicationFact =
   assertImportedConstraintFactAccepted
     "TypeApplication imported fact"
-    (TypeApplication (localTypeName "Lib::Types::Box") [TypeName (localTypeName "Lib::Types::Tagged")])
+    (TypeApplication (definedTypeName "Box") [TypeName (definedTypeName "Tagged")])
     (TypeApplication (importedTypeName "Box") [TypeName (importedTypeName "Tagged")])
 
 assertImportedConstraintFactAccepted :: Text -> AST.SignatureType 'AST.Resolved -> AST.SignatureType 'AST.Resolved -> IO ()
 assertImportedConstraintFactAccepted label sourceArgument importedArgument = do
-  sourceResult <- inferExpressionWithInputs (inferenceInputs sourceArgument) (constrainedProgram sourceArgument)
-  importedResult <- inferExpressionWithInputs (inferenceInputs importedArgument) (constrainedProgram sourceArgument)
+  sourceResult <- inferExpressionWithInputs (inferenceInputs sourceArgument) (constrainedProgram importedArgument)
+  importedResult <- inferExpressionWithInputs (inferenceInputs importedArgument) (constrainedProgram importedArgument)
   assertEqual (label <> " source-origin control errors") [] (filter isErrorDiagnostic (inferredDiagnostics sourceResult))
   assertEqual (label <> " imported-origin errors") [] (filter isErrorDiagnostic (inferredDiagnostics importedResult))
   where
     inferenceInputs factArgument =
       InferenceInputs
-        { inferenceWarningSettings = defaultWarningSettings,
+        { inferencePublicExports = Nothing,
+          inferenceWarningSettings = defaultWarningSettings,
+          inferenceExternalUses = Set.empty,
           inferenceImportedTypes = Map.empty,
           inferenceImportedDataTypes =
             Map.fromList
-              [ ("Lib::Types::Box", DataTypeBinding [localTypeName "item"] []),
-                ("Lib::Types::Tagged", DataTypeBinding [] [])
+              [ (importedTypeName "Box", DataTypeBinding [localTypeName "item"] []),
+                (importedTypeName "Tagged", DataTypeBinding [] [])
               ],
           inferenceImportedConstructorWitnessNames = Map.empty,
           inferenceImportedCapabilities =
             emptyScopeCapabilityFacts
-              { scopeClassFacts = Map.singleton "Marked" 1,
-                scopeConcreteImplFacts = Set.singleton (ConcreteImplFact (localCapabilityName "Marked") factArgument)
+              { scopeClassFacts = Map.singleton (CapabilityId (localCapabilityName "Marked")) 1,
+                scopeConcreteImplFacts = Set.singleton (fixtureConcreteImplFact (localCapabilityName "Marked") factArgument)
               },
           inferenceImportedClassNames = Set.singleton "Marked",
           inferenceCurrentModulePath = Nothing
         }
 
     constrainedProgram constraintArgument =
-      EBlock
-        fixtureExpressionNode
-        [ SSignature
-            (fixtureStatementNode (SourceSpan 1 1))
-            (localValueName "value")
-            (ConstrainedSignature [SignatureConstraint (localCapabilityName "Marked") [constraintArgument]] TypeInt),
-          SLet
-            (fixtureStatementNode (SourceSpan 2 1))
-            (localValueName "value")
-            (ELit fixtureExpressionNode (LInt 1))
-        ]
+      publishResolvedCaptures . resolveLexicalScopes Map.empty Set.empty $
+        EBlock
+          (fixtureExpressionNode 0)
+          [ SSignature
+              (fixtureStatementNode 1 (SourceSpan 1 1))
+              (localValueName "value")
+              (ConstrainedSignature [SignatureConstraint (localCapabilityName "Marked") [constraintArgument]] TypeInt),
+            SLet
+              (fixtureStatementNode 2 (SourceSpan 2 1))
+              (localValueName "value")
+              (ELit (fixtureExpressionNode 3) (LInt 1))
+          ]
 
-fixtureExpressionNode :: AST.CoreNode 'AST.Resolved sort
-fixtureExpressionNode = AST.CoreNode (AST.CoreNodeId 0) (SourceSpan 1 1) ()
+fixtureExpressionNode :: Int -> AST.CoreNode 'AST.Resolved sort
+fixtureExpressionNode index = AST.CoreNode (AST.CoreNodeId index) (SourceSpan 1 1) (emptyResolvedNodeFacts fixtureOwner)
 
-fixtureStatementNode :: SourceSpan -> AST.CoreNode 'AST.Resolved sort
-fixtureStatementNode spanValue = AST.CoreNode (AST.CoreNodeId 0) spanValue ()
+fixtureStatementNode :: Int -> SourceSpan -> AST.CoreNode 'AST.Resolved sort
+fixtureStatementNode index spanValue = AST.CoreNode nodeId spanValue ((emptyResolvedNodeFacts fixtureOwner) {resolvedNodeBinder = Just (CoreBinderId (fixtureOwner, nodeId))})
+  where
+    nodeId = AST.CoreNodeId index
+
+fixtureOwner :: SourceUnitOwner
+fixtureOwner = StandaloneSourceUnit standaloneModulePath
 
 localValueName :: Text -> ResolvedName
 localValueName = resolvedLocalName ValueNamespace . mkIdentifier
@@ -369,6 +388,12 @@ localTypeName = resolvedLocalName TypeNamespace . mkIdentifier
 
 localCapabilityName :: Text -> ResolvedName
 localCapabilityName = resolvedLocalName CapabilityNamespace . mkIdentifier
+
+fixtureConcreteImplFact :: ResolvedName -> AST.SignatureType 'AST.Resolved -> ConcreteImplFact
+fixtureConcreteImplFact capability target = fromMaybe (error "invalid concrete fact fixture") (concreteImplFact capability [target])
+
+definedTypeName :: Text -> ResolvedName
+definedTypeName = resolveDeclarationOwner (NamedSourceUnit (mkModulePath (mkIdentifier "Lib" :| [mkIdentifier "Types"]))) . localTypeName
 
 importedTypeName :: Text -> ResolvedName
 importedTypeName name =
@@ -397,3 +422,6 @@ testModuleExportInventory = do
         ]
     third :: ModuleExportInventory
     third = exportInventory [ModuleExport ValueNamespace "other"]
+
+fixtureImplMethod :: TypeRepresentation.SemanticType ResolvedName Void -> ImplMethodType
+fixtureImplMethod target = ImplMethodType target (CapabilityId (resolvedLocalName CapabilityNamespace (mkIdentifier "Comparable"))) (MethodId (ImplId (StandaloneSourceUnit standaloneModulePath, CoreNodeId 0), mkIdentifier "compare"))

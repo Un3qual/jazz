@@ -19,7 +19,7 @@ import Jazz.Compiler.Parser.AST
   ( SurfaceClassMethodSignature (..),
     SurfaceExpr (..),
     SurfaceExprForm (..),
-    SurfaceLiteral (..),
+    SurfaceName (..),
     SurfaceStatement (..),
   )
 import Jazz.Compiler.Parser.Lower
@@ -104,7 +104,7 @@ testParseQualifiedResultTypes =
                 [ SSSignature
                     "f"
                     (SourceSpan 1 1)
-                    (SignatureType (TypeFunction TypeInt (TypeName (mkQualifiedIdentifier "Facts" "OnlyType"))))
+                    (SignatureType (TypeFunction TypeInt (TypeName (SurfaceName (mkQualifiedIdentifier "Facts" "OnlyType") (SourceSpan 1 20) (Just (SourceSpan 1 13))))))
                 ]
             )
         )
@@ -119,7 +119,7 @@ testParseSignatureSpan =
         ( e 1 1 $
             SEBlock
               [ SSSignature "x" (SourceSpan 1 1) (SignatureType (TypeInt)),
-                SSLet "x" (SourceSpan 2 1) (e 2 5 $ SELit (SLInt 1))
+                SSLet "x" (SourceSpan 2 1) (e 2 5 $ SELit (LInt 1))
               ]
         )
     )
@@ -160,7 +160,7 @@ testParsesGenericNamedSignatures =
                   "maybeCharacter"
                   (SourceSpan 1 1)
                   ( SignatureType
-                      (TypeApplication "Maybe" [TypeChar])
+                      (TypeApplication (SurfaceName "Maybe" (SourceSpan 1 19) Nothing) [TypeChar])
                   ),
                 SSSignature
                   "map"
@@ -247,7 +247,7 @@ testParseTupleSignature =
                   "pair"
                   (SourceSpan 1 1)
                   (SignatureType (TypeTuple [TypeInt, TypeBool])),
-                SSLet "pair" (SourceSpan 2 1) (e 2 8 $ SETuple [e 2 9 $ SELit (SLInt 1), e 2 12 $ SELit (SLBool True)])
+                SSLet "pair" (SourceSpan 2 1) (e 2 8 $ SETuple [e 2 9 $ SELit (LInt 1), e 2 12 $ SELit (LBool True)])
               ]
         )
     )
@@ -310,7 +310,7 @@ testParseNumericWidthSignatureTypes = do
         ( e 1 1 $
             SEBlock
               [ SSSignature "x" (SourceSpan 1 1) (SignatureType (TypeNumeric NumericInt8)),
-                SSLet "x" (SourceSpan 2 1) (e 2 5 $ SELit (SLInt 1))
+                SSLet "x" (SourceSpan 2 1) (e 2 5 $ SELit (LInt 1))
               ]
         )
     )
@@ -403,7 +403,7 @@ testParseFunctionListSignature =
                   ( SignatureType
                       (TypeList (TypeFunction TypeInt TypeInt))
                   ),
-                SSLet "fns" (SourceSpan 2 1) (e 2 7 $ SEList [e 2 8 $ SESectionRight "+" (e 2 11 $ SELit (SLInt 1))])
+                SSLet "fns" (SourceSpan 2 1) (e 2 7 $ SEList [e 2 8 $ SESectionRight "+" (e 2 11 $ SELit (LInt 1))])
               ]
         )
     )
@@ -425,8 +425,8 @@ testParseConstrainedSignaturePayload =
                   "f"
                   (SourceSpan 1 1)
                   ( ConstrainedSignature
-                      [ SignatureConstraint "Eq" [TypeVariable "a"],
-                        SignatureConstraint "Ord" [TypeVariable "b"]
+                      [ SignatureConstraint (SurfaceName "Eq" (SourceSpan 1 8) Nothing) [TypeVariable "a"],
+                        SignatureConstraint (SurfaceName "Ord" (SourceSpan 1 15) Nothing) [TypeVariable "b"]
                       ]
                       ( TypeFunction
                           (TypeVariable "a")
@@ -464,7 +464,7 @@ testAliasQualifiedClassConstraint =
                     (SourceSpan 1 1)
                     ( ConstrainedSignature
                         [ SignatureConstraint
-                            (mkQualifiedIdentifier "Facts" "Eq")
+                            (SurfaceName (mkQualifiedIdentifier "Facts" "Eq") (SourceSpan 1 18) (Just (SourceSpan 1 11)))
                             [TypeVariable "a"]
                         ]
                         (TypeFunction (TypeVariable "a") (TypeFunction (TypeVariable "a") TypeBool))
@@ -525,7 +525,7 @@ testParseConstrainedTupleSignaturePayload =
                       []
                       (TypeTuple [TypeInt, TypeBool])
                   ),
-                SSLet "pair" (SourceSpan 2 1) (e 2 8 $ SETuple [e 2 9 $ SELit (SLInt 1), e 2 12 $ SELit (SLBool True)])
+                SSLet "pair" (SourceSpan 2 1) (e 2 8 $ SETuple [e 2 9 $ SELit (LInt 1), e 2 12 $ SELit (LBool True)])
               ]
         )
     )
@@ -548,7 +548,7 @@ testParseExplicitTypeApplicationExpression =
     )
     ( \surfaceProgram ->
         case surfaceExprForm surfaceProgram of
-          SEBlock [SSLet result _ (SurfaceExpr _ (SEApply (SurfaceExpr _ (SETypeApplication (SurfaceExpr _ (SEVar function)) _ TypeInt)) (SurfaceExpr _ (SELit (SLInt 1))))), SSExpr _ (SurfaceExpr _ (SEVar output))] -> do
+          SEBlock [SSLet result _ (SurfaceExpr _ (SEApply (SurfaceExpr _ (SETypeApplication (SurfaceExpr _ (SEVar function)) _ TypeInt)) (SurfaceExpr _ (SELit (LInt 1))))), SSExpr _ (SurfaceExpr _ (SEVar output))] -> do
             assertEqual "binding name" "result" result
             assertEqual "applied function" "id" function
             assertEqual "result reference" "result" output
@@ -804,11 +804,11 @@ testParsesAbstractionKeywordsAsSignatureNames =
         ( e 1 1 $
             SEBlock
               [ SSSignature "class" (SourceSpan 1 1) (SignatureType TypeInt),
-                SSLet "class" (SourceSpan 2 1) (e 2 9 $ SELit (SLInt 1)),
+                SSLet "class" (SourceSpan 2 1) (e 2 9 $ SELit (LInt 1)),
                 SSSignature "impl" (SourceSpan 3 1) (SignatureType TypeBool),
-                SSLet "impl" (SourceSpan 4 1) (e 4 8 $ SELit (SLBool True)),
+                SSLet "impl" (SourceSpan 4 1) (e 4 8 $ SELit (LBool True)),
                 SSSignature "trait" (SourceSpan 5 1) (SignatureType TypeInt),
-                SSLet "trait" (SourceSpan 6 1) (e 6 9 $ SELit (SLInt 2))
+                SSLet "trait" (SourceSpan 6 1) (e 6 9 $ SELit (LInt 2))
               ]
         )
     )
@@ -831,7 +831,7 @@ testParsesOperatorKeywordAsSignatureName =
         ( e 1 1 $
             SEBlock
               [ SSSignature "operator" (SourceSpan 1 1) (SignatureType TypeInt),
-                SSLet "operator" (SourceSpan 2 1) (e 2 12 $ SELit (SLInt 1))
+                SSLet "operator" (SourceSpan 2 1) (e 2 12 $ SELit (LInt 1))
               ]
         )
     )

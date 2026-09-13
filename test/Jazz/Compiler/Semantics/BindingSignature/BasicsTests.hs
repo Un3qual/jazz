@@ -23,8 +23,9 @@ import Jazz.Compiler.Driver
   )
 import Jazz.Compiler.Semantics.BindingSignature.Shared
 import Jazz.Compiler.TypeInference.Types
-  ( SemanticType (..),
-    TypeScheme (..),
+  ( SemanticScheme (..),
+    SemanticType (..),
+    TypeScheme,
     emptyScopeCapabilityFacts,
     quantifiedVariablesFromPreferred,
     quantifiedVariablesMembershipSet,
@@ -92,8 +93,9 @@ testTypeSchemeRecordPreservesFields = do
     [1, 0]
     (quantifiedVariablesOrderedList (schemeQuantifiedVariables scheme))
   where
+    scheme :: TypeScheme
     scheme =
-      TypeScheme
+      SemanticScheme
         { schemeQuantifiedVariables = quantifiedVariablesFromPreferred [1, 0] (Set.fromList [0, 1]),
           schemeClassConstraints = [],
           schemePrimitiveConstraints = [],

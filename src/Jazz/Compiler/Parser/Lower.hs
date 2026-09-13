@@ -40,7 +40,6 @@ import Jazz.Compiler.AST
     DataConstructor (..),
     Expr (..),
     ImplMethod (..),
-    Literal (..),
     Pattern (..),
     SignatureConstraint,
     SignaturePayload,
@@ -100,7 +99,7 @@ import Jazz.Compiler.Parser.AST
     SurfaceExprForm (..),
     SurfaceImplMethod (..),
     SurfaceLambdaParameter (..),
-    SurfaceLiteral (..),
+    SurfaceName (..),
     SurfacePattern (..),
     SurfacePatternForm (..),
     SurfacePatternLambdaClause (..),
@@ -175,11 +174,8 @@ lowerSurfaceModuleDetailed identity surfaceExpr =
 
     qualifyImport importDecl =
       importDecl
-        { moduleImportNode = qualifyNode (moduleImportNode importDecl)
+        { moduleImportNode = qualifyLoweredNode sourcePath (moduleImportNode importDecl)
         }
-      where
-        qualifyNode (CoreNode nodeId spanValue facts) =
-          CoreNode nodeId (qualifySourceSpan sourcePath spanValue) facts
 
     lowerModuleBody = do
       bodyNode <- freshNode (surfaceExprSpan surfaceExpr)
@@ -431,11 +427,11 @@ lowerSurfaceExprWithoutCostCentre :: SurfaceExpr -> Lowering (Expr 'Lowered)
 lowerSurfaceExprWithoutCostCentre surfaceExpr = do
   node <- freshNode (surfaceExprSpan surfaceExpr)
   case surfaceExprForm surfaceExpr of
-    SELit literal -> pure (ELit node (lowerSurfaceLiteral literal))
+    SELit literal -> pure (ELit node literal)
     SEVar name -> pure (EVar node (sourceName name))
     SEQualifiedVar qualifier member ->
       pure (EVar node (qualifiedName qualifier member))
-    SEQualifiedMethod moduleAlias capability method methodSpan ->
+    SEQualifiedMethod moduleAlias capability method _ _ methodSpan ->
       pure (EVar (node {coreNodeSpan = methodSpan}) (qualifiedMethodName moduleAlias capability method))
     SELambda parameters bodyExpr ->
       lowerSurfaceLambda node (surfaceExprSpan surfaceExpr) parameters bodyExpr
@@ -487,10 +483,7 @@ lowerSurfaceLambda firstNode lambdaSpan parameters bodyExpr =
     lowerParameters node ((parameterIndex, parameter) : rest) =
       case parameter of
         SurfaceLambdaIdentifier _ parameterName -> do
-          loweredBody <-
-            case rest of
-              [] -> lowerSurfaceExprWithoutCostCentre bodyExpr
-              _ -> freshNode lambdaSpan >>= \bodyNode -> lowerParameters bodyNode rest
+          loweredBody <- lowerBody rest
           pure (ELambda node (sourceName parameterName) loweredBody)
         SurfaceLambdaPattern parameterPattern -> do
           let parameterName = generatedName (LambdaPatternArgument parameterIndex)
@@ -498,10 +491,7 @@ lowerSurfaceLambda firstNode lambdaSpan parameters bodyExpr =
           variableNode <- freshNode (surfacePatternSpan parameterPattern)
           armNode <- freshNode (surfacePatternSpan parameterPattern)
           loweredPattern <- lowerSurfacePattern parameterPattern
-          loweredBody <-
-            case rest of
-              [] -> lowerSurfaceExprWithoutCostCentre bodyExpr
-              _ -> freshNode lambdaSpan >>= \bodyNode -> lowerParameters bodyNode rest
+          loweredBody <- lowerBody rest
           pure
             ( ELambda
                 node
@@ -512,6 +502,9 @@ lowerSurfaceLambda firstNode lambdaSpan parameters bodyExpr =
                     [CaseArm armNode loweredPattern Nothing loweredBody]
                 )
             )
+
+    lowerBody [] = lowerSurfaceExprWithoutCostCentre bodyExpr
+    lowerBody rest = freshNode lambdaSpan >>= \bodyNode -> lowerParameters bodyNode rest
 
 lowerSurfacePatternLambda :: CoreNode 'Lowered 'ExpressionSort -> SourceSpan -> NonEmpty SurfacePatternLambdaClause -> Lowering (Expr 'Lowered)
 lowerSurfacePatternLambda firstNode lambdaSpan clauses =
@@ -561,25 +554,13 @@ lowerSurfacePatternLambda firstNode lambdaSpan clauses =
           node <- freshNode clauseSpan
           PTuple node <$> traverse lowerSurfacePattern patternValues
 
--- | Lower literal syntax without changing the value domain available to later
--- semantic phases.
-lowerSurfaceLiteral :: SurfaceLiteral -> Literal
-lowerSurfaceLiteral literal =
-  case literal of
-    SLInt value -> LInt value
-    SLFloat value literalSource maybeTargetType ->
-      LFloat value literalSource maybeTargetType
-    SLBool value -> LBool value
-    SLChar value -> LChar value
-    SLText value -> LText value
-
 lowerSurfacePattern :: SurfacePattern -> Lowering (Pattern 'Lowered)
 lowerSurfacePattern surfacePattern = do
   node <- freshNode (surfacePatternSpan surfacePattern)
   case surfacePatternForm surfacePattern of
     SPWildcard -> pure (PWildcard node)
     SPVariable name -> pure (PVariable node (sourceName name))
-    SPLiteral literal -> pure (PLiteral node (lowerSurfaceLiteral literal))
+    SPLiteral literal -> pure (PLiteral node literal)
     SPConstructor name patterns ->
       PConstructor node (sourceName name) <$> traverse lowerSurfacePattern patterns
     SPList patterns ->
@@ -669,12 +650,12 @@ lowerSurfaceSignatureType :: SurfaceSignatureType -> SignatureType 'Lowered
 lowerSurfaceSignatureType =
   bimap lowerSurfaceSignatureName sourceName
 
-lowerSurfaceSignatureName :: Identifier -> UnresolvedName
+lowerSurfaceSignatureName :: SurfaceName -> UnresolvedName
 lowerSurfaceSignatureName name =
   case splitQualifiedIdentifierText (identifierText name) of
     Just (qualifier, member) ->
       qualifiedName (mkIdentifier qualifier) (mkIdentifier member)
-    Nothing -> sourceName name
+    Nothing -> sourceName (surfaceNameIdentifier name)
 
 lowerSurfaceSignatureToken :: SurfaceSignatureToken -> SignatureToken 'Lowered
 lowerSurfaceSignatureToken =

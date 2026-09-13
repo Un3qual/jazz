@@ -18,9 +18,9 @@ import Jazz.Compiler.Driver
   )
 import Jazz.Compiler.Runtime
   ( RuntimeValue (..),
-    evaluateRuntimeExpr,
   )
 import Jazz.Compiler.Semantics.Runtime.Fixtures
+import Jazz.Compiler.Semantics.Runtime.ResolvedFixture
 import Jazz.Compiler.Semantics.Runtime.Shared
 import Jazz.Compiler.WarningConfig
   ( defaultWarningSettings,
@@ -303,15 +303,15 @@ testRuntimeFallbackRejectsTargetedNarrowFloatUntypedFloatArithmetic = do
   assertRuntimeErrorContains
     "runtime fallback Float16 plus untyped Float"
     "E3007"
-    (evaluateRuntimeExpr (runtimeExpr (expressionBinary "+" (targetedFloat "__kernel_toFloat16") untypedFloatOne)))
+    (evaluateFixture (runtimeExpr (expressionBinary "+" (targetedFloat "__kernel_toFloat16") untypedFloatOne)))
   assertRuntimeErrorContains
     "runtime fallback untyped Float plus Float32"
     "E3007"
-    (evaluateRuntimeExpr (runtimeExpr (expressionBinary "+" untypedFloatOne (targetedFloat "__kernel_toFloat32"))))
+    (evaluateFixture (runtimeExpr (expressionBinary "+" untypedFloatOne (targetedFloat "__kernel_toFloat32"))))
 
 testRuntimeFallbackHandlesIntegerFloat64MixedDomainArithmetic :: IO ()
 testRuntimeFallbackHandlesIntegerFloat64MixedDomainArithmetic = do
-  case evaluateRuntimeExpr (runtimeExpr (expressionBinary "+" (targetedInt "__kernel_toInt64") (targetedFloat "__kernel_toFloat64"))) of
+  case evaluateFixture (runtimeExpr (expressionBinary "+" (targetedInt "__kernel_toInt64") (targetedFloat "__kernel_toFloat64"))) of
     Right (Just (VFloat itemValue _)) ->
       assertEqual "runtime fallback typed Int64 plus Float64" 2.0 itemValue
     Right otherValue ->
@@ -321,37 +321,37 @@ testRuntimeFallbackHandlesIntegerFloat64MixedDomainArithmetic = do
   assertRuntimeErrorContains
     "runtime fallback untyped Int plus Float16"
     "E3007"
-    (evaluateRuntimeExpr (runtimeExpr (expressionBinary "+" (expressionLiteral (LInt 1)) (targetedFloat "__kernel_toFloat16"))))
+    (evaluateFixture (runtimeExpr (expressionBinary "+" (expressionLiteral (LInt 1)) (targetedFloat "__kernel_toFloat16"))))
   assertRuntimeErrorContains
     "runtime fallback integer-to-Float64 arithmetic overflow"
     "E3024"
-    (evaluateRuntimeExpr (runtimeExpr (expressionBinary "+" tooLargeFloat64Integer (targetedFloat "__kernel_toFloat64"))))
+    (evaluateFixture (runtimeExpr (expressionBinary "+" tooLargeFloat64Integer (targetedFloat "__kernel_toFloat64"))))
 
 testRuntimeFallbackRejectsMixedTargetedFloatComparisonEquality :: IO ()
 testRuntimeFallbackRejectsMixedTargetedFloatComparisonEquality = do
   assertRuntimeErrorContains
     "runtime fallback Float16 less-than Float32"
     "E3007"
-    (evaluateRuntimeExpr (runtimeExpr (expressionBinary "<" (targetedFloat "__kernel_toFloat16") (targetedFloat "__kernel_toFloat32"))))
+    (evaluateFixture (runtimeExpr (expressionBinary "<" (targetedFloat "__kernel_toFloat16") (targetedFloat "__kernel_toFloat32"))))
   assertRuntimeErrorContains
     "runtime fallback Float16 equality Float64"
     "E3007"
-    (evaluateRuntimeExpr (runtimeExpr (expressionBinary "==" (targetedFloat "__kernel_toFloat16") (targetedFloat "__kernel_toFloat64"))))
+    (evaluateFixture (runtimeExpr (expressionBinary "==" (targetedFloat "__kernel_toFloat16") (targetedFloat "__kernel_toFloat64"))))
   assertRuntimeErrorContains
     "runtime fallback Float32 inequality untyped Float"
     "E3007"
-    (evaluateRuntimeExpr (runtimeExpr (expressionBinary "!=" (targetedFloat "__kernel_toFloat32") untypedFloatOne)))
+    (evaluateFixture (runtimeExpr (expressionBinary "!=" (targetedFloat "__kernel_toFloat32") untypedFloatOne)))
 
 testRuntimeFallbackHandlesUntypedIntegerFloat64ComparisonEquality :: IO ()
 testRuntimeFallbackHandlesUntypedIntegerFloat64ComparisonEquality = do
   assertRuntimeBool
     "runtime fallback untyped Int less-than untyped Float"
     True
-    (evaluateRuntimeExpr (runtimeExpr (expressionBinary "<" (expressionLiteral (LInt 1)) untypedFloatTwo)))
+    (evaluateFixture (runtimeExpr (expressionBinary "<" (expressionLiteral (LInt 1)) untypedFloatTwo)))
   assertRuntimeBool
     "runtime fallback untyped Int equality Float64"
     True
-    (evaluateRuntimeExpr (runtimeExpr (expressionBinary "==" (expressionLiteral (LInt 1)) (targetedFloat "__kernel_toFloat64"))))
+    (evaluateFixture (runtimeExpr (expressionBinary "==" (expressionLiteral (LInt 1)) (targetedFloat "__kernel_toFloat64"))))
 
 testTargetedFloat16Float32FractionalLiteralRoundsRuntimeValue :: IO ()
 testTargetedFloat16Float32FractionalLiteralRoundsRuntimeValue = do
@@ -473,7 +473,7 @@ testDirectTypedIntegerFloat64ComparisonEqualityRuntimeSuccess = do
   assertRuntimeErrorContains
     "runtime fallback untyped integer-to-Float64 comparison overflow"
     "E3024"
-    (evaluateRuntimeExpr (runtimeExpr (expressionBinary "==" tooLargeFloat64Integer (targetedFloat "__kernel_toFloat64"))))
+    (evaluateFixture (runtimeExpr (expressionBinary "==" tooLargeFloat64Integer (targetedFloat "__kernel_toFloat64"))))
 
 testFloat16Float32ComparisonEqualityRuntimeSuccess :: IO ()
 testFloat16Float32ComparisonEqualityRuntimeSuccess = do
@@ -528,26 +528,26 @@ testRuntimeFallbackRejectsMixedTargetedIntegerEquality =
   assertRuntimeErrorContains
     "runtime fallback mixed targeted integer equality"
     "E3007"
-    (evaluateRuntimeExpr (runtimeExpr (expressionBinary "==" (targetedInt "__kernel_toInt8") (targetedInt "__kernel_toUInt8"))))
+    (evaluateFixture (runtimeExpr (expressionBinary "==" (targetedInt "__kernel_toInt8") (targetedInt "__kernel_toUInt8"))))
 
 testRuntimeFallbackRejectsMixedTargetedIntegerComparison :: IO ()
 testRuntimeFallbackRejectsMixedTargetedIntegerComparison = do
   assertRuntimeErrorContains
     "runtime fallback mixed targeted integer less-than"
     "E3007"
-    (evaluateRuntimeExpr (runtimeExpr (expressionBinary "<" (targetedInt "__kernel_toInt8") (targetedInt "__kernel_toUInt8"))))
+    (evaluateFixture (runtimeExpr (expressionBinary "<" (targetedInt "__kernel_toInt8") (targetedInt "__kernel_toUInt8"))))
   assertRuntimeErrorContains
     "runtime fallback targeted UInt8 less-or-equal untyped out-of-range Int"
     "E3007"
-    (evaluateRuntimeExpr (runtimeExpr (expressionBinary "<=" (targetedInt "__kernel_toUInt8") (expressionLiteral (LInt 256)))))
+    (evaluateFixture (runtimeExpr (expressionBinary "<=" (targetedInt "__kernel_toUInt8") (expressionLiteral (LInt 256)))))
   assertRuntimeErrorContains
     "runtime fallback mixed targeted integer greater-than"
     "E3007"
-    (evaluateRuntimeExpr (runtimeExpr (expressionBinary ">" (targetedInt "__kernel_toUInt8") (targetedInt "__kernel_toInt16"))))
+    (evaluateFixture (runtimeExpr (expressionBinary ">" (targetedInt "__kernel_toUInt8") (targetedInt "__kernel_toInt16"))))
   assertRuntimeErrorContains
     "runtime fallback mixed targeted integer greater-or-equal"
     "E3007"
-    (evaluateRuntimeExpr (runtimeExpr (expressionBinary ">=" (targetedInt "__kernel_toUInt16") (targetedInt "__kernel_toInt8"))))
+    (evaluateFixture (runtimeExpr (expressionBinary ">=" (targetedInt "__kernel_toUInt16") (targetedInt "__kernel_toInt8"))))
 
 testFloat16ConversionRoundsRuntimeValue :: IO ()
 testFloat16ConversionRoundsRuntimeValue = do
@@ -579,7 +579,7 @@ testDynamicIntegerConversionRangeRuntimeError = do
 
 testRuntimeFallbackRejectsNonNumericConversionValue :: IO ()
 testRuntimeFallbackRejectsNonNumericConversionValue = do
-  let result = evaluateRuntimeExpr (runtimeExpr (expressionApply (expressionVariable "__kernel_toInt8") (expressionLiteral (LBool True))))
+  let result = evaluateFixture (runtimeExpr (expressionApply (expressionVariable "__kernel_toInt8") (expressionLiteral (LBool True))))
   assertRuntimeErrorContains "runtime fallback conversion non-numeric" "E3024" result
 
 testTypedNumericSectionPreservesCapturedOperandFlexibility :: IO ()

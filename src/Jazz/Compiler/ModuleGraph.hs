@@ -13,6 +13,11 @@
 -- | Phase-indexed module and whole-program carriers.
 module Jazz.Compiler.ModuleGraph
   ( AnalyzedModuleFacts (..),
+    analyzedModuleDiagnostics,
+    analyzedProgramDiagnostics,
+    analyzedProgramErrors,
+    orderedProgramDiagnostics,
+    isStandaloneSourceModule,
     CoreModule (..),
     CoreProgram,
     DeclaredImportExposure (..),
@@ -56,7 +61,7 @@ import Jazz.Compiler.AST
     FactsAt,
     Statement,
   )
-import Jazz.Compiler.Diagnostics (Diagnostic, SourceSpan)
+import Jazz.Compiler.Diagnostics (CompilationDiagnostics, Diagnostic, SourceSpan, compilationDiagnostics, isErrorDiagnostic)
 import Jazz.Compiler.ModuleExports
   ( ModuleExportInventory,
     ModuleExportSelector,
@@ -66,7 +71,10 @@ import Jazz.Compiler.ModuleIdentity
     ModulePath,
     ModuleQualifier,
     moduleIdentityPath,
+    moduleIdentitySource,
+    standaloneSourceFile,
   )
+import Jazz.Compiler.ModuleImportScope (ValidatedImportScope)
 import Jazz.Compiler.ModuleInterface (ModuleInterface)
 import Jazz.Compiler.Name (Identifier)
 
@@ -118,7 +126,8 @@ data DeclaredModuleFacts = DeclaredModuleFacts
 
 data ResolvedModuleFacts = ResolvedModuleFacts
   { resolvedModuleExports :: ModuleExportInventory,
-    resolvedModuleExportSelectors :: Maybe [ModuleExportSelector]
+    resolvedModuleExportSelectors :: Maybe [ModuleExportSelector],
+    resolvedModuleImportScope :: ValidatedImportScope
   }
   deriving stock (Eq, Generic, Show)
   deriving anyclass (NFData)
@@ -127,10 +136,14 @@ data AnalyzedModuleFacts = AnalyzedModuleFacts
   { analyzedModuleExports :: ModuleExportInventory,
     analyzedModuleExportSelectors :: Maybe [ModuleExportSelector],
     analyzedModuleInterface :: ModuleInterface,
-    analyzedModuleDiagnostics :: [Diagnostic]
+    analyzedModuleImportScope :: ValidatedImportScope,
+    analyzedModuleDiagnosticGroups :: CompilationDiagnostics
   }
   deriving stock (Eq, Generic, Show)
   deriving anyclass (NFData)
+
+analyzedModuleDiagnostics :: AnalyzedModuleFacts -> [Diagnostic]
+analyzedModuleDiagnostics = compilationDiagnostics . analyzedModuleDiagnosticGroups
 
 type family ModuleFactsAt (phase :: CorePhase) :: Type where
   ModuleFactsAt 'Lowered = DeclaredModuleFacts
@@ -293,3 +306,25 @@ instance (CoreConstraints Show phase) => Show (CoreProgram phase) where
 instance (CoreConstraints NFData phase) => NFData (CoreProgram phase) where
   rnf (CoreProgram prelude entry modules moduleIndex) =
     rnf prelude `seq` rnf entry `seq` rnf modules `seq` rnf moduleIndex
+
+-- The source identity marks an in-memory entry artifact; a named module loaded
+-- from a file retains that file's identity instead.
+isStandaloneSourceModule :: CoreModule phase -> Bool
+isStandaloneSourceModule = (== standaloneSourceFile) . moduleIdentitySource . coreModuleIdentity
+
+analyzedProgramDiagnostics :: CoreProgram 'Analyzed -> [Diagnostic]
+analyzedProgramDiagnostics program =
+  orderedProgramDiagnostics program (preludeDiagnostics : map moduleDiagnostics (toList (coreProgramModules program)))
+  where
+    preludeDiagnostics = maybe mempty moduleDiagnostics (preludeModule (coreProgramPrelude program))
+    moduleDiagnostics = analyzedModuleDiagnosticGroups . coreModuleFacts
+
+-- Merge standalone prelude/source groups before sorting warnings and gating
+-- coverage; module graphs preserve each artifact's diagnostic order.
+orderedProgramDiagnostics :: CoreProgram phase -> [CompilationDiagnostics] -> [Diagnostic]
+orderedProgramDiagnostics program
+  | any isStandaloneSourceModule (coreProgramModules program) = compilationDiagnostics . mconcat
+  | otherwise = concatMap compilationDiagnostics
+
+analyzedProgramErrors :: CoreProgram 'Analyzed -> [Diagnostic]
+analyzedProgramErrors = filter isErrorDiagnostic . analyzedProgramDiagnostics

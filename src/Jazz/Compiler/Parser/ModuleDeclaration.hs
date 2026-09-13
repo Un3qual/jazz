@@ -5,13 +5,11 @@
 -- | Module headers, exports, imports, and import-alias discovery.
 module Jazz.Compiler.Parser.ModuleDeclaration
   ( ModuleBodyParser,
-    parseModuleStatementFromTokens,
-    parseImportStatementFromTokens,
+    parseModuleStatementParser,
+    parseImportStatementParser,
     registerImportAliases,
     collectImportAliasesUntilEnd,
     collectImportAliasesUntilBrace,
-    rejectNestedModuleDeclaration,
-    rejectNestedImportDeclaration,
   )
 where
 
@@ -39,395 +37,209 @@ import Jazz.Compiler.Parser.AST
   ( SurfaceStatement (..),
   )
 import Jazz.Compiler.Parser.DeclarationTokens
-  ( consumeDot,
-    isReservedLiteralName,
+  ( isReservedLiteralName,
   )
 import Jazz.Compiler.Parser.Failure
   ( ParserDeclarationFailure (..),
-    ParserDeclarationKind (..),
     ParserEncountered (..),
-    ParserFailure,
     ParserFailureReason (..),
     ParserListKind (..),
     ParserNameRole (..),
-    parserFailure,
-    parserFailureAt,
   )
 import Jazz.Compiler.Parser.Lexer
   ( Token (..),
     TokenKind (..),
+  )
+import Jazz.Compiler.Parser.TokenParser
+  ( Parser,
+    failTokenParser,
+    failTokenParserAt,
+    foundToken,
+    parseAnyToken,
+    parseToken,
+    peekToken,
   )
 import Jazz.Compiler.Parser.TokenStream
   ( TokenStream,
     pattern EmptyTokens,
     pattern (:<),
   )
+import qualified Text.Megaparsec as MP
 
-type ModuleBodyParser = TokenStream -> Either ParserFailure ([SurfaceStatement], TokenStream)
+type ModuleBodyParser = Parser [SurfaceStatement]
 
-parseModuleStatementFromTokens ::
-  ModuleBodyParser ->
-  TokenStream ->
-  Either ParserFailure ([SurfaceStatement], TokenStream)
-parseModuleStatementFromTokens parseModuleBody tokens =
-  case tokens of
-    moduleToken@Token {tokenKind = TModule} :< tokensAfterModuleKeyword -> do
-      (modulePath, afterModulePath) <- parseModulePath tokensAfterModuleKeyword
-      (moduleExports, beforeModuleBody) <-
-        case afterModulePath of
-          Token {tokenKind = TLParen} :< afterLeftParen -> do
-            (exportNames, remaining) <- parseModuleExportList afterLeftParen
-            pure (Just exportNames, remaining)
-          _ -> pure (Nothing, afterModulePath)
-      case beforeModuleBody of
-        Token {tokenKind = TLBrace} :< tokensAfterLeftBrace -> do
-          (bodyStatements, remaining) <- parseModuleBody tokensAfterLeftBrace
-          pure
-            ( SSModule (tokenSpan moduleToken) modulePath moduleExports
-                : bodyStatements,
-              remaining
-            )
-        EmptyTokens ->
-          Left
-            ( parserFailureAt
-                (tokenSpan moduleToken)
-                (ExpectedSyntax "'{'" (ParserEndOfInputAfter "module path"))
-            )
-        token :< _ ->
-          Left
-            ( parserFailureAt
-                (tokenSpan token)
-                (ExpectedSyntax "'{'" (ParserFoundToken (tokenKind token) (tokenLexeme token)))
-            )
-    EmptyTokens ->
-      Left (parserFailure (ExpectedSyntax "'module'" ParserEndOfInput))
-    token :< _ ->
-      Left
-        ( parserFailureAt
-            (tokenSpan token)
-            (ExpectedSyntax "'module'" (ParserFoundToken (tokenKind token) (tokenLexeme token)))
-        )
+parseModuleStatementParser :: ModuleBodyParser -> Parser [SurfaceStatement]
+parseModuleStatementParser parseModuleBody = do
+  moduleToken <- parseToken TModule
+  modulePath <- parseModulePath
+  next <- peekToken
+  moduleExports <- case next of
+    Just Token {tokenKind = TLParen} -> parseAnyToken *> (Just <$> parseModuleExportList)
+    _ -> pure Nothing
+  beforeBody <- peekToken
+  case beforeBody of
+    Just Token {tokenKind = TLBrace} -> do
+      _ <- parseAnyToken
+      (SSModule (tokenSpan moduleToken) modulePath moduleExports :) <$> parseModuleBody
+    Nothing -> failTokenParserAt (tokenSpan moduleToken) (ExpectedSyntax "'{'" (ParserEndOfInputAfter "module path"))
+    Just token -> failTokenParserAt (tokenSpan token) (ExpectedSyntax "'{'" (foundToken token))
 
-parseImportStatementFromTokens :: TokenStream -> Either ParserFailure (SurfaceStatement, TokenStream)
-parseImportStatementFromTokens tokens =
-  case tokens of
-    importToken@Token {tokenKind = TImport} :< tokensAfterImportKeyword -> do
-      (modulePath, afterModulePath) <- parseModulePath tokensAfterImportKeyword
-      parseImportTail importToken modulePath afterModulePath
-    EmptyTokens ->
-      Left (parserFailure (ExpectedSyntax "'import'" ParserEndOfInput))
-    token :< _ ->
-      Left
-        ( parserFailureAt
-            (tokenSpan token)
-            (ExpectedSyntax "'import'" (ParserFoundToken (tokenKind token) (tokenLexeme token)))
-        )
-
-parseImportTail :: Token -> [Text] -> TokenStream -> Either ParserFailure (SurfaceStatement, TokenStream)
-parseImportTail importToken modulePath tokensAfterModulePath =
-  case tokensAfterModulePath of
-    Token {tokenKind = TDot} :< rest ->
-      pure (SSImport (tokenSpan importToken) modulePath Nothing Nothing, rest)
-    asToken@Token {tokenKind = TAs} :< rest ->
-      case rest of
-        aliasToken@Token {tokenKind = TIdentifier aliasName} :< afterAlias
+parseImportStatementParser :: Parser SurfaceStatement
+parseImportStatementParser = do
+  importToken <- parseToken TImport
+  modulePath <- parseModulePath
+  next <- peekToken
+  case next of
+    Just Token {tokenKind = TDot} ->
+      SSImport (tokenSpan importToken) modulePath Nothing Nothing <$ parseAnyToken
+    Just asToken@Token {tokenKind = TAs} -> do
+      _ <- parseAnyToken
+      alias <- peekToken
+      case alias of
+        Just aliasToken@Token {tokenKind = TIdentifier aliasName}
           | isReservedLiteralName aliasName ->
-              Left
-                ( parserFailureAt
-                    (tokenSpan aliasToken)
-                    (DeclarationFailure (ReservedLiteralName ImportAlias aliasName))
-                )
-          | otherwise ->
+              failTokenParserAt (tokenSpan aliasToken) (DeclarationFailure (ReservedLiteralName ImportAlias aliasName))
+          | otherwise -> do
+              _ <- parseAnyToken
+              afterAlias <- peekToken
               case afterAlias of
-                parenToken@Token {tokenKind = TLParen} :< _ ->
-                  Left
-                    ( parserFailureAt
-                        (tokenSpan parenToken)
-                        (DeclarationFailure ImportAliasCombinedWithSymbolList)
-                    )
-                _ -> do
-                  remaining <- consumeDot afterAlias
-                  pure
-                    ( SSImport
-                        (tokenSpan importToken)
-                        modulePath
-                        (Just aliasName)
-                        Nothing,
-                      remaining
-                    )
-        EmptyTokens ->
-          Left
-            ( parserFailureAt
-                (tokenSpan asToken)
-                (ExpectedSyntax "import alias" (ParserEndOfInputAfter "'as'"))
-            )
-        token :< _ ->
-          Left
-            ( parserFailureAt
-                (tokenSpan token)
-                (ExpectedSyntax "import alias" (ParserFoundToken (tokenKind token) (tokenLexeme token)))
-            )
-    Token {tokenKind = TLParen} :< rest -> do
-      (symbols, afterSymbols) <- parseImportSymbolList rest
+                Just parenToken@Token {tokenKind = TLParen} ->
+                  failTokenParserAt (tokenSpan parenToken) (DeclarationFailure ImportAliasCombinedWithSymbolList)
+                _ -> SSImport (tokenSpan importToken) modulePath (Just aliasName) Nothing <$ parseToken TDot
+        Nothing -> failTokenParserAt (tokenSpan asToken) (ExpectedSyntax "import alias" (ParserEndOfInputAfter "'as'"))
+        Just token -> failTokenParserAt (tokenSpan token) (ExpectedSyntax "import alias" (foundToken token))
+    Just Token {tokenKind = TLParen} -> do
+      _ <- parseAnyToken
+      symbols <- parseImportSymbolList
+      afterSymbols <- peekToken
       case afterSymbols of
-        asToken@Token {tokenKind = TAs} :< _ ->
-          Left
-            ( parserFailureAt
-                (tokenSpan asToken)
-                (DeclarationFailure ImportAliasCombinedWithSymbolList)
-            )
-        _ -> do
-          remaining <- consumeDot afterSymbols
-          pure
-            ( SSImport
-                (tokenSpan importToken)
-                modulePath
-                Nothing
-                (Just symbols),
-              remaining
-            )
-    EmptyTokens ->
-      Left
-        ( parserFailureAt
-            (tokenSpan importToken)
-            (ExpectedSyntax "'.', 'as', or '('" (ParserEndOfInputAfter "import path"))
-        )
-    token :< _ ->
-      Left
-        ( parserFailureAt
-            (tokenSpan token)
-            ( ExpectedSyntax
-                "'.', 'as', or '('"
-                (ParserFoundToken (tokenKind token) (tokenLexeme token))
-            )
-        )
+        Just asToken@Token {tokenKind = TAs} ->
+          failTokenParserAt (tokenSpan asToken) (DeclarationFailure ImportAliasCombinedWithSymbolList)
+        _ -> SSImport (tokenSpan importToken) modulePath Nothing (Just symbols) <$ parseToken TDot
+    Nothing -> failTokenParserAt (tokenSpan importToken) (ExpectedSyntax "'.', 'as', or '('" (ParserEndOfInputAfter "import path"))
+    Just token -> failTokenParserAt (tokenSpan token) (ExpectedSyntax "'.', 'as', or '('" (foundToken token))
 
-parseModulePath :: TokenStream -> Either ParserFailure ([Text], TokenStream)
-parseModulePath tokens =
-  case tokens of
-    EmptyTokens -> Left (parserFailure (ExpectedSyntax "module path" ParserEndOfInput))
-    Token {tokenKind = TIdentifier firstSegment} :< rest ->
-      go [firstSegment] rest
-      where
-        go revSegments allTokens =
-          case allTokens of
-            Token {tokenKind = TColonColon} :< Token {tokenKind = TIdentifier nextSegment} :< remaining ->
-              go (nextSegment : revSegments) remaining
-            separatorToken@Token {tokenKind = TColonColon} :< EmptyTokens ->
-              Left
-                ( parserFailureAt
-                    (tokenSpan separatorToken)
-                    (ExpectedSyntax "module path segment" ParserEndOfInput)
-                )
-            separatorToken@Token {tokenKind = TColonColon} :< token :< _
-              | tokenKind token == TDot ->
-                  Left
-                    ( parserFailureAt
-                        (tokenSpan separatorToken)
-                        ( ExpectedSyntax
-                            "module path segment"
-                            (ParserFoundToken (tokenKind token) (tokenLexeme token))
-                        )
-                    )
-              | otherwise ->
-                  Left
-                    ( parserFailureAt
-                        (tokenSpan token)
-                        ( ExpectedSyntax
-                            "module path segment"
-                            (ParserFoundToken (tokenKind token) (tokenLexeme token))
-                        )
-                    )
-            _ -> Right (reverse revSegments, allTokens)
-    token :< _ ->
-      Left
-        ( parserFailureAt
-            (tokenSpan token)
-            ( ExpectedSyntax
-                "module path segment"
-                (ParserFoundToken (tokenKind token) (tokenLexeme token))
-            )
-        )
-
-parseImportSymbolList :: TokenStream -> Either ParserFailure ([Text], TokenStream)
-parseImportSymbolList tokensAfterLeftParen =
-  case tokensAfterLeftParen of
-    token@Token {tokenKind = TRParen} :< _ ->
-      Left
-        ( parserFailureAt
-            (tokenSpan token)
-            (ExpectedSyntax "at least one import symbol" (ParserBeforeToken TRParen ")" Nothing))
-        )
-    _ ->
-      parseNonEmptyUniqueList
-        ImportSymbolList
-        "import symbol list"
-        (\name -> "'" <> name <> "'")
-        parseImportSymbol
-        tokensAfterLeftParen
-
-parseModuleExportList :: TokenStream -> Either ParserFailure ([ModuleExportSelector], TokenStream)
-parseModuleExportList tokensAfterLeftParen =
-  case tokensAfterLeftParen of
-    Token {tokenKind = TRParen} :< rest -> Right ([], rest)
-    _ ->
-      parseNonEmptyUniqueList
-        ModuleExportList
-        "module export list"
-        renderModuleExportSelector
-        parseModuleExport
-        tokensAfterLeftParen
-
-parseNonEmptyUniqueList ::
-  ParserListKind ->
-  Text ->
-  (item -> Text) ->
-  (TokenStream -> Either ParserFailure (item, SourceSpan, TokenStream)) ->
-  TokenStream ->
-  Either ParserFailure ([item], TokenStream)
-parseNonEmptyUniqueList listKind listDescription renderItem parseItem tokens = do
-  (firstItem, _, afterFirstItem) <- parseItem tokens
-  go [firstItem] (Set.singleton (renderItem firstItem)) afterFirstItem
+parseModulePath :: Parser [Text]
+parseModulePath = do
+  first <- peekToken
+  case first of
+    Nothing -> failTokenParser (ExpectedSyntax "module path" ParserEndOfInput)
+    Just Token {tokenKind = TIdentifier firstSegment} -> parseAnyToken *> go [firstSegment]
+    Just token -> failTokenParserAt (tokenSpan token) (ExpectedSyntax "module path segment" (foundToken token))
   where
-    go reversedItems seenItems allTokens =
-      case allTokens of
-        Token {tokenKind = TComma} :< rest -> do
-          (nextItem, itemSpan, afterNextItem) <- parseItem rest
-          let nextItemKey = renderItem nextItem
-          if Set.member nextItemKey seenItems
-            then
-              Left
-                ( parserFailureAt
-                    itemSpan
-                    (DeclarationFailure (DuplicateListItem listKind (renderItem nextItem)))
-                )
-            else
-              go
-                (nextItem : reversedItems)
-                (Set.insert nextItemKey seenItems)
-                afterNextItem
-        Token {tokenKind = TRParen} :< rest -> Right (reverse reversedItems, rest)
-        EmptyTokens ->
-          Left
-            (parserFailure (ExpectedSyntax "')'" (ParserEndOfInputIn listDescription)))
-        token :< _ ->
-          Left
-            ( parserFailureAt
-                (tokenSpan token)
-                (ExpectedSyntax "',' or ')'" (ParserFoundToken (tokenKind token) (tokenLexeme token)))
-            )
+    go reversedSegments = do
+      remaining <- MP.getInput
+      case remaining of
+        Token {tokenKind = TColonColon} :< Token {tokenKind = TIdentifier segment} :< _ ->
+          MP.takeP Nothing 2 *> go (segment : reversedSegments)
+        separator@Token {tokenKind = TColonColon} :< EmptyTokens ->
+          failTokenParserAt (tokenSpan separator) (ExpectedSyntax "module path segment" ParserEndOfInput)
+        separator@Token {tokenKind = TColonColon} :< token :< _ ->
+          failTokenParserAt
+            (tokenSpan (if tokenKind token == TDot then separator else token))
+            (ExpectedSyntax "module path segment" (foundToken token))
+        _ -> pure (reverse reversedSegments)
 
-parseModuleExport :: TokenStream -> Either ParserFailure (ModuleExportSelector, SourceSpan, TokenStream)
-parseModuleExport tokens =
+parseImportSymbolList :: Parser [Text]
+parseImportSymbolList = do
+  next <- peekToken
+  case next of
+    Just token@Token {tokenKind = TRParen} ->
+      failTokenParserAt (tokenSpan token) (ExpectedSyntax "at least one import symbol" (ParserBeforeToken TRParen ")" Nothing))
+    _ -> NonEmpty.toList <$> parseNonEmptyUniqueList ImportSymbolList "import symbol list" (\name -> "'" <> name <> "'") parseImportSymbol
+
+parseModuleExportList :: Parser [ModuleExportSelector]
+parseModuleExportList = do
+  next <- peekToken
+  case next of
+    Just Token {tokenKind = TRParen} -> [] <$ parseAnyToken
+    _ -> NonEmpty.toList <$> parseNonEmptyUniqueList ModuleExportList "module export list" renderModuleExportSelector parseModuleExport
+
+parseNonEmptyUniqueList :: ParserListKind -> Text -> (item -> Text) -> Parser (item, SourceSpan) -> Parser (NonEmpty.NonEmpty item)
+parseNonEmptyUniqueList listKind description renderItem parseItem = do
+  (first, _) <- parseItem
+  go (first NonEmpty.:| []) (Set.singleton (renderItem first))
+  where
+    go reversedItems seen = do
+      next <- peekToken
+      case next of
+        Just Token {tokenKind = TComma} -> do
+          _ <- parseAnyToken
+          (item, spanValue) <- parseItem
+          let key = renderItem item
+          if Set.member key seen
+            then failTokenParserAt spanValue (DeclarationFailure (DuplicateListItem listKind key))
+            else go (item NonEmpty.<| reversedItems) (Set.insert key seen)
+        Just Token {tokenKind = TRParen} -> NonEmpty.reverse reversedItems <$ parseAnyToken
+        Nothing -> failTokenParser (ExpectedSyntax "')'" (ParserEndOfInputIn description))
+        Just token -> failTokenParserAt (tokenSpan token) (ExpectedSyntax "',' or ')'" (foundToken token))
+
+parseModuleExport :: Parser (ModuleExportSelector, SourceSpan)
+parseModuleExport = do
+  tokens <- MP.getInput
   case tokens of
-    Token {tokenKind = TValue}
-      :< Token {tokenKind = TIdentifier exportName, tokenSpan = exportSpan}
-      :< rest ->
-        Right
-          ( ModuleExportSelector (Just ValueNamespace) exportName,
-            exportSpan,
-            rest
-          )
-    Token {tokenKind = TIdentifier prefix} :< Token {tokenKind = TIdentifier exportName, tokenSpan = exportSpan} :< rest
+    Token {tokenKind = TValue} :< Token {tokenKind = TIdentifier name, tokenSpan = spanValue} :< _ ->
+      (ModuleExportSelector (Just ValueNamespace) name, spanValue) <$ MP.takeP Nothing 2
+    Token {tokenKind = TIdentifier prefix} :< Token {tokenKind = TIdentifier name, tokenSpan = spanValue} :< _
       | Just TypeNamespace <- moduleExportNamespacePrefix prefix ->
-          parseTypeModuleExport exportName exportSpan rest
+          MP.takeP Nothing 2 *> parseTypeModuleExport name spanValue
       | Just namespace <- moduleExportNamespacePrefix prefix ->
-          Right (ModuleExportSelector (Just namespace) exportName, exportSpan, rest)
-    Token {tokenKind = TIdentifier exportName, tokenSpan = exportSpan} :< rest ->
-      Right (ModuleExportSelector Nothing exportName, exportSpan, rest)
-    EmptyTokens -> Left (parserFailure (ExpectedSyntax "module export name" ParserEndOfInput))
-    token :< _ ->
-      Left
-        ( parserFailureAt
-            (tokenSpan token)
-            (ExpectedSyntax "module export name" (ParserFoundToken (tokenKind token) (tokenLexeme token)))
-        )
+          (ModuleExportSelector (Just namespace) name, spanValue) <$ MP.takeP Nothing 2
+    Token {tokenKind = TIdentifier name, tokenSpan = spanValue} :< _ ->
+      (ModuleExportSelector Nothing name, spanValue) <$ parseAnyToken
+    EmptyTokens -> failTokenParser (ExpectedSyntax "module export name" ParserEndOfInput)
+    token :< _ -> failTokenParserAt (tokenSpan token) (ExpectedSyntax "module export name" (foundToken token))
 
-parseTypeModuleExport :: Text -> SourceSpan -> TokenStream -> Either ParserFailure (ModuleExportSelector, SourceSpan, TokenStream)
-parseTypeModuleExport typeName typeSpan tokens =
-  case tokens of
-    Token {tokenKind = TLParen} :< afterLeftParen ->
-      case afterLeftParen of
-        token@Token {tokenKind = TRParen} :< _ ->
-          Left
-            ( parserFailureAt
-                (tokenSpan token)
-                (ExpectedSyntax "'..' or at least one constructor export" (ParserAtToken TRParen ")"))
-            )
-        dotToken@Token {tokenKind = TDot} :< afterFirstDot ->
-          parseAllTypeConstructors typeName typeSpan (tokenSpan dotToken) afterFirstDot
+parseTypeModuleExport :: Text -> SourceSpan -> Parser (ModuleExportSelector, SourceSpan)
+parseTypeModuleExport name spanValue = do
+  next <- peekToken
+  case next of
+    Just Token {tokenKind = TLParen} -> do
+      _ <- parseAnyToken
+      afterOpener <- peekToken
+      case afterOpener of
+        Just token@Token {tokenKind = TRParen} ->
+          failTokenParserAt (tokenSpan token) (ExpectedSyntax "'..' or at least one constructor export" (ParserAtToken TRParen ")"))
+        Just dotToken@Token {tokenKind = TDot} ->
+          parseAnyToken *> parseAllTypeConstructors name spanValue (tokenSpan dotToken)
         _ -> do
-          (constructors, remaining) <-
-            parseNonEmptyUniqueList
-              ConstructorExportList
-              "constructor export group"
-              (\locatedName -> "'" <> locatedModuleExportName locatedName <> "'")
-              parseLocatedModuleExportName
-              afterLeftParen
-          case NonEmpty.nonEmpty constructors of
-            Nothing ->
-              Left
-                (parserFailureAt typeSpan (ExpectedSyntax "at least one constructor export" ParserImplicitBoundary))
-            Just nonEmptyConstructors ->
-              Right
-                ( ModuleTypeExportSelector typeName typeSpan (SelectedTypeConstructors nonEmptyConstructors),
-                  typeSpan,
-                  remaining
-                )
-    _ -> Right (ModuleTypeExportSelector typeName typeSpan AbstractType, typeSpan, tokens)
+          constructors <- parseNonEmptyUniqueList ConstructorExportList "constructor export group" (\located -> "'" <> locatedModuleExportName located <> "'") parseLocatedModuleExportName
+          pure (ModuleTypeExportSelector name spanValue (SelectedTypeConstructors constructors), spanValue)
+    _ -> pure (ModuleTypeExportSelector name spanValue AbstractType, spanValue)
 
-parseAllTypeConstructors :: Text -> SourceSpan -> SourceSpan -> TokenStream -> Either ParserFailure (ModuleExportSelector, SourceSpan, TokenStream)
-parseAllTypeConstructors typeName typeSpan allSpan tokens =
+parseAllTypeConstructors :: Text -> SourceSpan -> SourceSpan -> Parser (ModuleExportSelector, SourceSpan)
+parseAllTypeConstructors name typeSpan allSpan = do
+  tokens <- MP.getInput
   case tokens of
-    Token {tokenKind = TDot} :< Token {tokenKind = TRParen} :< rest ->
-      Right
-        ( ModuleTypeExportSelector typeName typeSpan (AllTypeConstructors allSpan),
-          typeSpan,
-          rest
-        )
-    token :< _ ->
-      Left
-        ( parserFailureAt
-            (tokenSpan token)
-            (DeclarationFailure ConstructorExportGroupRequiresAll)
-        )
-    EmptyTokens ->
-      Left (parserFailureAt allSpan (DeclarationFailure ConstructorExportGroupRequiresAll))
+    Token {tokenKind = TDot} :< Token {tokenKind = TRParen} :< _ ->
+      (ModuleTypeExportSelector name typeSpan (AllTypeConstructors allSpan), typeSpan) <$ MP.takeP Nothing 2
+    token :< _ -> failTokenParserAt (tokenSpan token) (DeclarationFailure ConstructorExportGroupRequiresAll)
+    EmptyTokens -> failTokenParserAt allSpan (DeclarationFailure ConstructorExportGroupRequiresAll)
 
-parseLocatedModuleExportName :: TokenStream -> Either ParserFailure (LocatedModuleExportName, SourceSpan, TokenStream)
-parseLocatedModuleExportName tokens =
-  case tokens of
-    Token {tokenKind = TIdentifier constructorName, tokenSpan = constructorSpan} :< rest ->
-      Right (LocatedModuleExportName constructorName constructorSpan, constructorSpan, rest)
-    EmptyTokens -> Left (parserFailure (ExpectedSyntax "constructor export" ParserEndOfInput))
-    token :< _ ->
-      Left
-        ( parserFailureAt
-            (tokenSpan token)
-            (ExpectedSyntax "constructor export name" (ParserFoundToken (tokenKind token) (tokenLexeme token)))
-        )
+parseLocatedModuleExportName :: Parser (LocatedModuleExportName, SourceSpan)
+parseLocatedModuleExportName = do
+  next <- peekToken
+  case next of
+    Just Token {tokenKind = TIdentifier name, tokenSpan = spanValue} ->
+      (LocatedModuleExportName name spanValue, spanValue) <$ parseAnyToken
+    Nothing -> failTokenParser (ExpectedSyntax "constructor export" ParserEndOfInput)
+    Just token -> failTokenParserAt (tokenSpan token) (ExpectedSyntax "constructor export name" (foundToken token))
 
 moduleExportNamespacePrefix :: Text -> Maybe NameNamespace
-moduleExportNamespacePrefix prefix =
-  case prefix of
-    "constructor" -> Just ConstructorNamespace
-    "type" -> Just TypeNamespace
-    "class" -> Just CapabilityNamespace
-    _ -> Nothing
+moduleExportNamespacePrefix prefix = case prefix of
+  "constructor" -> Just ConstructorNamespace
+  "type" -> Just TypeNamespace
+  "class" -> Just CapabilityNamespace
+  _ -> Nothing
 
-parseImportSymbol :: TokenStream -> Either ParserFailure (Text, SourceSpan, TokenStream)
-parseImportSymbol tokens =
-  case tokens of
-    Token {tokenKind = TIdentifier symbolName, tokenSpan = symbolSpan} :< rest ->
-      Right (symbolName, symbolSpan, rest)
-    EmptyTokens ->
-      Left (parserFailure (ExpectedSyntax "import symbol" ParserEndOfInput))
-    token :< _ ->
-      Left
-        ( parserFailureAt
-            (tokenSpan token)
-            (ExpectedSyntax "import symbol" (ParserFoundToken (tokenKind token) (tokenLexeme token)))
-        )
+parseImportSymbol :: Parser (Text, SourceSpan)
+parseImportSymbol = do
+  next <- peekToken
+  case next of
+    Just Token {tokenKind = TIdentifier name, tokenSpan = spanValue} ->
+      (name, spanValue) <$ parseAnyToken
+    Nothing -> failTokenParser (ExpectedSyntax "import symbol" ParserEndOfInput)
+    Just token -> failTokenParserAt (tokenSpan token) (ExpectedSyntax "import symbol" (foundToken token))
 
 registerImportAliases :: Set Text -> [SurfaceStatement] -> Set Text
 registerImportAliases =
@@ -465,19 +277,3 @@ collectImportAliasesInStatementList stopAtRightBrace = go (0 :: Int) Set.empty
         Token {tokenKind = TDot} :< _ -> Nothing
         Token {tokenKind = TAs} :< Token {tokenKind = TIdentifier aliasName} :< _ -> Just aliasName
         _ :< rest -> collectImportAlias rest
-
-rejectNestedModuleDeclaration :: Token -> Either ParserFailure a
-rejectNestedModuleDeclaration moduleToken =
-  Left
-    ( parserFailureAt
-        (tokenSpan moduleToken)
-        (DeclarationFailure (DeclarationOutsideAllowedScope ModuleDeclaration))
-    )
-
-rejectNestedImportDeclaration :: Token -> Either ParserFailure a
-rejectNestedImportDeclaration importToken =
-  Left
-    ( parserFailureAt
-        (tokenSpan importToken)
-        (DeclarationFailure (DeclarationOutsideAllowedScope ImportDeclaration))
-    )

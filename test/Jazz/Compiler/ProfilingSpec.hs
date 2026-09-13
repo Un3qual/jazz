@@ -21,6 +21,7 @@ import Jazz.Compiler.AST
     Expr (ELit),
     Literal (LInt),
   )
+import Jazz.Compiler.CoreIdentity (CapabilityId (..), CoreBinderId (..), ImplId (..), MethodId (..), emptyResolvedNodeFacts)
 import Jazz.Compiler.DiagnosticCatalog (ErrorCode (E1001))
 import Jazz.Compiler.Diagnostics
   ( DiagnosticOrigin (CompilationOrigin),
@@ -37,8 +38,10 @@ import Jazz.Compiler.Force
 import Jazz.Compiler.ModuleExports
   ( ModuleExport (ModuleExport),
   )
+import Jazz.Compiler.ModuleIdentity (SourceUnitOwner (StandaloneSourceUnit), standaloneModulePath)
 import Jazz.Compiler.ModuleInterface
   ( ModuleInterface (..),
+    ModuleValueBinding (..),
     emptyModuleInterface,
   )
 import Jazz.Compiler.ModuleRuntime
@@ -47,7 +50,7 @@ import Jazz.Compiler.ModuleRuntime
     RuntimeProgram (RuntimeProgram),
   )
 import Jazz.Compiler.Name
-  ( NameNamespace (ConstructorNamespace, TypeNamespace, ValueNamespace),
+  ( NameNamespace (CapabilityNamespace, ConstructorNamespace, TypeNamespace, ValueNamespace),
     mkIdentifier,
     resolvedLocalName,
   )
@@ -65,15 +68,12 @@ import Jazz.Compiler.Runtime.Types (RuntimeValue (VConstructor))
 import Jazz.Compiler.TypeInference.Result (InferenceResult (..))
 import Jazz.Compiler.TypeInference.Types
   ( ClassMethodType (ClassMethodType),
-    ConstructorArgumentType (ConstructorArgumentMonomorphic),
+    ConstructorArgumentType (ConstructorArgumentType),
     DataTypeBinding (DataTypeBinding),
     ImplMethodType (ImplMethodType),
+    ScopeCapabilityFacts (..),
+    SemanticBinding (PlainTypeBinding),
     SemanticType (..),
-    TypeBinding (PlainTypeBinding),
-  )
-import Jazz.Compiler.TypeRepresentation
-  ( SignaturePayload (..),
-    SignatureType (..),
   )
 import Jazz.TestHarness
   ( NamedTest,
@@ -187,10 +187,10 @@ testDeepModuleInterfaceForcing =
     [ ( "value type",
         "nested expression type was forced",
         emptyModuleInterface
-          { interfaceValueTypes =
+          { interfaceValueBindings =
               Map.singleton
                 (ModuleExport ValueNamespace "value")
-                (PlainTypeBinding (SemanticList deferredExpressionType))
+                (ModuleValueBinding (CoreBinderId (StandaloneSourceUnit standaloneModulePath, CoreNodeId 1)) (PlainTypeBinding (SemanticList deferredExpressionType)))
           }
       ),
       ( "data type",
@@ -198,37 +198,42 @@ testDeepModuleInterfaceForcing =
         emptyModuleInterface
           { interfaceDataTypes =
               Map.singleton
-                "Container"
-                (DataTypeBinding [] [[ConstructorArgumentMonomorphic (SemanticList deferredExpressionType)]])
+                (resolvedLocalName TypeNamespace (mkIdentifier "Container"))
+                (DataTypeBinding [] [[ConstructorArgumentType (SemanticList (throw (userError "nested expression type was forced")))]])
           }
       ),
       ( "class method",
         "nested signature type was forced",
         emptyModuleInterface
-          { interfaceClassMethods =
-              Map.singleton
-                "method"
-                (ClassMethodType "Capability" (SignatureType (TypeList deferredSignatureType)))
+          { interfaceCapabilities =
+              mempty
+                { scopeClassMethodSignatures =
+                    Map.singleton
+                      (CapabilityId (resolvedLocalName CapabilityNamespace (mkIdentifier "Capability")), mkIdentifier "method")
+                      (ClassMethodType "Capability" (SemanticList (throw (userError "nested signature type was forced"))))
+                }
           }
       ),
       ( "impl method",
         "nested signature type was forced",
         emptyModuleInterface
-          { interfaceConcreteImplMethods =
-              Map.singleton
-                "Capability::method"
-                [ImplMethodType (TypeList deferredSignatureType)]
+          { interfaceCapabilities =
+              mempty
+                { scopeConcreteImplMethods =
+                    Map.singleton
+                      (CapabilityId (resolvedLocalName CapabilityNamespace (mkIdentifier "Capability")), mkIdentifier "method")
+                      [ImplMethodType (SemanticList (throw (userError "nested signature type was forced"))) (CapabilityId (resolvedLocalName CapabilityNamespace (mkIdentifier "Capability"))) (MethodId (ImplId (StandaloneSourceUnit standaloneModulePath, CoreNodeId 0), mkIdentifier "method"))]
+                }
           }
       )
     ]
   where
     deferredExpressionType = throw (userError "nested expression type was forced")
-    deferredSignatureType = throw (userError "nested signature type was forced")
     assertInterfaceForced (label, marker, interface) = do
       let inference =
             InferenceResult
-              { inferredExpr = resolvedZero,
-                inferredDiagnostics = [],
+              { inferenceResolvedExpr = resolvedZero,
+                inferredDiagnosticGroups = mempty,
                 inferredModuleInterface = interface
               }
       assertForcesMarker (label <> " payload") marker (evaluate (forceInferenceResult inference))
@@ -265,7 +270,7 @@ assertForcesMarker label marker action = do
     Right () -> ioError (userError (Text.unpack (label <> " stayed lazy")))
 
 resolvedZero :: Expr 'Resolved
-resolvedZero = ELit (CoreNode (CoreNodeId 0) (SourceSpan 1 1) ()) (LInt 0)
+resolvedZero = ELit (CoreNode (CoreNodeId 0) (SourceSpan 1 1) (emptyResolvedNodeFacts (StandaloneSourceUnit standaloneModulePath))) (LInt 0)
 
 testRuntimeResultForcingFollowsRendering :: IO ()
 testRuntimeResultForcingFollowsRendering = do

@@ -10,11 +10,11 @@ module Jazz.Compiler.Runtime.ScopePlan
     scopePlanIndexedStatements,
     scopePlanStatementAt,
     scopePlanModulePathForStatement,
-    runtimeModulePathAfterStatements,
     scopePlanRecursiveGroupAt,
     scopePlanIsRecursiveBinding,
     scopePlanIsSelfRecursiveFunction,
-    scopePlanBindingNameAt,
+    scopePlanBindingIndex,
+    scopePlanBindingReferenceAt,
     scopePlanIsHostRecursiveBinding,
     runtimeExprRequiresHost,
     runtimeStatementRequiresHost,
@@ -27,91 +27,63 @@ import Data.IntMap.Strict (IntMap)
 import qualified Data.IntMap.Strict as IntMap
 import Data.IntSet (IntSet)
 import qualified Data.IntSet as IntSet
-import qualified Data.List.NonEmpty as NonEmpty
 import qualified Data.Map.Strict as Map
-import Data.Set (Set)
 import qualified Data.Set as Set
 import Jazz.Compiler.AST
   ( CaseArm (..),
+    CoreNode (coreNodeFacts),
     CorePhase (..),
     Expr (..),
     ImplMethod (..),
     Statement (..),
+    statementNode,
   )
 import Jazz.Compiler.BuiltinCatalog
   ( BuiltinSymbol (..),
-    kernelBuiltinNames,
     lookupKernelBuiltinSymbol,
   )
-import Jazz.Compiler.ModuleIdentity (ModulePath, mkModulePath)
+import Jazz.Compiler.CoreIdentity (CoreBinderId, ResolvedNodeFacts (resolvedNodeOwner), ResolvedReference, ResolvedScopeFacts (..), resolvedBinderReference)
 import Jazz.Compiler.Name
-  ( NameNamespace (..),
-    ResolvedName,
+  ( ResolvedName,
     identifierText,
-    mkIdentifier,
-    resolvedAmbientName,
   )
 import Jazz.Compiler.RecursiveBindings
-  ( buildRecursiveScopeFacts,
+  ( PreparedRecursiveScope,
     exprContainsFunctionBranch,
-    inferSelfRecursiveBindings,
-    recursiveScopeBindingNames,
-    recursiveScopeGroups,
+    preparedRecursiveScopeFacts,
+    preparedRecursiveScopeStatements,
   )
-import Jazz.Compiler.SourceUnitOwnership (SourceUnitOwner (..), sourceUnitStatementRuntimePaths)
+import Jazz.Compiler.SemanticFacts (StatementFacts (statementResolution))
+import Jazz.Compiler.SourceUnitOwnership (SourceUnitOwner (..))
 
 data RuntimeScopePlan = RuntimeScopePlan
   { runtimeScopePlanIndexedStatements :: [(Int, Statement 'Analyzed)],
     runtimeScopePlanStatementsByIndex :: IntMap (Statement 'Analyzed),
-    runtimeScopePlanModulePathsByStatement :: IntMap (Maybe SourceUnitOwner),
     runtimeScopePlanRecursiveGroups :: IntMap [Int],
     runtimeScopePlanSelfRecursiveFunctions :: IntSet,
-    runtimeScopePlanBindingNames :: IntMap ResolvedName,
+    runtimeScopePlanBindingIndices :: Map.Map CoreBinderId Int,
     runtimeScopePlanHostRecursiveBindings :: IntSet
   }
 
 buildRuntimeScopePlan ::
-  ModulePath ->
-  Set Int ->
-  Maybe SourceUnitOwner ->
-  Set ResolvedName ->
-  [Statement 'Analyzed] ->
+  PreparedRecursiveScope 'Analyzed ->
   RuntimeScopePlan
-buildRuntimeScopePlan preludePath preludeStatementIndices initialModulePath outerBindingNames statements =
+buildRuntimeScopePlan preparedScope =
   RuntimeScopePlan
     { runtimeScopePlanIndexedStatements = indexedStatements,
       runtimeScopePlanStatementsByIndex = statementsByIndex,
-      runtimeScopePlanModulePathsByStatement = modulePathsByStatement,
       runtimeScopePlanRecursiveGroups = recursiveGroups,
       runtimeScopePlanSelfRecursiveFunctions = selfRecursiveFunctions,
-      runtimeScopePlanBindingNames = bindingNames,
+      runtimeScopePlanBindingIndices = Map.fromList [(binder, index) | (index, binder) <- Map.toList (resolvedScopeBinderIds lexicalFacts)],
       runtimeScopePlanHostRecursiveBindings = hostRecursiveBindings
     }
   where
     indexedStatements = zip [0 ..] statements
     statementsByIndex = IntMap.fromDistinctAscList indexedStatements
-    recursionOuterBindingNames =
-      Set.union
-        outerBindingNames
-        (Set.map (resolvedAmbientName ValueNamespace . mkIdentifier) kernelBuiltinNames)
-    recursiveScopeFactsValue =
-      buildRecursiveScopeFacts
-        recursionOuterBindingNames
-        indexedStatements
-    recursiveGroupsMap = recursiveScopeGroups recursiveScopeFactsValue
-    recursiveGroups = IntMap.fromDistinctAscList (Map.toAscList recursiveGroupsMap)
-    selfRecursiveFunctions =
-      IntSet.fromList
-        (Set.toList (inferSelfRecursiveBindings recursionOuterBindingNames exprContainsFunctionBranch indexedStatements))
-    bindingNames =
-      IntMap.fromDistinctAscList
-        (Map.toAscList (recursiveScopeBindingNames recursiveScopeFactsValue))
-    modulePathsByStatement =
-      IntMap.fromDistinctAscList
-        ( zip
-            [0 :: Int ..]
-            (sourceUnitStatementRuntimePaths preludePath preludeStatementIndices initialModulePath statements)
-        )
+    statements = preparedRecursiveScopeStatements preparedScope
+    lexicalFacts = preparedRecursiveScopeFacts preparedScope
+    recursiveGroups = IntMap.fromDistinctAscList (Map.toAscList (resolvedScopeRecursiveGroups lexicalFacts))
+    selfRecursiveFunctions = IntSet.fromList (Set.toList (resolvedScopeSelfRecursiveFunctions lexicalFacts))
     hostRecursiveBindings =
       IntSet.fromList
         [ groupIndex
@@ -134,17 +106,8 @@ scopePlanStatementAt plan statementIndex =
 
 scopePlanModulePathForStatement :: RuntimeScopePlan -> Int -> Maybe SourceUnitOwner
 scopePlanModulePathForStatement plan statementIndex =
-  IntMap.findWithDefault Nothing statementIndex (runtimeScopePlanModulePathsByStatement plan)
-
-runtimeModulePathAfterStatements :: Maybe SourceUnitOwner -> [Statement 'Analyzed] -> Maybe SourceUnitOwner
-runtimeModulePathAfterStatements =
-  foldl'
-    ( \activeModulePath statement ->
-        case statement of
-          SModule _ modulePath
-            | Just segments <- NonEmpty.nonEmpty modulePath -> Just (NamedSourceUnit (mkModulePath (fmap mkIdentifier segments)))
-          _ -> activeModulePath
-    )
+  resolvedNodeOwner . statementResolution . coreNodeFacts . statementNode
+    <$> scopePlanStatementAt plan statementIndex
 
 scopePlanRecursiveGroupAt :: RuntimeScopePlan -> Int -> Maybe [Int]
 scopePlanRecursiveGroupAt plan statementIndex =
@@ -158,9 +121,8 @@ scopePlanIsSelfRecursiveFunction :: RuntimeScopePlan -> Int -> Bool
 scopePlanIsSelfRecursiveFunction plan statementIndex =
   IntSet.member statementIndex (runtimeScopePlanSelfRecursiveFunctions plan)
 
-scopePlanBindingNameAt :: RuntimeScopePlan -> Int -> Maybe ResolvedName
-scopePlanBindingNameAt plan statementIndex =
-  IntMap.lookup statementIndex (runtimeScopePlanBindingNames plan)
+scopePlanBindingIndex :: RuntimeScopePlan -> CoreBinderId -> Maybe Int
+scopePlanBindingIndex plan binder = Map.lookup binder (runtimeScopePlanBindingIndices plan)
 
 scopePlanIsHostRecursiveBinding :: RuntimeScopePlan -> Int -> Bool
 scopePlanIsHostRecursiveBinding plan statementIndex =
@@ -238,3 +200,8 @@ scopeDefinitelyNotFunctionValue statements =
   case reverse statements of
     SExpr _ expr : _ -> exprDefinitelyNotFunctionValue expr
     _ -> False
+
+scopePlanBindingReferenceAt :: RuntimeScopePlan -> Int -> Maybe ResolvedReference
+scopePlanBindingReferenceAt plan index = case scopePlanStatementAt plan index of
+  Just (SLet node name _) -> Just (resolvedBinderReference (statementResolution (coreNodeFacts node)) name)
+  _ -> Nothing

@@ -25,7 +25,6 @@ import Jazz.Compiler.Parser.AST
     SurfaceExpr (..),
     SurfaceExprForm (..),
     SurfaceLambdaParameter (..),
-    SurfaceLiteral (..),
     SurfacePattern (..),
     SurfacePatternForm (..),
     SurfaceStatement (..),
@@ -124,7 +123,7 @@ testParsesBasicCaseExpression =
     ( \surfaceProgram -> do
         assertSurfaceCasePatterns
           "surface case patterns"
-          [p 1 16 (SPLiteral (SLInt 0)), p 1 28 SPWildcard]
+          [p 1 16 (SPLiteral (LInt 0)), p 1 28 SPWildcard]
           surfaceProgram
         assertLoweredCoreEqual
           "lowered case AST"
@@ -283,7 +282,7 @@ testKeepsAllLiteralPipeBodyBeforeLiteralArmBoundary =
     ( \surfaceProgram -> do
         assertSurfaceCasePatterns
           "all-literal pipe body surface AST"
-          [p 1 16 SPWildcard, p 1 29 (SPLiteral (SLInt 2))]
+          [p 1 16 SPWildcard, p 1 29 (SPLiteral (LInt 2))]
           surfaceProgram
         assertLoweredCoreEqual "all-literal pipe body lowered AST" expectedLoweredProgram (lowerSurfaceExpr surfaceProgram)
     )
@@ -315,8 +314,8 @@ testParsesWildcardLedLaterOrPatternArmAfterBody =
     ( \surfaceProgram -> do
         assertSurfaceCasePatterns
           "wildcard-led later or-pattern surface AST"
-          [ p 1 16 (SPLiteral (SLInt 0)),
-            p 1 25 (SPOr [p 1 25 SPWildcard, p 1 29 (SPLiteral (SLInt 2))])
+          [ p 1 16 (SPLiteral (LInt 0)),
+            p 1 25 (SPOr [p 1 25 SPWildcard, p 1 29 (SPLiteral (LInt 2))])
           ]
           surfaceProgram
         assertLoweredCoreEqual "wildcard-led later or-pattern lowered AST" expectedLoweredProgram (lowerSurfaceExpr surfaceProgram)
@@ -349,7 +348,7 @@ testParsesVariableLedLaterOrPatternArmAfterBody =
     ( \surfaceProgram -> do
         assertSurfaceCasePatterns
           "variable-led later or-pattern surface AST"
-          [ p 1 16 (SPLiteral (SLInt 0)),
+          [ p 1 16 (SPLiteral (LInt 0)),
             p 1 25 (SPOr [p 1 25 (SPVariable "item"), p 1 32 (SPVariable "other")])
           ]
           surfaceProgram
@@ -383,7 +382,7 @@ testParsesVariableLedMixedLaterOrPatternArmAfterBody =
     ( \surfaceProgram -> do
         assertSurfaceCasePatterns
           "variable-led mixed later or-pattern surface AST"
-          [ p 1 16 (SPLiteral (SLInt 0)),
+          [ p 1 16 (SPLiteral (LInt 0)),
             p
               1
               25
@@ -454,7 +453,7 @@ testParsesGuardedCaseArmWithPipeExpressionAfterPreviousArm =
     ( \surfaceProgram -> do
         assertSurfaceCasePatterns
           "guarded pipe expression surface AST"
-          [p 1 22 (SPLiteral (SLInt 0)), p 1 31 (SPVariable "item")]
+          [p 1 22 (SPLiteral (LInt 0)), p 1 31 (SPVariable "item")]
           surfaceProgram
         assertLoweredCoreEqual "guarded pipe expression lowered AST" expectedLoweredProgram (lowerSurfaceExpr surfaceProgram)
     )
@@ -878,8 +877,8 @@ testParsesMixedLiteralWildcardLaterOrPatternArmAfterBody =
     ( \surfaceProgram -> do
         assertSurfaceCasePatterns
           "mixed literal-wildcard later or-pattern surface AST"
-          [ p 1 16 (SPLiteral (SLInt 0)),
-            p 1 25 (SPOr [p 1 25 (SPLiteral (SLInt 2)), p 1 29 SPWildcard])
+          [ p 1 16 (SPLiteral (LInt 0)),
+            p 1 25 (SPOr [p 1 25 (SPLiteral (LInt 2)), p 1 29 SPWildcard])
           ]
           surfaceProgram
         assertLoweredCoreEqual "mixed literal-wildcard later or-pattern lowered AST" expectedLoweredProgram (lowerSurfaceExpr surfaceProgram)

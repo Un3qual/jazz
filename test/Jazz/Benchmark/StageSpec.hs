@@ -38,10 +38,10 @@ import Jazz.Compiler.Diagnostics (SourceSpan (SourceRange))
 import Jazz.Compiler.Name (identifierText)
 import Jazz.Compiler.Parser (parseSurfaceProgram)
 import Jazz.Compiler.Parser.AST
-  ( SurfaceCaseArm (..),
+  ( Literal (..),
+    SurfaceCaseArm (..),
     SurfaceExpr (..),
     SurfaceExprForm (..),
-    SurfaceLiteral (..),
     SurfacePattern (..),
     SurfacePatternForm (..),
     SurfaceStatement (..),
@@ -567,7 +567,7 @@ testAmbiguousCaseArmPipesParseLower = do
               ( SurfaceExpr
                   _
                   ( SECase
-                      (SurfaceExpr _ (SELit (SLInt scrutinee)))
+                      (SurfaceExpr _ (SELit (LInt scrutinee)))
                       [SurfaceCaseArm (SurfacePattern _ SPWildcard) Nothing body]
                     )
                 )
@@ -592,9 +592,9 @@ leftAssociatedPipeOperands = go []
   where
     go trailingOperands expression =
       case surfaceExprForm expression of
-        SEBinary "|" left (SurfaceExpr _ (SELit (SLInt rightOperand))) ->
+        SEBinary "|" left (SurfaceExpr _ (SELit (LInt rightOperand))) ->
           go (rightOperand : trailingOperands) left
-        SELit (SLInt firstOperand) -> Just (firstOperand : trailingOperands)
+        SELit (LInt firstOperand) -> Just (firstOperand : trailingOperands)
         _ -> Nothing
 
 testLongTokenStreamExactSize :: IO ()

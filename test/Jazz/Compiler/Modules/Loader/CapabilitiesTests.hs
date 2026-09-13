@@ -60,9 +60,9 @@ capabilitiesTests =
     ("run module graph retains local capabilities needed by imported capability bodies", testRunModuleGraphRetainsLocalCapabilitiesNeededByImportedCapabilityBodies),
     ("run module graph namespaces capabilities needed by directly imported capability bodies", testRunModuleGraphNamespacesCapabilitiesNeededByDirectlyImportedCapabilityBodies),
     ("run module graph retains value dependencies needed by imported capability bodies", testRunModuleGraphRetainsValueDependenciesNeededByImportedCapabilityBodies),
-    ("run module graph keeps analyzed runtime plans module scoped", testRunModuleGraphKeepsInferredRuntimePlansModuleScoped),
-    ("run module graph keeps nested analyzed runtime plans module scoped", testRunModuleGraphKeepsNestedInferredRuntimePlansModuleScoped),
-    ("run module graph keeps pre-module analyzed runtime plans module scoped", testRunModuleGraphKeepsPreModuleInferredRuntimePlansModuleScoped),
+    ("run module graph keeps analyzed runtime facts module scoped", testRunModuleGraphKeepsInferredRuntimeFactsModuleScoped),
+    ("run module graph keeps nested analyzed runtime facts module scoped", testRunModuleGraphKeepsNestedInferredRuntimeFactsModuleScoped),
+    ("run module graph keeps pre-module analyzed runtime facts module scoped", testRunModuleGraphKeepsPreModuleInferredRuntimeFactsModuleScoped),
     ("run module graph rebases explicit generic ADT application hints", testRunModuleGraphRebasesExplicitGenericAdtApplicationHints),
     ("run module graph rebases fallback explicit generic ADT hints", testRunModuleGraphRebasesFallbackExplicitGenericAdtHints),
     ("run module graph rebases class method argument signatures", testRunModuleGraphRebasesClassMethodArgumentSignatures),
@@ -1146,8 +1146,8 @@ testRunModuleGraphRetainsValueDependenciesNeededByImportedCapabilityBodies = do
         ]
     lookupSource path = pure (Map.lookup path sourceMap)
 
-testRunModuleGraphKeepsInferredRuntimePlansModuleScoped :: IO ()
-testRunModuleGraphKeepsInferredRuntimePlansModuleScoped = do
+testRunModuleGraphKeepsInferredRuntimeFactsModuleScoped :: IO ()
+testRunModuleGraphKeepsInferredRuntimeFactsModuleScoped = do
   result <-
     runModuleGraphWithPrelude
       defaultWarningSettings
@@ -1210,8 +1210,8 @@ testRunModuleGraphKeepsInferredRuntimePlansModuleScoped = do
         ]
     lookupSource path = pure (Map.lookup path sourceMap)
 
-testRunModuleGraphKeepsNestedInferredRuntimePlansModuleScoped :: IO ()
-testRunModuleGraphKeepsNestedInferredRuntimePlansModuleScoped = do
+testRunModuleGraphKeepsNestedInferredRuntimeFactsModuleScoped :: IO ()
+testRunModuleGraphKeepsNestedInferredRuntimeFactsModuleScoped = do
   result <-
     runModuleGraphWithPrelude
       defaultWarningSettings
@@ -1255,8 +1255,8 @@ testRunModuleGraphKeepsNestedInferredRuntimePlansModuleScoped = do
         ]
     lookupSource path = pure (Map.lookup path sourceMap)
 
-testRunModuleGraphKeepsPreModuleInferredRuntimePlansModuleScoped :: IO ()
-testRunModuleGraphKeepsPreModuleInferredRuntimePlansModuleScoped = do
+testRunModuleGraphKeepsPreModuleInferredRuntimeFactsModuleScoped :: IO ()
+testRunModuleGraphKeepsPreModuleInferredRuntimeFactsModuleScoped = do
   result <-
     runModuleGraphWithPrelude
       defaultWarningSettings

@@ -19,6 +19,7 @@ import Jazz.Compiler.AST
     Literal (..),
     Pattern (..),
   )
+import Jazz.Compiler.CoreIdentity (ResolvedReference (UnresolvedReference))
 import Jazz.Compiler.DiagnosticCatalog (diagnosticCodeText)
 import Jazz.Compiler.Diagnostics
   ( Diagnostic,
@@ -31,6 +32,10 @@ import Jazz.Compiler.Driver
   ( compileErrors,
     compileSource,
     compileWarnings,
+  )
+import Jazz.Compiler.ModuleAnalysis
+  ( InferenceInputs (..),
+    inferExpressionWithInputs,
   )
 import Jazz.Compiler.ModuleExports (exportInventory)
 import Jazz.Compiler.ModuleIdentity (mkModulePath)
@@ -53,17 +58,14 @@ import Jazz.Compiler.PatternCoverage
     emptyConstructorInventory,
     renderCoveragePattern,
   )
-import Jazz.Compiler.TypeInference
-  ( InferenceInputs (..),
-    inferExpressionWithInputs,
-  )
-import Jazz.Compiler.TypeInference.Result (InferenceResult (..))
+import Jazz.Compiler.TypeInference.Result (inferredDiagnostics)
 import Jazz.Compiler.TypeInference.Types
   ( ConstructorArgumentType (..),
     DataTypeBinding (..),
     ExpressionType,
+    SemanticBinding (..),
     SemanticType (..),
-    TypeBinding (..),
+    TypeEnvKey (..),
     emptyScopeCapabilityFacts,
   )
 import Jazz.Compiler.WarningConfig
@@ -76,10 +78,13 @@ import Jazz.TestHarness
     assertEqual,
     runTestSuite,
   )
+import System.Environment (getArgs)
 import System.Timeout (timeout)
 
 main :: IO ()
-main = runTestSuite "PatternCoverage" tests
+main = do
+  args <- getArgs
+  runTestSuite "PatternCoverage" (tests <> if "--skip-performance" `elem` args then [] else performanceTests)
 
 tests :: [NamedTest]
 tests =
@@ -87,7 +92,6 @@ tests =
     ("both Bool constructors are exhaustive", testCompleteBoolMatch),
     ("duplicate Bool arm is unreachable", testDuplicateBoolArm),
     ("open integer literals require a fallback", testOpenIntegerDomain),
-    ("large repeated integer arms preserve diagnostic order", testLargeRepeatedIntegerArmOrder),
     ("unguarded wildcard makes a later arm unreachable", testWildcardShadowing),
     ("guarded arms do not contribute coverage", testGuardedArmDoesNotCover),
     ("guarded arms do not shadow later arms", testGuardedArmDoesNotShadow),
@@ -102,11 +106,6 @@ tests =
     ("exact lists specialize through cons cells", testExactListShadowing),
     ("as-patterns contribute their inner coverage", testAsPatternCoverage),
     ("or-pattern alternatives form a coverage union", testOrPatternCoverage),
-    ("nested or-pattern products stay symbolic", testNestedOrPatternProductCoverage),
-    ("jointly exhaustive product alternatives stay symbolic", testJointlyExhaustiveProductAlternatives),
-    ("duplicate non-total alternatives stay symbolic", testDuplicateNonTotalAlternatives),
-    ("repeated distinct non-total alternatives stay symbolic", testRepeatedDistinctNonTotalAlternatives),
-    ("reordered non-total alternatives share canonical coverage", testReorderedNonTotalAlternatives),
     ("partly useful or-pattern arm stays reachable", testPartlyUsefulOrPattern),
     ("wholly covered or-pattern arm is unreachable", testCoveredOrPattern),
     ("source pipeline accepts an exhaustive match", testCompleteSourceMatch),
@@ -123,7 +122,17 @@ tests =
     ("source reachability covers every strict arm case", testStrictSourceReachability),
     ("repeated guarded arms remain reachable", testRepeatedGuardedSourceArms),
     ("warning-only diagnostics do not suppress coverage", testWarningsDoNotSuppressCoverage),
-    ("hidden imported constructors stay out of witnesses", testHiddenImportedConstructorCoverage),
+    ("hidden imported constructors stay out of witnesses", testHiddenImportedConstructorCoverage)
+  ]
+
+performanceTests :: [NamedTest]
+performanceTests =
+  [ ("large repeated integer arms preserve diagnostic order", testLargeRepeatedIntegerArmOrder),
+    ("nested or-pattern products stay symbolic", testNestedOrPatternProductCoverage),
+    ("jointly exhaustive product alternatives stay symbolic", testJointlyExhaustiveProductAlternatives),
+    ("duplicate non-total alternatives stay symbolic", testDuplicateNonTotalAlternatives),
+    ("repeated distinct non-total alternatives stay symbolic", testRepeatedDistinctNonTotalAlternatives),
+    ("reordered non-total alternatives share canonical coverage", testReorderedNonTotalAlternatives),
     ("constructor inventories materialize only reachable data types", testTypeScopedConstructorInventory)
   ]
 
@@ -411,7 +420,7 @@ testTypeScopedConstructorInventory = do
         ( and
             [ null
                 ( analyzePatternCoverage
-                    (constructorInventoryFromBindings dataTypes (environment siteIndex))
+                    (constructorInventoryFromBindings dataTypes (fixtureTypes (environment siteIndex)))
                     targetType
                     [arm (constructorPattern "Only" [])]
                 )
@@ -428,10 +437,10 @@ testTypeScopedConstructorInventory = do
     targetType = SemanticData (resolvedTypeName "Target") []
     dataTypes =
       Map.insert
-        "Target"
+        (resolvedTypeName "Target")
         (DataTypeBinding [] [[]])
         ( Map.fromList
-            [ ("Unused" <> Text.pack (show dataTypeIndex), DataTypeBinding [] [[]])
+            [ (resolvedTypeName ("Unused" <> Text.pack (show dataTypeIndex)), DataTypeBinding [] [[]])
             | dataTypeIndex <- [1 .. dataTypeCount]
             ]
         )
@@ -608,8 +617,8 @@ testImportedWitnessRendering =
     importedWitnessInventory =
       constructorInventoryFromBindingsWithWitnessNames
         (Map.singleton importedName sourceWitness)
-        (Map.singleton "Choice" (DataTypeBinding [] [[]]))
-        (Map.singleton importedName (ConstructorTypeBinding (resolvedTypeName "Choice") [] []))
+        (Map.singleton (resolvedTypeName "Choice") (DataTypeBinding [] [[]]))
+        (fixtureTypes (Map.singleton importedName (ConstructorTypeBinding (resolvedTypeName "Choice") [] [])))
 
 testStrictSourceReachability :: IO ()
 testStrictSourceReachability =
@@ -677,19 +686,22 @@ testHiddenImportedConstructorCoverage = do
 hiddenConstructorInputs :: InferenceInputs
 hiddenConstructorInputs =
   InferenceInputs
-    { inferenceWarningSettings = defaultWarningSettings,
+    { inferencePublicExports = Nothing,
+      inferenceWarningSettings = defaultWarningSettings,
+      inferenceExternalUses = Set.empty,
       inferenceImportedTypes =
-        Map.fromList
-          [ (resolvedLocalName ValueNamespace (mkIdentifier "subject"), PlainTypeBinding maybeIntType),
-            (resolvedLocalName ConstructorNamespace (mkIdentifier "Nothing"), ConstructorTypeBinding (resolvedTypeName "Maybe") [resolvedLocalName TypeNamespace (mkIdentifier "a")] [])
-          ],
+        fixtureTypes $
+          Map.fromList
+            [ (resolvedLocalName ValueNamespace (mkIdentifier "subject"), PlainTypeBinding (SemanticData (resolvedTypeName "Maybe") [SemanticInt])),
+              (resolvedLocalName ConstructorNamespace (mkIdentifier "Nothing"), ConstructorTypeBinding (resolvedTypeName "Maybe") [resolvedLocalName TypeNamespace (mkIdentifier "a")] [])
+            ],
       inferenceImportedDataTypes =
         Map.singleton
-          "Maybe"
+          (resolvedTypeName "Maybe")
           ( DataTypeBinding
               [resolvedLocalName TypeNamespace (mkIdentifier "a")]
               [ [],
-                [ConstructorArgumentParameter "a"]
+                [ConstructorArgumentType (SemanticVariable "a")]
               ]
           ),
       inferenceImportedConstructorWitnessNames = Map.empty,
@@ -755,10 +767,7 @@ resolvedPatternCase patternValue =
         [CaseArm loweredExpressionNode patternValue Nothing (ELit loweredExpressionNode (LInt 0))]
 
 resolveExpression :: Expr 'Lowered -> Expr 'Resolved
-resolveExpression expression =
-  case resolveStandaloneExprNames (exportInventory []) expression of
-    Right resolved -> resolved
-    Left diagnostics -> error (show diagnostics)
+resolveExpression = resolveStandaloneExprNames (exportInventory [])
 
 wildcardPattern :: Pattern 'Lowered
 wildcardPattern = PWildcard loweredPatternNode
@@ -803,36 +812,42 @@ maybeInventory :: ConstructorInventory
 maybeInventory =
   constructorInventoryFromBindings
     ( Map.singleton
-        "Maybe"
+        (resolvedTypeName "Maybe")
         ( DataTypeBinding
             [maybeTypeParameter]
             [ [],
-              [ConstructorArgumentParameter "a"]
+              [ConstructorArgumentType (SemanticVariable "a")]
             ]
         )
     )
-    ( Map.fromList
-        [ (resolvedLocalName ConstructorNamespace (mkIdentifier "Nothing"), ConstructorTypeBinding (resolvedTypeName "Maybe") [maybeTypeParameter] []),
-          (resolvedLocalName ConstructorNamespace (mkIdentifier "Just"), ConstructorTypeBinding (resolvedTypeName "Maybe") [maybeTypeParameter] [ConstructorArgumentParameter "a"])
-        ]
+    ( fixtureTypes $
+        Map.fromList
+          [ (resolvedLocalName ConstructorNamespace (mkIdentifier "Nothing"), ConstructorTypeBinding (resolvedTypeName "Maybe") [maybeTypeParameter] []),
+            (resolvedLocalName ConstructorNamespace (mkIdentifier "Just"), ConstructorTypeBinding (resolvedTypeName "Maybe") [maybeTypeParameter] [ConstructorArgumentType (SemanticVariable "a")])
+          ]
     )
 
 hiddenMaybeInventory :: ConstructorInventory
 hiddenMaybeInventory =
   constructorInventoryFromBindings
     ( Map.singleton
-        "Maybe"
+        (resolvedTypeName "Maybe")
         ( DataTypeBinding
             [maybeTypeParameter]
             [ [],
-              [ConstructorArgumentParameter "a"]
+              [ConstructorArgumentType (SemanticVariable "a")]
             ]
         )
     )
-    (Map.singleton (resolvedLocalName ConstructorNamespace (mkIdentifier "Nothing")) (ConstructorTypeBinding (resolvedTypeName "Maybe") [maybeTypeParameter] []))
+    (fixtureTypes $ Map.singleton (resolvedLocalName ConstructorNamespace (mkIdentifier "Nothing")) (ConstructorTypeBinding (resolvedTypeName "Maybe") [maybeTypeParameter] []))
 
 maybeTypeParameter :: ResolvedName
 maybeTypeParameter = resolvedLocalName TypeNamespace (mkIdentifier "a")
 
 resolvedTypeName :: Text -> ResolvedName
 resolvedTypeName = resolvedLocalName TypeNamespace . mkIdentifier
+
+-- These partial inference inputs intentionally have no defining source unit;
+-- the expected results are diagnostics, never a successful analyzed tree.
+fixtureTypes :: Map.Map ResolvedName (SemanticBinding variable) -> Map.Map TypeEnvKey (SemanticBinding variable)
+fixtureTypes = Map.mapKeys (\name -> TypeEnvKey (UnresolvedReference name) name)

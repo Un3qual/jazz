@@ -7,6 +7,7 @@ module Jazz.Compiler.Parser.TokenParser
     failParserFailure,
     failTokenParser,
     failTokenParserAt,
+    foundToken,
     parseAnyToken,
     parseIdentifier,
     parseToken,
@@ -170,9 +171,12 @@ expectedSyntax description = MP.region convert
       where
         failure = case encountered of
           Just (MP.Tokens (token NonEmpty.:| _)) ->
-            parserFailureAt (tokenSpan token) (ExpectedSyntax description (ParserFoundToken (tokenKind token) (tokenLexeme token)))
+            parserFailureAt (tokenSpan token) (ExpectedSyntax description (foundToken token))
           _ -> parserFailure (ExpectedSyntax description ParserEndOfInput)
     convert err = err
+
+foundToken :: Token -> ParserEncountered
+foundToken token = ParserFoundToken (tokenKind token) (tokenLexeme token)
 
 failTokenParser :: ParserFailureReason -> Parser a
 failTokenParser = failParserFailure . parserFailure

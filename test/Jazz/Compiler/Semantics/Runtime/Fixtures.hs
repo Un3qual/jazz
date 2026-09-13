@@ -22,9 +22,7 @@ module Jazz.Compiler.Semantics.Runtime.Fixtures
     expressionTuple,
     expressionTypeApplication,
     expressionVariable,
-    fixtureAmbientTypeVariable,
     fixtureResolvedTypeName,
-    fixtureTypeName,
     fixtureTypeVariable,
     fixtureValueName,
     implMethod,
@@ -44,7 +42,6 @@ where
 
 import qualified Data.List.NonEmpty as NonEmpty
 import qualified Data.Map.Strict as Map
-import qualified Data.Sequence as Seq
 import Data.Text (Text)
 import qualified Data.Text as Text
 import Jazz.Compiler.AST
@@ -64,31 +61,34 @@ import Jazz.Compiler.AST
     Statement (..),
   )
 import Jazz.Compiler.CapabilityFacts (signaturePayloadConstraintType)
+import Jazz.Compiler.CoreIdentity (CoreBinderId (..), ResolvedReference (BuiltinOperatorReference), emptyResolvedNodeFacts, resolvedNodeReference)
 import Jazz.Compiler.Diagnostics (SourceSpan (..))
-import Jazz.Compiler.ModuleIdentity (standaloneModulePath)
+import Jazz.Compiler.ModuleIdentity (SourceUnitOwner (StandaloneSourceUnit), standaloneModulePath)
 import Jazz.Compiler.Name
-  ( Name (BuiltinName),
+  ( GeneratedNameKind (..),
+    Name (BuiltinName),
     NameNamespace (CapabilityNamespace, ConstructorNamespace, TypeNamespace, ValueNamespace),
     ResolvedName,
     ResolvedNameOrigin (CurrentModule),
     ResolvedUserName (ResolvedUserName),
     UnresolvedName,
     UserNameLike (renderUserName),
+    generatedName,
     identifierText,
     mkIdentifier,
+    operatorBindingName,
     qualifiedMemberName,
-    resolvedAmbientName,
   )
+import Jazz.Compiler.Parser.Operator (isBuiltinOperatorSymbol)
 import Jazz.Compiler.SemanticFacts
   ( AnalyzedMethodSignature (..),
     AnalyzedScheme (..),
-    CoreBinderId (..),
     ExpressionFacts (..),
+    InstantiationTarget (..),
     PatternConstructorFact (PatternHasNoConstructor),
     PatternFacts (..),
     PatternRefutability (RefutablePattern),
-    RuntimeObligation (ConstrainResult, InstantiateTypes),
-    RuntimePlan (RuntimePlan),
+    SemanticInstantiation (..),
     StatementDeclarationFact (..),
     StatementFacts (..),
   )
@@ -99,30 +99,31 @@ import qualified Jazz.Compiler.TypeRepresentation as TypeRepresentation
 expressionNode :: CoreNode 'Analyzed 'ExpressionSort
 expressionNode =
   CoreNode
-    (CoreNodeId 0)
+    (CoreNodeId (-1))
     (SourceSpan 1 1)
     ( ExpressionFacts
+        (emptyResolvedNodeFacts (StandaloneSourceUnit standaloneModulePath))
         (TypeRepresentation.SemanticVariable (TypeRepresentation.InferenceVariable 0))
         Nothing
         Map.empty
         []
         []
-        mempty
+        Nothing
     )
 
 patternNode :: CoreNode 'Analyzed 'PatternSort
 patternNode =
   CoreNode
-    (CoreNodeId 0)
+    (CoreNodeId (-1))
     (SourceSpan 1 1)
-    (PatternFacts Map.empty PatternHasNoConstructor RefutablePattern)
+    (PatternFacts (emptyResolvedNodeFacts (StandaloneSourceUnit standaloneModulePath)) Map.empty PatternHasNoConstructor RefutablePattern)
 
 statementNode :: SourceSpan -> CoreNode 'Analyzed 'StatementSort
 statementNode spanValue =
   CoreNode
     (CoreNodeId (spanLine spanValue * 1000 + spanColumn spanValue))
     spanValue
-    (StatementFacts [] Map.empty ExpressionDeclaration)
+    (StatementFacts (emptyResolvedNodeFacts (StandaloneSourceUnit standaloneModulePath)) Nothing ExpressionDeclaration)
 
 resolvedName :: NameNamespace -> UnresolvedName -> ResolvedName
 resolvedName namespace =
@@ -165,9 +166,7 @@ expressionConstrainedAs resultType expression =
         node
           { coreNodeFacts =
               (coreNodeFacts node)
-                { expressionRuntimePlan =
-                    let RuntimePlan operations = expressionRuntimePlan (coreNodeFacts node)
-                     in RuntimePlan (operations Seq.|> ConstrainResult (fixtureSemanticType resultType))
+                { expressionResultRepresentation = Just (fixtureSemanticType resultType)
                 }
           }
     )
@@ -192,10 +191,13 @@ mapExpressionNode update expression =
     EBlock node statements -> EBlock (update node) statements
 
 expressionLambda :: UnresolvedName -> Expr 'Analyzed -> Expr 'Analyzed
-expressionLambda name = ELambda expressionNode (valueName name)
+expressionLambda name body = ELambda expressionNode (valueName name) body
 
 expressionOperatorValue :: Text -> Expr 'Analyzed
-expressionOperatorValue = EOperatorValue expressionNode
+expressionOperatorValue symbol =
+  EVar (expressionNode {coreNodeFacts = facts {expressionResolution = (expressionResolution facts) {resolvedNodeReference = if isBuiltinOperatorSymbol symbol then Just (BuiltinOperatorReference symbol) else Nothing}}}) (operatorBindingName symbol)
+  where
+    facts = coreNodeFacts expressionNode
 
 expressionList :: [Expr 'Analyzed] -> Expr 'Analyzed
 expressionList = EList expressionNode
@@ -212,9 +214,7 @@ expressionTypeApplication function argumentSpan argumentType =
     ( expressionNode
         { coreNodeFacts =
             (coreNodeFacts expressionNode)
-              { expressionRuntimePlan =
-                  RuntimePlan
-                    (Seq.singleton (InstantiateTypes (fixtureSemanticType argumentType NonEmpty.:| [])))
+              { expressionInstantiations = [SemanticInstantiation (LexicalInstantiation (CoreBinderId (StandaloneSourceUnit standaloneModulePath, CoreNodeId (-1)))) (fixtureSemanticType argumentType NonEmpty.:| [])]
               }
         }
     )
@@ -257,10 +257,36 @@ expressionBinary :: Text -> Expr 'Analyzed -> Expr 'Analyzed -> Expr 'Analyzed
 expressionBinary = EBinary expressionNode
 
 expressionSectionLeft :: Expr 'Analyzed -> Text -> Expr 'Analyzed
-expressionSectionLeft = ESectionLeft expressionNode
+expressionSectionLeft left symbol
+  | isBuiltinOperatorSymbol symbol = ESectionLeft expressionNode left symbol
+  | otherwise =
+      expressionApply (expressionLambda captured (expressionApply (expressionOperatorValue symbol) (expressionVariable captured))) left
+  where
+    captured = generatedName (OperatorSectionLeft 0)
 
 expressionSectionRight :: Text -> Expr 'Analyzed -> Expr 'Analyzed
-expressionSectionRight = ESectionRight expressionNode
+expressionSectionRight symbol right
+  | isBuiltinOperatorSymbol symbol = ESectionRight expressionNode symbol right
+  | otherwise =
+      expressionApply
+        ( expressionLambda
+            capturedRight
+            ( expressionApply
+                ( expressionLambda
+                    capturedFunction
+                    ( expressionLambda
+                        left
+                        (expressionApply (expressionApply (expressionVariable capturedFunction) (expressionVariable left)) (expressionVariable capturedRight))
+                    )
+                )
+                (expressionOperatorValue symbol)
+            )
+        )
+        right
+  where
+    capturedRight = generatedName (OperatorSectionRight 0)
+    capturedFunction = generatedName (OperatorSectionFunction 0)
+    left = generatedName (OperatorSectionLeft 0)
 
 expressionBlock :: [Statement 'Analyzed] -> Expr 'Analyzed
 expressionBlock = EBlock expressionNode
@@ -305,9 +331,9 @@ statementData spanValue name parameters constructors =
     variables = zip (map typeName parameters) (map TypeRepresentation.InferenceVariable [0 ..])
     resultType = TypeRepresentation.SemanticData (typeName name) (map (TypeRepresentation.SemanticVariable . snd) variables)
     analyzedConstructor (DataConstructor node constructor fields) =
-      DataConstructor node {coreNodeFacts = StatementFacts [binder] (Map.singleton binder scheme) (ValueDeclaration constructor)} constructor fields
+      DataConstructor node {coreNodeFacts = StatementFacts (emptyResolvedNodeFacts (StandaloneSourceUnit standaloneModulePath)) (Just (binder, scheme)) (ValueDeclaration constructor)} constructor fields
       where
-        binder = CoreBinderId (standaloneModulePath, coreNodeId node)
+        binder = CoreBinderId (StandaloneSourceUnit standaloneModulePath, coreNodeId node)
         scheme =
           AnalyzedScheme
             (map snd variables)
@@ -354,16 +380,6 @@ statementExpression spanValue = SExpr (statementNode spanValue)
 
 fixtureTypeVariable :: UnresolvedName -> SignatureType 'Analyzed
 fixtureTypeVariable = TypeRepresentation.TypeVariable . typeName
-
-fixtureAmbientTypeVariable :: UnresolvedName -> SignatureType 'Analyzed
-fixtureAmbientTypeVariable =
-  TypeRepresentation.TypeVariable
-    . resolvedAmbientName TypeNamespace
-    . mkIdentifier
-    . identifierText
-
-fixtureTypeName :: UnresolvedName -> SignatureType 'Analyzed
-fixtureTypeName = TypeRepresentation.TypeName . typeName
 
 fixtureValueName :: UnresolvedName -> ResolvedName
 fixtureValueName = valueName

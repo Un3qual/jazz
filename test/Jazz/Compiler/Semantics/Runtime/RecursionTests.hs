@@ -3,6 +3,7 @@
 
 module Jazz.Compiler.Semantics.Runtime.RecursionTests
   ( recursionTests,
+    recursionScaleTests,
   )
 where
 
@@ -15,8 +16,6 @@ import Data.Functor.Identity
   ( Identity,
     runIdentity,
   )
-import Data.List.NonEmpty (NonEmpty (..))
-import qualified Data.Set as Set
 import Data.Text (Text)
 import qualified Data.Text as Text
 import Jazz.Compiler.AST
@@ -37,6 +36,7 @@ import Jazz.Compiler.Driver
     runRuntimeErrors,
     runSource,
   )
+import Jazz.Compiler.ModuleAnalysis (analyzeResolvedExpression)
 import Jazz.Compiler.ModuleExports (exportInventory)
 import Jazz.Compiler.ModuleIdentity (preludeModulePath)
 import Jazz.Compiler.ModuleResolver (resolveStandaloneExprNames)
@@ -47,10 +47,9 @@ import Jazz.Compiler.Name
     ResolvedUserName (..),
     mkIdentifier,
   )
+import Jazz.Compiler.RecursiveBindings (prepareAnalyzedScope)
 import Jazz.Compiler.Runtime
   ( RuntimeValue (..),
-    evaluateRuntimeExpr,
-    evaluateRuntimeExprWithHost,
     renderRuntimeValue,
     runtimeExplicitResultHintsInOrder,
     runtimeValueExactlyMatchesConstraint,
@@ -68,12 +67,11 @@ import Jazz.Compiler.RuntimeHost
     RuntimeHostExit (..),
   )
 import Jazz.Compiler.Semantics.Runtime.Fixtures
+import Jazz.Compiler.Semantics.Runtime.ResolvedFixture
 import Jazz.Compiler.SourceProgram
   ( parseAndLowerStandaloneSource,
-    scopeStatements,
   )
 import Jazz.Compiler.SourceUnitOwnership (SourceUnitOwner (..))
-import Jazz.Compiler.TypeInference (analyzeSourceUnitExpression)
 import Jazz.Compiler.TypeRepresentation
   ( NumericType (..),
     SemanticType (..),
@@ -92,14 +90,18 @@ import System.Timeout
   ( timeout,
   )
 
-recursionTests :: [NamedTest]
-recursionTests =
+recursionScaleTests :: [NamedTest]
+recursionScaleTests =
   [ ("tail-recursive closure is stack safe at bootstrap depth", testTailRecursiveClosureIsStackSafe),
     ("tail-recursive case arm is stack safe", testTailRecursiveCaseArmIsStackSafe),
     ("typed tail-recursive closure preserves result hints", testTypedTailRecursiveClosureIsStackSafe),
     ("explicitly hinted tail recursion preserves result obligations", testExplicitlyHintedTailRecursionPreservesResultObligations),
-    ("100,000 explicit result hints render and apply stack safely", testExplicitResultHintsRenderAndApplyStackSafely),
-    ("mixed explicit result hints preserve order and multiplicity", testMixedExplicitResultHintsPreserveOrderAndMultiplicity),
+    ("100,000 explicit result hints render and apply stack safely", testExplicitResultHintsRenderAndApplyStackSafely)
+  ]
+
+recursionTests :: [NamedTest]
+recursionTests =
+  [ ("mixed explicit result hints preserve order and multiplicity", testMixedExplicitResultHintsPreserveOrderAndMultiplicity),
     ("pure and host evaluators preserve diagnostic parity", testPureAndHostDiagnosticsMatch),
     ("alias-only recursive cycle produces deterministic runtime diagnostic", testAliasOnlyRecursiveCycleRuntimeError),
     ("wrapped alias-only recursive cycle produces deterministic runtime diagnostic", testWrappedAliasOnlyRecursiveCycleRuntimeError),
@@ -197,7 +199,7 @@ testExplicitlyHintedTailRecursionPreservesResultObligations = do
               (SourceSpan 3 1)
               (expressionApply (expressionVariable "collect") (expressionLiteral (LInt (fromIntegral recursionDepth))))
           ]
-  case evaluateRuntimeExpr expression of
+  case evaluateFixture expression of
     Right (Just runtimeValue) ->
       assertEqual
         "repeated explicit tail hints in outermost-to-innermost order"
@@ -312,7 +314,7 @@ explicitlyHintedCallable recursionDepth =
 
 requireRuntimeValue :: Text -> Expr 'Analyzed -> IO RuntimeValue
 requireRuntimeValue label expression =
-  case evaluateRuntimeExpr expression of
+  case evaluateFixture expression of
     Left diagnostic ->
       failTest (label <> " failed: " <> renderDiagnostic diagnostic)
     Right Nothing ->
@@ -361,8 +363,8 @@ testPureAndHostDiagnosticsMatch =
   mapM_ assertParity diagnosticParityExpressions
   where
     assertParity expression =
-      case ( evaluateRuntimeExpr expression,
-             runIdentity (evaluateRuntimeExprWithHost diagnosticParityHost expression)
+      case ( evaluateFixture expression,
+             runIdentity (evaluateFixtureWithHost diagnosticParityHost expression)
            ) of
         (Left pureDiagnostic, Left hostDiagnostic) ->
           assertEqual
@@ -488,11 +490,7 @@ testPatternCaseBinderDoesNotGainRecursiveFunctionVisibility :: IO ()
 testPatternCaseBinderDoesNotGainRecursiveFunctionVisibility = do
   let plan =
         buildRuntimeScopePlan
-          preludeModulePath
-          Set.empty
-          Nothing
-          Set.empty
-          witnessStatements
+          ((either (error . show) id . prepareAnalyzedScope) (resolveRuntimeFixture (expressionBlock witnessStatements)))
   assertEqual "pattern-binder witness is not a runtime recursive group" False (scopePlanIsRecursiveBinding plan 0)
   assertEqual "pattern-binder witness gets no recursive function visibility" False (scopePlanIsSelfRecursiveFunction plan 0)
   result <- runSource defaultWarningSettings witnessSource
@@ -524,14 +522,10 @@ testPreludeScopePlanUsesNonemptyModulePath :: IO ()
 testPreludeScopePlanUsesNonemptyModulePath = do
   let plan =
         buildRuntimeScopePlan
-          preludeModulePath
-          (Set.singleton 0)
-          Nothing
-          Set.empty
-          [statementLet "preludeValue" (SourceSpan 1 1) (expressionLiteral (LInt 1))]
+          ((either (error . show) id . prepareAnalyzedScope) (resolveRuntimeFixtureWith (PreludeSourceUnit preludeModulePath) mempty (expressionBlock [statementLet "preludeValue" (SourceSpan 1 1) (expressionLiteral (LInt 1))])))
   assertEqual
     "prelude statement path"
-    (Just (InjectedPreludeSourceUnit preludeModulePath Nothing))
+    (Just (PreludeSourceUnit preludeModulePath))
     (scopePlanModulePathForStatement plan 0)
 
 testPatternCaseBinderPreservesAliasDefinitionRecursiveVisibility :: IO ()
@@ -562,36 +556,21 @@ scopePlanForSource source =
   case parseAndLowerStandaloneSource source of
     Left diagnostic ->
       failTest ("expected scope-plan witness source to parse and lower: " <> renderDiagnostic diagnostic)
-    Right loweredExpression ->
-      case resolveStandaloneExprNames (exportInventory []) loweredExpression of
-        Left diagnostics ->
-          failTest
-            ( "expected scope-plan witness source to resolve: "
-                <> Text.intercalate "\n" (map renderDiagnostic (toList diagnostics))
-            )
-        Right resolvedExpression -> do
-          (_, attachment) <-
-            analyzeSourceUnitExpression
-              preludeModulePath
-              Set.empty
-              Set.empty
-              defaultWarningSettings
-              resolvedExpression
-          analyzedExpression <-
-            case attachment of
-              Left failures -> failTest ("scope-plan witness facts failed: " <> Text.pack (show failures))
-              Right Nothing -> failTest "scope-plan witness produced no analyzed expression"
-              Right (Just expression) -> pure expression
-          pure
-            ( buildRuntimeScopePlan
-                preludeModulePath
-                Set.empty
-                Nothing
-                Set.empty
-                (scopeStatements analyzedExpression)
-            )
-  where
-    toList (diagnostic :| diagnostics) = diagnostic : diagnostics
+    Right loweredExpression -> do
+      let resolvedExpression = resolveStandaloneExprNames (exportInventory []) loweredExpression
+      (_, attachment) <-
+        analyzeResolvedExpression
+          defaultWarningSettings
+          resolvedExpression
+      analyzedExpression <-
+        case attachment of
+          Left failures -> failTest ("scope-plan witness facts failed: " <> Text.pack (show failures))
+          Right Nothing -> failTest "scope-plan witness produced no analyzed expression"
+          Right (Just expression) -> pure expression
+      pure
+        ( buildRuntimeScopePlan
+            ((either (error . show) id . prepareAnalyzedScope) analyzedExpression)
+        )
 
 testPatternCaseGuardLambdaDoesNotClassifyNonFunctionRecursion :: IO ()
 testPatternCaseGuardLambdaDoesNotClassifyNonFunctionRecursion = do

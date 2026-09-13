@@ -25,9 +25,9 @@ where
 
 import Control.Monad (replicateM)
 import qualified Control.Monad.Trans.State.Strict as State
+import qualified Data.Foldable as Foldable
 import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
-import Data.Text (Text)
 import Jazz.Compiler.BuiltinCatalog
   ( numericTypeIntegerBounds,
     numericTypeIsIntegral,
@@ -51,7 +51,7 @@ import Jazz.Compiler.TypeInference.Types
     IntegerLiteralRange (..),
     NumericConstraint (..),
     SemanticType (..),
-    instantiateConstructorFieldType,
+    instantiateDeclarationType,
   )
 import Jazz.Compiler.TypeRepresentation (NumericType (..), substituteSemanticVariables)
 
@@ -184,12 +184,11 @@ dereferenceType state expressionType =
     _ -> (expressionType, state)
 
 unifyTypeListsWithoutCostCentre :: [ExpressionType] -> [ExpressionType] -> InferState -> Maybe InferState
-unifyTypeListsWithoutCostCentre leftTypes rightTypes state
-  | length leftTypes /= length rightTypes = Nothing
-  | otherwise = foldl' step (Just state) (zip leftTypes rightTypes)
-  where
-    step maybeState (leftType, rightType) =
-      maybeState >>= unifyTypesWithoutCostCentre leftType rightType
+unifyTypeListsWithoutCostCentre [] [] state = Just state
+unifyTypeListsWithoutCostCentre (leftType : leftTypes) (rightType : rightTypes) state = do
+  nextState <- unifyTypesWithoutCostCentre leftType rightType state
+  unifyTypeListsWithoutCostCentre leftTypes rightTypes nextState
+unifyTypeListsWithoutCostCentre _ _ _ = Nothing
 
 bindTypeVar :: InferenceVariable -> ExpressionType -> InferState -> Maybe InferState
 bindTypeVar typeVar replacementType state
@@ -248,20 +247,7 @@ bindTypeVar typeVar replacementType state
         _ -> stateWithoutNumericTypeVar
 
 occursInType :: InferenceVariable -> ExpressionType -> Bool
-occursInType typeVar expressionType =
-  case expressionType of
-    SemanticInt -> False
-    SemanticFloat -> False
-    SemanticNumeric {} -> False
-    SemanticBool -> False
-    SemanticChar -> False
-    SemanticText -> False
-    SemanticList elementType -> occursInType typeVar elementType
-    SemanticTuple elementTypes -> any (occursInType typeVar) elementTypes
-    SemanticData _ typeArguments -> any (occursInType typeVar) typeArguments
-    SemanticFunction inputType outputType ->
-      occursInType typeVar inputType || occursInType typeVar outputType
-    SemanticVariable otherVar -> typeVar == otherVar
+occursInType = Foldable.elem
 
 addStrictEqualityTypeVarConstraint :: InferenceVariable -> InferState -> InferState
 addStrictEqualityTypeVarConstraint typeVar state =
@@ -319,33 +305,20 @@ constrainNumericOperatorType numericConstraint expressionType state =
 
 typeSatisfiesNumericConstraint :: NumericConstraint -> ExpressionType -> Bool
 typeSatisfiesNumericConstraint numericConstraint expressionType =
-  case numericConstraint of
-    AnyNumericConstraint -> anyNumeric
-    RuntimeArithmeticNumericConstraint -> anyNumeric
-    RuntimeComparisonNumericConstraint -> anyNumeric
-    IntegralNumericConstraint -> integralNumeric
-    IntegralLiteralNumericConstraint literalRange ->
-      case expressionType of
-        SemanticInt -> True
-        SemanticNumeric numericType ->
+  case expressionType of
+    SemanticInt -> True
+    SemanticVariable {} -> True
+    SemanticFloat -> acceptsNumericType NumericFloat64
+    SemanticNumeric numericType -> acceptsNumericType numericType
+    _ -> False
+  where
+    acceptsNumericType numericType =
+      case numericConstraint of
+        IntegralNumericConstraint -> numericTypeIsIntegral numericType
+        IntegralLiteralNumericConstraint literalRange ->
           numericTypeIsIntegral numericType
             && integerLiteralRangeFitsNumericType literalRange numericType
-        SemanticVariable {} -> True
-        _ -> False
-  where
-    anyNumeric =
-      case expressionType of
-        SemanticInt -> True
-        SemanticFloat -> True
-        SemanticNumeric {} -> True
-        SemanticVariable {} -> True
-        _ -> False
-    integralNumeric =
-      case expressionType of
-        SemanticInt -> True
-        SemanticNumeric numericType -> numericTypeIsIntegral numericType
-        SemanticVariable {} -> True
-        _ -> False
+        _ -> True
 
 integerLiteralRangeFitsNumericType :: IntegerLiteralRange -> NumericType -> Bool
 integerLiteralRangeFitsNumericType literalRange numericType =
@@ -365,7 +338,7 @@ integerLiteralRangeBounds (IntegerLiteralRange lower upper) = (lower, upper)
 supportsRuntimeEqualityType :: InferState -> ExpressionType -> Bool
 supportsRuntimeEqualityType state = supportsRuntimeEqualityTypeWith Set.empty state
 
-supportsRuntimeEqualityTypeWith :: Set.Set (Text, [ExpressionType]) -> InferState -> ExpressionType -> Bool
+supportsRuntimeEqualityTypeWith :: Set.Set (ResolvedName, [ExpressionType]) -> InferState -> ExpressionType -> Bool
 supportsRuntimeEqualityTypeWith seenDataTypes state expressionType
   | Just _ <- integerLiteralRangeFor state expressionType = True
   | otherwise =
@@ -382,16 +355,16 @@ supportsRuntimeEqualityTypeWith seenDataTypes state expressionType
           dataTypeSupportsRuntimeEqualityWith seenDataTypes state typeName typeArguments
         _ -> False
 
-dataTypeSupportsRuntimeEqualityWith :: Set.Set (Text, [ExpressionType]) -> InferState -> ResolvedName -> [ExpressionType] -> Bool
+dataTypeSupportsRuntimeEqualityWith :: Set.Set (ResolvedName, [ExpressionType]) -> InferState -> ResolvedName -> [ExpressionType] -> Bool
 dataTypeSupportsRuntimeEqualityWith seenDataTypes state typeName typeArguments =
   let resolvedTypeArguments = map (resolveType state) typeArguments
-      dataTypeKey = (identifierText typeName, resolvedTypeArguments)
+      dataTypeKey = (typeName, resolvedTypeArguments)
    in if Set.member dataTypeKey seenDataTypes
         then True
         else checkUnseen (Set.insert dataTypeKey seenDataTypes) resolvedTypeArguments
   where
     checkUnseen nextSeenDataTypes resolvedTypeArguments =
-      case Map.lookup (identifierText typeName) (inferDataTypes state) of
+      case Map.lookup typeName (inferDataTypes state) of
         Just (DataTypeBinding typeParameters constructors)
           | length typeParameters == length resolvedTypeArguments ->
               let typeParameterBindings =
@@ -403,18 +376,11 @@ dataTypeSupportsRuntimeEqualityWith seenDataTypes state typeName typeArguments =
 
     constructorArgumentSupportsRuntimeEquality nextSeenDataTypes typeParameterBindings argumentType =
       case argumentType of
-        ConstructorArgumentMonomorphic expressionType ->
-          supportsRuntimeEqualityTypeWith nextSeenDataTypes state expressionType
-        ConstructorArgumentParameter parameterName ->
+        ConstructorArgumentType fieldType ->
           maybe
             False
             (supportsRuntimeEqualityTypeWith nextSeenDataTypes state)
-            (Map.lookup parameterName typeParameterBindings)
-        ConstructorArgumentStructured fieldType ->
-          maybe
-            False
-            (supportsRuntimeEqualityTypeWith nextSeenDataTypes state)
-            (instantiateConstructorFieldType typeParameterBindings fieldType)
+            (instantiateDeclarationType typeParameterBindings fieldType)
         ConstructorArgumentFresh -> False
 
 supportsDeferredEqualityOperandType :: InferState -> ExpressionType -> Bool

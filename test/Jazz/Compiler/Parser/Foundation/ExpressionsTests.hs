@@ -1,3 +1,4 @@
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 module Jazz.Compiler.Parser.Foundation.ExpressionsTests
@@ -5,6 +6,7 @@ module Jazz.Compiler.Parser.Foundation.ExpressionsTests
   )
 where
 
+import Data.List.NonEmpty (NonEmpty (..))
 import Data.Text (Text)
 import qualified Data.Text as Text
 import Jazz.Compiler.AST
@@ -20,13 +22,15 @@ import Jazz.Compiler.Parser.AST
   ( SurfaceCaseArm (..),
     SurfaceExpr (..),
     SurfaceExprForm (..),
-    SurfaceLiteral (..),
+    SurfaceImplMethod (..),
+    SurfaceLambdaParameter (..),
+    SurfaceName (..),
     SurfaceStatement (..),
   )
 import Jazz.Compiler.Parser.Lower
   ( lowerSurfaceExpr,
   )
-import Jazz.Compiler.TypeRepresentation (SignatureType (..))
+import Jazz.Compiler.TypeRepresentation (NumericType (..), SignatureType (..))
 import Jazz.TestCore
   ( assertLoweredCoreEqual,
     loweredBlock,
@@ -40,7 +44,6 @@ import Jazz.TestCore
   )
 import Jazz.TestHarness
   ( NamedTest,
-    assertContains,
     assertEqual,
     assertRight,
     failTest,
@@ -169,7 +172,7 @@ testParseLetAndExpr =
   assertEqual
     "surface AST"
     ( Right
-        (e 1 1 $ SEBlock [SSLet "x" (SourceSpan 1 1) (e 1 5 $ SELit (SLInt 1)), SSExpr (SourceSpan 2 1) (e 2 1 $ SEVar "x")])
+        (e 1 1 $ SEBlock [SSLet "x" (SourceSpan 1 1) (e 1 5 $ SELit (LInt 1)), SSExpr (SourceSpan 2 1) (e 2 1 $ SEVar "x")])
     )
     ( parseSurfaceProgramPoints
         """
@@ -189,7 +192,7 @@ testParseSurfaceProgramAcceptsTextInput = do
   assertEqual
     "surface AST from Text source"
     ( Right
-        (e 1 1 $ SEBlock [SSLet "x" (SourceSpan 1 1) (e 1 5 $ SELit (SLInt 1)), SSExpr (SourceSpan 2 1) (e 2 1 $ SEVar "x")])
+        (e 1 1 $ SEBlock [SSLet "x" (SourceSpan 1 1) (e 1 5 $ SELit (LInt 1)), SSExpr (SourceSpan 2 1) (e 2 1 $ SEVar "x")])
     )
     (parseSurfaceProgramPoints sourceText)
 
@@ -202,7 +205,7 @@ testParseTupleLiteral =
             SEBlock
               [ SSExpr
                   (SourceSpan 1 1)
-                  (e 1 1 $ SETuple [e 1 2 $ SELit (SLInt 1), e 1 5 $ SELit (SLBool True)])
+                  (e 1 1 $ SETuple [e 1 2 $ SELit (LInt 1), e 1 5 $ SELit (LBool True)])
               ]
         )
     )
@@ -210,8 +213,8 @@ testParseTupleLiteral =
 
 testLowersCharAndTextLiterals :: IO ()
 testLowersCharAndTextLiterals = do
-  assertLoweredCoreEqual "lower Char" (loweredLiteral (LChar 'a')) (lowerSurfaceExpr (e 1 1 $ SELit (SLChar 'a')))
-  assertLoweredCoreEqual "lower Text" (loweredLiteral (LText "Jazz")) (lowerSurfaceExpr (e 1 1 $ SELit (SLText "Jazz")))
+  assertLoweredCoreEqual "lower Char" (loweredLiteral (LChar 'a')) (lowerSurfaceExpr (e 1 1 $ SELit (LChar 'a')))
+  assertLoweredCoreEqual "lower Text" (loweredLiteral (LText "Jazz")) (lowerSurfaceExpr (e 1 1 $ SELit (LText "Jazz")))
 
 testParseFractionalLiteral :: IO ()
 testParseFractionalLiteral =
@@ -223,11 +226,15 @@ testParseFractionalLiteral =
         y = 2.
         """
     )
-    ( \surfaceProgram ->
-        assertContains
-          "surface fractional literal"
-          "SLFloat 1.5"
-          (Text.pack (show surfaceProgram))
+    ( \case
+        SurfaceExpr
+          _
+          ( SEBlock
+              [ SSLet "x" _ (SurfaceExpr _ (SELit (LFloat 1.5 _ Nothing))),
+                SSLet "y" _ (SurfaceExpr _ (SELit (LInt 2)))
+                ]
+            ) -> pure ()
+        other -> failTest ("unexpected surface fractional literals: " <> Text.pack (show other))
     )
 
 testParseFractionalLiteralSuffixes :: IO ()
@@ -241,11 +248,16 @@ testParseFractionalLiteralSuffixes =
         x64 = 3.5f64.
         """
     )
-    ( \surfaceProgram -> do
-        let renderedProgram = Text.pack (show surfaceProgram)
-        assertContains "Float16 suffix target" "Just NumericFloat16" renderedProgram
-        assertContains "Float32 suffix target" "Just NumericFloat32" renderedProgram
-        assertContains "Float64 suffix target" "Just NumericFloat64" renderedProgram
+    ( \case
+        SurfaceExpr
+          _
+          ( SEBlock
+              [ SSLet "x16" _ (SurfaceExpr _ (SELit (LFloat 1.5 _ (Just NumericFloat16)))),
+                SSLet "x32" _ (SurfaceExpr _ (SELit (LFloat 2.5 _ (Just NumericFloat32)))),
+                SSLet "x64" _ (SurfaceExpr _ (SELit (LFloat 3.5 _ (Just NumericFloat64))))
+                ]
+            ) -> pure ()
+        other -> failTest ("unexpected surface fractional suffix targets: " <> Text.pack (show other))
     )
 
 testIgnoresHashLineComments :: IO ()
@@ -254,7 +266,7 @@ testIgnoresHashLineComments =
   assertEqual
     "comments ignored"
     ( Right
-        (e 1 1 $ SEBlock [SSLet "x" (SourceSpan 1 1) (e 1 5 $ SELit (SLInt 1)), SSExpr (SourceSpan 3 1) (e 3 1 $ SEVar "x")])
+        (e 1 1 $ SEBlock [SSLet "x" (SourceSpan 1 1) (e 1 5 $ SELit (LInt 1)), SSExpr (SourceSpan 3 1) (e 3 1 $ SEVar "x")])
     )
     (parseSurfaceProgramPoints "x = 1.\n# parser should ignore this line comment\nx.")
 
@@ -274,7 +286,7 @@ testParseNestedScopeExpression =
     ( Right
         ( e 1 1 $
             SEBlock
-              [ SSLet "x" (SourceSpan 1 1) (e 1 5 $ SELit (SLInt 1)),
+              [ SSLet "x" (SourceSpan 1 1) (e 1 5 $ SELit (LInt 1)),
                 SSExpr
                   (SourceSpan 2 1)
                   (e 2 1 $ SEBlock [SSExpr (SourceSpan 2 3) (e 2 3 $ SEVar "x")])
@@ -303,7 +315,7 @@ testParseBlockArgumentExpression =
                         (e 1 10 $ SEVar "f")
                         ( e 1 12 $
                             SEBlock
-                              [ SSLet "x" (SourceSpan 2 3) (e 2 7 $ SELit (SLInt 1)),
+                              [ SSLet "x" (SourceSpan 2 3) (e 2 7 $ SELit (LInt 1)),
                                 SSExpr (SourceSpan 3 3) (e 3 3 $ SEVar "x")
                               ]
                         )
@@ -343,11 +355,9 @@ testLowerFractionalLiteralProgram =
   assertRight
     "surface parse"
     (parseSurfaceProgramPoints "1.5.")
-    ( \surfaceProgram ->
-        assertContains
-          "lowered fractional literal"
-          "LFloat 1.5"
-          (Text.pack (show (lowerSurfaceExpr surfaceProgram)))
+    ( \surfaceProgram -> case lowerSurfaceExpr surfaceProgram of
+        EBlock _ [SExpr _ (ELit _ (LFloat 1.5 _ Nothing))] -> pure ()
+        other -> failTest ("unexpected lowered fractional literal: " <> Text.pack (show other))
     )
 
 testLowerFractionalLiteralSuffixesProgram :: IO ()
@@ -361,11 +371,14 @@ testLowerFractionalLiteralSuffixesProgram =
         x64 = 3.5f64.
         """
     )
-    ( \surfaceProgram -> do
-        let renderedProgram = Text.pack (show (lowerSurfaceExpr surfaceProgram))
-        assertContains "lowered Float16 suffix target" "Just NumericFloat16" renderedProgram
-        assertContains "lowered Float32 suffix target" "Just NumericFloat32" renderedProgram
-        assertContains "lowered Float64 suffix target" "Just NumericFloat64" renderedProgram
+    ( \surfaceProgram -> case lowerSurfaceExpr surfaceProgram of
+        EBlock
+          _
+          [ SLet _ "x16" (ELit _ (LFloat 1.5 _ (Just NumericFloat16))),
+            SLet _ "x32" (ELit _ (LFloat 2.5 _ (Just NumericFloat32))),
+            SLet _ "x64" (ELit _ (LFloat 3.5 _ (Just NumericFloat64)))
+            ] -> pure ()
+        other -> failTest ("unexpected lowered fractional suffix targets: " <> Text.pack (show other))
     )
 
 testParsesLargeIntegerLiteral :: IO ()
@@ -375,7 +388,7 @@ testParsesLargeIntegerLiteral =
     (parseSurfaceProgramPoints "x = 9223372036854775808.")
     ( assertEqual
         "large integer surface AST"
-        (e 1 1 $ SEBlock [SSLet "x" (SourceSpan 1 1) (e 1 5 $ SELit (SLInt 9223372036854775808))])
+        (e 1 1 $ SEBlock [SSLet "x" (SourceSpan 1 1) (e 1 5 $ SELit (LInt 9223372036854775808))])
     )
 
 testParsesAbstractionKeywordsAsBindingNames :: IO ()
@@ -385,7 +398,7 @@ testParsesAbstractionKeywordsAsBindingNames =
     ( Right
         ( e 1 1 $
             SEBlock
-              [ SSLet "class" (SourceSpan 1 1) (e 1 9 $ SELit (SLInt 1)),
+              [ SSLet "class" (SourceSpan 1 1) (e 1 9 $ SELit (LInt 1)),
                 SSLet "impl" (SourceSpan 2 1) (e 2 8 $ SEVar "class"),
                 SSLet "trait" (SourceSpan 3 1) (e 3 9 $ SEVar "impl")
               ]
@@ -406,7 +419,7 @@ testParsesOperatorKeywordAsBindingName =
     ( Right
         ( e 1 1 $
             SEBlock
-              [ SSLet "operator" (SourceSpan 1 1) (e 1 12 $ SELit (SLInt 1)),
+              [ SSLet "operator" (SourceSpan 1 1) (e 1 12 $ SELit (LInt 1)),
                 SSLet "result" (SourceSpan 2 1) (e 2 10 $ SEVar "operator")
               ]
         )
@@ -430,7 +443,7 @@ testParsesOperatorKeywordAsNestedBlockBindingName =
                   (SourceSpan 1 1)
                   ( e 1 9 $
                       SEBlock
-                        [ SSLet "operator" (SourceSpan 2 3) (e 2 14 $ SELit (SLInt 1)),
+                        [ SSLet "operator" (SourceSpan 2 3) (e 2 14 $ SELit (LInt 1)),
                           SSExpr (SourceSpan 3 3) (e 3 3 $ SEVar "operator")
                         ]
                   )
@@ -468,7 +481,7 @@ testParsesImplCapabilityDeclaration =
             SEBlock
               [ SSImpl
                   (SourceSpan 1 1)
-                  "Eq"
+                  (SurfaceName "Eq" (SourceSpan 1 6) Nothing)
                   [TypeInt]
                   []
               ]
@@ -508,11 +521,28 @@ testParsesImplMethodBindingMetadata =
         }.
         """
     )
-    ( \surfaceProgram -> do
-        let rendered = Text.pack (show surfaceProgram)
-        assertContains "surface impl method metadata" "SurfaceImplMethod" rendered
-        assertContains "surface impl method name" "Identifier \"equals\" Pure" rendered
-        assertContains "surface impl method expression" "SEBinary \"==\"" rendered
+    ( \case
+        SurfaceExpr
+          _
+          ( SEBlock
+              [ SSImpl
+                  _
+                  (SurfaceName "Eq" _ _)
+                  [TypeInt]
+                  [ SurfaceImplMethod
+                      "equals"
+                      _
+                      ( SurfaceExpr
+                          _
+                          ( SELambda
+                              (SurfaceLambdaIdentifier _ "left" :| [SurfaceLambdaIdentifier _ "right"])
+                              (SurfaceExpr _ (SEBinary "==" (SurfaceExpr _ (SEVar "left")) (SurfaceExpr _ (SEVar "right"))))
+                            )
+                        )
+                    ]
+                ]
+            ) -> pure ()
+        other -> failTest ("unexpected surface impl method shape: " <> Text.pack (show other))
     )
 
 testLowersImplMethodBindingMetadata :: IO ()

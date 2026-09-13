@@ -121,11 +121,11 @@ renderCanonicalParserResult = renderRuntimeValue . canonicalParserResultRuntimeV
 renderCanonicalSourceResult :: CanonicalSourceResult -> Text
 renderCanonicalSourceResult = renderRuntimeValue . canonicalSourceResultRuntimeValue
 
-surfaceLiteralRuntimeValue :: SurfaceLiteral -> RuntimeValue
+surfaceLiteralRuntimeValue :: Literal -> RuntimeValue
 surfaceLiteralRuntimeValue literalValue =
   case literalValue of
-    SLInt value -> canonicalConstructor "IntegerLiteral" [decimalIntegerValue value]
-    SLFloat _ source maybeWidth ->
+    LInt value -> canonicalConstructor "IntegerLiteral" [decimalIntegerValue value]
+    LFloat _ source maybeWidth ->
       let (wholePart, fractionalPart, scale) = fractionalLiteralSourceParts source
        in canonicalConstructor
             "FractionalLiteral"
@@ -133,9 +133,9 @@ surfaceLiteralRuntimeValue literalValue =
               VText (fractionalDigits fractionalPart scale),
               maybeRuntimeValue surfaceNumericTypeRuntimeValue maybeWidth
             ]
-    SLBool value -> canonicalConstructor "BooleanLiteral" [VBool value]
-    SLChar value -> canonicalConstructor "CharacterLiteral" [VChar value]
-    SLText value -> canonicalConstructor "TextLiteral" [VText value]
+    LBool value -> canonicalConstructor "BooleanLiteral" [VBool value]
+    LChar value -> canonicalConstructor "CharacterLiteral" [VChar value]
+    LText value -> canonicalConstructor "TextLiteral" [VText value]
 
 fractionalDigits :: Integer -> Integer -> Text
 fractionalDigits fractionalPart scale =
@@ -202,7 +202,7 @@ surfaceExprRuntimeValue expression =
       canonicalConstructor
         "QualifiedVariableExpression"
         [identifierRuntimeValue qualifier, identifierRuntimeValue member]
-    SEQualifiedMethod moduleAlias capability method _ ->
+    SEQualifiedMethod moduleAlias capability method _ _ _ ->
       canonicalConstructor
         "QualifiedMethodExpression"
         [ identifierRuntimeValue moduleAlias,

@@ -5,6 +5,7 @@ module Main (main) where
 
 import Data.List (nub)
 import Data.Text (Text)
+import qualified Data.Text as Text
 import Jazz.Compiler.AST
   ( CaseArm (..),
     ClassMethodSignature (..),
@@ -17,24 +18,22 @@ import Jazz.Compiler.AST
     Pattern (..),
     Statement (..),
   )
+import Jazz.Compiler.CoreIdentity (ResolvedNodeFacts (..), ResolvedReference (..))
 import Jazz.Compiler.Diagnostics (SourceSpan (..))
+import Jazz.Compiler.ModuleAnalysis
+  ( analyzeResolvedExpression,
+  )
 import Jazz.Compiler.ModuleExports (exportInventory)
 import Jazz.Compiler.ModuleResolver (resolveStandaloneExprNames)
+import Jazz.Compiler.Name (operatorBindingName)
 import Jazz.Compiler.Parser (parseSurfaceProgram)
 import Jazz.Compiler.Parser.Lower (lowerSurfaceExpr)
-import Jazz.Compiler.SourceProgram
-  ( parseAndLowerStandaloneSource,
-    prependLoweredStatements,
-    scopeStatements,
-  )
-import Jazz.Compiler.TypeInference
-  ( inferExpressionDefault,
-  )
-import Jazz.Compiler.TypeInference.Result (InferenceResult (inferredExpr))
+import Jazz.Compiler.WarningConfig (defaultWarningSettings)
 import Jazz.TestHarness
   ( NamedTest,
     assertEqual,
     assertRight,
+    failTest,
     runTestSuite,
   )
 
@@ -43,10 +42,11 @@ main = runTestSuite "CoreNormalization" tests
 
 tests :: [NamedTest]
 tests =
-  [ ("if remains the canonical boolean conditional", testIfRemainsCanonicalIf),
+  [ ("analyzed if remains the canonical boolean conditional", testIfRemainsCanonicalIf),
     ("dollar lowers directly to application", testDollarLowersToApplication),
+    ("operator values resolve to callable references", testOperatorValuesResolveToReferences),
+    ("declared sections and binary operators resolve to applications", testDeclaredOperatorsResolveToApplications),
     ("lowering assigns deterministic pre-order node identities", testDeterministicNodeIdentities),
-    ("prelude composition preserves one pre-order identity space", testComposedNodeIdentities),
     ("lowering preserves a complete span on every canonical node", testCompleteCanonicalSpans)
   ]
 
@@ -54,9 +54,12 @@ testIfRemainsCanonicalIf :: IO ()
 testIfRemainsCanonicalIf =
   assertRight "parse if" (parseSurfaceProgram "if True then 1 else 2.") $ \surface -> do
     let lowered = lowerSurfaceExpr surface
-    assertRight "resolve if" (resolveStandaloneExprNames (exportInventory []) lowered) $ \resolved -> do
-      inference <- inferExpressionDefault resolved
-      assertEqual "resolved equals inferred" resolved (inferredExpr inference)
+        resolved = resolveStandaloneExprNames (exportInventory []) lowered
+    (_, analyzed) <- analyzeResolvedExpression defaultWarningSettings resolved
+    assertRight "analyze if" analyzed $ \expression ->
+      case expression of
+        Just (EBlock _ [SExpr _ EIf {}]) -> pure ()
+        _ -> failTest ("expected analyzed conditional block, got " <> Text.pack (show expression))
 
 testDollarLowersToApplication :: IO ()
 testDollarLowersToApplication =
@@ -66,26 +69,42 @@ testDollarLowersToApplication =
         | coreNodeSpan statementNode == SourceRange 1 1 1 2 -> pure ()
       lowered -> assertEqual "canonical dollar shape" "application block" (show lowered)
 
+testOperatorValuesResolveToReferences :: IO ()
+testOperatorValuesResolveToReferences =
+  assertRight "parse operator value" (parseSurfaceProgram "(+).") $ \surface ->
+    case lowerSurfaceExpr surface of
+      lowered@(EBlock _ [SExpr _ (EOperatorValue sourceNode "+")]) ->
+        let resolved = resolveStandaloneExprNames (exportInventory []) lowered
+         in case resolved of
+              EBlock _ [SExpr _ (EVar node name)] -> do
+                assertEqual "callable name" (operatorBindingName "+") name
+                assertEqual "builtin operator target" (Just (BuiltinOperatorReference "+")) (resolvedNodeReference (coreNodeFacts node))
+                assertEqual "operator identity" (coreNodeId sourceNode) (coreNodeId node)
+                assertEqual "authored operator span" (coreNodeSpan sourceNode) (coreNodeSpan node)
+              _ -> assertEqual "resolved operator shape" "callable reference" (show resolved)
+      _ -> assertEqual "lowered operator stays canonical" "operator value" (show (lowerSurfaceExpr surface))
+
+testDeclaredOperatorsResolveToApplications :: IO ()
+testDeclaredOperatorsResolveToApplications =
+  assertRight "parse declared operator forms" (parseSurfaceProgram "operator %% tier 2. (%%) = \\(left, right) -> left - right. ((3 %%) 2, (%% 3) 2, 3 %% 2).") $ \surface -> do
+    let lowered = lowerSurfaceExpr surface
+        resolved = resolveStandaloneExprNames (exportInventory []) lowered
+    let identities = map fst (canonicalNodeFacts resolved)
+    assertEqual "generated identities are distinct" (length identities) (length (nub identities))
+    assertEqual "authored identities survive normalization" True (all (`elem` identities) (canonicalNodeIds lowered))
+    assertEqual "generated spans retain the operator location" True (all (completeSpan . snd) (canonicalNodeFacts resolved))
+    case resolved of
+      EBlock _ [SLet {}, SExpr _ (ETuple _ [EApply _ (EApply _ ELambda {} _) _, EApply _ (EApply _ ELambda {} _) _, EApply _ (EApply _ EVar {} _) _])] -> pure ()
+      _ -> assertEqual "normalized declared operators" "capturing applications and lambdas" (show resolved)
+
 testDeterministicNodeIdentities :: IO ()
 testDeterministicNodeIdentities =
   assertRight "parse nested source" (parseSurfaceProgram nestedSource) $ \surface -> do
     let firstIds = canonicalNodeIds (lowerSurfaceExpr surface)
         secondIds = canonicalNodeIds (lowerSurfaceExpr surface)
     assertEqual "repeat lowering" firstIds secondIds
-    assertEqual "strict source pre-order" [CoreNodeId 0 .. CoreNodeId (length firstIds - 1)] firstIds
+    assertEqual "strict source pre-order" (map CoreNodeId [0 .. length firstIds - 1]) firstIds
     assertEqual "no duplicate IDs" (length firstIds) (length (nub firstIds))
-
-testComposedNodeIdentities :: IO ()
-testComposedNodeIdentities =
-  assertRight "lower prelude" (parseAndLowerStandaloneSource "identity = \\(x) -> x.") $ \loweredPrelude ->
-    assertRight "lower source" (parseAndLowerStandaloneSource "result = identity 1.") $ \loweredSource -> do
-      let combined = prependLoweredStatements (scopeStatements loweredPrelude) loweredSource
-          combinedIds = canonicalNodeIds combined
-      assertEqual
-        "composed strict source pre-order"
-        [CoreNodeId 0 .. CoreNodeId (length combinedIds - 1)]
-        combinedIds
-      assertEqual "composed IDs are unique" (length combinedIds) (length (nub combinedIds))
 
 testCompleteCanonicalSpans :: IO ()
 testCompleteCanonicalSpans =

@@ -3,7 +3,6 @@
 
 module Main (main) where
 
-import Data.Foldable (toList)
 import qualified Data.Foldable as Foldable
 import Data.Functor.Identity (runIdentity)
 import Data.IORef
@@ -35,14 +34,17 @@ import Jazz.Compiler.AST
 import Jazz.Compiler.BuiltinCatalog
   ( BuiltinSymbol (BuiltinToInt8),
   )
-import Jazz.Compiler.Diagnostics (Diagnostic, SourceSpan (..))
+import Jazz.Compiler.CoreIdentity (CapabilityId (..), CoreBinderId (..), ImplId (..), MethodId (..), ResolvedNodeFacts (..), ResolvedReference (..), ResolvedScopeFacts (..), emptyResolvedNodeFacts, resolvedNodeImportTarget)
+import Jazz.Compiler.Diagnostics (Diagnostic, SourceSpan (..), isErrorDiagnostic)
 import Jazz.Compiler.Diagnostics.Render
   ( renderDiagnostic,
   )
 import Jazz.Compiler.Driver
   ( CompileResult,
+    ResolvedPrelude (..),
     RunExecution (..),
     RunResult,
+    buildAnalyzedSourceProgram,
     compileErrors,
     compileModuleGraphWithPrelude,
     compileWarnings,
@@ -54,16 +56,15 @@ import Jazz.Compiler.Driver
     runOutput,
     runRuntimeErrors,
     runRuntimeValue,
+    runSourceWithPrelude,
+    runSourceWithPreludeAndHost,
   )
 import Jazz.Compiler.ModuleAnalysis
   ( analyzeModule,
     dependencyImportInterface,
-    moduleBinderInventory,
-    moduleEvidenceCandidates,
   )
 import Jazz.Compiler.ModuleCompiler
   ( analyzeProgram,
-    analyzedProgramErrors,
   )
 import Jazz.Compiler.ModuleExports
   ( ModuleExport (..),
@@ -78,6 +79,9 @@ import Jazz.Compiler.ModuleGraph
     ModuleImport (..),
     PreludeArtifact (..),
     ResolvedModuleFacts (..),
+    analyzedModuleDiagnostics,
+    analyzedProgramErrors,
+    coreModuleBodyNode,
     coreModuleExpr,
     coreModuleFacts,
     coreModuleImports,
@@ -93,9 +97,13 @@ import Jazz.Compiler.ModuleIdentity
     mkModulePath,
     mkSourceFile,
     moduleIdentity,
+    modulePathTextSegments,
+    preludeModulePath,
+    standaloneModulePath,
   )
 import Jazz.Compiler.ModuleInterface
   ( ModuleInterface (..),
+    ModuleValueBinding (..),
     emptyCompileInputs,
   )
 import Jazz.Compiler.ModuleResolver (ModuleResolutionConfig (..), resolveProgramWithAmbientExports)
@@ -115,6 +123,7 @@ import Jazz.Compiler.Name
     identifierText,
     mkIdentifier,
     operatorBindingName,
+    resolvedImportedName,
   )
 import Jazz.Compiler.Runtime
   ( RuntimeCell,
@@ -138,38 +147,27 @@ import Jazz.Compiler.SemanticFacts
     AnalyzedNumericConstraint (..),
     AnalyzedPrimitiveConstraint (..),
     AnalyzedScheme (..),
-    AnalyzedType,
     BinaryOperandTyping (..),
     BinaryOperation (..),
-    CapabilityId (..),
-    CoreBinderId (..),
     EvidenceReference (..),
     ExpressionFacts (..),
-    ImplId (..),
-    MethodId (..),
+    InstantiationTarget (..),
     PatternConstructorFact (..),
     PatternFacts (..),
     PatternRefutability (..),
-    RuntimeObligation (..),
-    RuntimePlan (..),
     SemanticFactInvariantFailure (..),
     SemanticInstantiation (..),
     StatementDeclarationFact (..),
     StatementFacts (..),
   )
-import Jazz.Compiler.TypeInference.Analyzed (attachAnalyzedExpression, projectAnalyzedMethodSignature)
-import Jazz.Compiler.TypeInference.Result (InferenceResult (..))
+import Jazz.Compiler.SourceProgram (parseAndLowerStandaloneSource)
+import Jazz.Compiler.TypeInference (CheckedExpr (..), InferenceInputs (..), inferExpressionWork)
+import Jazz.Compiler.TypeInference.Analyzed (draftExpressionNode, draftStatementNode, finalizeCheckedExpression, projectAnalyzedMethodSignature)
+import Jazz.Compiler.TypeInference.Result (inferredDiagnostics)
 import Jazz.Compiler.TypeInference.Solver (freshIntegerLiteralType)
 import Jazz.Compiler.TypeInference.State
-  ( ExplicitInstantiationSeed (..),
-    ExplicitInstantiationTarget (..),
-    ExpressionEvidenceSeed (..),
+  ( InferState (..),
     initialInferState,
-    recordExplicitInstantiationSeed,
-    recordExpressionEvidenceSeed,
-    recordExpressionFactType,
-    recordPatternFactSeed,
-    recordStatementFactSeed,
   )
 import Jazz.Compiler.TypeInference.Types
   ( ClassMethodType (..),
@@ -179,9 +177,9 @@ import Jazz.Compiler.TypeInference.Types
     IntegerLiteralRange (..),
     NumericConstraint (..),
     SchemePrimitiveConstraint (..),
+    SemanticBinding (..),
+    SemanticScheme (..),
     SemanticType (..),
-    TypeBinding (..),
-    TypeScheme (..),
     emptyScopeCapabilityFacts,
     quantifiedVariablesFromPreferred,
   )
@@ -195,6 +193,7 @@ import Jazz.TestHarness
   ( NamedTest,
     assertContains,
     assertEqual,
+    assertSingleDiagnosticCode,
     runTestSuite,
   )
 
@@ -203,19 +202,25 @@ main = runTestSuite "ModulePipelineContract" tests
 
 tests :: [NamedTest]
 tests =
-  [ ("single-module analysis consumes complete imported interfaces", testSingleModuleAnalysis),
+  [ ("standalone source and prelude keep separate graph identities", testStandaloneProgramOwnership),
+    ("standalone prelude expressions retain effects and terminal values", testStandalonePreludeExecution),
+    ("single-module analysis consumes complete imported interfaces", testSingleModuleAnalysis),
+    ("exported scheme parameters are independent of private solver allocation", testExportedSchemeParameterIdentity),
+    ("imported monomorphic aliases retain declaration sharing", testImportedMonomorphicAliasSharing),
+    ("nominal types retain identity across their module boundary", testNominalTypeIdentity),
     ("runtime consumes analyzed declarations after source types are erased", testRuntimeUsesAnalyzedDeclarations),
     ("operation facts retain the numeric rule decision across equivalent aliases", testBinaryOperandAliasSelection),
     ("analyzed operations retain operand typing and alias selection", testAnalyzedBinaryOperations),
-    ("analyzed expressions preserve literal-range constraints for backend specialization", testAnalyzedLiteralRangeFacts),
+    ("analyzed expressions preserve literal-range constraints for numeric specialization", testAnalyzedLiteralRangeFacts),
+    ("checked subtrees own their facts before finalization", testCheckedSubtreeOwnership),
     ("successful inference attaches complete analyzed facts", testAnalyzedProgramFactsAreComplete),
     ("analyzed methods identify used and unused class parameters", testAnalyzedMethodParameterIdentity),
     ("method projection rejects variables outside the class binder", testAnalyzedMethodParameterBoundary),
-    ("analyzed fact attachment rejects missing and duplicate entries", testAnalyzedFactInvariantFailures),
+    ("checked-tree finalization rejects incomplete semantic nodes", testAnalyzedFactInvariantFailures),
     ("dependency expressions are checked but not executed", testDependencyExpressionContract),
     ("analyzed interfaces expose only declared exports", testAnalyzedInterfacesExposeOnlyDeclaredExports),
     ("runtime modules publish only declared exports", testRuntimeModulePublishesDeclaredExports),
-    ("analyzed modules retain private interfaces with public inventories", testAnalyzedModuleKeepsPrivateInterfaceWithPublicInventory),
+    ("analyzed modules retain private interfaces with public inventories", testAnalyzedModulePublishesOnlyPublicDeclarations),
     ("runtime modules publish explicit value exports only", testRuntimeModulePublishesExplicitExportsOnly),
     ("runtime modules publish methods only for public classes", testRuntimeModulePublishesPublicClassMethodsOnly),
     ("module export identities distinguish shadowed values and constructors", testModuleExportIdentityPreservesNamespaces),
@@ -225,6 +230,8 @@ tests =
     ("analyzed generic constructor fields remain module-stable", testAnalyzedGenericConstructorFieldsRemainModuleStable),
     ("analyzed dependency terminal expressions are skipped", testAnalyzedDependencyTerminalExpressionIsSkipped),
     ("host-free and host-capable module paths preserve observable results", testModuleRuntimePathParity),
+    ("scope storage preserves interleaved recursive definition sites", testScopeStorageDefinitionSites),
+    ("deferred cells memoize within each closure invocation", testScopeStorageInvocationIdentity),
     ("run result projections distinguish all execution states", testRunResultProjectionInvariants),
     ("module graph execution carries one host through dependency exports", testModuleGraphInjectsRuntimeHost),
     ("alias imports stay qualified", testAliasIsolationContract),
@@ -241,36 +248,132 @@ tests =
 -- Resolve real modules once, then check the entry from the public dependency
 -- interface alone. This covers nominal data, explicit binder instantiation and
 -- selected implementation evidence without giving the operation a program graph.
+testStandaloneProgramOwnership :: IO ()
+testStandaloneProgramOwnership = do
+  source <- either (fail . show) pure (parseAndLowerStandaloneSource "saved = make. saved.")
+  result <- buildAnalyzedSourceProgram defaultWarningSettings (PreludeExplicit "data Token = Token. make = Token.") source
+  case result of
+    Right (resolved, [], Just analyzed) -> do
+      let entry = NonEmpty.last (coreProgramModules resolved)
+      assertEqual "standalone root owner" (StandaloneSourceUnit standaloneModulePath) (resolvedNodeOwner (coreNodeFacts (coreModuleBodyNode entry)))
+      case preludeModule (coreProgramPrelude resolved) of
+        Just prelude -> do
+          assertEqual "prelude root owner" (PreludeSourceUnit preludeModulePath) (resolvedNodeOwner (coreNodeFacts (coreModuleBodyNode prelude)))
+          assertEqual "independent root node spaces" (coreNodeId (coreModuleBodyNode prelude)) (coreNodeId (coreModuleBodyNode entry))
+          case ([node | SLet node _ _ <- coreModuleStatements prelude], coreModuleStatements entry) of
+            ([definition], SLet _ _ (EVar use _) : _) ->
+              assertEqual "source selects the prelude declaration" (LexicalReference <$> resolvedNodeBinder (coreNodeFacts definition)) (resolvedNodeReference (coreNodeFacts use))
+            _ -> fail "unexpected standalone identity fixture shape"
+        Nothing -> fail "missing independent prelude artifact"
+      runtime <- either (fail . show) pure (evaluateAnalyzedProgram analyzed)
+      assertEqual "standalone program result" (Just "Token") (renderRuntimeValue <$> runtimeProgramOutput runtime)
+    other -> fail ("standalone graph analysis failed: " <> show other)
+
+testStandalonePreludeExecution :: IO ()
+testStandalonePreludeExecution = do
+  calls <- newIORef []
+  result <-
+    runSourceWithPreludeAndHost
+      (recordingHost calls)
+      defaultWarningSettings
+      (Just "__kernel_writeStdoutRaw! \"prelude\".")
+      "__kernel_writeStdoutRaw! \"source\". 7."
+  assertEqual "prelude/source compilation" [] (runCompileErrors result)
+  assertEqual "prelude/source execution" [] (runRuntimeErrors result)
+  assertEqual "prelude then source effects" ["prelude", "source"] =<< readIORef calls
+  assertEqual "source terminal value" (Just "7") (runOutput result)
+  emptyResult <- runSourceWithPrelude defaultWarningSettings (Just "42.") ""
+  assertEqual "empty source retains prelude terminal value" (Just "42") (runOutput emptyResult)
+  bindingResult <- runSourceWithPrelude defaultWarningSettings (Just "42.") "value = 1."
+  assertEqual "source declaration clears prelude terminal value" Nothing (runOutput bindingResult)
+
 testSingleModuleAnalysis :: IO ()
 testSingleModuleAnalysis = do
-  (resolved, analyzed) <- analyzeFixtureProgram factCompletenessSources
+  (resolved, analyzed) <- analyzeFixtureProgram sources
   let inputs = emptyCompileInputs defaultWarningSettings
       entryPath = nominalModulePath ("App" :| ["Main"])
+      interfaces = Map.fromList [(coreModulePath checked, analyzedModuleInterface facts) | checked <- NonEmpty.toList (coreProgramModules analyzed), let facts = coreModuleFacts checked]
   entry <- maybe (fail "missing resolved entry") pure (lookupCoreModule entryPath resolved)
   expected <- maybe (fail "missing analyzed entry") pure (lookupCoreModule entryPath analyzed)
-  imports <- traverse (dependencyInterface resolved analyzed) (coreModuleImports entry)
-  (inference, actual) <- analyzeModule inputs NamedSourceUnit Set.empty (mconcat imports) entry
+  let factsInterface = interfaces Map.! nominalModulePath ("Lib" :| ["Facts"])
+  assertEqual
+    "dependency interface excludes private and transitive values"
+    (Set.fromList [ModuleExport ValueNamespace "identity", ModuleExport ConstructorNamespace "Box"])
+    (Map.keysSet (interfaceValueBindings factsInterface))
+  assertEqual
+    "unreachable private type metadata remains module-owned"
+    (Set.singleton (resolvedImportedName (nominalModulePath ("Lib" :| ["Facts"])) TypeNamespace (mkIdentifier "Box")))
+    (Map.keysSet (interfaceDataTypes factsInterface))
+  imports <- traverse (dependencyInterface (resolvedModuleImportScope (coreModuleFacts entry)) interfaces) (coreModuleImports entry)
+  (inference, actual) <- analyzeModule inputs False (mconcat imports) entry
   assertEqual "single-module diagnostics" [] (inferredDiagnostics inference)
   assertEqual "single-module facts, binders and evidence match program analysis" (Just expected) actual
+  runtime <- either (fail . show) pure (evaluateAnalyzedProgram analyzed)
+  assertEqual "aliased and selective imports retain every view" (Just "1") (renderRuntimeValue <$> runtimeProgramOutput runtime)
   failing <- resolveFixtureProgram (Map.singleton "src/App/Main.jz" "module App::Main { 1 True. }")
   let failingEntry = NonEmpty.head (coreProgramModules failing)
   (programDiagnostics, _) <- analyzeProgram inputs failing
-  (failedInference, failedModule) <- analyzeModule inputs NamedSourceUnit Set.empty mempty failingEntry
+  (failedInference, failedModule) <- analyzeModule inputs False mempty failingEntry
   assertEqual "failed module has no analyzed artifact" Nothing failedModule
   assertEqual "single-module diagnostic order matches program analysis" programDiagnostics (inferredDiagnostics failedInference)
   where
-    dependencyInterface resolved analyzed importDecl = do
-      let path = importedModule importDecl
-      dependency <- maybe (fail "missing resolved dependency") pure (lookupCoreModule path resolved)
-      checked <- maybe (fail "missing analyzed dependency") pure (lookupCoreModule path analyzed)
-      pure $
-        dependencyImportInterface
-          importDecl
-          ( resolvedModuleExports (coreModuleFacts dependency),
-            analyzedModuleInterface (coreModuleFacts checked),
-            moduleBinderInventory checked,
-            moduleEvidenceCandidates NamedSourceUnit dependency
-          )
+    sources =
+      Map.fromList
+        [ ("src/App/Main.jz", "module App::Main (result) { import Lib::Facts as Facts. import Lib::Facts (Box). result = Facts::identity @Int (case Facts::Box 1 { | Box item -> if Facts::Eq::equals item 1 then item else 0 }). result. }"),
+          ("src/Lib/Facts.jz", "module Lib::Facts (identity, type Box(Box), Eq) { import Lib::Hidden. privateHelper = \\(item) -> item. identity :: a -> a. identity = \\(item) -> privateHelper item. data Box a = Box a. data Unused = Unused. class Eq(a) { equals :: a -> a -> Bool. }. impl Eq(Int) { equals = \\(left, right) -> left == right + hiddenZero. }. }"),
+          ("src/Lib/Hidden.jz", "module Lib::Hidden { hiddenZero = 0. }")
+        ]
+    dependencyInterface scope interfaces importDecl =
+      case Map.lookup (importedModule importDecl) interfaces of
+        Nothing -> fail "missing dependency interface"
+        Just interface -> pure (dependencyImportInterface scope (importedModule importDecl) interface)
+
+testExportedSchemeParameterIdentity :: IO ()
+testExportedSchemeParameterIdentity = do
+  direct <- exportedPick ""
+  shifted <- exportedPick "private = \\(item) -> item. "
+  assertEqual "closed exported scheme is stable across private allocations" direct shifted
+  where
+    exportedPick prefix = do
+      (_, analyzed) <- analyzeFixtureProgram (Map.singleton "src/App/Main.jz" ("module App::Main { " <> prefix <> "pick :: a -> b -> a. pick = \\(left, right) -> left. }"))
+      let interface = analyzedInterface (NonEmpty.last (coreProgramModules analyzed))
+      case Map.lookup (ModuleExport ValueNamespace "pick") (interfaceValueBindings interface) of
+        Just binding -> pure (interfaceBindingType binding)
+        Nothing -> fail "missing exported pick scheme"
+
+testImportedMonomorphicAliasSharing :: IO ()
+testImportedMonomorphicAliasSharing = do
+  resolved <- resolveFixtureProgram (sources "True")
+  (diagnostics, analyzed) <- analyzeProgram (emptyCompileInputs defaultWarningSettings) resolved
+  assertSingleDiagnosticCode "monomorphic aliases reject inconsistent uses" "E2006" (filter isErrorDiagnostic diagnostics)
+  assertEqual "inconsistent aliases have no analyzed program" Nothing analyzed
+  _ <- analyzeFixtureProgram (sources "2")
+  pure ()
+  where
+    sources second =
+      Map.fromList
+        [ ("src/Lib/Box.jz", "module Lib::Box { data Box a = Box a. make = Box. other = make. }"),
+          ("src/Lib/Alias.jz", "module Lib::Alias { import Lib::Box. another = other. }"),
+          ("src/App/Main.jz", "module App::Main { import Lib::Box. import Lib::Alias. first = make 1. another " <> second <> ". }")
+        ]
+
+testNominalTypeIdentity :: IO ()
+testNominalTypeIdentity = do
+  (_, program) <-
+    analyzeFixtureProgram
+      ( Map.fromList
+          [ ("src/Lib/Box.jz", "module Lib::Box { data Box = Box. boxed = Box. }"),
+            ("src/App/Main.jz", "module App::Main { import Lib::Box. copy = boxed. }")
+          ]
+      )
+  defining <- exportedType program (nominalModulePath ("Lib" :| ["Box"])) "boxed"
+  imported <- exportedType program (nominalModulePath ("App" :| ["Main"])) "copy"
+  assertEqual "the defining and importing views name the same type" defining imported
+  where
+    exportedType program path name = do
+      checked <- maybe (fail "missing checked module") pure (lookupCoreModule path program)
+      binding <- maybe (fail "missing exported value") pure (Map.lookup (ModuleExport ValueNamespace name) (interfaceValueBindings (analyzedInterface checked)))
+      pure (interfaceBindingType binding)
 
 testBinaryOperandAliasSelection :: IO ()
 testBinaryOperandAliasSelection = do
@@ -362,14 +465,14 @@ testAnalyzedBinaryOperations = do
 testAnalyzedLiteralRangeFacts :: IO ()
 testAnalyzedLiteralRangeFacts = do
   let nodeId = CoreNodeId 17
-      expression = ELit (CoreNode nodeId (SourceSpan 1 1) ()) (LInt 255)
+      expression = ELit (CoreNode nodeId (SourceSpan 1 1) (emptyResolvedNodeFacts (NamedSourceUnit (nominalModulePath ("App" :| ["Main"]))))) (LInt 255)
       (literalType, literalState) = freshIntegerLiteralType (IntegerLiteralRange 0 255) initialInferState
-      state = recordExpressionFactType nodeId literalType literalState
-  case attachAnalyzedExpression (nominalModulePath ("App" :| ["Main"])) Map.empty state expression of
+      checked = CheckedExpr (Just literalType) (ELit <$> draftExpressionNode (Just literalType) expression <*> pure (LInt 255))
+  case finalizeCheckedExpression literalState checked of
     Right (ELit (CoreNode _ _ facts) _) -> do
       assertEqual "uncommitted numeric representation" literalType (expressionSemanticType facts)
       assertEqual
-        "backend retains the solver's complete literal range"
+        "analyzed facts retain the solver's complete literal range"
         [AnalyzedIntegralLiteralNumericConstraint 0 255]
         (Map.elems (expressionNumericConstraints facts))
     result -> fail ("literal fact attachment failed: " <> show result)
@@ -407,7 +510,7 @@ assertAnalyzedProgramFacts resolvedProgram analyzedProgram = do
       instantiations = foldMap (expressionInstantiationInventory . coreModuleExpr) (coreProgramModules analyzedProgram)
       analyzedSchemes = foldMap moduleSchemes (coreProgramModules analyzedProgram)
   case instantiations of
-    [SemanticInstantiation binder (SemanticInt :| [])] ->
+    [SemanticInstantiation (LexicalInstantiation binder) (SemanticInt :| [])] ->
       assertEqual "explicit instantiation references an analyzed declaration binder" True (binder `elem` analyzedBinders)
     values -> fail ("expected one exact Int instantiation, got " <> show values)
   assertEqual
@@ -442,7 +545,9 @@ assertAnalyzedProgramFacts resolvedProgram analyzedProgram = do
       case moduleImportNode importDecl of
         CoreNode _ _ facts ->
           case statementDeclarationFact facts of
-            ImportDeclaration _ -> pure ()
+            ImportDeclaration target -> do
+              assertEqual "import target identity" (importedModule importDecl) target
+              assertEqual "import target survives checking" (Just target) (resolvedNodeImportTarget (statementResolution facts))
             declarationFact -> fail ("unexpected analyzed import declaration fact: " <> show declarationFact)
 
 testAnalyzedMethodParameterIdentity :: IO ()
@@ -477,243 +582,113 @@ testAnalyzedMethodParameterBoundary :: IO ()
 testAnalyzedMethodParameterBoundary =
   mapM_
     checkRejected
-    [ TypeFunction foreignVariable foreignVariable,
-      TypeFunction classVariable foreignVariable
+    [ SemanticFunction foreignVariable foreignVariable,
+      SemanticFunction classVariable foreignVariable
     ]
   where
-    classVariable = TypeVariable (BuiltinName (mkIdentifier "a"))
-    foreignVariable = TypeVariable (BuiltinName (mkIdentifier "b"))
+    classVariable = SemanticVariable "a"
+    foreignVariable = SemanticVariable "b"
     checkRejected signatureType =
       assertEqual
         "an unexpected variable fails projection instead of dropping or guessing the binder"
         (Left (InvalidAnalyzedMethodSignature "Probe::bad"))
-        (projectAnalyzedMethodSignature initialInferState "Probe::bad" (ClassMethodType "a" (SignatureType signatureType)))
+        (projectAnalyzedMethodSignature "Probe::bad" (ClassMethodType "a" signatureType))
+
+-- Finalization may read the solver, but the checker must already own the tree
+-- and its decisions. Erasing all output facts must leave that tree intact.
+testCheckedSubtreeOwnership :: IO ()
+testCheckedSubtreeOwnership = do
+  let node number = CoreNode (CoreNodeId number) (SourceSpan 1 1) (emptyResolvedNodeFacts (NamedSourceUnit (nominalModulePath ("Draft" :| []))))
+      expression =
+        EIf
+          (node 1)
+          (ELit (node 2) (LBool True))
+          (ETuple (node 3) [EList (node 4) [ELit (node 5) (LInt 1)], EBinary (node 11) "==" (ELit (node 12) (LBool True)) (ELit (node 6) (LBool True))])
+          (ETuple (node 7) [EList (node 8) [ELit (node 9) (LInt 2)], ELit (node 10) (LBool False)])
+      inputs = InferenceInputs Nothing defaultWarningSettings Set.empty Map.empty Map.empty Map.empty emptyScopeCapabilityFacts Set.empty Nothing
+      (checked, state, _) = inferExpressionWork inputs expression
+      erased = state {inferOutput = inferOutput initialInferState}
+  expected <- either (fail . show) pure (finalizeCheckedExpression state checked)
+  actual <- either (fail . show) pure (finalizeCheckedExpression erased checked)
+  assertEqual "owned checked subtree survives output erasure" expected actual
+  mapM_
+    (assertOwned inputs)
+    [ "(\\(x) -> x) (1 + 2)",
+      "(+) 1 1.5",
+      "($) (1 +) 1.5",
+      "($) (+ 1.5) 1",
+      "case (1, [2]) { | (item, [other]) | (other, [item]) if item > 0 -> item + other | _ -> 0 }"
+    ]
+  mapM_
+    (assertOwnedBlock inputs)
+    [ "identity :: a -> a. identity = \\(item) -> item. first = identity @Int 1. identity = True. (first, identity).",
+      "data Box a = Box a. class Eq(a) { equals :: a -> a -> Bool. }. impl Eq(Int) { equals = \\(left, right) -> left == right. }. result = case Box 1 { | Box item -> Eq::equals @Int item 1 }. result.",
+      "left = \\(item) -> if True then item else right item. between = left 1. right = \\(item) -> left item. (between, right True)."
+    ]
+  where
+    assertOwned inputs source = do
+      resolved <- resolveFixtureProgram (Map.singleton "src/App/Main.jz" ("module App::Main { " <> source <> ". }"))
+      let entry = NonEmpty.last (coreProgramModules resolved)
+      case coreModuleStatements entry of
+        [SExpr _ expression] -> assertDraft inputs expression
+        statements -> fail ("unexpected ownership fixture: " <> show statements)
+    assertOwnedBlock inputs source = do
+      resolved <- resolveFixtureProgram (Map.singleton "src/App/Main.jz" ("module App::Main { " <> source <> " }"))
+      assertDraft inputs (coreModuleExpr (NonEmpty.last (coreProgramModules resolved)))
+    assertDraft inputs expression = do
+      let (checked, state, _) = inferExpressionWork inputs expression
+      owned <- either (fail . show) pure (finalizeCheckedExpression state checked)
+      independent <- either (fail . show) pure (finalizeCheckedExpression (state {inferOutput = inferOutput initialInferState}) checked)
+      assertEqual "checker retains each child and its decisions" owned independent
+      assertExprFacts owned
 
 testAnalyzedFactInvariantFailures :: IO ()
 testAnalyzedFactInvariantFailures = do
-  let expressionId = CoreNodeId 41
-      expression = ELit (CoreNode expressionId (SourceSpan 1 1) ()) (LInt 1)
-      expressionOnce = recordExpressionFactType expressionId SemanticInt initialInferState
-      expressionTwice = recordExpressionFactType expressionId SemanticInt expressionOnce
-      modulePath = nominalModulePath ("Fact" :| [])
-  assertEqual
-    "missing expression fact"
-    (Left (MissingExpressionFacts expressionId :| []))
-    (attachAnalyzedExpression modulePath Map.empty initialInferState expression)
-  assertEqual
-    "duplicate expression fact"
-    (Left (DuplicateExpressionFacts expressionId :| []))
-    (attachAnalyzedExpression modulePath Map.empty expressionTwice expression)
+  let modulePath = nominalModulePath ("Fact" :| [])
+      owner = NamedSourceUnit modulePath
+      node :: Int -> CoreNode 'Resolved 'ExpressionSort
+      node number = CoreNode (CoreNodeId number) (SourceSpan 1 1) (emptyResolvedNodeFacts owner)
+      expression = ELit (node 41) (LInt 1)
+      unchecked = CheckedExpr Nothing (ELit <$> draftExpressionNode Nothing expression <*> pure (LInt 1))
+  assertEqual "an incomplete checked node fails finalization" (Left (MissingExpressionFacts (CoreNodeId 41) :| [])) (finalizeCheckedExpression initialInferState unchecked)
+  let unknown = BuiltinName (mkIdentifier "unknown")
+      unresolvedNode = (node 42) {coreNodeFacts = (emptyResolvedNodeFacts owner) {resolvedNodeReference = Just (UnresolvedReference unknown)}}
+      unresolved = EVar unresolvedNode unknown
+      checkedUnresolved = CheckedExpr (Just SemanticInt) (EVar <$> draftExpressionNode (Just SemanticInt) unresolved <*> pure unknown)
+  assertEqual "an unresolved reference cannot become analyzed" (Left (UnresolvedExpressionReference (CoreNodeId 42) unknown :| [])) (finalizeCheckedExpression initialInferState checkedUnresolved)
+  let missingReference = EVar (node 43) unknown
+      missingBinder = ELambda (node 44) unknown expression
+      missingScope = EBlock (node 45) []
+      finalizeNode value = finalizeCheckedExpression initialInferState (CheckedExpr (Just SemanticInt) (ELit <$> draftExpressionNode (Just SemanticInt) value <*> pure (LInt 1)))
+  assertEqual "a missing reference cannot become analyzed" (Left (MissingExpressionFacts (CoreNodeId 43) :| [])) (finalizeNode missingReference)
+  assertEqual "a missing lambda binder cannot become analyzed" (Left (MissingExpressionFacts (CoreNodeId 44) :| [])) (finalizeNode missingBinder)
+  assertEqual "a missing lexical scope cannot become analyzed" (Left (MissingScopeFacts (CoreNodeId 45) :| [])) (finalizeNode missingScope)
 
-  let leftId = CoreNodeId 42
-      rightId = CoreNodeId 43
-      pair =
-        ETuple
-          (CoreNode expressionId (SourceSpan 1 1) ())
-          [ ELit (CoreNode leftId (SourceSpan 1 2) ()) (LInt 1),
-            ELit (CoreNode rightId (SourceSpan 1 3) ()) (LInt 2)
-          ]
-  assertEqual
-    "recorded failures precede independent missing child facts in source order"
-    (Left (DuplicateExpressionFacts expressionId :| [MissingExpressionFacts leftId, MissingExpressionFacts rightId]))
-    (attachAnalyzedExpression modulePath Map.empty expressionTwice pair)
+  let statementId = CoreNodeId 51
+      binder = CoreBinderId (owner, statementId)
+      name = BuiltinName (mkIdentifier "value")
+      statementNode = CoreNode statementId (SourceSpan 1 1) ((emptyResolvedNodeFacts owner) {resolvedNodeBinder = Just binder})
+      statement = SLet statementNode name expression
+      blockNode = (node 50) {coreNodeFacts = (emptyResolvedNodeFacts owner) {resolvedNodeScope = Just (ResolvedScopeFacts (Map.singleton 0 name) (Map.singleton 0 binder) Map.empty Map.empty Set.empty Set.empty)}}
+      block = EBlock blockNode [statement]
+      checkedValue = CheckedExpr (Just SemanticInt) (ELit <$> draftExpressionNode (Just SemanticInt) expression <*> pure (LInt 1))
+      finalizeBinding binding = finalizeCheckedExpression initialInferState (CheckedExpr (Just SemanticInt) (EBlock <$> draftExpressionNode (Just SemanticInt) block <*> sequenceA [SLet <$> draftStatementNode statementNode (Just binding) (ValueDeclaration name) <*> pure name <*> checkedExprTree checkedValue]))
+      aliasBinding = BuiltinAliasTypeBinding BuiltinToInt8
+  assertEqual "an unprojected binding cannot silently lose its scheme" (Left (MissingStatementScheme statementId binder :| [])) (finalizeBinding aliasBinding)
 
-  let implementationId = ImplId (NamedSourceUnit modulePath, CoreNodeId 100)
-      evidenceSeed =
-        ExpressionEvidenceSeed
-          { evidenceSeedCapability = CapabilityId (BuiltinName (mkIdentifier "Eq")),
-            evidenceSeedImplementation = implementationId,
-            evidenceSeedMethod = MethodId (implementationId, mkIdentifier "equals"),
-            evidenceSeedType = SemanticInt
-          }
-      evidenceOnce = recordExpressionEvidenceSeed expressionId evidenceSeed expressionOnce
-      evidenceTwice = recordExpressionEvidenceSeed expressionId evidenceSeed evidenceOnce
-  assertEqual
-    "duplicate expression evidence fact"
-    (Left (DuplicateExpressionFacts expressionId :| []))
-    (attachAnalyzedExpression modulePath Map.empty evidenceTwice expression)
-
-  let typeApplicationId = CoreNodeId 53
-      typeApplicationFunctionId = CoreNodeId 54
-      missingBinderName = BuiltinName (mkIdentifier "identity")
-      mismatchedBinderName = BuiltinName (mkIdentifier "otherIdentity")
-      lexicalBinderId = CoreBinderId (modulePath, CoreNodeId 52)
-      typeApplication =
-        ETypeApplication
-          (CoreNode typeApplicationId (SourceSpan 1 1) ())
-          (EVar (CoreNode typeApplicationFunctionId (SourceSpan 1 1) ()) missingBinderName)
-          (SourceSpan 1 10)
-          TypeInt
-      typeApplicationState =
-        recordExpressionFactType
-          typeApplicationId
-          SemanticBool
-          (recordExpressionFactType typeApplicationFunctionId SemanticBool initialInferState)
-      explicitSeed =
-        ExplicitInstantiationSeed
-          { explicitInstantiationSeedTarget = ExplicitBinderInstantiation missingBinderName,
-            explicitInstantiationSeedArguments = SemanticBool :| []
-          }
-      seededTypeApplicationState =
-        recordExplicitInstantiationSeed typeApplicationId explicitSeed typeApplicationState
-  assertEqual
-    "explicit type application requires a recorded inference decision"
-    (Left (MissingExplicitInstantiationSeed typeApplicationId :| []))
-    (attachAnalyzedExpression modulePath Map.empty typeApplicationState typeApplication)
-  case attachAnalyzedExpression
-    modulePath
-    (Map.singleton missingBinderName lexicalBinderId)
-    seededTypeApplicationState
-    typeApplication of
-    Right (ETypeApplication (CoreNode _ _ facts) _ _ _) ->
-      assertEqual
-        "attachment trusts the final solver argument rather than reconstructing common source syntax"
-        [SemanticInstantiation lexicalBinderId (SemanticBool :| [])]
-        (expressionInstantiations facts)
-    result -> fail ("expected a seeded analyzed explicit type application, got " <> show result)
-  assertEqual
-    "explicit type application seed is unique per node"
-    (Left (DuplicateExplicitInstantiationSeed typeApplicationId :| []))
-    ( attachAnalyzedExpression
-        modulePath
-        (Map.singleton missingBinderName lexicalBinderId)
-        (recordExplicitInstantiationSeed typeApplicationId explicitSeed seededTypeApplicationState)
-        typeApplication
-    )
-  let mismatchedSeed =
-        explicitSeed
-          { explicitInstantiationSeedTarget = ExplicitBinderInstantiation mismatchedBinderName
-          }
-  assertEqual
-    "explicit type application seed target matches the resolved expression"
-    (Left (MismatchedExplicitInstantiationSeed typeApplicationId missingBinderName mismatchedBinderName :| []))
-    ( attachAnalyzedExpression
-        modulePath
-        (Map.singleton missingBinderName lexicalBinderId)
-        (recordExplicitInstantiationSeed typeApplicationId mismatchedSeed typeApplicationState)
-        typeApplication
-    )
-  assertEqual
-    "explicit type application still requires a lexical binder identity"
-    (Left (MissingExplicitInstantiationBinder typeApplicationId missingBinderName :| []))
-    (attachAnalyzedExpression modulePath Map.empty seededTypeApplicationState typeApplication)
-
-  let caseId = CoreNodeId 42
-      scrutineeId = CoreNodeId 43
-      armId = CoreNodeId 44
-      patternId = CoreNodeId 45
-      bodyId = CoreNodeId 46
-      patternValue = PWildcard (CoreNode patternId (SourceSpan 1 5) ())
-      caseExpression =
-        EPatternCase
-          (CoreNode caseId (SourceSpan 1 1) ())
-          (ELit (CoreNode scrutineeId (SourceSpan 1 3) ()) (LInt 1))
-          [CaseArm (CoreNode armId (SourceSpan 1 5) ()) patternValue Nothing (ELit (CoreNode bodyId (SourceSpan 1 10) ()) (LInt 1))]
-      expressionCompleteState =
-        foldr
-          (\nodeId -> recordExpressionFactType nodeId SemanticInt)
-          initialInferState
-          [caseId, scrutineeId, armId, bodyId]
-      patternFacts = PatternFacts Map.empty PatternHasNoConstructor IrrefutablePattern
-      patternOnce = recordPatternFactSeed patternId patternFacts expressionCompleteState
-      patternTwice = recordPatternFactSeed patternId patternFacts patternOnce
-  assertEqual
-    "missing pattern fact"
-    (Left (MissingPatternFacts patternId :| []))
-    (attachAnalyzedExpression modulePath Map.empty expressionCompleteState caseExpression)
-  assertEqual
-    "duplicate pattern fact"
-    (Left (DuplicatePatternFacts patternId :| []))
-    (attachAnalyzedExpression modulePath Map.empty patternTwice caseExpression)
-
-  let blockId = CoreNodeId 47
-      statementId = CoreNodeId 48
-      statementExpressionId = CoreNodeId 49
-      blockExpression =
-        EBlock
-          (CoreNode blockId (SourceSpan 1 1) ())
-          [SExpr (CoreNode statementId (SourceSpan 1 3) ()) (ELit (CoreNode statementExpressionId (SourceSpan 1 3) ()) (LInt 1))]
-      blockExpressionState =
-        recordExpressionFactType
-          blockId
-          SemanticInt
-          (recordExpressionFactType statementExpressionId SemanticInt initialInferState)
-      statementOnce = recordStatementFactSeed statementId ([], ExpressionDeclaration) blockExpressionState
-      statementTwice = recordStatementFactSeed statementId ([], ExpressionDeclaration) statementOnce
-  assertEqual
-    "missing statement fact"
-    (Left (MissingStatementFacts statementId :| []))
-    (attachAnalyzedExpression modulePath Map.empty blockExpressionState blockExpression)
-  assertEqual
-    "duplicate statement fact"
-    (Left (DuplicateStatementFacts statementId :| []))
-    (attachAnalyzedExpression modulePath Map.empty statementTwice blockExpression)
-
-  let aliasBlockId = CoreNodeId 55
-      aliasStatementId = CoreNodeId 56
-      aliasExpressionId = CoreNodeId 57
-      aliasName = BuiltinName (mkIdentifier "alias")
-      aliasExpression = EVar (CoreNode aliasExpressionId (SourceSpan 1 9) ()) (BuiltinName (mkIdentifier "__kernel_toInt8"))
-      aliasBlock =
-        EBlock
-          (CoreNode aliasBlockId (SourceSpan 1 1) ())
-          [SLet (CoreNode aliasStatementId (SourceSpan 1 1) ()) aliasName aliasExpression]
-      aliasState =
-        recordStatementFactSeed
-          aliasStatementId
-          ([(aliasName, BuiltinAliasTypeBinding BuiltinToInt8)], ValueDeclaration aliasName)
-          ( recordExpressionFactType
-              aliasBlockId
-              (SemanticFunction SemanticInt (SemanticNumeric NumericInt8))
-              ( recordExpressionFactType
-                  aliasExpressionId
-                  (SemanticFunction SemanticInt (SemanticNumeric NumericInt8))
-                  initialInferState
-              )
-          )
-  assertEqual
-    "statement binders cannot silently drop an unprojected scheme"
-    (Left (MissingStatementScheme aliasStatementId (CoreBinderId (modulePath, aliasStatementId)) :| []))
-    (attachAnalyzedExpression modulePath Map.empty aliasState aliasBlock)
-
-  let rangeBlockId = CoreNodeId 50
-      rangeStatementId = CoreNodeId 51
-      rangeExpressionId = CoreNodeId 52
-      rangeName = BuiltinName (mkIdentifier "range")
-      rangeVariable = InferenceVariable 0
-      rangeScheme =
-        TypeScheme
-          { schemeQuantifiedVariables = quantifiedVariablesFromPreferred [rangeVariable] (Set.singleton rangeVariable),
+  let variable = InferenceVariable 0
+      scheme =
+        SemanticScheme
+          { schemeQuantifiedVariables = quantifiedVariablesFromPreferred [variable] (Set.singleton variable),
             schemeClassConstraints = [],
-            schemePrimitiveConstraints =
-              [ TypeSchemeNumericConstraint
-                  (IntegralLiteralNumericConstraint (IntegerLiteralRange 1 1))
-                  (SemanticVariable rangeVariable)
-              ],
+            schemePrimitiveConstraints = [TypeSchemeNumericConstraint (IntegralLiteralNumericConstraint (IntegerLiteralRange 1 1)) (SemanticVariable variable)],
             schemeDefiningCapabilities = emptyScopeCapabilityFacts,
-            schemeResultType = SemanticVariable rangeVariable
+            schemeResultType = SemanticVariable variable
           }
-      rangeExpression = ELit (CoreNode rangeExpressionId (SourceSpan 1 9) ()) (LInt 1)
-      rangeBlock =
-        EBlock
-          (CoreNode rangeBlockId (SourceSpan 1 1) ())
-          [SLet (CoreNode rangeStatementId (SourceSpan 1 1) ()) rangeName rangeExpression]
-      rangeState =
-        recordStatementFactSeed
-          rangeStatementId
-          ([(rangeName, SchemeTypeBinding rangeScheme)], ValueDeclaration rangeName)
-          ( recordExpressionFactType
-              rangeBlockId
-              (SemanticVariable rangeVariable)
-              (recordExpressionFactType rangeExpressionId (SemanticVariable rangeVariable) initialInferState)
-          )
-  case attachAnalyzedExpression modulePath Map.empty rangeState rangeBlock of
+  case finalizeBinding (SchemeTypeBinding scheme) of
     Right (EBlock _ [SLet (CoreNode _ _ facts) _ _]) ->
-      assertEqual
-        "generalized schemes preserve integral literal ranges"
-        True
-        (any schemeHasLiteralRange (Map.elems (statementGeneralizedSchemes facts)))
-    result -> fail ("failed to attach literal-range scheme facts: " <> show result)
+      assertEqual "generalized schemes preserve integral literal ranges" True (any (schemeHasLiteralRange . snd) (statementBinding facts))
+    result -> fail ("failed to finalize literal-range scheme: " <> show result)
 
 type NodeIdentity = (CoreNodeId, SourceSpan)
 
@@ -779,15 +754,6 @@ assertExprFacts :: Expr 'Analyzed -> IO ()
 assertExprFacts expression = do
   assertExpressionNodeFacts (exprNode expression)
   case expression of
-    ELit (CoreNode _ _ facts) (LInt _)
-      | SemanticNumeric target <- expressionSemanticType facts ->
-          let RuntimePlan obligations = expressionRuntimePlan facts
-           in assertEqual
-                "integer literal runtime plan specializes its representation"
-                True
-                (SpecializeNumericLiteral target `elem` obligations)
-    _ -> pure ()
-  case expression of
     ELambda _ _ body -> assertExprFacts body
     EList _ values -> mapM_ assertExprFacts values
     ETuple _ values -> mapM_ assertExprFacts values
@@ -805,16 +771,8 @@ assertExprFacts expression = do
     _ -> pure ()
 
 assertExpressionNodeFacts :: CoreNode 'Analyzed 'ExpressionSort -> IO ()
-assertExpressionNodeFacts (CoreNode _ _ facts) = do
-  case reverse (toList obligations) of
-    ConstrainResult resultType : _ ->
-      assertEqual "runtime result constraint is concrete" True (Foldable.null resultType)
-    _ -> pure ()
-  case NonEmpty.nonEmpty (expressionEvidence facts) of
-    Nothing -> pure ()
-    Just evidence -> assertEqual "runtime plan supplies selected evidence" True (SupplyEvidence evidence `elem` obligations)
-  where
-    RuntimePlan obligations = expressionRuntimePlan facts
+assertExpressionNodeFacts (CoreNode _ _ facts) =
+  mapM_ (assertEqual "result representation is concrete" True . Foldable.null) (expressionResultRepresentation facts)
 
 expressionEvidenceInventory :: Expr 'Analyzed -> [EvidenceReference]
 expressionEvidenceInventory expression =
@@ -888,7 +846,7 @@ moduleBinderIds = foldMap statementBinderInventory . moduleStatements
           SClass _ _ _ methods -> foldMap (\(ClassMethodSignature node _ _) -> nodeBinders node) methods
           SImpl _ _ _ methods -> foldMap (\(ImplMethod node _ _) -> nodeBinders node) methods
           _ -> []
-    nodeBinders (CoreNode _ _ facts) = statementBinderIds facts
+    nodeBinders (CoreNode _ _ facts) = foldMap (\(binder, _) -> [binder]) (statementBinding facts)
 
 moduleSchemes :: CoreModule 'Analyzed -> [AnalyzedScheme]
 moduleSchemes = foldMap statementSchemes . moduleStatements
@@ -904,7 +862,7 @@ moduleSchemes = foldMap statementSchemes . moduleStatements
           SClass _ _ _ methods -> foldMap (\(ClassMethodSignature node _ _) -> nodeSchemes node) methods
           SImpl _ _ _ methods -> foldMap (\(ImplMethod node _ _) -> nodeSchemes node) methods
           _ -> []
-    nodeSchemes (CoreNode _ _ facts) = Map.elems (statementGeneralizedSchemes facts)
+    nodeSchemes (CoreNode _ _ facts) = foldMap (\(_, scheme) -> [scheme]) (statementBinding facts)
 
 schemeHasLiteralRange :: AnalyzedScheme -> Bool
 schemeHasLiteralRange scheme =
@@ -915,7 +873,7 @@ schemeHasLiteralRange scheme =
         AnalyzedNumericPrimitiveConstraint (AnalyzedIntegralLiteralNumericConstraint 1 1) _ -> True
         _ -> False
 
-expectedEvidenceIdentities :: CoreProgram 'Resolved -> [(CapabilityId, ImplId, Maybe MethodId)]
+expectedEvidenceIdentities :: CoreProgram 'Resolved -> [(CapabilityId, ImplId, MethodId)]
 expectedEvidenceIdentities program =
   [ ( CapabilityId
         ( UserName
@@ -926,7 +884,7 @@ expectedEvidenceIdentities program =
             )
         ),
       implementationId,
-      Just (MethodId (implementationId, mkIdentifier (identifierText methodName)))
+      MethodId (implementationId, mkIdentifier (identifierText methodName))
     )
   | coreModule <- NonEmpty.toList (coreProgramModules program),
     statement <- moduleStatements coreModule,
@@ -997,8 +955,12 @@ assertStatementFacts statement = do
             ImplementationDeclaration factName [_] -> assertEqual "implementation declaration identity" name factName
             other -> fail ("missing analyzed implementation target: " <> show other)
           mapM_ assertImplMethodFacts methods
-        SModule _ path -> assertEqual "module declaration fact" (ModuleDeclaration path) (statementDeclarationFact facts)
-        SImport _ path _ _ -> assertEqual "import declaration fact" (ImportDeclaration path) (statementDeclarationFact facts)
+        SModule _ path -> case statementDeclarationFact facts of
+          ModuleDeclaration target -> assertEqual "module declaration fact" path (NonEmpty.toList (modulePathTextSegments target))
+          _ -> fail "missing module declaration fact"
+        SImport _ path _ _ -> case statementDeclarationFact facts of
+          ImportDeclaration target -> assertEqual "import declaration fact" path (NonEmpty.toList (modulePathTextSegments target))
+          _ -> fail "missing import declaration fact"
         SExpr _ value -> assertEqual "expression declaration fact" ExpressionDeclaration (statementDeclarationFact facts) >> assertExprFacts value
   case statement of
     SLet _ _ value -> assertExprFacts value
@@ -1006,8 +968,9 @@ assertStatementFacts statement = do
   where
     assertBindingStatement expected facts = do
       assertEqual "statement declaration identity" expected (statementDeclarationFact facts)
-      assertEqual "statement owns one binder" 1 (length (statementBinderIds facts))
-      assertEqual "statement binder owns a generalized scheme" (Set.fromList (statementBinderIds facts)) (Map.keysSet (statementGeneralizedSchemes facts))
+      case statementBinding facts of
+        Just (binder, _) -> assertEqual "statement binding agrees with resolution" (Just binder) (resolvedNodeBinder (statementResolution facts))
+        Nothing -> fail "statement is missing its analyzed binding"
     assertConstructorFacts (DataConstructor (CoreNode _ _ facts) name _) = assertBindingStatement (ValueDeclaration name) facts
     assertClassMethodFacts (ClassMethodSignature (CoreNode _ _ facts) name _) =
       case statementDeclarationFact facts of
@@ -1094,13 +1057,13 @@ testAnalyzedGenericConstructorFieldsRemainModuleStable = do
   case lookupCoreModule (nominalModulePath ("Lib" :| ["Box"])) analyzed of
     Nothing -> fail "missing analyzed Lib::Box module"
     Just boxModule ->
-      case Map.lookup "Box" (interfaceDataTypes (analyzedInterface boxModule)) of
+      case Map.lookup (resolvedImportedName (coreModulePath boxModule) TypeNamespace (mkIdentifier "Box")) (interfaceDataTypes (analyzedInterface boxModule)) of
         Just
           ( DataTypeBinding
               [_]
-              [[ConstructorArgumentStructured (TypeList (TypeVariable parameterName))]]
+              [[ConstructorArgumentType (SemanticList (SemanticVariable parameterName))]]
             ) ->
-            assertEqual "stable constructor parameter name" "a" (identifierText parameterName)
+            assertEqual "stable constructor parameter name" "a" parameterName
         binding ->
           fail ("unexpected analyzed Box constructor metadata: " <> show binding)
   case evaluateAnalyzedProgram analyzed of
@@ -1179,18 +1142,13 @@ testExplicitInstantiationBinderShadowing = do
       instantiations = expressionInstantiationInventory (coreModuleExpr coreModule)
       instantiatedBinderTypes =
         [ (binder, instantiatedType)
-        | SemanticInstantiation binder (instantiatedType :| []) <- instantiations
+        | SemanticInstantiation (LexicalInstantiation binder) (instantiatedType :| []) <- instantiations
         ]
-      runtimeInstantiations = runtimeInstantiationInventory (coreModuleExpr coreModule)
   assertEqual "two lexical identity definitions" 2 (length identityBinderIds)
   assertEqual
     "explicit applications reference their lexical definition-node binders"
     (Set.fromList [(identityBinderIds !! 0, SemanticInt), (identityBinderIds !! 1, SemanticBool)])
     (Set.fromList instantiatedBinderTypes)
-  assertEqual
-    "runtime plans retain both exact type instantiations"
-    (Set.fromList [SemanticInt :| [], SemanticBool :| []])
-    (Set.fromList runtimeInstantiations)
   where
     sources =
       Map.singleton
@@ -1232,11 +1190,11 @@ testExplicitOperatorInstantiationBinder = do
         [ binder
         | SLet (CoreNode _ _ facts) name _ <- moduleStatements (coreModuleExpr coreModule),
           name == operatorBindingName "%%",
-          binder <- statementBinderIds facts
+          Just (binder, _) <- [statementBinding facts]
         ]
       instantiatedBinders =
         [ binder
-        | SemanticInstantiation binder _ <- expressionInstantiationInventory (coreModuleExpr coreModule)
+        | SemanticInstantiation (LexicalInstantiation binder) _ <- expressionInstantiationInventory (coreModuleExpr coreModule)
         ]
   assertEqual "one operator definition binder" 1 (length operatorBinders)
   assertEqual "explicit operator application references its definition binder" operatorBinders instantiatedBinders
@@ -1342,46 +1300,10 @@ identityDefinitionBinderIds expression =
     statementIds statement =
       case statement of
         SLet (CoreNode _ _ facts) name value ->
-          [binder | identifierText name == "identity", binder <- statementBinderIds facts]
+          [binder | identifierText name == "identity", Just (binder, _) <- [statementBinding facts]]
             <> identityDefinitionBinderIds value
         SImpl _ _ _ methods -> foldMap (\(ImplMethod _ _ body) -> identityDefinitionBinderIds body) methods
         SExpr _ value -> identityDefinitionBinderIds value
-        _ -> []
-
-runtimeInstantiationInventory :: Expr 'Analyzed -> [NonEmpty AnalyzedType]
-runtimeInstantiationInventory expression =
-  nodeInstantiations expression
-    <> case expression of
-      ELambda _ _ body -> runtimeInstantiationInventory body
-      EList _ values -> foldMap runtimeInstantiationInventory values
-      ETuple _ values -> foldMap runtimeInstantiationInventory values
-      EApply _ function argument -> runtimeInstantiationInventory function <> runtimeInstantiationInventory argument
-      ETypeApplication _ function _ _ -> runtimeInstantiationInventory function
-      EIf _ condition whenTrue whenFalse -> foldMap runtimeInstantiationInventory [condition, whenTrue, whenFalse]
-      EPatternCase _ scrutinee arms -> runtimeInstantiationInventory scrutinee <> foldMap armInstantiations arms
-      EBinary _ _ left right -> runtimeInstantiationInventory left <> runtimeInstantiationInventory right
-      ESectionLeft _ left _ -> runtimeInstantiationInventory left
-      ESectionRight _ _ right -> runtimeInstantiationInventory right
-      EBlock _ statements -> foldMap statementInstantiations statements
-      _ -> []
-  where
-    nodeInstantiations value =
-      case exprNode value of
-        CoreNode _ _ facts ->
-          [types | InstantiateTypes types <- toList obligations]
-          where
-            RuntimePlan obligations = expressionRuntimePlan facts
-    armInstantiations (CaseArm (CoreNode _ _ facts) _ guard body) =
-      [types | InstantiateTypes types <- toList obligations]
-        <> foldMap runtimeInstantiationInventory guard
-        <> runtimeInstantiationInventory body
-      where
-        RuntimePlan obligations = expressionRuntimePlan facts
-    statementInstantiations statement =
-      case statement of
-        SLet _ _ value -> runtimeInstantiationInventory value
-        SImpl _ _ _ methods -> foldMap (\(ImplMethod _ _ body) -> runtimeInstantiationInventory body) methods
-        SExpr _ value -> runtimeInstantiationInventory value
         _ -> []
 
 namedLetSchemes :: Text -> Expr 'Analyzed -> [AnalyzedScheme]
@@ -1394,7 +1316,7 @@ namedLetSchemes expectedName expression =
     statementSchemes statement =
       case statement of
         SLet (CoreNode _ _ facts) name _
-          | identifierText name == expectedName -> Map.elems (statementGeneralizedSchemes facts)
+          | identifierText name == expectedName -> foldMap (\(_, scheme) -> [scheme]) (statementBinding facts)
         _ -> []
 
 testRuntimeModulePublishesDeclaredExports :: IO ()
@@ -1411,16 +1333,16 @@ testRuntimeModulePublishesDeclaredExports = do
             (Set.fromList [RuntimeBindingExport (ModuleExport ValueNamespace "answer")])
             (Map.keysSet (runtimeModuleExports runtimeModule))
 
-testAnalyzedModuleKeepsPrivateInterfaceWithPublicInventory :: IO ()
-testAnalyzedModuleKeepsPrivateInterfaceWithPublicInventory = do
+testAnalyzedModulePublishesOnlyPublicDeclarations :: IO ()
+testAnalyzedModulePublishesOnlyPublicDeclarations = do
   (_, analyzed) <- analyzeFixtureProgram explicitExportSources
   case lookupCoreModule (nominalModulePath ("Lib" :| ["Value"])) analyzed of
     Nothing -> fail "missing analyzed Lib::Value module"
     Just valueModule -> do
       assertEqual
-        "full analyzed interface"
-        (Set.fromList [ModuleExport ValueNamespace "answer", ModuleExport ValueNamespace "helper"])
-        (Map.keysSet (interfaceValueTypes (analyzedInterface valueModule)))
+        "public analyzed interface"
+        (Set.singleton (ModuleExport ValueNamespace "answer"))
+        (Map.keysSet (interfaceValueBindings (analyzedInterface valueModule)))
       assertEqual
         "public analyzed inventory"
         (Set.singleton (ModuleExport ValueNamespace "answer"))
@@ -1453,7 +1375,7 @@ testRuntimeModulePublishesPublicClassMethodsOnly = do
         Just runtimeModule ->
           assertEqual
             "public class method runtime exports"
-            (Set.singleton (RuntimeCapabilityMethodExport "Eq" "equals"))
+            (Set.singleton (RuntimeCapabilityMethodExport (CapabilityId (resolvedImportedName (nominalModulePath ("Lib" :| ["Facts"])) CapabilityNamespace (mkIdentifier "Eq"))) (mkIdentifier "equals")))
             (Map.keysSet (runtimeModuleExports runtimeModule))
 
 explicitExportSources :: Map.Map FilePath Text
@@ -1513,16 +1435,29 @@ testModuleExportIdentityPreservesNamespaces = do
   (_, analyzed) <- analyzeFixtureProgram shadowingSources
   case lookupCoreModule (nominalModulePath ("Lib" :| ["Maybe"])) analyzed of
     Nothing -> fail "missing analyzed Lib::Maybe module"
-    Just maybeModule ->
-      assertEqual
-        "analyzed shadowed export identities"
-        expectedExports
-        ( Map.keysSet
-            ( Map.filterWithKey
-                (\moduleExport _ -> moduleExportName moduleExport == "Just")
-                (interfaceValueTypes (analyzedInterface maybeModule))
-            )
-        )
+    Just maybeModule -> do
+      let bindings = Map.filterWithKey (\moduleExport _ -> moduleExportName moduleExport == "Just") (interfaceValueBindings (analyzedInterface maybeModule))
+          binder namespace = interfaceBindingId <$> Map.lookup (ModuleExport namespace "Just") bindings
+      assertEqual "analyzed shadowed export identities" expectedExports (Map.keysSet bindings)
+      case coreModuleStatements maybeModule of
+        [SData _ _ _ [DataConstructor constructorNode _ _], SLet valueNode _ _] -> do
+          assertEqual
+            "constructor interface retains its declaration ID"
+            (resolvedNodeBinder (statementResolution (coreNodeFacts constructorNode)))
+            (binder ConstructorNamespace)
+          assertEqual
+            "value interface retains its distinct declaration ID"
+            (resolvedNodeBinder (statementResolution (coreNodeFacts valueNode)))
+            (binder ValueNamespace)
+        _ -> fail "unexpected constructor/value declaration fixture"
+      case lookupCoreModule (nominalModulePath ("App" :| ["Main"])) analyzed of
+        Just entry
+          | [SExpr _ (EVar node _)] <- coreModuleStatements entry ->
+              assertEqual
+                "imported use retains the interface declaration ID"
+                (LexicalReference <$> binder ValueNamespace)
+                (resolvedNodeReference (expressionResolution (coreNodeFacts node)))
+        _ -> fail "unexpected imported value fixture"
   case evaluateAnalyzedProgram analyzed of
     Left diagnostic -> fail ("runtime program failed: " <> Text.unpack (renderDiagnostic diagnostic))
     Right runtime ->
@@ -1603,13 +1538,9 @@ testGroupedExportsPublishSelectedConstructor = do
     Just choiceModule ->
       do
         assertEqual
-          "full grouped analyzed interface retains private constructors"
-          ( Set.fromList
-              [ ModuleExport ConstructorNamespace "First",
-                ModuleExport ConstructorNamespace "Second"
-              ]
-          )
-          (Map.keysSet (interfaceValueTypes (analyzedInterface choiceModule)))
+          "public grouped analyzed interface"
+          (Set.singleton (ModuleExport ConstructorNamespace "First"))
+          (Map.keysSet (interfaceValueBindings (analyzedInterface choiceModule)))
         assertEqual
           "grouped public inventory"
           ( Set.fromList
@@ -1682,6 +1613,43 @@ testModuleRuntimePathParity = do
       assertEqual "pure and host-capable observable module parity" hostFreeProjection hostCapableProjection
     (Left diagnostic, _) -> fail ("host-free runtime failed: " <> Text.unpack (renderDiagnostic diagnostic))
     (_, Left diagnostic) -> fail ("host-capable runtime failed: " <> Text.unpack (renderDiagnostic diagnostic))
+
+testScopeStorageDefinitionSites :: IO ()
+testScopeStorageDefinitionSites = do
+  let source =
+        Text.unlines
+          [ "offset = 1.",
+            "first = \\(n) -> if n == 0 then offset else second (n - 1).",
+            "offset = 9.",
+            "second = \\(n) -> if n == 0 then offset else first (n - 1).",
+            "(first 1, second 1)."
+          ]
+      hostSource = "if False then __kernel_writeStdoutRaw! \"unused\" else (True, \"\", \"\", \"\"). " <> source
+  calls <- newIORef []
+  pureResult <- runSourceWithPrelude defaultWarningSettings Nothing source
+  hostResult <- runSourceWithPreludeAndHost (recordingHost calls) defaultWarningSettings Nothing hostSource
+  mapM_
+    ( \result -> do
+        assertEqual "recursive definition-site compile errors" [] (runCompileErrors result)
+        assertEqual "recursive definition-site runtime errors" [] (runRuntimeErrors result)
+        assertEqual "recursive definition-site output" (Just "(9, 1)") (runOutput result)
+    )
+    [pureResult, hostResult]
+  assertEqual "unselected host branch" [] =<< readIORef calls
+
+testScopeStorageInvocationIdentity :: IO ()
+testScopeStorageInvocationIdentity = do
+  calls <- newIORef []
+  result <-
+    runSourceWithPreludeAndHost
+      (recordingHost calls)
+      defaultWarningSettings
+      Nothing
+      "emit! = \\(text) -> { receipt! = __kernel_writeStdoutRaw! text. receipt!. receipt!. }. emit! \"first\". emit! \"second\"."
+  assertEqual "invocation compile errors" [] (runCompileErrors result)
+  assertEqual "invocation runtime errors" [] (runRuntimeErrors result)
+  assertEqual "one effect per distinct invocation" ["first", "second"] =<< readIORef calls
+  assertEqual "invocation result" (Just "(True, \"\", \"\", \"\")") (runOutput result)
 
 testRunResultProjectionInvariants :: IO ()
 testRunResultProjectionInvariants =
@@ -1893,7 +1861,7 @@ testAnalyzedInterfacesExposeOnlyDeclaredExports = do
           assertEqual
             "exported values"
             (Set.fromList [ModuleExport ValueNamespace "answer"])
-            (Map.keysSet (interfaceValueTypes (analyzedInterface valueModule)))
+            (Map.keysSet (interfaceValueBindings (analyzedInterface valueModule)))
       assertEqual "no compile errors" [] (analyzedProgramErrors analyzed)
       assertEqual "no diagnostics" [] diagnostics
   where

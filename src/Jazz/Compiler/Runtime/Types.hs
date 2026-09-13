@@ -33,10 +33,8 @@ module Jazz.Compiler.Runtime.Types
         VOperator,
         VSectionLeft,
         VSectionRight,
-        VDeclaredOperatorRightSection,
         VConstructor,
         VConstructorApplication,
-        VQualifiedMethod,
         VAnnotated,
         VDeferredHostBinding
       ),
@@ -55,6 +53,8 @@ module Jazz.Compiler.Runtime.Types
     emptyRuntimeMethodCandidates,
     appendRuntimeMethodCandidate,
     filterRuntimeMethodCandidates,
+    selectRuntimeMethodCandidate,
+    runtimeMethodIsSelected,
     runtimeMethodCandidatesInOrder,
     foldrRuntimeMethodCandidates,
     constructorApplicationIsSaturated,
@@ -76,6 +76,7 @@ where
 import Control.Monad.Trans.State.Strict (StateT)
 import qualified Data.Foldable as Foldable
 import Data.Map.Strict (Map)
+import qualified Data.Map.Strict as Map
 import Data.Sequence (Seq)
 import qualified Data.Sequence as Seq
 import Data.Text (Text)
@@ -86,16 +87,16 @@ import Jazz.Compiler.AST
     NumericType,
   )
 import Jazz.Compiler.BuiltinCatalog (BuiltinSymbol)
+import Jazz.Compiler.CoreIdentity (CoreNodeId, MethodId, ResolvedReference)
 import Jazz.Compiler.Diagnostics (Diagnostic)
 import Jazz.Compiler.FractionalLiteral (FractionalLiteralSource)
 import Jazz.Compiler.Name (ResolvedName)
-import Jazz.Compiler.RecursiveBindings (LambdaCaptureHints)
 import Jazz.Compiler.Runtime.Observation
   ( RuntimeCallableIdentity,
     RuntimeObservationState,
   )
 import Jazz.Compiler.Runtime.Outcome (RuntimeControl (..))
-import Jazz.Compiler.SemanticFacts (AnalyzedType, CoreNodeId, EvidenceReference (..))
+import Jazz.Compiler.SemanticFacts (AnalyzedType, EvidenceReference (..))
 import Jazz.Compiler.SourceUnitOwnership (SourceUnitOwner)
 import Jazz.Compiler.TypeRepresentation (InferenceVariable)
 
@@ -141,9 +142,8 @@ type RuntimeHostEvaluationT m = StateT RuntimeHostEvaluationState m
 
 data RuntimeClosure = RuntimeClosure
   { runtimeClosureEnvironment :: RuntimeEnv,
-    runtimeClosureEnvironmentMayReachHostCells :: Bool,
-    runtimeClosureLambdaCaptureHints :: LambdaCaptureHints 'Analyzed,
     runtimeClosureParameter :: ResolvedName,
+    runtimeClosureParameterReference :: ResolvedReference,
     runtimeClosureBody :: Expr 'Analyzed,
     runtimeClosureTypeHint :: Maybe AnalyzedType,
     runtimeClosureModulePath :: Maybe SourceUnitOwner,
@@ -162,7 +162,11 @@ newtype RuntimeAppliedArguments = RuntimeAppliedArguments (Seq RuntimeValue)
 
 -- | Source-ordered qualified-method candidates. Candidate precedence follows
 -- insertion order, so construction stays private and append-only.
-newtype RuntimeMethodCandidates = RuntimeMethodCandidates (Seq RuntimeMethodCandidate)
+-- Dynamic calls retain source order; checked evidence uses the identity index.
+-- A selected method never re-enters argument-based candidate selection.
+data RuntimeMethodCandidates
+  = RuntimeMethodCandidates (Seq RuntimeMethodCandidate) (Map MethodId RuntimeMethodCandidate)
+  | SelectedRuntimeMethod RuntimeMethodCandidate
 
 -- | Value-associated typing information survives storing and partially applying
 -- a callable. Operations that only inspect the payload can ignore its kind.
@@ -184,7 +188,6 @@ data RuntimeValue
   | VOperator Text [RuntimeValue]
   | VSectionLeft Text RuntimeValue
   | VSectionRight Text RuntimeValue
-  | VDeclaredOperatorRightSection Text RuntimeValue RuntimeValue
   | VConstructorState RuntimeConstructorShape RuntimeAppliedArguments
   | VQualifiedMethodState Text InferenceVariable AnalyzedType RuntimeMethodCandidates RuntimeAppliedArguments
   | VAnnotatedState RuntimeAnnotation RuntimeValue
@@ -230,8 +233,6 @@ instance Show RuntimeValue where
         "VSectionLeft " <> show operatorSymbol <> " " <> show operand
       VSectionRight operatorSymbol operand ->
         "VSectionRight " <> show operatorSymbol <> " " <> show operand
-      VDeclaredOperatorRightSection operatorSymbol _ rightOperand ->
-        "VDeclaredOperatorRightSection " <> show operatorSymbol <> " <operator> " <> show rightOperand
       VConstructorState shape capturedArgs ->
         "VConstructor "
           <> show (runtimeConstructorTypeName shape)
@@ -276,24 +277,6 @@ pattern VConstructorApplication :: RuntimeConstructorShape -> RuntimeAppliedArgu
 pattern VConstructorApplication shape capturedArgs =
   VConstructorState shape capturedArgs
 
--- | Historical ordered-list view retained for public runtime consumers.
-pattern VQualifiedMethod :: Text -> InferenceVariable -> AnalyzedType -> [RuntimeMethodCandidate] -> [RuntimeValue] -> RuntimeValue
-pattern VQualifiedMethod methodKey classParameter methodSignature candidates capturedArgs <-
-  VQualifiedMethodState
-    methodKey
-    classParameter
-    methodSignature
-    (runtimeMethodCandidatesInOrder -> candidates)
-    (runtimeAppliedArgumentsInOrder -> capturedArgs)
-  where
-    VQualifiedMethod methodKey classParameter methodSignature candidates capturedArgs =
-      VQualifiedMethodState
-        methodKey
-        classParameter
-        methodSignature
-        (runtimeMethodCandidatesFromList candidates)
-        (runtimeAppliedArgumentsFromList capturedArgs)
-
 -- | Internal evaluator view retaining append-efficient ordered collections.
 pattern VQualifiedMethodApplication :: Text -> InferenceVariable -> AnalyzedType -> RuntimeMethodCandidates -> RuntimeAppliedArguments -> RuntimeValue
 pattern VQualifiedMethodApplication methodKey classParameter methodSignature candidates capturedArgs =
@@ -312,27 +295,6 @@ pattern VQualifiedMethodApplication methodKey classParameter methodSignature can
   VOperator,
   VSectionLeft,
   VSectionRight,
-  VDeclaredOperatorRightSection,
-  VConstructor,
-  VQualifiedMethod,
-  VAnnotated,
-  VDeferredHostBinding
-  #-}
-
-{-# COMPLETE
-  VInt,
-  VFloat,
-  VBool,
-  VChar,
-  VText,
-  VList,
-  VTuple,
-  VClosure,
-  VBuiltin,
-  VOperator,
-  VSectionLeft,
-  VSectionRight,
-  VDeclaredOperatorRightSection,
   VConstructorApplication,
   VQualifiedMethodApplication,
   VAnnotated,
@@ -389,12 +351,11 @@ instance Show RuntimeMethodCandidate where
 
 type RuntimeCell = Either Diagnostic RuntimeValue
 
-type RuntimeEnv = Map ResolvedName RuntimeCell
+type RuntimeEnv = Map ResolvedReference RuntimeCell
 
 data ScopeResult = ScopeResult
   { scopeResultEnvironment :: RuntimeEnv,
-    scopeResultValue :: Maybe RuntimeValue,
-    scopeResultEnvironmentMayReachHostCells :: Bool
+    scopeResultValue :: Maybe RuntimeValue
   }
 
 data ModuleEvaluationMode
@@ -434,31 +395,44 @@ foldrRuntimeAppliedArguments step initial (RuntimeAppliedArguments capturedArgs)
   Foldable.foldr step initial capturedArgs
 
 runtimeMethodCandidatesFromList :: [RuntimeMethodCandidate] -> RuntimeMethodCandidates
-runtimeMethodCandidatesFromList candidates =
-  RuntimeMethodCandidates (Seq.fromList candidates)
+runtimeMethodCandidatesFromList = Foldable.foldl' (flip appendRuntimeMethodCandidate) emptyRuntimeMethodCandidates
 
 emptyRuntimeMethodCandidates :: RuntimeMethodCandidates
-emptyRuntimeMethodCandidates = RuntimeMethodCandidates Seq.empty
+emptyRuntimeMethodCandidates = RuntimeMethodCandidates Seq.empty Map.empty
 
 appendRuntimeMethodCandidate :: RuntimeMethodCandidate -> RuntimeMethodCandidates -> RuntimeMethodCandidates
-appendRuntimeMethodCandidate candidate (RuntimeMethodCandidates candidates) =
-  RuntimeMethodCandidates (candidates Seq.|> candidate)
+appendRuntimeMethodCandidate candidate@(RuntimeMethodCandidate evidence _) (RuntimeMethodCandidates candidates index) =
+  RuntimeMethodCandidates (candidates Seq.|> candidate) (Map.insertWith (\_ existing -> existing) (evidenceMethod evidence) candidate index)
+appendRuntimeMethodCandidate _ selected@SelectedRuntimeMethod {} = selected
 
 filterRuntimeMethodCandidates :: (RuntimeMethodCandidate -> Bool) -> RuntimeMethodCandidates -> RuntimeMethodCandidates
-filterRuntimeMethodCandidates predicate (RuntimeMethodCandidates candidates) =
-  RuntimeMethodCandidates (Seq.filter predicate candidates)
+filterRuntimeMethodCandidates predicate selected@(SelectedRuntimeMethod candidate)
+  | predicate candidate = selected
+  | otherwise = emptyRuntimeMethodCandidates
+filterRuntimeMethodCandidates predicate candidates =
+  runtimeMethodCandidatesFromList (filter predicate (runtimeMethodCandidatesInOrder candidates))
+
+selectRuntimeMethodCandidate :: MethodId -> RuntimeMethodCandidates -> Maybe RuntimeMethodCandidates
+selectRuntimeMethodCandidate method (RuntimeMethodCandidates _ index) = SelectedRuntimeMethod <$> Map.lookup method index
+selectRuntimeMethodCandidate method selected@(SelectedRuntimeMethod (RuntimeMethodCandidate evidence _))
+  | evidenceMethod evidence == method = Just selected
+  | otherwise = Nothing
+
+runtimeMethodIsSelected :: RuntimeMethodCandidates -> Bool
+runtimeMethodIsSelected SelectedRuntimeMethod {} = True
+runtimeMethodIsSelected RuntimeMethodCandidates {} = False
 
 runtimeMethodCandidatesInOrder :: RuntimeMethodCandidates -> [RuntimeMethodCandidate]
-runtimeMethodCandidatesInOrder (RuntimeMethodCandidates candidates) =
-  Foldable.toList candidates
+runtimeMethodCandidatesInOrder (RuntimeMethodCandidates candidates _) = Foldable.toList candidates
+runtimeMethodCandidatesInOrder (SelectedRuntimeMethod candidate) = [candidate]
 
 foldrRuntimeMethodCandidates ::
   (RuntimeMethodCandidate -> accumulator -> accumulator) ->
   accumulator ->
   RuntimeMethodCandidates ->
   accumulator
-foldrRuntimeMethodCandidates step initial (RuntimeMethodCandidates candidates) =
-  Foldable.foldr step initial candidates
+foldrRuntimeMethodCandidates step initial (RuntimeMethodCandidates candidates _) = Foldable.foldr step initial candidates
+foldrRuntimeMethodCandidates step initial (SelectedRuntimeMethod candidate) = step candidate initial
 
 constructorApplicationIsSaturated :: RuntimeConstructorShape -> RuntimeAppliedArguments -> Bool
 constructorApplicationIsSaturated shape capturedArgs =

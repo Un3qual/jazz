@@ -4,8 +4,10 @@ module Main (main) where
 
 import Data.Text (Text)
 import qualified Data.Text as Text
+import Jazz.Compiler.DiagnosticCatalog (diagnosticCodeText)
 import Jazz.Compiler.Diagnostics
   ( SourceSpan (..),
+    diagnosticCode,
   )
 import Jazz.Compiler.Diagnostics.Render
   ( renderDiagnostic,
@@ -48,6 +50,7 @@ tests =
     ("run source can apply prelude-defined section functions", testRunWithPreludeSectionFunction),
     ("explicit type application hints stay source-unit scoped", testExplicitTypeApplicationHintsStaySourceUnitScoped),
     ("bundled default prelude preserves user diagnostic spans", testBundledPreludePreservesUserDiagnosticSpans),
+    ("prelude checking failures preserve independent source diagnostics", testPreludeFailurePreservesSourceDiagnostics),
     ("invalid prelude source produces prelude parse diagnostic", testPreludeParseDiagnostic),
     ("prelude bridge with unknown kernel symbol fails conformance checks", testPreludeUnknownBridgeSymbolDiagnostic),
     ("prelude bridge with missing kernel suffix fails conformance checks", testPreludeBridgeMissingSuffixDiagnostic),
@@ -132,6 +135,19 @@ testBundledPreludePreservesUserDiagnosticSpans = do
       assertContains "bundled default prelude keeps user spans anchored to user source" "1:1:" rendered
     renderedErrors ->
       assertEqual "single rendered diagnostic" 1 (length renderedErrors)
+
+testPreludeFailurePreservesSourceDiagnostics :: IO ()
+testPreludeFailurePreservesSourceDiagnostics = do
+  result <- compileSourceWithPrelude defaultWarningSettings (Just "missingPrelude.") "missingSource."
+  assertEqual
+    "independent source-unit diagnostics"
+    ["error: E1001: unbound variable 'missingPrelude'", "error: E1001: unbound variable 'missingSource'"]
+    (map renderDiagnostic (compileErrors result))
+  mixed <- compileSourceWithPrelude defaultWarningSettings (Just "bad = True + 1.") "missingSource."
+  assertEqual
+    "scope errors precede type errors across source units"
+    ["E1001", "E2003"]
+    (map (diagnosticCodeText . diagnosticCode) (compileErrors mixed))
 
 testPreludeParseDiagnostic :: IO ()
 testPreludeParseDiagnostic = do
@@ -1048,12 +1064,12 @@ testBootstrapModulesStayOutsideBundledPrelude =
       ]
 
 assertBundledPreludeNameUnavailable :: (Text, Text, Text) -> IO ()
-assertBundledPreludeNameUnavailable (name, source, diagnosticCode) = do
+assertBundledPreludeNameUnavailable (name, source, expectedCode) = do
   result <- compileSource defaultWarningSettings source
   case compileErrors result of
     [diagnostic] -> do
       let rendered = renderDiagnostic diagnostic
-      assertContains (name <> " diagnostic code") diagnosticCode rendered
+      assertContains (name <> " diagnostic code") expectedCode rendered
       assertContains (name <> " diagnostic subject") name rendered
     diagnostics ->
       assertEqual (name <> " diagnostic count") 1 (length diagnostics)

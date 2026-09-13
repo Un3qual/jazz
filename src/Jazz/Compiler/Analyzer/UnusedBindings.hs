@@ -1,11 +1,10 @@
-{-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE DataKinds #-}
-{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 -- | Unused-binding reference accounting for one lexical block.
 module Jazz.Compiler.Analyzer.UnusedBindings
   ( collectUnusedBindingWarnings,
+    referencedScopeBindingIds,
   )
 where
 
@@ -15,12 +14,13 @@ import Data.Set (Set)
 import qualified Data.Set as Set
 import Data.Text (Text)
 import Jazz.Compiler.AST
-  ( CoreNode (coreNodeSpan),
+  ( CoreNode (coreNodeFacts, coreNodeSpan),
     CorePhase (..),
     DataConstructor (..),
     ImplMethod (..),
     Statement (..),
   )
+import Jazz.Compiler.CoreIdentity (CoreBinderId, ResolvedNodeFacts (..))
 import Jazz.Compiler.DiagnosticCatalog
   ( WarningCategory (..),
   )
@@ -33,11 +33,12 @@ import Jazz.Compiler.Diagnostics
     setDiagnosticSubject,
   )
 import Jazz.Compiler.Name
-  ( identifierText,
+  ( ResolvedName,
+    identifierText,
     resolvedValueScopeName,
   )
 import Jazz.Compiler.RecursiveBindings
-  ( freeVarsExprWithBound,
+  ( resolvedExpressionReferences,
   )
 import Jazz.Compiler.WarningConfig
   ( WarningSettings,
@@ -46,138 +47,36 @@ import Jazz.Compiler.WarningConfig
 
 collectUnusedBindingWarnings ::
   WarningSettings ->
-  Set Int ->
-  Map Int (Set Int) ->
+  Bool ->
+  Set CoreBinderId ->
   [(Int, Statement 'Resolved)] ->
   Map Int [Diagnostic]
-collectUnusedBindingWarnings settings hiddenStatementIndices recursiveGroupsByStatement indexedStatements
-  | not (isWarningEnabled settings UnusedBinding) = Map.empty
+collectUnusedBindingWarnings settings hideRootBindings externalUses indexedStatements
+  | hideRootBindings || not (isWarningEnabled settings UnusedBinding) = Map.empty
   | otherwise =
       Map.fromList
         [ (statementIndex, [mkUnusedBindingWarning bindingNameText bindingSpan])
         | (statementIndex, SLet node bindingName _) <- indexedStatements,
-          statementIndex `Set.notMember` hiddenStatementIndices,
+          maybe True (`Set.notMember` usedBindingIds) (resolvedNodeBinder (coreNodeFacts node)),
           let bindingNameText = identifierText bindingName,
           let bindingSpan = coreNodeSpan node,
-          not (Set.member statementIndex usedBindingStatementIndices),
           not
             ( isWarningEnabled settings SameScopeRebinding
                 && Set.member statementIndex rebindingStatementIndices
             )
         ]
   where
-    (usedBindingStatementIndices, rebindingStatementIndices) =
-      collectUnusedBindingUseState
-        hiddenStatementIndices
-        recursiveGroupsByStatement
-        indexedStatements
+    usedBindingIds = externalUses `Set.union` referencedScopeBindingIds (map snd indexedStatements)
+    rebindingStatementIndices = snd (foldl' markRebinding (Set.empty, Set.empty) indexedStatements)
 
-collectUnusedBindingUseState ::
-  Set Int ->
-  Map Int (Set Int) ->
-  [(Int, Statement 'Resolved)] ->
-  (Set Int, Set Int)
-collectUnusedBindingUseState hiddenStatementIndices recursiveGroupsByStatement indexedStatements =
-  let bindingDeclarationsByStatement =
-        Map.fromList
-          [ (statementIndex, resolvedValueScopeName bindingName)
-          | (statementIndex, SLet _ bindingName _) <- indexedStatements
-          ]
-      (_, _, usedStatementIndices, rebindingStatementIndices) =
-        foldl'
-          (step bindingDeclarationsByStatement)
-          (Map.empty, Set.empty, Set.empty, Set.empty)
-          indexedStatements
-   in (usedStatementIndices, rebindingStatementIndices)
-  where
-    step
-      bindingDeclarationsByStatement
-      (!activeBindings, !activeRebindingNames, !usedStatementIndices, !rebindingStatementIndices)
-      (statementIndex, statement)
-        | statementIndex `Set.member` hiddenStatementIndices =
-            (activeBindings, activeRebindingNames, usedStatementIndices, rebindingStatementIndices)
-        | otherwise =
-            let referenceNames = statementReferenceNames statement
-                visibleBindings =
-                  bindingsVisibleToStatement
-                    bindingDeclarationsByStatement
-                    statementIndex
-                    statement
-                    activeBindings
-                usedWithStatementReferences =
-                  Set.foldl'
-                    (markReferencedBinding visibleBindings)
-                    usedStatementIndices
-                    referenceNames
-             in case statement of
-                  SLet _ bindingName _ ->
-                    let bindingScopeName = resolvedValueScopeName bindingName
-                        rebindingStatementIndices' =
-                          if Set.member bindingScopeName activeRebindingNames
-                            then Set.insert statementIndex rebindingStatementIndices
-                            else rebindingStatementIndices
-                     in ( Map.insert bindingScopeName statementIndex activeBindings,
-                          Set.insert bindingScopeName activeRebindingNames,
-                          usedWithStatementReferences,
-                          rebindingStatementIndices'
-                        )
-                  SData _ _ _ constructors ->
-                    ( foldl' removeConstructor activeBindings constructors,
-                      foldl' registerConstructor activeRebindingNames constructors,
-                      usedWithStatementReferences,
-                      rebindingStatementIndices
-                    )
-                  _ ->
-                    ( activeBindings,
-                      activeRebindingNames,
-                      usedWithStatementReferences,
-                      rebindingStatementIndices
-                    )
-
-    bindingsVisibleToStatement bindingDeclarationsByStatement statementIndex statement activeBindings =
-      case statement of
-        SLet _ bindingName _ ->
-          let visibleWithCurrent = Map.insert (resolvedValueScopeName bindingName) statementIndex activeBindings
-              recursivePeers =
-                Set.delete
-                  statementIndex
-                  (Map.findWithDefault Set.empty statementIndex recursiveGroupsByStatement)
-              peerBindings =
-                Map.fromList
-                  [ (peerName, peerStatementIndex)
-                  | peerStatementIndex <- Set.toList recursivePeers,
-                    Just peerName <- [Map.lookup peerStatementIndex bindingDeclarationsByStatement],
-                    Map.notMember peerName visibleWithCurrent
-                  ]
-           in visibleWithCurrent `Map.union` peerBindings
-        _ -> activeBindings
-
-    statementReferenceNames statement =
-      case statement of
-        SLet _ bindingName valueExpr ->
-          Set.delete
-            (resolvedValueScopeName bindingName)
-            (freeVarsExprWithBound Set.empty valueExpr)
-        SExpr _ expr ->
-          freeVarsExprWithBound Set.empty expr
-        SImpl _ _ _ methods ->
-          Set.unions
-            [ freeVarsExprWithBound Set.empty methodExpr
-            | ImplMethod _ _ methodExpr <- methods
-            ]
-        _ -> Set.empty
-
-    markReferencedBinding visibleBindings usedStatementIndices referenceName =
-      case Map.lookup (resolvedValueScopeName referenceName) visibleBindings of
-        Nothing -> usedStatementIndices
-        Just bindingStatementIndex ->
-          Set.insert bindingStatementIndex usedStatementIndices
-
-    removeConstructor activeBindings (DataConstructor _ constructorName _) =
-      Map.delete (resolvedValueScopeName constructorName) activeBindings
-
-    registerConstructor activeRebindingNames (DataConstructor _ constructorName _) =
-      Set.insert (resolvedValueScopeName constructorName) activeRebindingNames
+    markRebinding :: (Set ResolvedName, Set Int) -> (Int, Statement 'Resolved) -> (Set ResolvedName, Set Int)
+    markRebinding current@(names, indices) (index, statement) = case statement of
+      SLet _ name _ ->
+        let key = resolvedValueScopeName name
+         in (Set.insert key names, if Set.member key names then Set.insert index indices else indices)
+      SData _ _ _ constructors ->
+        (foldl' (\acc (DataConstructor _ name _) -> Set.insert (resolvedValueScopeName name) acc) names constructors, indices)
+      _ -> current
 
 mkUnusedBindingWarning :: Text -> SourceSpan -> Diagnostic
 mkUnusedBindingWarning variableName primarySpan =
@@ -190,3 +89,16 @@ mkUnusedBindingWarning variableName primarySpan =
             <> variableName
             <> "' is never referenced in this lexical block"
         )
+
+referencedScopeBindingIds :: [Statement 'Resolved] -> Set CoreBinderId
+referencedScopeBindingIds = Set.unions . map (Map.keysSet . statementReferences)
+
+statementReferences :: Statement 'Resolved -> Map CoreBinderId ResolvedName
+-- Preserve the warning policy that a binding's own spelling, including a
+-- rebinding initializer, does not count as an independent use.
+statementReferences statement = case statement of
+  SLet _ name value ->
+    Map.filter ((/= resolvedValueScopeName name) . resolvedValueScopeName) (resolvedExpressionReferences value)
+  SExpr _ value -> resolvedExpressionReferences value
+  SImpl _ _ _ methods -> foldMap (\(ImplMethod _ _ body) -> resolvedExpressionReferences body) methods
+  _ -> Map.empty

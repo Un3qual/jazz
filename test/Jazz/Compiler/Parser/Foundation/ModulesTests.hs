@@ -23,7 +23,7 @@ import Jazz.Compiler.Name
 import Jazz.Compiler.Parser.AST
   ( SurfaceExpr (..),
     SurfaceExprForm (..),
-    SurfaceLiteral (..),
+    SurfaceName (..),
     SurfaceStatement (..),
   )
 import Jazz.Compiler.Parser.Lower
@@ -70,7 +70,7 @@ testParsesValueExportSelector =
                   (SourceSpan 1 1)
                   ["Example"]
                   (Just [ModuleExportSelector (Just ValueNamespace) "answer"]),
-                SSLet "answer" (SourceSpan 2 3) (e 2 12 $ SELit (SLInt 42))
+                SSLet "answer" (SourceSpan 2 3) (e 2 12 $ SELit (LInt 42))
               ]
         )
     )
@@ -90,7 +90,7 @@ testParsesOperatorKeywordAsModuleBodyBindingName =
         ( e 1 1 $
             SEBlock
               [ SSModule (SourceSpan 1 1) ["App", "Core"] Nothing,
-                SSLet "operator" (SourceSpan 2 1) (e 2 12 $ SELit (SLInt 1)),
+                SSLet "operator" (SourceSpan 2 1) (e 2 12 $ SELit (LInt 1)),
                 SSLet "result" (SourceSpan 3 1) (e 3 10 $ SEVar "operator")
               ]
         )
@@ -168,7 +168,7 @@ testLowersAliasQualifiedClassMethodReference =
                             ( SurfaceExpr
                                 _
                                 ( SEApply
-                                    (SurfaceExpr _ (SEQualifiedMethod aliasName className methodName _))
+                                    (SurfaceExpr _ (SEQualifiedMethod aliasName className methodName _ _ _))
                                     _
                                   )
                               )
@@ -211,7 +211,7 @@ testLowersAliasQualifiedImplHead =
               SEBlock
                 [ SSImpl
                     (SourceSpan 1 1)
-                    (mkQualifiedIdentifier "Facts" "Eq")
+                    (SurfaceName (mkQualifiedIdentifier "Facts" "Eq") (SourceSpan 1 13) (Just (SourceSpan 1 6)))
                     [TypeInt]
                     []
                 ]
@@ -232,7 +232,7 @@ testParsesCapabilityDeclarationsInModuleBody =
             SEBlock
               [ SSModule (SourceSpan 1 1) ["App", "Core"] Nothing,
                 SSClass (SourceSpan 2 1) "Eq" ["a"] [],
-                SSImpl (SourceSpan 3 1) "Eq" [TypeInt] []
+                SSImpl (SourceSpan 3 1) (SurfaceName "Eq" (SourceSpan 3 6) Nothing) [TypeInt] []
               ]
         )
     )

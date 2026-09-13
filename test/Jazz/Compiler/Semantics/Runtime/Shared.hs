@@ -5,9 +5,6 @@ module Jazz.Compiler.Semantics.Runtime.Shared
   ( patternCaseNoMatchExpr,
     overAppliedConstructorExpr,
     qualifiedMethodStructuralEqualityExpr,
-    runtimeTypedCallableArgumentHintExpr,
-    runtimeTypedCallableArgumentHintThroughPrefixDollarExpr,
-    runtimePickStatements,
     ambiguousQualifiedMethodRuntimeExpr,
     runtimeEqSource,
     runtimeExpr,
@@ -33,7 +30,6 @@ import Jazz.Compiler.AST
   ( CorePhase (Analyzed),
     Expr,
     Literal (..),
-    Statement,
   )
 import Jazz.Compiler.Diagnostics
   ( Diagnostic,
@@ -48,12 +44,11 @@ import Jazz.Compiler.FractionalLiteral
 import Jazz.Compiler.Name (UnresolvedName, qualifiedName)
 import Jazz.Compiler.Runtime
   ( RuntimeValue (..),
-    evaluateRuntimeExpr,
   )
 import Jazz.Compiler.Semantics.Runtime.Fixtures
+import Jazz.Compiler.Semantics.Runtime.ResolvedFixture
 import Jazz.Compiler.TypeRepresentation
-  ( NumericType (..),
-    SignaturePayload (..),
+  ( SignaturePayload (..),
     SignatureType (..),
   )
 import Jazz.TestHarness
@@ -120,47 +115,6 @@ qualifiedMethodStructuralEqualityExpr =
             (expressionList [expressionVariable (qualifiedName "RuntimeEq" "equals")])
         )
     ]
-
-runtimeTypedCallableArgumentHintExpr :: Expr 'Analyzed -> Expr 'Analyzed
-runtimeTypedCallableArgumentHintExpr callableExpr =
-  expressionBlock
-    ( runtimePickStatements
-        ++ [ statementLet "choose" (SourceSpan 9 1) callableExpr,
-             statementExpression (SourceSpan 10 1) (expressionApply (expressionVariable "choose") (expressionLiteral (LInt 1)))
-           ]
-    )
-
-runtimeTypedCallableArgumentHintThroughPrefixDollarExpr :: Expr 'Analyzed -> Expr 'Analyzed
-runtimeTypedCallableArgumentHintThroughPrefixDollarExpr callableExpr =
-  expressionBlock
-    ( runtimePickStatements
-        ++ [ statementLet "choose" (SourceSpan 9 1) callableExpr,
-             statementExpression (SourceSpan 10 1) (expressionApply (expressionApply (expressionOperatorValue "$") (expressionVariable "choose")) (expressionLiteral (LInt 1)))
-           ]
-    )
-
-runtimePickStatements :: [Statement 'Analyzed]
-runtimePickStatements =
-  [ statementClass
-      (SourceSpan 1 1)
-      "RuntimePick"
-      ["a"]
-      [ classMethodSignature
-          "pick"
-          (SourceSpan 2 1)
-          (ConstrainedSignature [] (TypeFunction (fixtureTypeVariable "a") (TypeBool)))
-      ],
-    statementImpl
-      (SourceSpan 3 1)
-      "RuntimePick"
-      [TypeInt]
-      [implMethod "pick" (SourceSpan 4 1) (expressionLambda "itemValue" (expressionLiteral (LBool True)))],
-    statementImpl
-      (SourceSpan 5 1)
-      "RuntimePick"
-      [TypeNumeric NumericUInt8]
-      [implMethod "pick" (SourceSpan 6 1) (expressionLambda "itemValue" (expressionLiteral (LBool False)))]
-  ]
 
 ambiguousQualifiedMethodRuntimeExpr :: Expr 'Analyzed
 ambiguousQualifiedMethodRuntimeExpr =
@@ -264,7 +218,7 @@ assertRuntimeBool label expected result =
 
 assertCallableRuntimeEqualityRejected :: Text -> Expr 'Analyzed -> IO ()
 assertCallableRuntimeEqualityRejected label expr = do
-  let result = evaluateRuntimeExpr (runtimeExpr expr)
+  let result = evaluateFixture (runtimeExpr expr)
   assertRuntimeErrorContains (label <> " code") "E3007" result
   assertRuntimeErrorContains
     (label <> " callable text")

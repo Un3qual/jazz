@@ -2,6 +2,7 @@
 
 module Jazz.Compiler.Stdlib.TextTests
   ( textTests,
+    textScaleTests,
   )
 where
 
@@ -18,8 +19,12 @@ textTests =
   [ ("Text indexes, slices, and constructs by Unicode scalar", runStdlibFixtureExpecting ["Stdlib", "Text", "Core"] "stdlib/text/Core.jz" expectedCore),
     ("Text search and replacement are left-to-right and non-overlapping", runStdlibFixtureExpecting ["Stdlib", "Text", "Search"] "stdlib/text/Search.jz" expectedSearch),
     ("Text splitting and cleanup define whitespace boundaries", runStdlibFixtureExpecting ["Stdlib", "Text", "SplitCleanup"] "stdlib/text/SplitCleanup.jz" expectedSplitCleanup),
-    ("Char classification and simple case mapping handle Unicode", runStdlibFixtureExpecting ["Stdlib", "Text", "CharCase"] "stdlib/text/CharCase.jz" expectedCharCase),
-    ("bulk Text construction handles large deterministic inputs", runStdlibFixtureExpecting ["Stdlib", "Text", "LargeConcat"] "stdlib/text/LargeConcat.jz" expectedLargeConcat)
+    ("Char classification and simple case mapping handle Unicode", runStdlibFixtureExpecting ["Stdlib", "Text", "CharCase"] "stdlib/text/CharCase.jz" expectedCharCase)
+  ]
+
+textScaleTests :: [NamedTest]
+textScaleTests =
+  [ ("bulk Text construction handles large deterministic inputs", runStdlibFixtureExpecting ["Stdlib", "Text", "LargeConcat"] "stdlib/text/LargeConcat.jz" expectedLargeConcat)
   ]
 
 expectedCore, expectedSearch, expectedSplitCleanup, expectedCharCase, expectedLargeConcat :: Text

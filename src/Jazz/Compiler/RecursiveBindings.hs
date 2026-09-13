@@ -1,4 +1,5 @@
 {-# LANGUAGE ConstraintKinds #-}
+{-# LANGUAGE DataKinds #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TypeFamilies #-}
@@ -6,31 +7,27 @@
 -- | Shared recursive-binding graph and free-variable helpers used by analyzer,
 -- type inference, and runtime.
 module Jazz.Compiler.RecursiveBindings
-  ( LambdaCaptureHints,
-    PreparedRecursiveScope,
+  ( PreparedRecursiveScope,
     RecursiveScopeFacts,
     buildRecursiveScopeFacts,
-    closureCaptureCandidatesWithBound,
     collectBindingNames,
-    collectLambdaCaptureHints,
-    emptyLambdaCaptureHints,
     freeVarsExprWithBound,
     freeVarsScopeWithBound,
     exprContainsFunctionBranch,
     inferRecursiveGroupsOrdered,
-    inferSelfReferencedBindings,
     inferSelfRecursiveBindings,
-    lambdaCaptureHintsChild,
-    lookupLambdaCapturedNames,
-    lookupLambdaCapturedNamesOrdered,
-    prepareRecursiveScope,
+    prepareResolvedScope,
+    prepareAnalyzedScope,
+    takePreparedScope,
+    preparedRecursiveScopeFacts,
     preparedRecursiveScopeBindingNames,
-    preparedRecursiveScopeFactsForOuterBindings,
     preparedRecursiveScopeGroups,
-    preparedRecursiveScopeOuterBindingNames,
     preparedRecursiveScopeStatements,
     recursiveScopeBindingNames,
     recursiveScopeGroups,
+    resolvedExpressionReferences,
+    publishResolvedCaptures,
+    resolveLexicalScopes,
   )
 where
 
@@ -38,9 +35,7 @@ import Data.Graph
   ( SCC (..),
     stronglyConnComp,
   )
-import Data.IntMap.Strict (IntMap)
-import qualified Data.IntMap.Strict as IntMap
-import Data.List (find)
+import Data.List (find, mapAccumL)
 import Data.Map (Map)
 import qualified Data.Map as Map
 import Data.Set (Set)
@@ -48,28 +43,254 @@ import qualified Data.Set as Set
 import Data.Text (Text)
 import Jazz.Compiler.AST
   ( CaseArm (..),
+    ClassMethodSignature (..),
     CoreNameAt,
+    CoreNode (..),
+    CorePhase (Analyzed, Resolved),
+    CoreSort (ExpressionSort),
     CoreUserNameAt,
+    DataConstructor (..),
     Expr (..),
+    ImplMethod (..),
+    Pattern (..),
     Statement (..),
+    expressionNode,
   )
-import Jazz.Compiler.Name (Name, operatorBindingName)
+import Jazz.Compiler.CoreIdentity (CoreBinderId, CoreNodeId, ResolvedNodeFacts (..), ResolvedReference (..), ResolvedScopeFacts (..))
+import Jazz.Compiler.Name (Name (..), ResolvedName, ResolvedNameOrigin (..), ResolvedUserName (..), operatorBindingName)
 import Jazz.Compiler.Parser.Operator
   ( isBuiltinOperatorSymbol,
   )
 import Jazz.Compiler.Pattern
   ( extendBoundWithPattern,
-    patternBinderNames,
   )
+import Jazz.Compiler.SemanticFacts (ExpressionFacts (expressionResolution), SemanticFactInvariantFailure (..))
 import Jazz.Compiler.StableSet
-  ( StableSet,
-    stableSetDelete,
-    stableSetDifference,
-    stableSetFromSet,
+  ( stableSetDifference,
     stableSetMembershipSet,
     stableSetOrderedList,
     stableSetSingleton,
   )
+
+-- | Declaration targets already selected by resolution. Nested declarations
+-- need no name-based shadowing here: their IDs cannot select an outer binder.
+resolvedExpressionReferences :: Expr 'Resolved -> Map CoreBinderId ResolvedName
+resolvedExpressionReferences expression = case expression of
+  EVar node name -> reference node name
+  EOperatorValue node symbol -> reference node (operatorBindingName symbol)
+  ELambda _ _ body -> recur body
+  EList _ elements -> foldMap recur elements
+  ETuple _ elements -> foldMap recur elements
+  EApply _ function argument -> recur function <> recur argument
+  ETypeApplication _ function _ _ -> recur function
+  EIf _ condition yes no -> foldMap recur [condition, yes, no]
+  EPatternCase _ scrutinee arms -> recur scrutinee <> foldMap armReferences arms
+  EBinary node symbol left right -> reference node (operatorBindingName symbol) <> recur left <> recur right
+  ESectionLeft node left symbol -> reference node (operatorBindingName symbol) <> recur left
+  ESectionRight node symbol right -> reference node (operatorBindingName symbol) <> recur right
+  EBlock _ statements -> foldMap statementReferences statements
+  ELit {} -> Map.empty
+  where
+    recur = resolvedExpressionReferences
+    reference node name = case resolvedNodeReference (coreNodeFacts node) of
+      Just (LexicalReference binder) -> Map.singleton binder name
+      _ -> Map.empty
+    armReferences (CaseArm _ _ guard body) = foldMap recur guard <> recur body
+    statementReferences statement = case statement of
+      SLet _ _ value -> recur value
+      SExpr _ value -> recur value
+      SImpl _ _ _ methods -> foldMap (\(ImplMethod _ _ body) -> recur body) methods
+      _ -> Map.empty
+
+-- | Name resolution has chosen namespaces and nonlocal targets. This pass owns
+-- ordered local visibility, recursive groups, and the references selecting each
+-- declaration. Later phases consume the published product unchanged.
+resolveLexicalScopes :: Map ResolvedName ResolvedReference -> Set ResolvedName -> Expr 'Resolved -> Expr 'Resolved
+resolveLexicalScopes externalReferences externalNames = expression (Map.mapMaybe lexicalBinder externalReferences)
+  where
+    lexicalBinder (LexicalReference binder) = Just binder
+    lexicalBinder _ = Nothing
+    expression bound expr = case expr of
+      ELit {} -> expr
+      EVar node name -> EVar (reference bound name node) name
+      EOperatorValue node symbol -> EOperatorValue (reference bound (operatorBindingName symbol) node) symbol
+      ELambda node name body -> ELambda (shadowed bound name node) name (expression (insertBinder node name bound) body)
+      EList node elements -> EList node (map (expression bound) elements)
+      ETuple node elements -> ETuple node (map (expression bound) elements)
+      EApply node function argument -> EApply node (expression bound function) (expression bound argument)
+      ETypeApplication node function spanValue argument -> ETypeApplication node (expression bound function) spanValue argument
+      EIf node condition yes no -> EIf node (expression bound condition) (expression bound yes) (expression bound no)
+      EPatternCase node scrutinee arms -> EPatternCase node (expression bound scrutinee) (map (arm bound) arms)
+      EBinary node symbol left right -> EBinary (reference bound (operatorBindingName symbol) node) symbol (expression bound left) (expression bound right)
+      ESectionLeft node left symbol -> ESectionLeft (reference bound (operatorBindingName symbol) node) (expression bound left) symbol
+      ESectionRight node symbol right -> ESectionRight (reference bound (operatorBindingName symbol) node) symbol (expression bound right)
+      EBlock node statements -> block bound node statements
+    reference :: Map ResolvedName CoreBinderId -> ResolvedName -> CoreNode 'Resolved sort -> CoreNode 'Resolved sort
+    reference bound name node = node {coreNodeFacts = facts {resolvedNodeReference = Just target}}
+      where
+        facts = coreNodeFacts node
+        target = case Map.lookup name bound of
+          Just binder -> LexicalReference binder
+          Nothing -> case resolvedNodeReference facts of
+            Just existing@(LexicalReference _)
+              | Set.member name externalNames -> existing
+              | UserName (ResolvedUserName origin _ _) <- name, origin /= CurrentModule -> existing
+              | otherwise -> UnresolvedReference name
+            Just existing -> existing
+            Nothing -> UnresolvedReference name
+    shadowed :: Map ResolvedName CoreBinderId -> ResolvedName -> CoreNode 'Resolved sort -> CoreNode 'Resolved sort
+    shadowed bound name node = node {coreNodeFacts = (coreNodeFacts node) {resolvedNodeShadowedReference = LexicalReference <$> Map.lookup name bound}}
+    insertBinder node name bound = case resolvedNodeBinder (coreNodeFacts node) of
+      Just binder -> Map.insert name binder bound
+      Nothing -> bound
+    arm bound (CaseArm node pattern guard body) =
+      let resolvedPattern = resolvePattern bound Map.empty pattern
+          visible = Map.union (patternBindings resolvedPattern) bound
+       in CaseArm node resolvedPattern (fmap (expression visible) guard) (expression visible body)
+    resolvePattern bound shared pattern = case pattern of
+      PVariable node name -> PVariable (sharedBinder node name) name
+      PAs node name nested -> PAs (sharedBinder node name) name (recur nested)
+      PConstructor node name nested -> PConstructor (reference bound name node) name (map recur nested)
+      PList node nested -> PList node (map recur nested)
+      PTuple node nested -> PTuple node (map recur nested)
+      PConsList node first rest -> PConsList node (recur first) (recur rest)
+      POr node alternatives ->
+        let common = Map.union shared (patternBindings pattern)
+         in POr node (map (resolvePattern bound common) alternatives)
+      _ -> pattern
+      where
+        recur = resolvePattern bound shared
+        sharedBinder node name =
+          let updated = shadowed bound name node
+           in case Map.lookup name shared of
+                Just binder -> updated {coreNodeFacts = (coreNodeFacts updated) {resolvedNodeBinder = Just binder}}
+                Nothing -> updated
+    patternBindings pattern = case pattern of
+      PVariable node name -> insertBinder node name Map.empty
+      PAs node name nested -> insertBinder node name (patternBindings nested)
+      PConstructor _ _ nested -> Map.unions (map patternBindings nested)
+      PList _ nested -> Map.unions (map patternBindings nested)
+      PTuple _ nested -> Map.unions (map patternBindings nested)
+      PConsList _ first rest -> Map.union (patternBindings first) (patternBindings rest)
+      POr _ (first : rest) -> foldl' Map.intersection (patternBindings first) (map patternBindings rest)
+      _ -> Map.empty
+    block bound node statements = EBlock (node {coreNodeFacts = (coreNodeFacts node) {resolvedNodeScope = Just facts}}) resolvedStatements
+      where
+        indexed = zip [0 ..] statements
+        outerNames = Set.union externalNames (Map.keysSet bound)
+        recursion = buildRecursiveScopeFacts outerNames indexed
+        groups = recursiveScopeGroups recursion
+        definitions = Map.fromList [(index, (bindingNode, name)) | (index, SLet bindingNode name _) <- indexed]
+        (_, resolvedStatements) = mapAccumL statement bound indexed
+        binderPairs = [(index, binder) | (index, (bindingNode, _)) <- Map.toList definitions, Just binder <- [resolvedNodeBinder (coreNodeFacts bindingNode)]]
+        binderIndices = Map.fromList [(binder, index) | (index, binder) <- binderPairs]
+        facts =
+          ResolvedScopeFacts
+            { resolvedScopeBindingNames = recursiveScopeBindingNames recursion,
+              resolvedScopeBinderIds = Map.fromList binderPairs,
+              resolvedScopeBindingReplacements = Map.fromList [(previousIndex, index) | (index, SLet bindingNode _ _) <- zip [0 ..] resolvedStatements, Just (LexicalReference previous) <- [resolvedNodeShadowedReference (coreNodeFacts bindingNode)], Just previousIndex <- [Map.lookup previous binderIndices]],
+              resolvedScopeRecursiveGroups = groups,
+              resolvedScopeSelfRecursiveFunctions = inferSelfRecursiveBindings outerNames exprContainsFunctionBranch indexed,
+              resolvedScopeSelfReferences = Set.fromList [index | (index, SLet bindingNode _ rhs) <- zip [0 ..] resolvedStatements, Just binder <- [resolvedNodeBinder (coreNodeFacts bindingNode)], Map.member binder (resolvedExpressionReferences rhs)]
+            }
+        statement visible (index, value) = case value of
+          SLet bindingNode name rhs ->
+            let selfVisible = if Map.member name visible then visible else insertBinder bindingNode name visible
+                definitionVisible = foldl' insertPeer selfVisible (Map.findWithDefault [] index groups)
+             in (insertBinder bindingNode name visible, SLet (shadowed visible name bindingNode) name (expression definitionVisible rhs))
+          SExpr statementNode rhs -> (visible, SExpr statementNode (expression visible rhs))
+          SSignature signatureNode name signature ->
+            let target = case Map.lookup (index + 1) definitions of
+                  Just (bindingNode, bindingName) | bindingName == name -> LexicalReference <$> resolvedNodeBinder (coreNodeFacts bindingNode)
+                  _ -> Nothing
+             in (visible, SSignature (signatureNode {coreNodeFacts = (coreNodeFacts signatureNode) {resolvedNodeReference = target}}) name signature)
+          SData statementNode name parameters constructors ->
+            let (nextVisible, resolvedConstructors) = mapAccumL (\acc (DataConstructor constructorNode constructor fields) -> (insertBinder constructorNode constructor acc, DataConstructor (shadowed acc constructor constructorNode) constructor fields)) visible constructors
+             in (nextVisible, SData statementNode name parameters resolvedConstructors)
+          SImpl statementNode capability targets methods ->
+            let methodVisible = foldl' (\acc (ImplMethod methodNode name _) -> insertBinder methodNode name acc) visible methods
+             in (visible, SImpl statementNode capability targets [ImplMethod (shadowed visible name methodNode) name (expression methodVisible body) | ImplMethod methodNode name body <- methods])
+          _ -> (visible, value)
+        insertPeer visible index = case Map.lookup index definitions of
+          Just (bindingNode, name) | Map.notMember name visible -> insertBinder bindingNode name visible
+          _ -> visible
+
+-- | Compute capture candidates bottom-up once, while resolution owns lexical
+-- identity. Removing declaration IDs also handles forward peers and rebinding
+-- without a second name-based visibility walk.
+publishResolvedCaptures :: Expr 'Resolved -> Expr 'Resolved
+publishResolvedCaptures = snd . expression
+  where
+    expression expr = case expr of
+      ELit {} -> (mempty, expr)
+      EVar node name -> (reference node name, expr)
+      EOperatorValue node symbol -> (reference node (operatorBindingName symbol), expr)
+      ELambda node parameter body ->
+        let (free, checkedBody) = expression body
+            captures = without (binder node) free
+            facts = (coreNodeFacts node) {resolvedNodeCaptures = stableSetOrderedList captures}
+         in (captures, ELambda (node {coreNodeFacts = facts}) parameter checkedBody)
+      EList node elements -> fmap (EList node) (children elements)
+      ETuple node elements -> fmap (ETuple node) (children elements)
+      EApply node function argument -> binary (EApply node) function argument
+      ETypeApplication node function spanValue argument -> fmap (\checked -> ETypeApplication node checked spanValue argument) (expression function)
+      EIf node condition yes no ->
+        let (conditionFree, checkedCondition) = expression condition
+            (yesFree, checkedYes) = expression yes
+            (noFree, checkedNo) = expression no
+         in (conditionFree <> yesFree <> noFree, EIf node checkedCondition checkedYes checkedNo)
+      EPatternCase node scrutinee arms ->
+        let (free, checkedScrutinee) = expression scrutinee
+            (armFree, checkedArms) = unzip (map arm arms)
+         in (free <> mconcat armFree, EPatternCase node checkedScrutinee checkedArms)
+      EBinary node symbol left right ->
+        let (free, checked) = binary (EBinary node symbol) left right
+         in (reference node (operatorBindingName symbol) <> free, checked)
+      ESectionLeft node left symbol ->
+        let (free, checked) = expression left
+         in (reference node (operatorBindingName symbol) <> free, ESectionLeft node checked symbol)
+      ESectionRight node symbol right ->
+        let (free, checked) = expression right
+         in (reference node (operatorBindingName symbol) <> free, ESectionRight node symbol checked)
+      EBlock node statements ->
+        let (free, checked) = unzip (map statement statements)
+         in (without (foldMap statementBinders statements) (mconcat free), EBlock node checked)
+    reference node name = case resolvedNodeReference (coreNodeFacts node) of
+      Just (BuiltinOperatorReference _) -> mempty
+      Just target -> stableSetSingleton (target, name)
+      Nothing -> mempty
+    binder node = maybe Set.empty (Set.singleton . LexicalReference) (resolvedNodeBinder (coreNodeFacts node))
+    without bound free = stableSetDifference free (Set.filter (\(target, _) -> Set.member target bound) (stableSetMembershipSet free))
+    children values = let (free, checked) = unzip (map expression values) in (mconcat free, checked)
+    binary construct left right =
+      let (leftFree, checkedLeft) = expression left
+          (rightFree, checkedRight) = expression right
+       in (leftFree <> rightFree, construct checkedLeft checkedRight)
+    arm (CaseArm node pattern guard body) =
+      let (guardFree, checkedGuard) = maybe (mempty, Nothing) (fmap Just . expression) guard
+          (bodyFree, checkedBody) = expression body
+       in (without (patternBinders pattern) (guardFree <> bodyFree), CaseArm node pattern checkedGuard checkedBody)
+    patternBinders pattern = case pattern of
+      PVariable node _ -> binder node
+      PAs node _ nested -> binder node <> patternBinders nested
+      PConstructor _ _ nested -> foldMap patternBinders nested
+      PList _ nested -> foldMap patternBinders nested
+      PTuple _ nested -> foldMap patternBinders nested
+      PConsList _ first rest -> patternBinders first <> patternBinders rest
+      POr _ alternatives -> foldMap patternBinders alternatives
+      _ -> Set.empty
+    statement value = case value of
+      SLet node name body -> fmap (SLet node name) (expression body)
+      SExpr node body -> fmap (SExpr node) (expression body)
+      SImpl node capability target methods ->
+        let (free, checked) = unzip [fmap (ImplMethod methodNode name) (expression body) | ImplMethod methodNode name body <- methods]
+         in (without (foldMap (\(ImplMethod methodNode _ _) -> binder methodNode) methods) (mconcat free), SImpl node capability target checked)
+      _ -> (mempty, value)
+    statementBinders value = case value of
+      SLet node _ _ -> binder node
+      SData _ _ _ constructors -> foldMap (\(DataConstructor node _ _) -> binder node) constructors
+      SClass _ _ _ methods -> foldMap (\(ClassMethodSignature node _ _) -> binder node) methods
+      _ -> Set.empty
 
 collectBindingNames :: [(Int, Statement phase)] -> Map Int (CoreNameAt phase)
 collectBindingNames =
@@ -96,207 +317,53 @@ buildRecursiveScopeFacts outerBindingNames indexedStatements =
       recursiveScopeGroups = inferRecursiveGroupsOrderedInternal outerBindingNames indexedStatements
     }
 
--- | One statement scope paired with the outer visibility projection and
--- recursive facts from which it was derived. The constructor stays private so
--- consumers cannot cross-pair any of the three.
-data PreparedRecursiveScope phase = PreparedRecursiveScope ![Statement phase] !(Set (CoreNameAt phase)) !(RecursiveScopeFacts phase)
+-- | A view of source-ordered statements and their published lexical facts.
+-- Constructors stay private: consumers may select statements, never rediscover
+-- visibility using a type or value environment.
+data PreparedRecursiveScope phase = PreparedRecursiveScope ![Statement phase] !ResolvedScopeFacts
 
-prepareRecursiveScope :: (Ord (CoreUserNameAt phase)) => Set (CoreNameAt phase) -> [Statement phase] -> PreparedRecursiveScope phase
-prepareRecursiveScope outerBindingNames statements =
-  PreparedRecursiveScope
-    statements
-    outerBindingNames
-    (buildRecursiveScopeFacts outerBindingNames (zip [0 ..] statements))
+prepareResolvedScope :: CoreNode 'Resolved 'ExpressionSort -> [Statement 'Resolved] -> Either SemanticFactInvariantFailure (PreparedRecursiveScope 'Resolved)
+prepareResolvedScope node = prepareScope (coreNodeId node) (coreNodeFacts node)
+
+prepareAnalyzedScope :: Expr 'Analyzed -> Either SemanticFactInvariantFailure (PreparedRecursiveScope 'Analyzed)
+prepareAnalyzedScope (EBlock node statements) = prepareScope (coreNodeId node) (expressionResolution (coreNodeFacts node)) statements
+prepareAnalyzedScope expression = Left (AnalyzedModuleRootNotBlock (coreNodeId (expressionNode expression)))
+
+prepareScope :: CoreNodeId -> ResolvedNodeFacts -> [Statement phase] -> Either SemanticFactInvariantFailure (PreparedRecursiveScope phase)
+prepareScope nodeId facts statements = case resolvedNodeScope facts of
+  Just scope -> Right (PreparedRecursiveScope statements scope)
+  Nothing -> Left (MissingScopeFacts nodeId)
+
+-- | Keep a statement prefix and its published facts. Prefixes preserve local
+-- indices, declaration IDs, and the resolver's visibility decisions.
+takePreparedScope :: Int -> PreparedRecursiveScope phase -> PreparedRecursiveScope phase
+takePreparedScope count (PreparedRecursiveScope statements facts) =
+  PreparedRecursiveScope (take count statements) selectedFacts
+  where
+    project :: Map Int a -> Map Int a
+    project = fst . Map.split count
+    projectSet = fst . Set.split count
+    selectedFacts =
+      facts
+        { resolvedScopeBindingNames = project (resolvedScopeBindingNames facts),
+          resolvedScopeBinderIds = project (resolvedScopeBinderIds facts),
+          resolvedScopeBindingReplacements = Map.filter (< count) (project (resolvedScopeBindingReplacements facts)),
+          resolvedScopeRecursiveGroups = Map.map (filter (< count)) (project (resolvedScopeRecursiveGroups facts)),
+          resolvedScopeSelfRecursiveFunctions = projectSet (resolvedScopeSelfRecursiveFunctions facts),
+          resolvedScopeSelfReferences = projectSet (resolvedScopeSelfReferences facts)
+        }
 
 preparedRecursiveScopeStatements :: PreparedRecursiveScope phase -> [Statement phase]
-preparedRecursiveScopeStatements (PreparedRecursiveScope statements _ _) = statements
+preparedRecursiveScopeStatements (PreparedRecursiveScope statements _) = statements
 
-preparedRecursiveScopeOuterBindingNames :: PreparedRecursiveScope phase -> Set (CoreNameAt phase)
-preparedRecursiveScopeOuterBindingNames (PreparedRecursiveScope _ outerBindingNames _) =
-  outerBindingNames
+preparedRecursiveScopeFacts :: PreparedRecursiveScope phase -> ResolvedScopeFacts
+preparedRecursiveScopeFacts (PreparedRecursiveScope _ facts) = facts
 
--- | Reuse the owned facts when the consumer has the same outer visibility.
--- A prepared scope crossing a compiler boundary with different imports or
--- builtin visibility is repaired from its retained statements rather than
--- silently applying recursion facts derived for another environment.
-preparedRecursiveScopeFactsForOuterBindings ::
-  (Ord (CoreUserNameAt phase)) =>
-  Set (CoreNameAt phase) ->
-  PreparedRecursiveScope phase ->
-  RecursiveScopeFacts phase
-preparedRecursiveScopeFactsForOuterBindings
-  expectedOuterBindingNames
-  (PreparedRecursiveScope statements preparedOuterBindingNames recursiveScopeFactsValue)
-    | expectedOuterBindingNames == preparedOuterBindingNames = recursiveScopeFactsValue
-    | otherwise =
-        buildRecursiveScopeFacts expectedOuterBindingNames (zip [0 ..] statements)
-
-preparedRecursiveScopeBindingNames :: PreparedRecursiveScope phase -> Map Int (CoreNameAt phase)
-preparedRecursiveScopeBindingNames (PreparedRecursiveScope _ _ recursiveScopeFactsValue) =
-  recursiveScopeBindingNames recursiveScopeFactsValue
+preparedRecursiveScopeBindingNames :: PreparedRecursiveScope phase -> Map Int ResolvedName
+preparedRecursiveScopeBindingNames = resolvedScopeBindingNames . preparedRecursiveScopeFacts
 
 preparedRecursiveScopeGroups :: PreparedRecursiveScope phase -> Map Int [Int]
-preparedRecursiveScopeGroups (PreparedRecursiveScope _ _ recursiveScopeFactsValue) =
-  recursiveScopeGroups recursiveScopeFactsValue
-
--- | Free-variable facts arranged in the same child-index shape as the lambda
--- AST. The plan deliberately retains neither lambda bodies nor parameters, so
--- runtime lookup cannot fall back to structural expression equality.
-data LambdaCaptureHint phase = LambdaCaptureHint (StableSet (CoreNameAt phase)) (LambdaCaptureHints phase)
-
-data LambdaCaptureHints phase = LambdaCaptureHints
-  { lambdaCaptureHintAtRoot :: Maybe (LambdaCaptureHint phase),
-    lambdaCaptureChildHints :: IntMap (LambdaCaptureHints phase)
-  }
-
-emptyLambdaCaptureHints :: LambdaCaptureHints phase
-emptyLambdaCaptureHints = LambdaCaptureHints Nothing IntMap.empty
-
-lambdaCaptureHintsChild :: Int -> LambdaCaptureHints phase -> LambdaCaptureHints phase
-lambdaCaptureHintsChild childIndex =
-  IntMap.findWithDefault emptyLambdaCaptureHints childIndex . lambdaCaptureChildHints
-
-collectLambdaCaptureHints :: (Ord (CoreUserNameAt phase)) => Expr phase -> LambdaCaptureHints phase
-collectLambdaCaptureHints = snd . analyzeLambdaCaptures
-
-analyzeLambdaCaptures :: (Ord (CoreUserNameAt phase)) => Expr phase -> (StableSet (CoreNameAt phase), LambdaCaptureHints phase)
-analyzeLambdaCaptures expr =
-  case expr of
-    ELit _ _ -> emptyCaptureAnalysis
-    EVar _ name -> (stableSetSingleton name, emptyLambdaCaptureHints)
-    ELambda _ parameterName bodyExpr ->
-      let (bodyFreeNames, bodyHints) = analyzeLambdaCaptures bodyExpr
-          capturedNames = stableSetDelete parameterName bodyFreeNames
-       in ( capturedNames,
-            LambdaCaptureHints
-              (Just (LambdaCaptureHint capturedNames bodyHints))
-              IntMap.empty
-          )
-    EOperatorValue _ operatorSymbol ->
-      (stableSetFromSet (operatorBindingFreeVar Set.empty operatorSymbol), emptyLambdaCaptureHints)
-    EList _ elements -> analyzeLambdaChildren elements
-    ETuple _ elements -> analyzeLambdaChildren elements
-    EApply _ functionExpr argumentExpr ->
-      analyzeLambdaChildren [functionExpr, argumentExpr]
-    ETypeApplication _ functionExpr _ _ ->
-      analyzeLambdaChildren [functionExpr]
-    EIf _ conditionExpr thenExpr elseExpr ->
-      analyzeLambdaChildren [conditionExpr, thenExpr, elseExpr]
-    EPatternCase _ scrutineeExpr caseArms ->
-      analyzeLambdaPatternCase scrutineeExpr caseArms
-    EBinary _ operatorSymbol leftExpr rightExpr ->
-      let (freeNames, hints) = analyzeLambdaChildren [leftExpr, rightExpr]
-       in (stableSetFromSet (operatorBindingFreeVar Set.empty operatorSymbol) <> freeNames, hints)
-    ESectionLeft _ leftExpr operatorSymbol ->
-      let (freeNames, hints) = analyzeLambdaChildren [leftExpr]
-       in (stableSetFromSet (operatorBindingFreeVar Set.empty operatorSymbol) <> freeNames, hints)
-    ESectionRight _ operatorSymbol rightExpr ->
-      let (freeNames, hints) = analyzeLambdaChildren [rightExpr]
-       in (stableSetFromSet (operatorBindingFreeVar Set.empty operatorSymbol) <> freeNames, hints)
-    EBlock _ statements ->
-      analyzeLambdaScope statements
-
-emptyCaptureAnalysis :: (Ord (CoreUserNameAt phase)) => (StableSet (CoreNameAt phase), LambdaCaptureHints phase)
-emptyCaptureAnalysis = (mempty, emptyLambdaCaptureHints)
-
-analyzeLambdaChildren :: (Ord (CoreUserNameAt phase)) => [Expr phase] -> (StableSet (CoreNameAt phase), LambdaCaptureHints phase)
-analyzeLambdaChildren expressions =
-  ( mconcat freeNames,
-    LambdaCaptureHints Nothing (IntMap.fromList childHints)
-  )
-  where
-    analyses = map analyzeLambdaCaptures expressions
-    freeNames = map fst analyses
-    childHints =
-      [ (childIndex, hints)
-      | (childIndex, (_, hints)) <- zip [0 ..] analyses,
-        not (lambdaCaptureHintsAreEmpty hints)
-      ]
-
-analyzeLambdaPatternCase :: (Ord (CoreUserNameAt phase)) => Expr phase -> [CaseArm phase] -> (StableSet (CoreNameAt phase), LambdaCaptureHints phase)
-analyzeLambdaPatternCase scrutineeExpr caseArms =
-  foldl' analyzeArm initialAnalysis (zip [0 ..] caseArms)
-  where
-    (scrutineeFreeNames, scrutineeHints) = analyzeLambdaCaptures scrutineeExpr
-    initialAnalysis =
-      ( scrutineeFreeNames,
-        insertLambdaChildHint 0 scrutineeHints emptyLambdaCaptureHints
-      )
-
-    analyzeArm (freeNames, hints) (armIndex, CaseArm _ pattern guardExpr bodyExpr) =
-      ( mconcat
-          [ freeNames,
-            stableSetDifference guardFreeNames boundNames,
-            stableSetDifference bodyFreeNames boundNames
-          ],
-        insertLambdaChildHint
-          bodyChildIndex
-          bodyHints
-          (insertLambdaChildHint guardChildIndex guardHints hints)
-      )
-      where
-        boundNames = patternBinderNames pattern
-        (guardFreeNames, guardHints) =
-          maybe emptyCaptureAnalysis analyzeLambdaCaptures guardExpr
-        (bodyFreeNames, bodyHints) = analyzeLambdaCaptures bodyExpr
-        guardChildIndex = 1 + (2 * armIndex)
-        bodyChildIndex = guardChildIndex + 1
-
-analyzeLambdaScope :: (Ord (CoreUserNameAt phase)) => [Statement phase] -> (StableSet (CoreNameAt phase), LambdaCaptureHints phase)
-analyzeLambdaScope statements =
-  (freeNames, LambdaCaptureHints Nothing childHints)
-  where
-    (_, freeNames, childHints) =
-      foldl' analyzeStatement (Set.empty, mempty, IntMap.empty) (zip [0 ..] statements)
-
-    analyzeStatement (boundNames, accumulatedFreeNames, accumulatedHints) (statementIndex, statement) =
-      case statement of
-        SLet _ bindingName valueExpr ->
-          analyzeValue (Set.insert bindingName boundNames) valueExpr
-        SExpr _ valueExpr ->
-          analyzeValue boundNames valueExpr
-        SSignature {} -> unchanged
-        SData {} -> unchanged
-        SClass {} -> unchanged
-        SImpl {} -> unchanged
-        SModule {} -> unchanged
-        SImport {} -> unchanged
-      where
-        unchanged = (boundNames, accumulatedFreeNames, accumulatedHints)
-        analyzeValue nextBoundNames valueExpr =
-          let (valueFreeNames, valueHints) = analyzeLambdaCaptures valueExpr
-           in ( nextBoundNames,
-                accumulatedFreeNames <> stableSetDifference valueFreeNames boundNames,
-                insertLambdaChildHintMap statementIndex valueHints accumulatedHints
-              )
-
-insertLambdaChildHint :: Int -> LambdaCaptureHints phase -> LambdaCaptureHints phase -> LambdaCaptureHints phase
-insertLambdaChildHint childIndex childHints hints =
-  hints
-    { lambdaCaptureChildHints =
-        insertLambdaChildHintMap childIndex childHints (lambdaCaptureChildHints hints)
-    }
-
-insertLambdaChildHintMap :: Int -> LambdaCaptureHints phase -> IntMap (LambdaCaptureHints phase) -> IntMap (LambdaCaptureHints phase)
-insertLambdaChildHintMap childIndex childHints hints
-  | lambdaCaptureHintsAreEmpty childHints = hints
-  | otherwise = IntMap.insert childIndex childHints hints
-
-lambdaCaptureHintsAreEmpty :: LambdaCaptureHints phase -> Bool
-lambdaCaptureHintsAreEmpty (LambdaCaptureHints Nothing childHints) = IntMap.null childHints
-lambdaCaptureHintsAreEmpty _ = False
-
-lookupLambdaCapturedNames :: LambdaCaptureHints phase -> Maybe (Set (CoreNameAt phase), LambdaCaptureHints phase)
-lookupLambdaCapturedNames hints =
-  case lambdaCaptureHintAtRoot hints of
-    Just (LambdaCaptureHint capturedNames nestedHints) -> Just (stableSetMembershipSet capturedNames, nestedHints)
-    Nothing -> Nothing
-
-lookupLambdaCapturedNamesOrdered :: LambdaCaptureHints phase -> Maybe ([CoreNameAt phase], LambdaCaptureHints phase)
-lookupLambdaCapturedNamesOrdered hints =
-  case lambdaCaptureHintAtRoot hints of
-    Just (LambdaCaptureHint capturedNames nestedHints) -> Just (stableSetOrderedList capturedNames, nestedHints)
-    Nothing -> Nothing
+preparedRecursiveScopeGroups = resolvedScopeRecursiveGroups . preparedRecursiveScopeFacts
 
 freeVarsExprWithBound :: (Ord (CoreUserNameAt phase)) => Set (CoreNameAt phase) -> Expr phase -> Set (CoreNameAt phase)
 freeVarsExprWithBound = freeVarsExprWithVisibleBindings Set.empty
@@ -304,15 +371,6 @@ freeVarsExprWithBound = freeVarsExprWithVisibleBindings Set.empty
 freeVarsExprWithVisibleBindings :: (Ord (CoreUserNameAt phase)) => Set (CoreNameAt phase) -> Set (CoreNameAt phase) -> Expr phase -> Set (CoreNameAt phase)
 freeVarsExprWithVisibleBindings visibleBindingNames =
   freeVarsExprUsing (freeVarsScopeWithVisibleBindings visibleBindingNames)
-
--- | Names that may need to come from the environment when a closure is
--- created. Unlike recursive-binding analysis, an ordinary binding is not in
--- scope in its own initializer: a same-name reference snapshots a previously
--- visible value. Recursive cells supplied by scope evaluation are harmless
--- candidates here because restricting an environment drops absent names.
-closureCaptureCandidatesWithBound :: (Ord (CoreUserNameAt phase)) => Set (CoreNameAt phase) -> Expr phase -> Set (CoreNameAt phase)
-closureCaptureCandidatesWithBound =
-  freeVarsExprUsing closureCaptureCandidatesScopeWithBound
 
 freeVarsExprUsing :: (Ord (CoreUserNameAt phase)) => (Set (CoreNameAt phase) -> [Statement phase] -> Set (CoreNameAt phase)) -> Set (CoreNameAt phase) -> Expr phase -> Set (CoreNameAt phase)
 freeVarsExprUsing scopeFreeVars bound expr =
@@ -322,54 +380,24 @@ freeVarsExprUsing scopeFreeVars bound expr =
       | Set.member name bound -> Set.empty
       | otherwise -> Set.singleton name
     ELambda _ parameterName bodyExpr ->
-      freeVarsExprUsing
-        scopeFreeVars
-        (Set.insert parameterName bound)
-        bodyExpr
-    EOperatorValue _ operatorSymbol ->
-      operatorBindingFreeVar bound operatorSymbol
-    EList _ elements ->
-      Set.unions (map (freeVarsExprUsing scopeFreeVars bound) elements)
-    ETuple _ elements ->
-      Set.unions (map (freeVarsExprUsing scopeFreeVars bound) elements)
-    EApply _ functionExpr argumentExpr ->
-      Set.union
-        (freeVarsExprUsing scopeFreeVars bound functionExpr)
-        (freeVarsExprUsing scopeFreeVars bound argumentExpr)
-    ETypeApplication _ functionExpr _ _ ->
-      freeVarsExprUsing scopeFreeVars bound functionExpr
-    EIf _ conditionExpr thenExpr elseExpr ->
-      Set.unions
-        [ freeVarsExprUsing scopeFreeVars bound conditionExpr,
-          freeVarsExprUsing scopeFreeVars bound thenExpr,
-          freeVarsExprUsing scopeFreeVars bound elseExpr
-        ]
-    EPatternCase _ scrutineeExpr caseArms ->
-      Set.unions
-        ( freeVarsExprUsing scopeFreeVars bound scrutineeExpr
-            : [ Set.union
-                  (maybe Set.empty (freeVarsExprUsing scopeFreeVars armBound) guardExpr)
-                  (freeVarsExprUsing scopeFreeVars armBound bodyExpr)
-              | CaseArm _ pattern guardExpr bodyExpr <- caseArms,
-                let armBound = extendBoundWithPattern pattern bound
-              ]
-        )
+      freeVarsExprUsing scopeFreeVars (Set.insert parameterName bound) bodyExpr
+    EOperatorValue _ operatorSymbol -> operatorBindingFreeVar bound operatorSymbol
+    EList _ elements -> Set.unions (map recur elements)
+    ETuple _ elements -> Set.unions (map recur elements)
+    EApply _ functionExpr argumentExpr -> recur functionExpr <> recur argumentExpr
+    ETypeApplication _ functionExpr _ _ -> recur functionExpr
+    EIf _ conditionExpr thenExpr elseExpr -> Set.unions (map recur [conditionExpr, thenExpr, elseExpr])
+    EPatternCase _ scrutineeExpr caseArms -> Set.unions (recur scrutineeExpr : map armFreeVars caseArms)
     EBinary _ operatorSymbol leftExpr rightExpr ->
-      Set.unions
-        [ operatorBindingFreeVar bound operatorSymbol,
-          freeVarsExprUsing scopeFreeVars bound leftExpr,
-          freeVarsExprUsing scopeFreeVars bound rightExpr
-        ]
-    ESectionLeft _ leftExpr operatorSymbol ->
-      Set.union
-        (operatorBindingFreeVar bound operatorSymbol)
-        (freeVarsExprUsing scopeFreeVars bound leftExpr)
-    ESectionRight _ operatorSymbol rightExpr ->
-      Set.union
-        (operatorBindingFreeVar bound operatorSymbol)
-        (freeVarsExprUsing scopeFreeVars bound rightExpr)
-    EBlock _ statements ->
-      scopeFreeVars bound statements
+      Set.unions [operatorBindingFreeVar bound operatorSymbol, recur leftExpr, recur rightExpr]
+    ESectionLeft _ leftExpr operatorSymbol -> operatorBindingFreeVar bound operatorSymbol <> recur leftExpr
+    ESectionRight _ operatorSymbol rightExpr -> operatorBindingFreeVar bound operatorSymbol <> recur rightExpr
+    EBlock _ statements -> scopeFreeVars bound statements
+  where
+    recur = freeVarsExprUsing scopeFreeVars bound
+    armFreeVars (CaseArm _ pattern guardExpr bodyExpr) =
+      let armRecur = freeVarsExprUsing scopeFreeVars (extendBoundWithPattern pattern bound)
+       in foldMap armRecur guardExpr <> armRecur bodyExpr
 
 operatorBindingFreeVar :: (Ord user) => Set (Name user) -> Text -> Set (Name user)
 operatorBindingFreeVar bound operatorSymbol
@@ -378,31 +406,6 @@ operatorBindingFreeVar bound operatorSymbol
   | otherwise = Set.singleton bindingName
   where
     bindingName = operatorBindingName operatorSymbol
-
-closureCaptureCandidatesScopeWithBound :: (Ord (CoreUserNameAt phase)) => Set (CoreNameAt phase) -> [Statement phase] -> Set (CoreNameAt phase)
-closureCaptureCandidatesScopeWithBound initialBound statements =
-  snd (foldl' step (initialBound, Set.empty) statements)
-  where
-    step (boundNames, captureCandidates) statement =
-      case statement of
-        SSignature {} -> (boundNames, captureCandidates)
-        SModule {} -> (boundNames, captureCandidates)
-        SImport {} -> (boundNames, captureCandidates)
-        SClass {} -> (boundNames, captureCandidates)
-        SImpl {} -> (boundNames, captureCandidates)
-        SData {} -> (boundNames, captureCandidates)
-        SExpr _ expr ->
-          ( boundNames,
-            Set.union
-              captureCandidates
-              (closureCaptureCandidatesWithBound boundNames expr)
-          )
-        SLet _ bindingName valueExpr ->
-          ( Set.insert bindingName boundNames,
-            Set.union
-              captureCandidates
-              (closureCaptureCandidatesWithBound boundNames valueExpr)
-          )
 
 freeVarsScopeWithBound :: (Ord (CoreUserNameAt phase)) => Set (CoreNameAt phase) -> [Statement phase] -> Set (CoreNameAt phase)
 freeVarsScopeWithBound = freeVarsScopeWithVisibleBindings Set.empty
@@ -526,11 +529,10 @@ inferRecursiveGroupsOrderedInternal outerBindingNames indexedStatements =
                 else Nothing
           | otherwise -> Map.lookup dependencyName firstDeclarationStatementByName
 
-    componentStatementIndices component =
-      let memberIndices =
-            case component of
-              AcyclicSCC componentIndex -> Set.singleton componentIndex
-              CyclicSCC indices -> Set.fromList indices
+    componentStatementIndices (AcyclicSCC componentIndex) = [componentIndex]
+    componentStatementIndices (CyclicSCC [componentIndex]) = [componentIndex]
+    componentStatementIndices (CyclicSCC indices) =
+      let memberIndices = Set.fromList indices
        in -- SCC traversal order is not the declaration order consumed by later
           -- phases, so re-project members through the original statement list.
           [ statementIndex
@@ -560,21 +562,6 @@ inferSelfRecursiveBindings outerBindingNames predicate =
               (freeVarsExprWithBound outerBindingNames valueExpr) ->
               Set.insert statementIndex recursiveStatements
         _ -> recursiveStatements
-
--- | Bindings whose own unresolved definition is referenced by their RHS.
--- Runtime recursion applies a stricter cell-ownership predicate; inference only
--- needs this syntactic set so every occurrence shares the definition's one
--- prepared type variable.
-inferSelfReferencedBindings :: (Ord (CoreUserNameAt phase)) => Set (CoreNameAt phase) -> [(Int, Statement phase)] -> Set Int
-inferSelfReferencedBindings outerBindingNames =
-  foldl' step Set.empty
-  where
-    step selfReferences (statementIndex, statement) =
-      case statement of
-        SLet _ bindingName valueExpr
-          | Set.member bindingName (freeVarsExprWithBound outerBindingNames valueExpr) ->
-              Set.insert statementIndex selfReferences
-        _ -> selfReferences
 
 newtype ScopeBindingIdentity = ScopeBindingIdentity [Int]
   deriving (Eq, Ord)
@@ -801,22 +788,20 @@ selfReferenceOwnsRecursiveCellWith containsFunctionBranch bindingName candidateE
                     )
                   _ ->
                     (contexts, noSummary)
-              eagerBindingSummary =
-                foldl'
-                  combineSummaries
-                  noSummary
-                  [ summary
-                  | ScopeStatementContext statement statementBindings statementPath <- eagerStatements,
-                    summary <-
-                      case statement of
-                        SLet _ _ valueExpr ->
-                          [nonAliasSummary statementPath boundNames statementBindings Set.empty valueExpr]
-                        SExpr _ statementExpr ->
-                          [nonAliasSummary statementPath boundNames statementBindings Set.empty statementExpr]
-                        _ -> []
-                  ]
-           in combineSummaries terminalSummary eagerBindingSummary
+           in combineSummaries terminalSummary (eagerStatementsSummary boundNames eagerStatements)
         _ -> nonAliasSummary expressionPath boundNames scopeBindings visitedBindings expr
+
+    eagerStatementsSummary boundNames contexts =
+      foldl'
+        combineSummaries
+        noSummary
+        [ nonAliasSummary statementPath boundNames statementBindings Set.empty valueExpr
+        | ScopeStatementContext statement statementBindings statementPath <- contexts,
+          valueExpr <- case statement of
+            SLet _ _ value -> [value]
+            SExpr _ value -> [value]
+            _ -> []
+        ]
 
     nonAliasSummary expressionPath boundNames scopeBindings visitedBindings expr =
       case expr of
@@ -826,37 +811,11 @@ selfReferenceOwnsRecursiveCellWith containsFunctionBranch bindingName candidateE
         ELambda {} -> noSummary
         EOperatorValue _ operatorSymbol ->
           nonAliasOperatorSummary boundNames scopeBindings visitedBindings operatorSymbol
-        EList _ elements ->
-          foldl'
-            combineSummaries
-            noSummary
-            [ nonAliasSummary (expressionPath <> [elementIndex]) boundNames scopeBindings visitedBindings element
-            | (elementIndex, element) <- zip [0 ..] elements
-            ]
-        ETuple _ elements ->
-          foldl'
-            combineSummaries
-            noSummary
-            [ nonAliasSummary (expressionPath <> [elementIndex]) boundNames scopeBindings visitedBindings element
-            | (elementIndex, element) <- zip [0 ..] elements
-            ]
-        EApply _ functionExpr argumentExpr ->
-          foldl'
-            combineSummaries
-            noSummary
-            [ nonAliasSummary (expressionPath <> [0]) boundNames scopeBindings visitedBindings functionExpr,
-              nonAliasSummary (expressionPath <> [1]) boundNames scopeBindings visitedBindings argumentExpr
-            ]
-        ETypeApplication _ functionExpr _ _ ->
-          nonAliasSummary (expressionPath <> [0]) boundNames scopeBindings visitedBindings functionExpr
-        EIf _ conditionExpr thenExpr elseExpr ->
-          foldl'
-            combineSummaries
-            noSummary
-            [ nonAliasSummary (expressionPath <> [0]) boundNames scopeBindings visitedBindings conditionExpr,
-              nonAliasSummary (expressionPath <> [1]) boundNames scopeBindings visitedBindings thenExpr,
-              nonAliasSummary (expressionPath <> [2]) boundNames scopeBindings visitedBindings elseExpr
-            ]
+        EList _ elements -> children elements
+        ETuple _ elements -> children elements
+        EApply _ functionExpr argumentExpr -> children [functionExpr, argumentExpr]
+        ETypeApplication _ functionExpr _ _ -> recur 0 functionExpr
+        EIf _ conditionExpr thenExpr elseExpr -> children [conditionExpr, thenExpr, elseExpr]
         EPatternCase _ scrutineeExpr caseArms ->
           foldl'
             combineSummaries
@@ -878,36 +837,17 @@ selfReferenceOwnsRecursiveCellWith containsFunctionBranch bindingName candidateE
               let armBoundNames = extendBoundWithPattern pattern boundNames
             ]
         EBinary _ operatorSymbol leftExpr rightExpr ->
-          foldl'
-            combineSummaries
-            noSummary
-            [ nonAliasOperatorSummary boundNames scopeBindings visitedBindings operatorSymbol,
-              nonAliasSummary (expressionPath <> [0]) boundNames scopeBindings visitedBindings leftExpr,
-              nonAliasSummary (expressionPath <> [1]) boundNames scopeBindings visitedBindings rightExpr
-            ]
+          combineSummaries (operator operatorSymbol) (children [leftExpr, rightExpr])
         ESectionLeft _ leftExpr operatorSymbol ->
-          combineSummaries
-            (nonAliasOperatorSummary boundNames scopeBindings visitedBindings operatorSymbol)
-            (nonAliasSummary (expressionPath <> [0]) boundNames scopeBindings visitedBindings leftExpr)
+          combineSummaries (operator operatorSymbol) (recur 0 leftExpr)
         ESectionRight _ operatorSymbol rightExpr ->
-          combineSummaries
-            (nonAliasOperatorSummary boundNames scopeBindings visitedBindings operatorSymbol)
-            (nonAliasSummary (expressionPath <> [0]) boundNames scopeBindings visitedBindings rightExpr)
+          combineSummaries (operator operatorSymbol) (recur 0 rightExpr)
         EBlock _ blockStatements ->
-          foldl'
-            combineSummaries
-            noSummary
-            [ summary
-            | ScopeStatementContext statement statementBindings statementPath <-
-                scopeStatementContexts expressionPath boundNames scopeBindings blockStatements,
-              summary <-
-                case statement of
-                  SLet _ _ valueExpr ->
-                    [nonAliasSummary statementPath boundNames statementBindings Set.empty valueExpr]
-                  SExpr _ statementExpr ->
-                    [nonAliasSummary statementPath boundNames statementBindings Set.empty statementExpr]
-                  _ -> []
-            ]
+          eagerStatementsSummary boundNames (scopeStatementContexts expressionPath boundNames scopeBindings blockStatements)
+      where
+        recur childIndex = nonAliasSummary (expressionPath <> [childIndex]) boundNames scopeBindings visitedBindings
+        children = foldl' combineSummaries noSummary . zipWith recur [0 ..]
+        operator = nonAliasOperatorSummary boundNames scopeBindings visitedBindings
 
     nonAliasOperatorSummary boundNames scopeBindings visitedBindings operatorSymbol
       | isBuiltinOperatorSymbol operatorSymbol = noSummary

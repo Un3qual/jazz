@@ -9,21 +9,22 @@ import Control.Monad.Trans.State.Strict (get, modify', put, runState, state)
 import qualified Data.Map.Strict as Map
 import Data.Maybe (catMaybes)
 import qualified Data.Set as Set
+import Data.Void (Void)
 import Jazz.Compiler.AST
-  ( CoreNode (coreNodeSpan),
+  ( CoreNode (coreNodeFacts, coreNodeSpan),
     CorePhase (Resolved),
     Expr,
     ImplMethod (..),
-    SignatureType,
   )
-import Jazz.Compiler.CapabilityFacts (concreteConstraintArgument, qualifiedMethodKey)
+import Jazz.Compiler.CapabilityFacts (qualifiedMethodKey)
+import Jazz.Compiler.CoreIdentity (renderCapabilityMethodKey)
 import Jazz.Compiler.Diagnostics (DiagnosticContext (CheckingImplMethod))
 import Jazz.Compiler.Name (ResolvedName, identifierText, qualifiedMemberName)
+import Jazz.Compiler.SemanticDeclarations (concreteImplementationType)
 import Jazz.Compiler.TypeInference.Capabilities
-  ( classMethodPayloadToExpressionType,
-    defaultLiteralTypes,
+  ( defaultLiteralTypes,
     finalizeDeferredExplicitConstraintsAt,
-    qualifiedMethodSignatureType,
+    instantiateClassMethodTarget,
   )
 import Jazz.Compiler.TypeInference.Diagnostics
   ( addTypeError,
@@ -36,9 +37,10 @@ import Jazz.Compiler.TypeInference.State (InferState, inferClassMethodSignatures
 import Jazz.Compiler.TypeInference.Types
   ( ClassMethodType (..),
     ExpressionType,
-    ImplMethodType (..),
-    TypeBinding (PlainTypeBinding),
+    SemanticBinding (PlainTypeBinding),
+    SemanticType,
     TypeEnv,
+    typeEnvReferenceKey,
   )
 
 checkImplMethodBodies ::
@@ -47,13 +49,13 @@ checkImplMethodBodies ::
   TypeEnv ->
   InferState ->
   ResolvedName ->
-  [SignatureType 'Resolved] ->
+  [SemanticType ResolvedName Void] ->
   [ImplMethod 'Resolved] ->
   (InferState, [(Int, result)])
 checkImplMethodBodies inferExpected resultType env initialState capabilityName arguments methods =
   case arguments of
     [implTarget]
-      | concreteConstraintArgument implTarget,
+      | concreteImplementationType implTarget,
         not implMethodNamesHaveDuplicates ->
           let (results, finalState) = runState (mapM (checkMethod implTarget) (zip [0 ..] methods)) initialState
            in (finalState, catMaybes results)
@@ -69,10 +71,11 @@ checkImplMethodBodies inferExpected resultType env initialState capabilityName a
           methodKey = qualifiedMethodKey capabilityName methodName
       result <- case Map.lookup methodKey (inferClassMethodSignatures beforeSignature) of
         Nothing -> do
-          modify' (\current -> addTypeError current (mkImplMethodMissingClassMethodError methodKey methodSpan))
+          modify' (\current -> addTypeError current (mkImplMethodMissingClassMethodError (renderCapabilityMethodKey methodKey) methodSpan))
           pure Nothing
         Just classMethodType -> do
-          maybeExpectedType <- state (qualifiedMethodSignatureType methodKey classMethodType (ImplMethodType implTarget))
+          let ClassMethodType parameter declaredMethodType = classMethodType
+              maybeExpectedType = instantiateClassMethodTarget parameter implTarget declaredMethodType
           case maybeExpectedType of
             Nothing -> pure Nothing
             Just expectedType -> do
@@ -91,7 +94,7 @@ checkImplMethodBodies inferExpected resultType env initialState capabilityName a
                         addTypeError
                           afterBody
                           ( mkImplMethodTypeMismatchError
-                              methodKey
+                              (renderCapabilityMethodKey methodKey)
                               methodSpan
                               (defaultLiteralTypes afterBody (resolveType afterBody expectedType))
                               (defaultLiteralTypes afterBody (resolveType afterBody methodType))
@@ -100,15 +103,15 @@ checkImplMethodBodies inferExpected resultType env initialState capabilityName a
               modify' (finalizeDeferredExplicitConstraintsAt methodSpan beforeBody)
               pure (Just (methodIndex, methodResult))
 
-      modify' (annotateNewErrorsWithContext (CheckingImplMethod methodKey) methodSpan beforeSignature)
+      modify' (annotateNewErrorsWithContext (CheckingImplMethod (renderCapabilityMethodKey methodKey)) methodSpan beforeSignature)
       pure result
 
     implMethodEnv implTarget stateForBindings =
       Map.union env $
         Map.fromList
-          [ (qualifiedMemberName capabilityName methodName, PlainTypeBinding methodType)
-          | ImplMethod _ methodName _ <- methods,
+          [ (typeEnvReferenceKey (coreNodeFacts node) (qualifiedMemberName capabilityName methodName), PlainTypeBinding methodType)
+          | ImplMethod node methodName _ <- methods,
             let methodKey = qualifiedMethodKey capabilityName methodName,
             Just (ClassMethodType classParameter methodSignature) <- [Map.lookup methodKey (inferClassMethodSignatures stateForBindings)],
-            Just methodType <- [classMethodPayloadToExpressionType stateForBindings classParameter implTarget methodSignature]
+            Just methodType <- [instantiateClassMethodTarget classParameter implTarget methodSignature]
           ]

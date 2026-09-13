@@ -11,8 +11,8 @@ import Jazz.Compiler.Diagnostics.Render
   ( renderDiagnostic,
   )
 import Jazz.Compiler.Parser.AST
-  ( SurfaceLambdaParameter (..),
-    SurfaceLiteral (..),
+  ( Literal (..),
+    SurfaceLambdaParameter (..),
     SurfacePattern (..),
     SurfacePatternForm (..),
   )
@@ -151,8 +151,8 @@ testParsesCaseArmPatternTokens = do
                                 1
                                 28
                                 ( SPList
-                                    [ p 1 29 (SPLiteral (SLInt 1)),
-                                      p 1 32 (SPLiteral (SLBool True)),
+                                    [ p 1 29 (SPLiteral (LInt 1)),
+                                      p 1 32 (SPLiteral (LBool True)),
                                       p 1 38 SPWildcard,
                                       p 1 41 (SPVariable "item")
                                     ]
@@ -171,19 +171,19 @@ testParsesCharAndTextLiteralPatterns = do
   charTokens <- lexSource "'a' -> body"
   assertEqual
     "Char literal pattern"
-    (Right (p 1 1 (SPLiteral (SLChar 'a')), [TArrow, TIdentifier "body"]))
+    (Right (p 1 1 (SPLiteral (LChar 'a')), [TArrow, TIdentifier "body"]))
     (fmap (fmap tokenKinds) (parseCaseArmPatternTokens charTokens))
   textTokens <- lexSource "\"Jazz\" -> body"
   assertEqual
     "Text literal pattern"
-    (Right (p 1 1 (SPLiteral (SLText "Jazz")), [TArrow, TIdentifier "body"]))
+    (Right (p 1 1 (SPLiteral (LText "Jazz")), [TArrow, TIdentifier "body"]))
     (fmap (fmap tokenKinds) (parseCaseArmPatternTokens textTokens))
 
   nestedTokens <- lexSource "Pair 'a' \"Jazz\" -> body"
   assertEqual
     "nested Char/Text literal patterns"
     ( Right
-        ( p 1 1 (SPConstructor "Pair" [p 1 6 (SPLiteral (SLChar 'a')), p 1 10 (SPLiteral (SLText "Jazz"))]),
+        ( p 1 1 (SPConstructor "Pair" [p 1 6 (SPLiteral (LChar 'a')), p 1 10 (SPLiteral (LText "Jazz"))]),
           [TArrow, TIdentifier "body"]
         )
     )
@@ -192,7 +192,7 @@ testParsesCharAndTextLiteralPatterns = do
   lambdaTokens <- lexSource "'a', next"
   assertEqual
     "Char literal lambda pattern"
-    (Right (SurfaceLambdaPattern (p 1 1 (SPLiteral (SLChar 'a'))), [TComma, TIdentifier "next"]))
+    (Right (SurfaceLambdaPattern (p 1 1 (SPLiteral (LChar 'a'))), [TComma, TIdentifier "next"]))
     (fmap (fmap tokenKinds) (parseLambdaParameterTokens lambdaTokens))
 
 testParsesLambdaParameterTokens :: IO ()

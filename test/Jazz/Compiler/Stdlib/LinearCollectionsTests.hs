@@ -2,6 +2,7 @@
 
 module Jazz.Compiler.Stdlib.LinearCollectionsTests
   ( linearCollectionTests,
+    linearCollectionScaleTests,
   )
 where
 
@@ -22,8 +23,12 @@ linearCollectionTests =
   [ ("Dictionary preserves insertion order and update semantics", runStdlibFixtureExpecting ["Stdlib", "LinearCollections", "Dictionary"] "stdlib/linear-collections/Dictionary.jz" expectedDictionary),
     ("Queue preserves FIFO order and persistent versions", runStdlibFixtureExpecting ["Stdlib", "LinearCollections", "Queue"] "stdlib/linear-collections/Queue.jz" expectedQueue),
     ("Dictionary matches a deterministic Haskell association-list model", testDictionaryModelTrace),
-    ("Queue handles a large deterministic sequential workload", testQueueModelTrace),
     ("linear collection constructors remain private", testPrivateConstructors)
+  ]
+
+linearCollectionScaleTests :: [NamedTest]
+linearCollectionScaleTests =
+  [ ("Queue handles a large deterministic sequential workload", testQueueModelTrace)
   ]
 
 testDictionaryModelTrace :: IO ()

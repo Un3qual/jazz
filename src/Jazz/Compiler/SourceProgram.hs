@@ -6,16 +6,21 @@
 module Jazz.Compiler.SourceProgram
   ( parseAndLowerStandaloneSource,
     parseSurfaceWithErrorCode,
-    prependLoweredStatements,
+    standaloneSourceModule,
     scopeStatements,
   )
 where
 
+import qualified Data.List.NonEmpty as NonEmpty
+import Data.Maybe (fromMaybe, listToMaybe)
 import Data.Text (Text)
 import Jazz.Compiler.AST
-  ( CorePhase (..),
+  ( CoreNode (..),
+    CoreNodeId (..),
+    CorePhase (..),
     Expr (..),
     Statement (..),
+    expressionNode,
   )
 import Jazz.Compiler.DiagnosticCatalog
   ( ErrorCode (..),
@@ -25,6 +30,9 @@ import Jazz.Compiler.Diagnostics
     prependDiagnosticSummary,
     setDiagnosticErrorCode,
   )
+import Jazz.Compiler.ModuleGraph (CoreModule (..), DeclaredModuleFacts (..))
+import Jazz.Compiler.ModuleIdentity (mkModulePath, moduleIdentity, standaloneModulePath, standaloneSourceFile)
+import Jazz.Compiler.Name (mkIdentifier)
 import Jazz.Compiler.Parser
   ( parseSurfaceProgram,
   )
@@ -41,16 +49,32 @@ parseAndLowerStandaloneSource source = do
   surfaceProgram <- parseSurfaceWithErrorCode source
   pure (lowerSurfaceExpr surfaceProgram)
 
--- | Prepend already-lowered declarations and then allocate one identity space
--- for the composed source unit. Parsed programs are blocks; retaining the
--- non-block case makes the helper total without manufacturing a synthetic
--- statement that would duplicate the expression's node identity.
-prependLoweredStatements :: [Statement 'Lowered] -> Expr 'Lowered -> Expr 'Lowered
-prependLoweredStatements prefix expression =
-  reindexLoweredExpr $
-    case expression of
-      EBlock node statements -> EBlock node (prefix <> statements)
-      _ -> expression
+-- | Give a source expression its own graph artifact and node identity space.
+-- The synthetic wrapper is only needed by callers supplying a non-block AST.
+standaloneSourceModule :: Expr 'Lowered -> CoreModule 'Lowered
+standaloneSourceModule expression =
+  CoreModule
+    { coreModuleIdentity = moduleIdentity nominalPath standaloneSourceFile,
+      coreModuleBodyNode = expressionNode indexedBlock,
+      coreModuleImports = [],
+      coreModuleStatements = scopeStatements indexedBlock,
+      coreModuleFacts = DeclaredModuleFacts Nothing
+    }
+  where
+    indexedBlock = reindexLoweredExpr block
+    block = case expression of
+      EBlock {} -> expression
+      _ ->
+        let node :: CoreNode 'Lowered sort
+            node = CoreNode (CoreNodeId 0) (coreNodeSpan (expressionNode expression)) ()
+         in EBlock node [SExpr node expression]
+    nominalPath =
+      fromMaybe standaloneModulePath $
+        listToMaybe
+          [ mkModulePath (fmap mkIdentifier path)
+          | SModule _ segments <- scopeStatements block,
+            Just path <- [NonEmpty.nonEmpty segments]
+          ]
 
 scopeStatements :: Expr phase -> [Statement phase]
 scopeStatements expr =

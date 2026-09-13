@@ -27,7 +27,6 @@ module Jazz.Compiler.Semantics.BindingSignature.Shared
   )
 where
 
-import Data.List.NonEmpty (NonEmpty (..))
 import qualified Data.Text as Text
 import Jazz.Compiler.AST
   ( CorePhase (Lowered, Resolved),
@@ -171,9 +170,4 @@ mergeLoweredPrograms programs =
     blockStatements expression = error ("expected lowered source-unit block, got " <> show expression)
 
 resolvedProgram :: Text.Text -> Expr 'Resolved
-resolvedProgram source =
-  case resolveStandaloneExprNames (exportInventory []) (loweredProgram source) of
-    Left diagnostics -> error (Text.unpack (Text.unlines (map renderDiagnostic (toList diagnostics))))
-    Right expression -> expression
-  where
-    toList (diagnostic :| diagnostics) = diagnostic : diagnostics
+resolvedProgram = resolveStandaloneExprNames (exportInventory []) . loweredProgram

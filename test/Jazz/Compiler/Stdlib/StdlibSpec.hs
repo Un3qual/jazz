@@ -3,20 +3,30 @@
 module Main (main) where
 
 import Jazz.Compiler.Stdlib.FoundationsTests
-  ( foundationTests,
+  ( foundationPerformanceTests,
+    foundationTests,
   )
 import Jazz.Compiler.Stdlib.LinearCollectionsTests
-  ( linearCollectionTests,
+  ( linearCollectionScaleTests,
+    linearCollectionTests,
   )
 import Jazz.Compiler.Stdlib.OrderedCollectionsTests
   ( orderedCollectionTests,
   )
 import Jazz.Compiler.Stdlib.TextTests
-  ( textTests,
+  ( textScaleTests,
+    textTests,
   )
 import Jazz.TestHarness
   ( runTestSuite,
   )
+import System.Environment (getArgs)
 
 main :: IO ()
-main = runTestSuite "Stdlib" (foundationTests <> linearCollectionTests <> orderedCollectionTests <> textTests)
+main = do
+  args <- getArgs
+  let performanceTests =
+        if "--skip-performance" `elem` args
+          then []
+          else foundationPerformanceTests <> linearCollectionScaleTests <> textScaleTests
+  runTestSuite "Stdlib" (foundationTests <> linearCollectionTests <> orderedCollectionTests <> textTests <> performanceTests)

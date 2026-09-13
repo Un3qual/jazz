@@ -5,9 +5,7 @@
 -- | Signature grammar helpers for the surface parser.
 module Jazz.Compiler.Parser.Signature
   ( parseConstrainedSignatureTypeDetailed,
-    parseConstraintBlockHeadsDetailed,
     parseSignatureTypeParser,
-    parseSignatureTypePrefixDetailed,
     parseSignaturePayload,
     parseSignaturePayloadDetailed,
     splitTopLevelCommaTokensDetailed,
@@ -16,18 +14,17 @@ where
 
 import Control.Applicative ((<|>))
 import Control.Monad (void)
-import Data.Bifunctor (first)
 import Data.Char (isLower)
 import Data.Text (Text)
 import qualified Data.Text as Text
 import Jazz.Compiler.Name
-  ( Identifier,
-    identifierText,
+  ( identifierText,
     mkIdentifier,
     mkQualifiedIdentifier,
   )
 import Jazz.Compiler.Parser.AST
-  ( SurfaceNumericType,
+  ( SurfaceName (..),
+    SurfaceNumericType,
     SurfaceSignatureConstraint,
     SurfaceSignaturePayload,
     SurfaceSignatureToken,
@@ -45,6 +42,7 @@ import Jazz.Compiler.Parser.Lexer
     isImmediatelyAfter,
   )
 import qualified Jazz.Compiler.Parser.TokenParser as TokenParser
+import Jazz.Compiler.Parser.TokenStream (tokenStreamToList)
 import Jazz.Compiler.TypeRepresentation
   ( NumericType (..),
     pattern ConstrainedSignature,
@@ -91,17 +89,17 @@ parseSignaturePayload signatureTokens =
 parseSignaturePayloadDetailed :: [Token] -> Either ParserFailure SurfaceSignaturePayload
 parseSignaturePayloadDetailed tokens = do
   case tokens of
-    Token {tokenKind = TAt} : Token {tokenKind = TLBrace} : rest -> void (parseConstraintBlockHeadsDetailed rest)
+    Token {tokenKind = TAt} : Token {tokenKind = TLBrace} : rest -> validateConstraintBlockHeads rest
     _ -> Right ()
   pure (parseSignaturePayload tokens)
 
--- | Validate and retain qualified heads in a constraint block, leaving the
--- tokens after its closing brace. Type arguments are not class references;
--- an unfinished legacy payload must not consume the next statement.
-parseConstraintBlockHeadsDetailed :: [Token] -> Either ParserFailure ([(Token, Token)], [Token])
-parseConstraintBlockHeadsDetailed = validateHead 0
+-- | Validate qualified heads without treating type arguments as class
+-- references or consuming the next statement after an unfinished legacy payload.
+validateConstraintBlockHeads :: [Token] -> Either ParserFailure ()
+validateConstraintBlockHeads = validateHead 0
   where
     validateHead depth (Token {tokenKind = TLParen} : rest) = validateHead (depth + 1) rest
+    validateHead _ (colon@Token {tokenKind = TColonColon} : _) = invalid colon "alias before '::'"
     validateHead depth (alias : colon@Token {tokenKind = TColonColon} : member : rest) = do
       case tokenKind alias of
         TIdentifier {} -> Right ()
@@ -114,19 +112,19 @@ parseConstraintBlockHeadsDetailed = validateHead 0
         _ -> invalid member "class name after '::'"
       case rest of
         extra@Token {tokenKind = TColonColon} : _ -> invalid extra "two-component class name"
-        _ -> first ((alias, member) :) <$> scan depth rest
+        _ -> scan depth rest
     validateHead depth rest = scan depth rest
 
-    scan :: Int -> [Token] -> Either ParserFailure ([(Token, Token)], [Token])
-    scan _ [] = Right ([], [])
+    scan :: Int -> [Token] -> Either ParserFailure ()
+    scan _ [] = Right ()
     scan depth (token : rest) = case tokenKind token of
-      TDot -> Right ([], token : rest)
+      TDot -> Right ()
       TLParen -> scan (depth + 1) rest
       TLBracket -> scan (depth + 1) rest
       TRParen -> scan (max 0 (depth - 1)) rest
       TRBracket -> scan (max 0 (depth - 1)) rest
       TComma | depth == 0 -> validateHead 0 rest
-      TRBrace | depth == 0 -> Right ([], rest)
+      TRBrace | depth == 0 -> Right ()
       _ -> scan depth rest
 
     invalid token expected =
@@ -145,10 +143,6 @@ parseSupportedSignaturePayload tokens =
 parseConstrainedSignatureTypeDetailed :: [Token] -> Either ParserFailure SurfaceSignatureType
 parseConstrainedSignatureTypeDetailed =
   TokenParser.runTokenParserDetailed "constrained signature type" signatureTypeParser
-
-parseSignatureTypePrefixDetailed :: [Token] -> Either ParserFailure (SurfaceSignatureType, [Token])
-parseSignatureTypePrefixDetailed =
-  TokenParser.runTokenParserPrefixDetailed "signature type" signatureTypeParser
 
 splitTopLevelCommaTokensDetailed :: [Token] -> Either ParserFailure [[Token]]
 splitTopLevelCommaTokensDetailed =
@@ -202,8 +196,7 @@ parseFunctionResult argumentType = do
 
 functionOperandTypeParser :: TokenParser.Parser SurfaceSignatureType
 functionOperandTypeParser =
-  MP.try typeApplicationParser
-    <|> namedSignatureTypeParser
+  namedOrAppliedSignatureTypeParser
     <|> listSignatureTypeParser
     <|> parenthesizedSignatureTypeParser
 
@@ -227,31 +220,30 @@ parenthesizedSignatureTypeParser =
           _ ->
             pure (TypeTuple (firstElement : remainingElements))
 
-namedSignatureTypeParser :: TokenParser.Parser SurfaceSignatureType
-namedSignatureTypeParser = do
+namedOrAppliedSignatureTypeParser :: TokenParser.Parser SurfaceSignatureType
+namedOrAppliedSignatureTypeParser = do
   (typeNameToken, typeNameIdentifier) <- signatureTypeHeadParser
-  maybeNextToken <- TokenParser.peekToken
-  case maybeNextToken of
-    Just nextToken
-      | tokenKind nextToken == TLParen,
-        isImmediatelyAfter typeNameToken nextToken ->
-          MP.empty
-    _ -> pure ()
-  let typeName = identifierText typeNameIdentifier
-      typeMemberName = tokenLexeme typeNameToken
-  case parseNamedSignatureType typeName of
-    Just signatureType ->
-      pure signatureType
-    Nothing ->
-      pure
-        ( if identifierStartsLower typeMemberName
-            then TypeVariable typeNameIdentifier
+  -- A failed application may leave a spaced '(' for the caller to parse.
+  MP.try (typeApplicationParser typeNameIdentifier)
+    <|> do
+      maybeNextToken <- TokenParser.peekToken
+      case maybeNextToken of
+        Just nextToken
+          | tokenKind nextToken == TLParen,
+            isImmediatelyAfter typeNameToken nextToken ->
+              MP.empty
+        _ -> pure ()
+      let typeName = identifierText typeNameIdentifier
+          typeMemberName = tokenLexeme typeNameToken
+      pure $ case parseNamedSignatureType typeName of
+        Just signatureType -> signatureType
+        Nothing ->
+          if identifierStartsLower typeMemberName
+            then TypeVariable (surfaceNameIdentifier typeNameIdentifier)
             else TypeName typeNameIdentifier
-        )
 
-typeApplicationParser :: TokenParser.Parser SurfaceSignatureType
-typeApplicationParser = do
-  (_, typeNameIdentifier) <- signatureTypeHeadParser
+typeApplicationParser :: SurfaceName -> TokenParser.Parser SurfaceSignatureType
+typeApplicationParser typeNameIdentifier = do
   arguments <-
     betweenTokenKinds
       TLParen
@@ -263,7 +255,7 @@ typeApplicationParser = do
         _ -> TypeApplication typeNameIdentifier arguments
     )
 
-signatureTypeHeadParser :: TokenParser.Parser (Token, Identifier)
+signatureTypeHeadParser :: TokenParser.Parser (Token, SurfaceName)
 signatureTypeHeadParser = do
   firstToken <- identifierTokenParser
   maybeQualifiedMember <-
@@ -281,10 +273,10 @@ signatureTypeHeadParser = do
     Just memberToken ->
       pure
         ( memberToken,
-          mkQualifiedIdentifier (tokenLexeme firstToken) (tokenLexeme memberToken)
+          SurfaceName (mkQualifiedIdentifier (tokenLexeme firstToken) (tokenLexeme memberToken)) (tokenSpan memberToken) (Just (tokenSpan firstToken))
         )
     Nothing ->
-      pure (firstToken, mkIdentifier (tokenLexeme firstToken))
+      pure (firstToken, SurfaceName (mkIdentifier (tokenLexeme firstToken)) (tokenSpan firstToken) Nothing)
 
 identifierTokenParser :: TokenParser.Parser Token
 identifierTokenParser =
@@ -307,36 +299,31 @@ topLevelCommaTokensParser = commaTokenGroupParser `MP.sepBy1` commaParser
 
 commaTokenGroupParser :: TokenParser.Parser [Token]
 commaTokenGroupParser =
-  concat <$> MP.some topLevelCommaGroupPartParser
+  tokenStreamToList . fst <$> MP.match (MP.skipSome topLevelCommaGroupPartParser)
 
-topLevelCommaGroupPartParser :: TokenParser.Parser [Token]
+topLevelCommaGroupPartParser :: TokenParser.Parser ()
 topLevelCommaGroupPartParser =
   wrappedCommaTokensParser TLParen TRParen
     <|> wrappedCommaTokensParser TLBracket TRBracket
     <|> singleTopLevelCommaTokenParser
 
-nestedCommaGroupPartParser :: TokenParser.Parser [Token]
+nestedCommaGroupPartParser :: TokenParser.Parser ()
 nestedCommaGroupPartParser =
   wrappedCommaTokensParser TLParen TRParen
     <|> wrappedCommaTokensParser TLBracket TRBracket
     <|> singleNestedCommaTokenParser
 
-wrappedCommaTokensParser :: TokenKind -> TokenKind -> TokenParser.Parser [Token]
-wrappedCommaTokensParser openKind closeKind = do
-  openToken <- TokenParser.parseToken openKind
-  innerTokens <- concat <$> MP.many nestedCommaGroupPartParser
-  closeToken <- TokenParser.parseToken closeKind
-  pure (openToken : innerTokens ++ [closeToken])
+wrappedCommaTokensParser :: TokenKind -> TokenKind -> TokenParser.Parser ()
+wrappedCommaTokensParser openKind closeKind =
+  betweenTokenKinds openKind closeKind (MP.skipMany nestedCommaGroupPartParser)
 
-singleTopLevelCommaTokenParser :: TokenParser.Parser [Token]
+singleTopLevelCommaTokenParser :: TokenParser.Parser ()
 singleTopLevelCommaTokenParser =
-  singleton
-    <$> TokenParser.parseTokenWhere isTopLevelCommaGroupToken "top-level comma group token"
+  void (TokenParser.parseTokenWhere isTopLevelCommaGroupToken "top-level comma group token")
 
-singleNestedCommaTokenParser :: TokenParser.Parser [Token]
+singleNestedCommaTokenParser :: TokenParser.Parser ()
 singleNestedCommaTokenParser =
-  singleton
-    <$> TokenParser.parseTokenWhere isNestedCommaGroupToken "nested comma group token"
+  void (TokenParser.parseTokenWhere isNestedCommaGroupToken "nested comma group token")
 
 isTopLevelCommaGroupToken :: Token -> Bool
 isTopLevelCommaGroupToken token =
@@ -360,9 +347,6 @@ commaParser =
 betweenTokenKinds :: TokenKind -> TokenKind -> TokenParser.Parser a -> TokenParser.Parser a
 betweenTokenKinds openKind closeKind =
   MP.between (TokenParser.parseTokenKind openKind) (TokenParser.parseTokenKind closeKind)
-
-singleton :: a -> [a]
-singleton value = [value]
 
 parseNamedSignatureType :: Text -> Maybe SurfaceSignatureType
 parseNamedSignatureType typeName =

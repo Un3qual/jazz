@@ -12,6 +12,7 @@
 module Jazz.Compiler.Name
   ( Identifier,
     IdentifierLike (..),
+    identifierLooksLikeTypeVariable,
     isIdentifierContinuationCharacter,
     isIdentifierStartCharacter,
     mkIdentifier,
@@ -39,6 +40,7 @@ module Jazz.Compiler.Name
     qualifiedName,
     renderName,
     resolvedAmbientName,
+    resolveDeclarationOwner,
     resolvedImportedName,
     resolvedLocalName,
     resolvedValueScopeName,
@@ -47,7 +49,7 @@ module Jazz.Compiler.Name
 where
 
 import Control.DeepSeq (NFData)
-import Data.Char (ord, toUpper)
+import Data.Char (isLower, ord, toUpper)
 import Data.String (IsString (..))
 import Data.Text (Text)
 import qualified Data.Text as Text
@@ -59,7 +61,7 @@ import Jazz.Compiler.Identifier
     isIdentifierStartCharacter,
     mkIdentifier,
   )
-import Jazz.Compiler.ModuleIdentity (ModulePath, renderModulePath)
+import Jazz.Compiler.ModuleIdentity (ModulePath, SourceUnitOwner (..), preludeModulePath, renderModulePath)
 import Jazz.Compiler.Purity (Purity (..))
 import Numeric (showHex)
 
@@ -110,17 +112,41 @@ data ResolvedNameOrigin
   = CurrentModule
   | ImportedModule ModulePath
   | AmbientPrelude
-  deriving stock (Eq, Generic, Ord, Show)
+  | LocalDeclaration SourceUnitOwner
+  deriving stock (Generic, Show)
   deriving anyclass (NFData)
+
+-- Display origins may differ between the defining and importing views. Their
+-- equality uses the defining source unit, including the distinct prelude owner.
+instance Eq ResolvedNameOrigin where
+  left == right = originIdentity left == originIdentity right
+
+instance Ord ResolvedNameOrigin where
+  compare left right = compare (originIdentity left) (originIdentity right)
+
+originIdentity :: ResolvedNameOrigin -> Maybe SourceUnitOwner
+originIdentity origin = case origin of
+  CurrentModule -> Nothing
+  ImportedModule path -> Just (NamedSourceUnit path)
+  AmbientPrelude -> Just (PreludeSourceUnit preludeModulePath)
+  LocalDeclaration owner -> Just owner
+
+-- | Attach the owner while keeping declaration-site diagnostic spelling.
+resolveDeclarationOwner :: SourceUnitOwner -> ResolvedName -> ResolvedName
+resolveDeclarationOwner owner name = case name of
+  UserName (ResolvedUserName CurrentModule namespace identifier)
+    | namespace == TypeNamespace || namespace == CapabilityNamespace ->
+        UserName (ResolvedUserName (LocalDeclaration owner) namespace identifier)
+  _ -> name
 
 -- | `OperatorBinding` retains the canonical hidden storage spelling until the
 -- parser surface grows a dedicated operator-binding node.
 data GeneratedNameKind
   = LambdaPatternArgument Int
   | OperatorBinding Text
-  | OperatorSectionFunction
-  | OperatorSectionLeft
-  | OperatorSectionRight
+  | OperatorSectionFunction Int
+  | OperatorSectionLeft Int
+  | OperatorSectionRight Int
   deriving stock (Eq, Generic, Ord, Show)
   deriving anyclass (NFData)
 
@@ -176,6 +202,7 @@ instance UserNameLike ResolvedUserName where
       CurrentModule -> identifierText member
       ImportedModule modulePath -> renderModulePath modulePath <> "::" <> identifierText member
       AmbientPrelude -> identifierText member
+      LocalDeclaration _ -> identifierText member
   userNamePurity (ResolvedUserName _ _ member) = identifierPurity member
 
 instance IsString UnresolvedName where
@@ -259,3 +286,15 @@ namePurity name =
     UserName user -> userNamePurity user
     BuiltinName identifier -> identifierPurity identifier
     GeneratedName _ -> Pure
+
+identifierLooksLikeTypeVariable :: ResolvedName -> Bool
+identifierLooksLikeTypeVariable name =
+  case Text.uncons (terminalIdentifierText name) of
+    Just (firstChar, _) -> isLower firstChar
+    Nothing -> False
+  where
+    terminalIdentifierText candidate =
+      case candidate of
+        UserName (ResolvedUserName _ _ identifier) -> identifierText identifier
+        BuiltinName identifier -> identifierText identifier
+        GeneratedName {} -> ""

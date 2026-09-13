@@ -3,6 +3,7 @@
 
 module Jazz.Compiler.Semantics.Runtime.HostIOTests
   ( hostIOTests,
+    hostScaleTests,
   )
 where
 
@@ -33,6 +34,8 @@ import Jazz.Compiler.AST
     Expr,
     Literal (..),
   )
+import qualified Jazz.Compiler.AST as AST
+import Jazz.Compiler.CoreIdentity (ResolvedNodeFacts (..), ResolvedReference (..), resolvedBinderReference)
 import Jazz.Compiler.Diagnostics (SourceSpan (..))
 import Jazz.Compiler.Driver
   ( runCompileErrors,
@@ -42,7 +45,6 @@ import Jazz.Compiler.Driver
   )
 import Jazz.Compiler.ModuleIdentity (mkModulePath)
 import Jazz.Compiler.Name (UnresolvedName, qualifiedName)
-import Jazz.Compiler.RecursiveBindings (emptyLambdaCaptureHints)
 import Jazz.Compiler.Runtime
   ( ModuleEvaluationMode (..),
     RuntimeAnnotation (..),
@@ -51,17 +53,11 @@ import Jazz.Compiler.Runtime
     evaluateModuleScopeWithHost,
     evaluateModuleScopeWithRequiredEvaluationHost,
     evaluateModuleScopeWithRequiredHost,
-    evaluateRuntimeExpr,
-    evaluateRuntimeExprWithHost,
     prependRuntimeExplicitResultHint,
     renderRuntimeValue,
     runRuntimeHostEvaluation,
     runtimeValueExactlyMatchesConstraint,
   )
-import Jazz.Compiler.Runtime.Observation
-  ( RuntimeCallableIdentity (ClosureCallable),
-  )
-import Jazz.Compiler.Runtime.Types (RuntimeClosure (..))
 import Jazz.Compiler.RuntimeHost
   ( HostIOCategory (..),
     HostIOFailure (..),
@@ -72,7 +68,14 @@ import Jazz.Compiler.RuntimeHost
     mapRuntimeHost,
     productionRuntimeHost,
   )
+import Jazz.Compiler.SemanticFacts
+  ( ExpressionFacts (expressionInstantiations, expressionResolution),
+    InstantiationTarget (..),
+    SemanticInstantiation (..),
+    StatementFacts (..),
+  )
 import Jazz.Compiler.Semantics.Runtime.Fixtures
+import Jazz.Compiler.Semantics.Runtime.ResolvedFixture
 import Jazz.Compiler.Semantics.Runtime.Shared (assertRuntimeBool)
 import Jazz.Compiler.SourceUnitOwnership (SourceUnitOwner (..))
 import Jazz.Compiler.TypeRepresentation
@@ -99,10 +102,13 @@ import System.IO
   )
 import System.Timeout (timeout)
 
+hostScaleTests :: [NamedTest]
+hostScaleTests =
+  [("host-backed tail recursion is stack safe and preserves effect order", testHostTailRecursionIsStackSafe)]
+
 hostIOTests :: [NamedTest]
 hostIOTests =
   [ ("host-aware evaluator preserves pure expressions", testHostAwareEvaluatorPreservesPureExpressions),
-    ("host-backed tail recursion is stack safe and preserves effect order", testHostTailRecursionIsStackSafe),
     ("host intrinsics return raw values and preserve call order", testHostIntrinsicsReturnRawValues),
     ("host failures normalize every category", testHostFailuresNormalizeEveryCategory),
     ("host effects execute at selected expression depth", testHostEffectsExecuteAtSelectedExpressionDepth),
@@ -117,7 +123,8 @@ hostIOTests =
     ("host map callbacks preserve the active host cache and effect order", testHostMapCallbackPreservesActiveHostCacheAndEffectOrder),
     ("public host scopes keep imported deferred cells on the active host", testPublicHostScopeKeepsImportedDeferredCellOnActiveHost),
     ("host dependency scopes keep deferred cells on the active host", testHostDependencyScopeKeepsDeferredCellsOnActiveHost),
-    ("host dependency bindings retain their analyzed runtime plans", testHostDependencyBindingRetainsRuntimePlan),
+    ("host dependency bindings retain their analyzed runtime facts", testHostDependencyBindingRetainsRuntimeFacts),
+    ("runtime fixtures align constructor and method identities", testRuntimeFixtureIdentityAgreement),
     ("stacked result obligations preserve recursive unwind order", testStackedResultObligationsPreserveRecursiveUnwindOrder),
     ("host binding cache separates dynamic scope invocations", testHostBindingCacheSeparatesDynamicScopeInvocations),
     ("host scopes force zero-argument impl methods", testHostZeroArgumentImplMethod),
@@ -156,7 +163,7 @@ testHostTailRecursionIsStackSafe = do
   maybeOutcome <-
     timeout
       30000000
-      (evaluateRuntimeExprWithHost (recordingIOHost callsRef) expression)
+      (evaluateFixtureWithHost (recordingIOHost callsRef) expression)
   case maybeOutcome of
     Nothing -> failTest "20,000-call host-path tail recursion timed out"
     Just result -> do
@@ -181,8 +188,8 @@ testHostAwareEvaluatorPreservesPureExpressions = do
       ]
 
     assertPreserved expression = do
-      let expected = evaluateRuntimeExpr expression
-          actual = runIdentity (evaluateRuntimeExprWithHost deterministicHost expression)
+      let expected = evaluateFixture expression
+          actual = runIdentity (evaluateFixtureWithHost deterministicHost expression)
       assertEqual
         "host-aware pure result"
         (fmap (fmap renderRuntimeValue) expected)
@@ -223,7 +230,7 @@ testHostIntrinsicsReturnRawValues = do
         ]
       countedHost = mapRuntimeHost (\action -> modify' (+ 1) >> lift action) statefulHost
       ((results, operationCount), calls) =
-        runState (runStateT (traverse (evaluateRuntimeExprWithHost countedHost) expressions) (0 :: Int)) []
+        runState (runStateT (traverse (evaluateFixtureWithHost countedHost) expressions) (0 :: Int)) []
   assertEqual "host mapper wraps every operation exactly once" 7 operationCount
   assertEqual
     "host intrinsic raw values"
@@ -266,7 +273,7 @@ testHostFailuresNormalizeEveryCategory =
     assertCategory category = do
       let host = deterministicHost {runtimeHostReadText = \_ -> pure (Left (HostIOFailure category "host-specific detail"))}
           expression = hostCall "__kernel_readTextRaw!" [expressionLiteral (LText "missing.jz")]
-          actual = runIdentity (evaluateRuntimeExprWithHost host expression)
+          actual = runIdentity (evaluateFixtureWithHost host expression)
           expected = Right (Just (rawFailure category))
       assertEqual
         "normalized host failure category"
@@ -292,7 +299,7 @@ testHostEffectsExecuteAtSelectedExpressionDepth = do
             [ statementExpression (SourceSpan 1 1) (hostCall "__kernel_writeStdoutRaw!" [expressionLiteral (LText "block")])
             ]
         ]
-      (results, calls) = runState (traverse (evaluateRuntimeExprWithHost statefulHost) expressions) []
+      (results, calls) = runState (traverse (evaluateFixtureWithHost statefulHost) expressions) []
   assertEqual
     "nested effect results"
     (replicate 4 (Right (Just "(True, \"\", \"\", \"\")")))
@@ -325,7 +332,7 @@ testHostDependentFunctionSelector = do
               ),
             statementExpression (SourceSpan 2 1) (expressionApply (expressionVariable "choose!") (expressionTuple []))
           ]
-      (result, calls) = runState (evaluateRuntimeExprWithHost statefulHost expression) []
+      (result, calls) = runState (evaluateFixtureWithHost statefulHost expression) []
   assertEqual "host-selected closure result" (Right (Just "1")) (fmap (fmap renderRuntimeValue) result)
   assertEqual "host selector call" [ArgumentsCall] calls
 
@@ -346,7 +353,7 @@ testHostScopePreservesMutualRecursion = do
             statementExpression (SourceSpan 3 1) (hostCall "__kernel_writeStdoutRaw!" [expressionLiteral (LText "once")]),
             statementExpression (SourceSpan 4 1) (expressionApply (expressionVariable "even") (expressionLiteral (LInt 4)))
           ]
-      (result, calls) = runState (evaluateRuntimeExprWithHost statefulHost expression) []
+      (result, calls) = runState (evaluateFixtureWithHost statefulHost expression) []
   assertRuntimeBool "mutually recursive result" True result
   assertEqual "unrelated host call" [WriteStdoutCall "once"] calls
 
@@ -377,7 +384,7 @@ testHostScopePreservesHostfulRecursivePeers = do
               (expressionLambda "itemValue" (expressionIf isZero (expressionLiteral (LBool False)) (decrement "even!"))),
             statementExpression (SourceSpan 5 1) (expressionApply (expressionVariable "even!") (expressionLiteral (LInt 2)))
           ]
-      (result, calls) = runState (evaluateRuntimeExprWithHost statefulHost expression) []
+      (result, calls) = runState (evaluateFixtureWithHost statefulHost expression) []
   assertRuntimeBool "hostful mutually recursive result" True result
   assertEqual "hostful recursive call" [WriteStdoutCall "even"] calls
 
@@ -416,7 +423,7 @@ testHostImplMethodSelector = do
               (SourceSpan 5 1)
               (expressionApply (expressionVariable (qualifiedName "RuntimePick" "pick")) (expressionLiteral (LInt 1)))
           ]
-      (result, calls) = runState (evaluateRuntimeExprWithHost statefulHost expression) []
+      (result, calls) = runState (evaluateFixtureWithHost statefulHost expression) []
   assertRuntimeBool "host-selected impl method result" True result
   assertEqual "host-selected impl method call" [ArgumentsCall] calls
 
@@ -448,7 +455,7 @@ testHostImplMethodNumericSignature = do
                   [implMethod "pick" (SourceSpan 4 1) (expressionIf selector body body)],
                 statementExpression (SourceSpan 5 1) invocation
               ]
-          (result, calls) = runState (evaluateRuntimeExprWithHost statefulHost expression) []
+          (result, calls) = runState (evaluateFixtureWithHost statefulHost expression) []
       assertEqual "host method numeric conversion" (Right (Just "1.0")) (fmap (fmap renderRuntimeValue) result)
       assertEqual "host selector runs once" [ArgumentsCall] calls
 
@@ -464,7 +471,7 @@ testHostScopePreservesBindingSignatureHints = do
             statementExpression (SourceSpan 3 1) (hostCall "__kernel_writeStdoutRaw!" [expressionLiteral (LText "once")]),
             statementExpression (SourceSpan 4 1) (expressionVariable "itemValue")
           ]
-      (result, calls) = runState (evaluateRuntimeExprWithHost statefulHost expression) []
+      (result, calls) = runState (evaluateFixtureWithHost statefulHost expression) []
   assertEqual "signature host call" [WriteStdoutCall "once"] calls
   case result of
     Right (Just itemValue) ->
@@ -486,10 +493,9 @@ testHostDependencyScopeKeepsUnusedBindingLazy = do
         runState
           ( evaluateModuleScopeWithRequiredHost
               statefulHost
-              Nothing
               EvaluateDependencyModule
               Map.empty
-              statements
+              (resolveRuntimeFixture (expressionBlock statements))
           )
           []
   assertEqual "dependency scope result" True (isRight result)
@@ -508,23 +514,22 @@ testHostDependencyBindingIsShared = do
             (SourceSpan 2 1)
             (expressionTuple [expressionVariable "token!", expressionVariable "token!"])
         ]
+      dependencyFixture = resolveRuntimeFixtureWith dependencyOwner Map.empty (expressionBlock dependencyStatements)
       action = do
         dependencyResult <-
           evaluateModuleScopeWithRequiredHost
             statefulHost
-            (Just (NamedSourceUnit (mkModulePath ("Dependency" :| []))))
             EvaluateDependencyModule
             Map.empty
-            dependencyStatements
+            dependencyFixture
         case dependencyResult of
           Left diagnostic -> pure (Left diagnostic)
           Right dependencyScope ->
             evaluateModuleScopeWithRequiredHost
               statefulHost
-              (Just (NamedSourceUnit (mkModulePath ("Main" :| []))))
               EvaluateEntryModule
               (scopeResultEnvironment dependencyScope)
-              entryStatements
+              (resolveRuntimeFixtureWith entryOwner (fixtureDeclarations dependencyFixture) (expressionBlock entryStatements))
       (result, calls) = runState action []
   assertEqual "shared dependency binding result" True (isRight result)
   assertEqual "shared dependency host call" [ReadStdinCall] calls
@@ -555,24 +560,23 @@ testHostMapCallbackPreservesActiveHostCacheAndEffectOrder = do
                 (expressionList [expressionLiteral (LText "first"), expressionLiteral (LText "second")])
             )
         ]
+      dependencyFixture = resolveRuntimeFixtureWith dependencyOwner Map.empty (expressionBlock dependencyStatements)
       action =
         runRuntimeHostEvaluation statefulHost $ \evaluationHost -> do
           dependencyResult <-
             evaluateModuleScopeWithRequiredEvaluationHost
               evaluationHost
-              (Just (NamedSourceUnit (mkModulePath ("Dependency" :| []))))
               EvaluateDependencyModule
               Map.empty
-              dependencyStatements
+              dependencyFixture
           case dependencyResult of
             Left diagnostic -> pure (Left diagnostic)
             Right dependencyScope ->
               evaluateModuleScopeWithRequiredEvaluationHost
                 evaluationHost
-                (Just (NamedSourceUnit (mkModulePath ("Main" :| []))))
                 EvaluateEntryModule
                 (scopeResultEnvironment dependencyScope)
-                entryStatements
+                (resolveRuntimeFixtureWith entryOwner (fixtureDeclarations dependencyFixture) (expressionBlock entryStatements))
       (result, calls) = runState action []
   case result of
     Right scopeResult ->
@@ -595,23 +599,22 @@ testPublicHostScopeKeepsImportedDeferredCellOnActiveHost = do
             (hostCall "__kernel_readStdinRaw!" [expressionTuple []])
         ]
       entryStatements = [statementExpression (SourceSpan 2 1) (expressionVariable "token!")]
+      dependencyFixture = resolveRuntimeFixtureWith dependencyOwner Map.empty (expressionBlock dependencyStatements)
       action = do
         dependencyResult <-
           evaluateModuleScopeWithRequiredHost
             statefulHost
-            (Just (NamedSourceUnit (mkModulePath ("Dependency" :| []))))
             EvaluateDependencyModule
             Map.empty
-            dependencyStatements
+            dependencyFixture
         case dependencyResult of
           Left diagnostic -> pure (Left diagnostic)
           Right dependencyScope ->
             evaluateModuleScopeWithHost
               statefulHost
-              (Just (NamedSourceUnit (mkModulePath ("Main" :| []))))
               EvaluateEntryModule
               (scopeResultEnvironment dependencyScope)
-              entryStatements
+              (resolveRuntimeFixtureWith entryOwner (fixtureDeclarations dependencyFixture) (expressionBlock entryStatements))
       (result, calls) = runState action []
   case result of
     Right scopeResult ->
@@ -641,23 +644,22 @@ testHostDependencyScopeKeepsDeferredCellsOnActiveHost = do
             (expressionVariable "selected"),
           statementExpression (SourceSpan 4 1) (expressionVariable "selected")
         ]
+      dependencyFixture = resolveRuntimeFixtureWith dependencyOwner Map.empty (expressionBlock dependencyStatements)
       action = do
         dependencyResult <-
           evaluateModuleScopeWithRequiredHost
             statefulHost
-            (Just (NamedSourceUnit (mkModulePath ("Dependency" :| []))))
             EvaluateDependencyModule
             Map.empty
-            dependencyStatements
+            dependencyFixture
         case dependencyResult of
           Left diagnostic -> pure (Left diagnostic)
           Right dependencyScope ->
             evaluateModuleScopeWithRequiredHost
               statefulHost
-              (Just (NamedSourceUnit (mkModulePath ("Main" :| []))))
               EvaluateEntryModule
               (scopeResultEnvironment dependencyScope)
-              entryStatements
+              (resolveRuntimeFixtureWith entryOwner (fixtureDeclarations dependencyFixture) (expressionBlock entryStatements))
       (result, calls) = runState action []
   case result of
     Right scopeResult ->
@@ -670,18 +672,12 @@ testHostDependencyScopeKeepsDeferredCellsOnActiveHost = do
 
 testStackedResultObligationsPreserveRecursiveUnwindOrder :: IO ()
 testStackedResultObligationsPreserveRecursiveUnwindOrder = do
-  let identityClosure =
-        VClosure
-          RuntimeClosure
-            { runtimeClosureEnvironment = Map.empty,
-              runtimeClosureEnvironmentMayReachHostCells = False,
-              runtimeClosureLambdaCaptureHints = emptyLambdaCaptureHints,
-              runtimeClosureParameter = fixtureValueName "itemValue",
-              runtimeClosureBody = expressionVariable "itemValue",
-              runtimeClosureTypeHint = Nothing,
-              runtimeClosureModulePath = Nothing,
-              runtimeClosureCallableIdentity = ClosureCallable "<test>" 1 "itemValue"
-            }
+  let identityClosure = case evaluateFixture (expressionLambda "itemValue" (expressionVariable "itemValue")) of
+        Right (Just value) -> value
+        _ -> error "identity fixture did not produce a closure"
+      convertReference = case resolveRuntimeFixture (expressionLambda "convert" (expressionLiteral (LInt 0))) of
+        AST.ELambda node name _ -> resolvedBinderReference (expressionResolution (AST.coreNodeFacts node)) name
+        _ -> error "convert fixture did not produce a lambda"
       stackedFunction =
         VAnnotated
           (RuntimeTypeHint (SemanticFunction SemanticInt SemanticInt))
@@ -695,10 +691,9 @@ testStackedResultObligationsPreserveRecursiveUnwindOrder = do
         runState
           ( evaluateModuleScopeWithRequiredHost
               statefulHost
-              Nothing
               EvaluateEntryModule
-              (Map.singleton (fixtureValueName "convert") (Right stackedFunction))
-              statements
+              (Map.singleton convertReference (Right stackedFunction))
+              (resolveRuntimeFixtureWith entryOwner (Map.singleton (fixtureValueName "convert") convertReference) (expressionBlock statements))
           )
           []
   assertEqual "stacked result obligation host calls" [] calls
@@ -717,8 +712,8 @@ testStackedResultObligationsPreserveRecursiveUnwindOrder = do
         Nothing -> assertEqual "stacked result obligations produce a itemValue" True False
     Left _ -> assertEqual "stacked result obligations evaluate" True False
 
-testHostDependencyBindingRetainsRuntimePlan :: IO ()
-testHostDependencyBindingRetainsRuntimePlan = do
+testHostDependencyBindingRetainsRuntimeFacts :: IO ()
+testHostDependencyBindingRetainsRuntimeFacts = do
   let typeArgumentSpan = SourceSpan 2 18
       dependencyStatements =
         [ statementLet "identity" (SourceSpan 1 1) (expressionLambda "itemValue" (expressionVariable "itemValue")),
@@ -731,42 +726,83 @@ testHostDependencyBindingRetainsRuntimePlan = do
             )
         ]
       entryStatements = [statementExpression (SourceSpan 3 1) (expressionVariable "token!")]
+      dependencyFixture = resolveRuntimeFixtureWith dependencyOwner Map.empty (expressionBlock dependencyStatements)
       action = do
         dependencyResult <-
           evaluateModuleScopeWithRequiredHost
             statefulHost
-            (Just (NamedSourceUnit (mkModulePath ("Dependency" :| []))))
             EvaluateDependencyModule
             Map.empty
-            dependencyStatements
+            dependencyFixture
         case dependencyResult of
           Left diagnostic -> pure (Left diagnostic)
           Right dependencyScope ->
             evaluateModuleScopeWithRequiredHost
               statefulHost
-              (Just (NamedSourceUnit (mkModulePath ("Main" :| []))))
               EvaluateEntryModule
               (scopeResultEnvironment dependencyScope)
-              entryStatements
+              (resolveRuntimeFixtureWith entryOwner (fixtureDeclarations dependencyFixture) (expressionBlock entryStatements))
       (result, calls) = runState action []
+  case dependencyFixture of
+    AST.EBlock _ [AST.SLet definition _ _, AST.SLet _ _ (AST.EApply _ (AST.ETypeApplication application (AST.EVar reference _) _ _) _)] ->
+      case resolvedNodeBinder (statementResolution (AST.coreNodeFacts definition)) of
+        Just binder -> do
+          assertEqual "dependency reference selects its resolved declaration" (Just (LexicalReference binder)) (resolvedNodeReference (expressionResolution (AST.coreNodeFacts reference)))
+          assertEqual "explicit instantiation selects the same dependency declaration" [LexicalInstantiation binder] (map instantiatedTarget (expressionInstantiations (AST.coreNodeFacts application)))
+        Nothing -> failTest "dependency declaration has no resolved binder"
+    _ -> failTest "unexpected explicit dependency fixture shape"
   assertEqual "planned dependency host calls" [] calls
   case result of
     Right scopeResult ->
       case scopeResultValue scopeResult of
         Just itemValue ->
           assertEqual
-            "dependency keeps UInt8 runtime plan"
+            "dependency keeps UInt8 result representation"
             True
             (runtimeValueExactlyMatchesConstraint (SemanticNumeric NumericUInt8) itemValue)
         Nothing -> assertEqual "dependency produces a hinted itemValue" True False
     Left _ -> assertEqual "dependency hint evaluation succeeds" True False
+
+testRuntimeFixtureIdentityAgreement :: IO ()
+testRuntimeFixtureIdentityAgreement = do
+  let fixture =
+        expressionBlock
+          [ statementData (SourceSpan 1 1) "Token" [] [dataConstructor "First" [], dataConstructor "Second" []],
+            statementClass
+              (SourceSpan 2 1)
+              "Factory"
+              ["a"]
+              [classMethodSignature "make" (SourceSpan 3 1) (SignatureType (fixtureTypeVariable "a"))],
+            statementExpression
+              (SourceSpan 4 1)
+              (expressionTypeApplication (expressionQualifiedMethod "Factory" "make") (SourceSpan 4 16) TypeInt)
+          ]
+  case (fixture, resolveRuntimeFixtureWith dependencyOwner Map.empty fixture) of
+    (AST.EBlock _ (AST.SData _ _ _ constructors : _), AST.EBlock _ [AST.SData _ _ _ resolvedConstructors, AST.SClass {}, AST.SExpr _ (AST.ETypeApplication application (AST.EVar reference _) _ _)]) -> do
+      assertEqual "constructor count" (length constructors) (length resolvedConstructors)
+      mapM_ checkConstructor (zip constructors resolvedConstructors)
+      case resolvedNodeReference (expressionResolution (AST.coreNodeFacts reference)) of
+        Just (CapabilityMethodReference capability method) -> do
+          assertEqual "method instantiation selects its resolved capability method" [MethodInstantiation (capability, method)] (map instantiatedTarget (expressionInstantiations (AST.coreNodeFacts application)))
+          assertEqual "method instantiation keeps its authored type argument" [SemanticInt :| []] (map instantiatedTypes (expressionInstantiations (AST.coreNodeFacts application)))
+        _ -> failTest "fixture method has no resolved capability identity"
+    _ -> failTest "unexpected constructor/method identity fixture shape"
+  where
+    checkConstructor :: (AST.DataConstructor 'Analyzed, AST.DataConstructor 'Analyzed) -> IO ()
+    checkConstructor (AST.DataConstructor authored _ _, AST.DataConstructor resolved _ _) =
+      let facts = AST.coreNodeFacts resolved
+       in case resolvedNodeBinder (statementResolution facts) of
+            Just binder -> do
+              assertEqual "constructor semantic binder agrees with resolution" (Just binder) (fst <$> statementBinding facts)
+              assertEqual "constructor scheme retains its authored semantic types" (snd <$> statementBinding (AST.coreNodeFacts authored)) (snd <$> statementBinding facts)
+            Nothing -> failTest "fixture constructor has no resolved binder"
 
 testDirectRuntimeWrapperUsesDisabledHost :: IO ()
 testDirectRuntimeWrapperUsesDisabledHost = do
   let result =
         fmap
           (fmap renderRuntimeValue)
-          (evaluateRuntimeExpr (hostCall "__kernel_readTextRaw!" [expressionLiteral (LText "disabled.jz")]))
+          (evaluateFixture (hostCall "__kernel_readTextRaw!" [expressionLiteral (LText "disabled.jz")]))
   assertEqual
     "disabled host raw failure"
     (fmap (fmap renderRuntimeValue) (Right (Just (rawFailure HostUnsupported))))
@@ -804,7 +840,7 @@ testHostBindingCacheSeparatesDynamicScopeInvocations = do
                   ]
               )
           ]
-      (result, calls) = runState (evaluateRuntimeExprWithHost statefulHost expression) []
+      (result, calls) = runState (evaluateFixtureWithHost statefulHost expression) []
   assertEqual
     "dynamic host binding values"
     (Right (Just "(\"first\", \"second\")"))
@@ -846,7 +882,7 @@ testHostZeroArgumentImplMethod = do
               (SourceSpan 7 1)
               (expressionVariable (qualifiedName "RuntimeFlag" "enabled!"))
           ]
-      (result, calls) = runState (evaluateRuntimeExprWithHost statefulHost expression) []
+      (result, calls) = runState (evaluateFixtureWithHost statefulHost expression) []
   assertRuntimeBool "zero-argument host method result" True result
   assertEqual "zero-argument host method call" [WriteStdoutCall "enabled"] calls
 
@@ -881,7 +917,7 @@ testNullaryEvidencePreservesHostMethodCaching = do
 
 testDirectRuntimeWrapperRejectsDisabledExit :: IO ()
 testDirectRuntimeWrapperRejectsDisabledExit = do
-  let result = evaluateRuntimeExpr (hostCall "__kernel_exit!" [expressionLiteral (LInt 7)])
+  let result = evaluateFixture (hostCall "__kernel_exit!" [expressionLiteral (LInt 7)])
   assertLeftDiagnosticContains "disabled exit code" "E3031" result
   assertLeftDiagnosticContains "disabled exit message" "operation unsupported" result
 
@@ -889,7 +925,7 @@ testExitRejectsInvalidStatus :: IO ()
 testExitRejectsInvalidStatus = do
   let (result, calls) =
         runState
-          (evaluateRuntimeExprWithHost statefulHost (hostCall "__kernel_exit!" [expressionLiteral (LInt 256)]))
+          (evaluateFixtureWithHost statefulHost (hostCall "__kernel_exit!" [expressionLiteral (LInt 256)]))
           []
   assertLeftDiagnosticContains "invalid exit status" "E3030" result
   assertLeftDiagnosticContains "invalid exit status range" "range 0..255" result
@@ -1001,3 +1037,9 @@ rawFailure category =
       VText (hostIOCategoryToken category),
       VText (hostIOFailureMessage category)
     ]
+
+dependencyOwner :: SourceUnitOwner
+dependencyOwner = NamedSourceUnit (mkModulePath ("Dependency" :| []))
+
+entryOwner :: SourceUnitOwner
+entryOwner = NamedSourceUnit (mkModulePath ("Main" :| []))

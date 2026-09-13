@@ -9,28 +9,30 @@ module Jazz.Compiler.ModuleResolver.Names
     resolveNode,
     resolveExprNames,
     resolveStandaloneExprNames,
+    standaloneLocalInventory,
+    resolvedPublicReferences,
   )
 where
 
 import Data.Bifunctor
   ( bimap,
   )
-import Data.List.NonEmpty
-  ( NonEmpty,
-  )
-import Data.Map.Strict
-  ( Map,
-  )
+import Data.List (mapAccumL)
+import qualified Data.List.NonEmpty as NonEmpty
+import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
 import Data.Maybe
   ( fromMaybe,
   )
 import qualified Data.Set as Set
+import qualified Data.Text as Text
 import Jazz.Compiler.AST
   ( CaseArm (..),
     ClassMethodSignature (..),
     CoreNode (..),
+    CoreNodeId (..),
     CorePhase (..),
+    CoreSort (ExpressionSort),
     DataConstructor (..),
     Expr (..),
     ImplMethod (..),
@@ -41,8 +43,12 @@ import Jazz.Compiler.BuiltinCatalog
   ( kernelBuiltinNames,
     lookupKernelBuiltinSymbol,
   )
-import Jazz.Compiler.Diagnostics
-  ( Diagnostic,
+import Jazz.Compiler.CoreIdentity
+  ( CapabilityId (..),
+    CoreBinderId (..),
+    ResolvedNodeFacts (..),
+    ResolvedReference (..),
+    emptyResolvedNodeFacts,
   )
 import Jazz.Compiler.ModuleExports
   ( ModuleExport (..),
@@ -50,32 +56,36 @@ import Jazz.Compiler.ModuleExports
     exportInventory,
     exportNamesInNamespace,
     firstExportNamespace,
+    inventoryHasExport,
     selectExportNames,
   )
-import qualified Jazz.Compiler.ModuleGraph as ModuleGraph
-import Jazz.Compiler.ModuleIdentity
-  ( ModulePath,
-  )
+import Jazz.Compiler.ModuleIdentity (SourceUnitOwner (..), mkModulePath, standaloneModulePath)
 import Jazz.Compiler.ModuleResolver.Imports
-  ( resolverImportAlias,
-    resolverImportModulePath,
-    resolverImportSymbols,
+  ( BindingOrigin (..),
+    ValidatedImportScope,
+    emptyImportScope,
+    importScopeAliases,
+    importScopeInventories,
+    importedNameOrigins,
   )
 import Jazz.Compiler.Name
-  ( Name (..),
+  ( GeneratedNameKind (..),
+    Name (..),
     NameNamespace (..),
+    ResolvedName,
     ResolvedNameOrigin (..),
     ResolvedUserName (..),
     SourceName (..),
     identifierText,
     mkIdentifier,
-    sourceName,
+    operatorBindingName,
+    qualifiedMemberName,
+    resolveDeclarationOwner,
+    resolvedAmbientName,
+    resolvedImportedName,
   )
-import Jazz.Compiler.RecursiveBindings
-  ( buildRecursiveScopeFacts,
-    recursiveScopeBindingNames,
-    recursiveScopeGroups,
-  )
+import Jazz.Compiler.Parser.Operator (isBuiltinOperatorSymbol)
+import Jazz.Compiler.RecursiveBindings (publishResolvedCaptures, resolveLexicalScopes)
 import Jazz.Compiler.TypeRepresentation
   ( pattern ConstrainedSignature,
     pattern SignatureConstraint,
@@ -84,84 +94,40 @@ import Jazz.Compiler.TypeRepresentation
   )
 
 data ResolutionContext = ResolutionContext
-  { resolutionAmbientExports :: ModuleExportInventory,
+  { resolutionSourceOwner :: SourceUnitOwner,
+    resolutionExternalReferences :: Map ResolvedName ResolvedReference,
+    resolutionAmbientExports :: ModuleExportInventory,
     resolutionLocalInventory :: ModuleExportInventory,
-    resolutionInventoriesByModule :: Map ModulePath ModuleExportInventory,
-    resolutionImports :: [ModuleGraph.ModuleImport 'Lowered]
+    resolutionImportScope :: ValidatedImportScope
   }
 
-resolveNode :: CoreNode 'Lowered sort -> CoreNode 'Resolved sort
-resolveNode (CoreNode nodeId spanValue ()) = CoreNode nodeId spanValue ()
+resolveNode :: SourceUnitOwner -> CoreNode 'Lowered sort -> CoreNode 'Resolved sort
+resolveNode owner (CoreNode nodeId spanValue ()) = CoreNode nodeId spanValue (emptyResolvedNodeFacts owner)
+
+resolveBinderNode :: SourceUnitOwner -> CoreNode 'Lowered sort -> CoreNode 'Resolved sort
+resolveBinderNode owner node =
+  (resolveNode owner node) {coreNodeFacts = (emptyResolvedNodeFacts owner) {resolvedNodeBinder = Just (CoreBinderId (owner, coreNodeId node))}}
 
 resolveExprNames ::
   ResolutionContext ->
   Expr 'Lowered ->
-  Either (NonEmpty Diagnostic) (Expr 'Resolved)
-resolveExprNames context rootExpression = Right (resolveExpr Map.empty rootExpression)
+  Expr 'Resolved
+resolveExprNames context rootExpression = publishResolvedCaptures (resolveLexicalScopes (resolutionExternalReferences context) externalNames (resolveExpr (resolutionSourceOwner context) Map.empty rootExpression))
   where
     ambientExports = resolutionAmbientExports context
     localInventory = resolutionLocalInventory context
-    inventoriesByModule = resolutionInventoriesByModule context
-    imports = resolutionImports context
+    importScope = resolutionImportScope context
+    inventoriesByModule = importScopeInventories importScope
     ambientValues = exportNamesInNamespace ValueNamespace ambientExports
     ambientConstructors = exportNamesInNamespace ConstructorNamespace ambientExports
-    ambientTypes = exportNamesInNamespace TypeNamespace ambientExports
-    ambientClasses = exportNamesInNamespace CapabilityNamespace ambientExports
     localValues = exportNamesInNamespace ValueNamespace localInventory
-    localDataTypes = exportNamesInNamespace TypeNamespace localInventory
     localConstructors = exportNamesInNamespace ConstructorNamespace localInventory
-    localClasses = exportNamesInNamespace CapabilityNamespace localInventory
 
-    aliasPaths =
-      Map.fromList
-        [ (aliasName, resolverImportModulePath importDecl)
-        | importDecl <- imports,
-          Just aliasName <- [resolverImportAlias importDecl]
-        ]
-
-    visibleValueOrigins =
-      Map.fromList
-        [ (name, modulePath)
-        | importDecl <- imports,
-          resolverImportAlias importDecl == Nothing,
-          let modulePath = resolverImportModulePath importDecl,
-          name <- Set.toList (exportNamesInNamespace ValueNamespace (visibleDependencyInventory importDecl))
-        ]
-
-    visibleConstructorOrigins =
-      Map.fromList
-        [ (name, modulePath)
-        | importDecl <- imports,
-          resolverImportAlias importDecl == Nothing,
-          let modulePath = resolverImportModulePath importDecl,
-          name <- Set.toList (exportNamesInNamespace ConstructorNamespace (visibleDependencyInventory importDecl))
-        ]
-
-    visibleTypeOrigins =
-      Map.fromList
-        [ (name, modulePath)
-        | importDecl <- imports,
-          resolverImportAlias importDecl == Nothing,
-          let modulePath = resolverImportModulePath importDecl,
-          name <- Set.toList (exportNamesInNamespace TypeNamespace (visibleDependencyInventory importDecl))
-        ]
-
-    visibleClassOrigins =
-      Map.fromList
-        [ (name, modulePath)
-        | importDecl <- imports,
-          resolverImportAlias importDecl == Nothing,
-          let modulePath = resolverImportModulePath importDecl,
-          name <- Set.toList (exportNamesInNamespace CapabilityNamespace (visibleDependencyInventory importDecl))
-        ]
-
-    visibleDependencyInventory importDecl =
-      case Map.lookup (resolverImportModulePath importDecl) inventoriesByModule of
-        Nothing -> exportInventory []
-        Just inventory ->
-          selectExportNames
-            (resolverImportSymbols importDecl)
-            inventory
+    aliasPaths = Map.map bindingOriginModulePath (importScopeAliases importScope)
+    visibleValueOrigins = importedNameOrigins ValueNamespace importScope
+    visibleConstructorOrigins = importedNameOrigins ConstructorNamespace importScope
+    visibleTypeOrigins = importedNameOrigins TypeNamespace importScope
+    visibleClassOrigins = importedNameOrigins CapabilityNamespace importScope
 
     resolveName boundValues namespace name =
       case name of
@@ -224,11 +190,7 @@ resolveExprNames context rootExpression = Right (resolveExpr Map.empty rootExpre
         nameText = identifierText identifier
 
     localName namespace nameText =
-      case namespace of
-        ValueNamespace -> Set.member nameText localValues
-        ConstructorNamespace -> Set.member nameText localConstructors
-        CapabilityNamespace -> Set.member nameText localClasses
-        TypeNamespace -> Set.member nameText localDataTypes
+      inventoryHasExport (ModuleExport namespace nameText) localInventory
 
     importedOrigin namespace nameText =
       case namespace of
@@ -252,101 +214,219 @@ resolveExprNames context rootExpression = Right (resolveExpr Map.empty rootExpre
           Map.findWithDefault (exportInventory []) dependencyPath inventoriesByModule
 
     ambientName namespace nameText =
-      case namespace of
-        ValueNamespace -> Set.member nameText ambientValues
-        ConstructorNamespace -> Set.member nameText ambientConstructors
-        TypeNamespace -> Set.member nameText ambientTypes
-        CapabilityNamespace -> Set.member nameText ambientClasses
+      inventoryHasExport (ModuleExport namespace nameText) ambientExports
 
     classOrigin className
-      | Set.member className localClasses = CurrentModule
+      | localName CapabilityNamespace className = CurrentModule
       | Just dependencyPath <- Map.lookup className visibleClassOrigins = ImportedModule dependencyPath
-      | Set.member className ambientClasses = AmbientPrelude
+      | ambientName CapabilityNamespace className = AmbientPrelude
       | otherwise = CurrentModule
 
-    resolveExpr boundValues expression =
+    resolveExpr owner boundValues expression =
       case expression of
-        ELit node literal -> ELit (resolveNode node) literal
-        EVar node name -> EVar (resolveNode node) (resolveName boundValues (referenceNamespace boundValues name) name)
+        ELit node literal -> ELit (resolveNode owner node) literal
+        EVar node name ->
+          let targetName = resolveName boundValues (referenceNamespace boundValues name) name
+           in EVar (resolveReferenceNode owner targetName node) targetName
         ELambda node parameter body ->
-          let lambdaBoundValues = maybe boundValues (\name -> Map.insert name ValueNamespace boundValues) (sourceNameText parameter)
-           in ELambda (resolveNode node) (resolveBinder ValueNamespace parameter) (resolveExpr lambdaBoundValues body)
-        EOperatorValue node symbol -> EOperatorValue (resolveNode node) symbol
-        EList node items -> EList (resolveNode node) (map (resolveExpr boundValues) items)
-        ETuple node items -> ETuple (resolveNode node) (map (resolveExpr boundValues) items)
+          let lambdaBoundValues = insertVisibleName ValueNamespace parameter boundValues
+           in ELambda (resolveBinderNode owner node) (resolveBinder ValueNamespace parameter) (resolveExpr owner lambdaBoundValues body)
+        EOperatorValue node symbol -> EVar (resolveOperatorNode owner boundValues symbol node) (operatorBindingName symbol)
+        EList node items -> EList (resolveNode owner node) (map (resolveExpr owner boundValues) items)
+        ETuple node items -> ETuple (resolveNode owner node) (map (resolveExpr owner boundValues) items)
         EApply node function argument ->
-          EApply (resolveNode node) (resolveExpr boundValues function) (resolveExpr boundValues argument)
+          EApply (resolveNode owner node) (resolveExpr owner boundValues function) (resolveExpr owner boundValues argument)
         ETypeApplication node function spanValue signatureType ->
-          ETypeApplication (resolveNode node) (resolveExpr boundValues function) spanValue (resolveSignatureType signatureType)
+          ETypeApplication (resolveNode owner node) (resolveExpr owner boundValues function) spanValue (resolveSignatureType owner signatureType)
         EIf node condition trueBranch falseBranch ->
           EIf
-            (resolveNode node)
-            (resolveExpr boundValues condition)
-            (resolveExpr boundValues trueBranch)
-            (resolveExpr boundValues falseBranch)
+            (resolveNode owner node)
+            (resolveExpr owner boundValues condition)
+            (resolveExpr owner boundValues trueBranch)
+            (resolveExpr owner boundValues falseBranch)
         EPatternCase node scrutinee arms ->
-          EPatternCase (resolveNode node) (resolveExpr boundValues scrutinee) (map (resolveCaseArm boundValues) arms)
-        EBinary node symbol left right ->
-          EBinary (resolveNode node) symbol (resolveExpr boundValues left) (resolveExpr boundValues right)
-        ESectionLeft node left symbol -> ESectionLeft (resolveNode node) (resolveExpr boundValues left) symbol
-        ESectionRight node symbol right -> ESectionRight (resolveNode node) symbol (resolveExpr boundValues right)
+          EPatternCase (resolveNode owner node) (resolveExpr owner boundValues scrutinee) (map (resolveCaseArm owner boundValues) arms)
+        EBinary node symbol left right
+          | isBuiltinOperatorSymbol symbol ->
+              EBinary (resolveOperatorNode owner boundValues symbol node) symbol (recur left) (recur right)
+          | otherwise ->
+              EApply (resolveNode owner node) (EApply (generatedNode owner node 1) (operatorReference owner boundValues node 2 symbol) (recur left)) (recur right)
+        ESectionLeft node left symbol
+          | isBuiltinOperatorSymbol symbol -> ESectionLeft (resolveOperatorNode owner boundValues symbol node) (recur left) symbol
+          | otherwise ->
+              let name = sectionName OperatorSectionLeft node
+               in EApply
+                    (resolveNode owner node)
+                    (generatedLambda owner node 1 name (EApply (generatedNode owner node 2) (operatorReference owner boundValues node 3 symbol) (generatedReference owner node 4 name)))
+                    (recur left)
+        ESectionRight node symbol right
+          | isBuiltinOperatorSymbol symbol -> ESectionRight (resolveOperatorNode owner boundValues symbol node) symbol (recur right)
+          | otherwise ->
+              let rightName = sectionName OperatorSectionRight node
+                  leftName = sectionName OperatorSectionLeft node
+                  functionName = sectionName OperatorSectionFunction node
+                  call =
+                    EApply
+                      (generatedNode owner node 5)
+                      (EApply (generatedNode owner node 6) (generatedReference owner node 7 functionName) (generatedReference owner node 8 leftName))
+                      (generatedReference owner node 9 rightName)
+               in EApply
+                    (resolveNode owner node)
+                    ( generatedLambda
+                        owner
+                        node
+                        1
+                        rightName
+                        ( EApply
+                            (generatedNode owner node 2)
+                            (generatedLambda owner node 3 functionName (generatedLambda owner node 4 leftName call))
+                            (operatorReference owner boundValues node 10 symbol)
+                        )
+                    )
+                    (recur right)
         EBlock node statements ->
-          EBlock (resolveNode node) (resolveBlockStatements boundValues statements)
-
-    resolveBlockStatements initialBoundValues statements =
-      reverse resolvedStatementsRev
+          let resolvedStatements = resolveBlockStatements owner boundValues statements
+           in EBlock (resolveNode owner node) resolvedStatements
       where
-        indexedStatements = zip [0 ..] statements
-        bindingNamesByStatement = recursiveScopeBindingNames recursiveScopeFactsValue
-        outerBindingNames =
-          Set.map
-            (sourceName . mkIdentifier)
-            ( Set.unions
-                [ Map.keysSet initialBoundValues,
-                  ambientValues,
-                  ambientConstructors,
-                  Map.keysSet visibleValueOrigins,
-                  Map.keysSet visibleConstructorOrigins,
-                  kernelBuiltinNames
-                ]
-            )
-        recursiveScopeFactsValue = buildRecursiveScopeFacts outerBindingNames indexedStatements
-        recursiveGroupsByStatement = recursiveScopeGroups recursiveScopeFactsValue
-        (_, resolvedStatementsRev) = foldl' resolveBlockStatement (initialBoundValues, []) indexedStatements
+        recur = resolveExpr owner boundValues
 
-        resolveBlockStatement (visibleBoundValues, resolvedRev) (statementIndex, statement) =
-          let statementBoundValues =
-                case statement of
-                  SLet _ bindingName _ ->
-                    Map.unions
-                      [ maybe Map.empty (selfBoundValue visibleBoundValues) (sourceNameText bindingName),
-                        Map.fromSet (const ValueNamespace) (Set.filter (\name -> Map.lookup name visibleBoundValues /= Just ConstructorNamespace) (recursivePeerBoundValues statementIndex)),
-                        visibleBoundValues
-                      ]
-                  _ -> visibleBoundValues
-              resolvedStatement = resolveStatement statementBoundValues statement
-              nextVisibleBoundValues =
-                case statement of
-                  SLet _ bindingName _ ->
-                    maybe visibleBoundValues (\name -> Map.insert name ValueNamespace visibleBoundValues) (sourceNameText bindingName)
-                  SData _ _ _ constructors ->
-                    Map.union
-                      (Map.fromList [(name, ConstructorNamespace) | DataConstructor _ constructor _ <- constructors, Just name <- [sourceNameText constructor]])
-                      visibleBoundValues
-                  _ -> visibleBoundValues
-           in (nextVisibleBoundValues, resolvedStatement : resolvedRev)
+    -- Lowering allocates nonnegative source IDs. Resolution reserves sixteen
+    -- negative IDs per authored operator node; each template uses at most ten.
+    -- Existing source nodes and their spans remain unchanged.
+    generatedNode :: SourceUnitOwner -> CoreNode 'Lowered 'ExpressionSort -> Int -> CoreNode 'Resolved 'ExpressionSort
+    generatedNode owner sourceNode slot =
+      let CoreNodeId sourceId = coreNodeId sourceNode
+       in CoreNode (CoreNodeId (negate (16 * sourceId + slot))) (coreNodeSpan sourceNode) (emptyResolvedNodeFacts owner)
+    generatedLambda :: SourceUnitOwner -> CoreNode 'Lowered 'ExpressionSort -> Int -> ResolvedName -> Expr 'Resolved -> Expr 'Resolved
+    generatedLambda owner sourceNode slot name body =
+      let node = generatedNode owner sourceNode slot
+          binder = CoreBinderId (owner, coreNodeId node)
+       in ELambda (node {coreNodeFacts = (coreNodeFacts node) {resolvedNodeBinder = Just binder}}) name body
+    generatedReference :: SourceUnitOwner -> CoreNode 'Lowered 'ExpressionSort -> Int -> ResolvedName -> Expr 'Resolved
+    generatedReference owner sourceNode slot name =
+      let node = generatedNode owner sourceNode slot
+       in EVar (node {coreNodeFacts = (coreNodeFacts node) {resolvedNodeReference = Just (UnresolvedReference name)}}) name
+    operatorReference owner boundValues sourceNode slot symbol =
+      let node = generatedNode owner sourceNode slot
+          target = resolvedNodeReference (coreNodeFacts (resolveOperatorNode owner boundValues symbol sourceNode))
+       in EVar (node {coreNodeFacts = (coreNodeFacts node) {resolvedNodeReference = target, resolvedOperatorSpelling = Just symbol}}) (operatorBindingName symbol)
+    sectionName kind sourceNode = let CoreNodeId sourceId = coreNodeId sourceNode in GeneratedName (kind sourceId)
 
-        selfBoundValue visibleBindings name
-          | Map.lookup name visibleBindings == Just ConstructorNamespace = Map.empty
-          | otherwise = Map.singleton name ValueNamespace
+    externalNames =
+      Set.unions
+        [ Set.map (resolvedAmbientName ValueNamespace . mkIdentifier) ambientValues,
+          Set.map (resolvedAmbientName ConstructorNamespace . mkIdentifier) ambientConstructors,
+          importedNames ValueNamespace visibleValueOrigins,
+          importedNames ConstructorNamespace visibleConstructorOrigins,
+          Set.map (BuiltinName . mkIdentifier) kernelBuiltinNames,
+          Set.map (resolvedAmbientName ValueNamespace . mkIdentifier) kernelBuiltinNames
+        ]
+    importedNames namespace origins = Set.fromList [resolvedImportedName path namespace (mkIdentifier name) | (name, path) <- Map.toList origins]
 
-        recursivePeerBoundValues statementIndex =
-          Set.fromList
-            [ peerNameText
-            | peerIndex <- Map.findWithDefault [] statementIndex recursiveGroupsByStatement,
-              Just peerName <- [Map.lookup peerIndex bindingNamesByStatement],
-              Just peerNameText <- [sourceNameText peerName]
+    resolveOperatorNode :: SourceUnitOwner -> Map.Map Text.Text NameNamespace -> Text.Text -> CoreNode 'Lowered 'ExpressionSort -> CoreNode 'Resolved 'ExpressionSort
+    resolveOperatorNode owner boundValues symbol node =
+      (resolveNode owner node) {coreNodeFacts = (emptyResolvedNodeFacts owner) {resolvedNodeReference = Just target, resolvedOperatorSpelling = Just symbol}}
+      where
+        name :: ResolvedName
+        name = operatorBindingName symbol
+        target
+          | Map.notMember (identifierText name) boundValues,
+            isBuiltinOperatorSymbol symbol =
+              BuiltinOperatorReference symbol
+          | otherwise = UnresolvedReference name
+
+    resolveReferenceNode owner name node =
+      (resolveNode owner node) {coreNodeFacts = (emptyResolvedNodeFacts owner) {resolvedNodeReference = Just (referenceTarget owner name)}}
+
+    referenceTarget owner name =
+      case name of
+        BuiltinName identifier -> BuiltinReference identifier
+        UserName (ResolvedUserName CurrentModule ValueNamespace identifier)
+          | Just _ <- lookupKernelBuiltinSymbol (identifierText identifier) -> BuiltinReference identifier
+        _ -> externalTarget
+      where
+        externalTarget =
+          case Map.lookup name (resolutionExternalReferences context) of
+            Just reference -> reference
+            Nothing -> case name of
+              UserName (ResolvedUserName origin ValueNamespace identifier)
+                | [className, method] <- Text.splitOn "::" (identifierText identifier) ->
+                    CapabilityMethodReference
+                      (CapabilityId (resolveDeclarationReference owner (UserName (ResolvedUserName origin CapabilityNamespace (mkIdentifier className)))))
+                      (mkIdentifier method)
+              _ -> UnresolvedReference name
+
+    -- Legacy expression callers may supply sequential module bodies in one
+    -- lowered block. Resolve their imported declaration identities here too;
+    -- checking must never recover a target by matching a rendered class name.
+    inlineModuleStatements = case rootExpression of
+      EBlock _ statements ->
+        Map.fromListWith (flip (++)) (snd (mapAccumL ownedStatement (resolutionSourceOwner context) statements))
+      _ -> Map.empty
+      where
+        ownedStatement activeOwner statement =
+          let owner = case statement of
+                SModule _ segments | Just path <- NonEmpty.nonEmpty (map mkIdentifier segments) -> NamedSourceUnit (mkModulePath path)
+                _ -> activeOwner
+           in (owner, (owner, [statement]))
+
+    inlineDeclarationOrigins = Map.map importedDeclarations inlineModuleStatements
+      where
+        inventories = Map.map statementInventory inlineModuleStatements
+        importedDeclarations statements =
+          Map.fromList
+            [ ((namespace, name), ImportedModule path)
+            | let localDeclarations = statementInventory statements,
+              SImport _ segments Nothing symbols <- statements,
+              Just pathSegments <- [NonEmpty.nonEmpty (map mkIdentifier segments)],
+              let path = mkModulePath pathSegments,
+              Just inventory <- [Map.lookup (NamedSourceUnit path) inventories],
+              namespace <- [TypeNamespace, CapabilityNamespace],
+              name <- Set.toList (exportNamesInNamespace namespace (selectExportNames symbols inventory)),
+              Set.notMember name (exportNamesInNamespace namespace localDeclarations)
             ]
+
+    resolveDeclarationReference owner name = case name of
+      UserName (ResolvedUserName CurrentModule namespace identifier)
+        | Just origin <- Map.lookup owner inlineDeclarationOrigins >>= Map.lookup (namespace, identifierText identifier) ->
+            UserName (ResolvedUserName origin namespace identifier)
+      _ -> resolveDeclarationOwner owner name
+
+    resolveBlockStatements owner initialBoundValues statements =
+      snd (mapAccumL resolveBlockStatement (owner, initialBoundValues) statements)
+      where
+        -- Future local values establish their namespace here. The lexical pass
+        -- later decides whether their declaration is visible as a recursive peer.
+        firstBindings = foldr firstBinding Map.empty statements
+        firstBinding (SLet _ name _) bindings
+          | Just key <- sourceNameText name,
+            Set.notMember key nonlocalNames =
+              insertVisibleName ValueNamespace name bindings
+        firstBinding _ bindings = bindings
+        nonlocalNames = Set.unions [ambientValues, ambientConstructors, Map.keysSet visibleValueOrigins, Map.keysSet visibleConstructorOrigins, kernelBuiltinNames]
+
+        resolveBlockStatement (activeOwner, visibleBoundValues) statement =
+          ((statementOwner, publish statement visibleBoundValues), resolveStatement statementOwner definitionBindings statement)
+          where
+            statementOwner = case statement of
+              SModule _ segments | Just path <- NonEmpty.nonEmpty (map mkIdentifier segments) -> NamedSourceUnit (mkModulePath path)
+              _ -> activeOwner
+            selfBindings = case statement of
+              SLet _ name _
+                | Just key <- sourceNameText name,
+                  Map.notMember key visibleBoundValues ->
+                    insertVisibleName ValueNamespace name visibleBoundValues
+              _ -> visibleBoundValues
+            definitionBindings = Map.union selfBindings firstBindings
+
+        publish statement bindings = case statement of
+          SLet _ name _ -> insertVisibleName ValueNamespace name bindings
+          SData _ _ _ constructors ->
+            foldl' (\acc (DataConstructor _ name _) -> insertVisibleName ConstructorNamespace name acc) bindings constructors
+          _ -> bindings
+
+    insertVisibleName namespace name bindings =
+      maybe bindings (\key -> Map.insert key namespace bindings) (sourceNameText name)
 
     referenceNamespace boundValues name =
       case name of
@@ -366,130 +446,123 @@ resolveExprNames context rootExpression = Right (resolveExpr Map.empty rootExpre
       case name of
         UserName (UnqualifiedSourceName identifier) ->
           UserName (ResolvedUserName CurrentModule namespace identifier)
-        UserName (QualifiedSourceName qualifier member) ->
-          resolveName Map.empty namespace (UserName (QualifiedSourceName qualifier member))
-        UserName qualified@QualifiedMethodSourceName {} ->
-          resolveName Map.empty namespace (UserName qualified)
-        BuiltinName identifier -> BuiltinName identifier
-        GeneratedName generatedKind -> GeneratedName generatedKind
+        _ -> resolveName Map.empty namespace name
 
-    resolveCaseArm boundValues (CaseArm node patternValue guard body) =
-      let armBoundValues = Map.union (Map.fromSet (const ValueNamespace) (corePatternBinders patternValue)) boundValues
+    resolveCaseArm owner boundValues (CaseArm node patternValue guard body) =
+      let armBoundValues = Map.union (patternBindings patternValue) boundValues
        in CaseArm
-            (resolveNode node)
-            (resolvePattern patternValue)
-            (fmap (resolveExpr armBoundValues) guard)
-            (resolveExpr armBoundValues body)
+            (resolveNode owner node)
+            (resolvePattern owner patternValue)
+            (fmap (resolveExpr owner armBoundValues) guard)
+            (resolveExpr owner armBoundValues body)
 
-    resolvePattern patternValue =
+    resolvePattern owner patternValue =
       case patternValue of
-        PWildcard node -> PWildcard (resolveNode node)
-        PVariable node name -> PVariable (resolveNode node) (resolveBinder ValueNamespace name)
-        PLiteral node literal -> PLiteral (resolveNode node) literal
+        PWildcard node -> PWildcard (resolveNode owner node)
+        PVariable node name -> PVariable (resolveBinderNode owner node) (resolveBinder ValueNamespace name)
+        PLiteral node literal -> PLiteral (resolveNode owner node) literal
         PConstructor node name patterns ->
-          PConstructor (resolveNode node) (resolveName Map.empty ConstructorNamespace name) (map resolvePattern patterns)
-        PList node patterns -> PList (resolveNode node) (map resolvePattern patterns)
+          let target = resolveName Map.empty ConstructorNamespace name
+           in PConstructor (resolveReferenceNode owner target node) target (map (resolvePattern owner) patterns)
+        PList node patterns -> PList (resolveNode owner node) (map (resolvePattern owner) patterns)
         PConsList node headPattern tailPattern ->
-          PConsList (resolveNode node) (resolvePattern headPattern) (resolvePattern tailPattern)
-        PTuple node patterns -> PTuple (resolveNode node) (map resolvePattern patterns)
+          PConsList (resolveNode owner node) (resolvePattern owner headPattern) (resolvePattern owner tailPattern)
+        PTuple node patterns -> PTuple (resolveNode owner node) (map (resolvePattern owner) patterns)
         PAs node name pattern' ->
-          PAs (resolveNode node) (resolveBinder ValueNamespace name) (resolvePattern pattern')
-        POr node patterns -> POr (resolveNode node) (map resolvePattern patterns)
+          PAs (resolveBinderNode owner node) (resolveBinder ValueNamespace name) (resolvePattern owner pattern')
+        POr node patterns -> POr (resolveNode owner node) (map (resolvePattern owner) patterns)
 
-    resolveStatement boundValues statement =
+    resolveStatement owner boundValues statement =
       case statement of
         SLet node name value ->
-          SLet
-            (resolveNode node)
-            (resolveBinder ValueNamespace name)
-            (resolveBindingValue boundValues name value)
+          SLet (resolveBinderNode owner node) (resolveBinder ValueNamespace name) (resolveBindingValue owner boundValues name value)
         SSignature node name payload ->
-          SSignature (resolveNode node) (resolveBinder ValueNamespace name) (resolveSignaturePayload payload)
+          SSignature (resolveBinderNode owner node) (resolveBinder ValueNamespace name) (resolveSignaturePayload owner payload)
         SData node name parameters constructors ->
-          SData
-            (resolveNode node)
-            (resolveBinder TypeNamespace name)
-            (map (resolveBinder TypeNamespace) parameters)
-            (map resolveDataConstructor constructors)
+          SData (resolveNode owner node) (resolveDeclarationOwner owner (resolveBinder TypeNamespace name)) (map (resolveBinder TypeNamespace) parameters) (map (resolveDataConstructor owner) constructors)
         SClass node name parameters methods ->
-          SClass
-            (resolveNode node)
-            (resolveBinder CapabilityNamespace name)
-            (map (resolveBinder TypeNamespace) parameters)
-            (map resolveClassMethod methods)
+          let capability = resolveDeclarationOwner owner (resolveBinder CapabilityNamespace name)
+           in SClass
+                (resolveNode owner node)
+                capability
+                (map (resolveBinder TypeNamespace) parameters)
+                (map (resolveClassMethod owner capability) methods)
         SImpl node name arguments methods ->
-          SImpl
-            (resolveNode node)
-            (resolveName Map.empty CapabilityNamespace name)
-            (map resolveSignatureType arguments)
-            (map (resolveImplMethod boundValues) methods)
-        SModule node path -> SModule (resolveNode node) path
-        SImport node path alias symbols -> SImport (resolveNode node) path alias symbols
-        SExpr node value -> SExpr (resolveNode node) (resolveExpr boundValues value)
+          let capability = resolveDeclarationReference owner (resolveName Map.empty CapabilityNamespace name)
+              methodBindings = foldl' (\acc (ImplMethod _ methodName _) -> insertVisibleName ValueNamespace methodName acc) boundValues methods
+           in SImpl
+                (resolveNode owner node)
+                capability
+                (map (resolveSignatureType owner) arguments)
+                (map (resolveImplMethod owner methodBindings capability) methods)
+        SModule node path -> SModule (resolveNode owner node) path
+        SImport node path alias symbols ->
+          let target = mkModulePath <$> NonEmpty.nonEmpty (map mkIdentifier path)
+              resolved = resolveNode owner node
+           in SImport (resolved {coreNodeFacts = (coreNodeFacts resolved) {resolvedNodeImportTarget = target}}) path alias symbols
+        SExpr node value -> SExpr (resolveNode owner node) (resolveExpr owner boundValues value)
 
-    resolveBindingValue boundValues bindingName value =
+    resolveBindingValue owner boundValues bindingName value =
       case (bindingName, value) of
         ( UserName (UnqualifiedSourceName bindingIdentifier),
           EVar referenceNode (UserName (UnqualifiedSourceName referenceIdentifier))
           )
             | bindingIdentifier == referenceIdentifier,
               Just _ <- lookupKernelBuiltinSymbol (identifierText referenceIdentifier) ->
-                EVar (resolveNode referenceNode) (BuiltinName referenceIdentifier)
-        _ -> resolveExpr boundValues value
+                EVar (resolveReferenceNode owner (BuiltinName referenceIdentifier) referenceNode) (BuiltinName referenceIdentifier)
+        _ -> resolveExpr owner boundValues value
 
-    resolveDataConstructor (DataConstructor node name fieldTypes) =
-      DataConstructor
-        (resolveNode node)
-        (resolveBinder ConstructorNamespace name)
-        (map resolveSignatureType fieldTypes)
+    resolveDataConstructor owner (DataConstructor node name fieldTypes) =
+      DataConstructor (resolveBinderNode owner node) (resolveBinder ConstructorNamespace name) (map (resolveSignatureType owner) fieldTypes)
 
-    resolveClassMethod (ClassMethodSignature node name payload) =
-      ClassMethodSignature (resolveNode node) (resolveBinder ValueNamespace name) (resolveSignaturePayload payload)
+    resolveClassMethod owner capability (ClassMethodSignature node name payload) =
+      ClassMethodSignature (resolveMethodNode owner capability name node) (resolveBinder ValueNamespace name) (resolveSignaturePayload owner payload)
 
-    resolveImplMethod boundValues (ImplMethod node name body) =
-      ImplMethod (resolveNode node) (resolveBinder ValueNamespace name) (resolveExpr boundValues body)
+    resolveImplMethod owner boundValues capability (ImplMethod node name body) =
+      ImplMethod (resolveMethodNode owner capability name node) (resolveBinder ValueNamespace name) (resolveExpr owner boundValues body)
 
-    resolveSignaturePayload payload =
+    resolveMethodNode owner capability method node =
+      let resolved = resolveBinderNode owner node
+          target = referenceTarget owner (qualifiedMemberName capability (resolveBinder ValueNamespace method))
+       in resolved {coreNodeFacts = (coreNodeFacts resolved) {resolvedNodeReference = Just target}}
+
+    resolveSignaturePayload owner payload =
       case payload of
-        SignatureType signatureType -> SignatureType (resolveSignatureType signatureType)
+        SignatureType signatureType -> SignatureType (resolveSignatureType owner signatureType)
         ConstrainedSignature constraints signatureType ->
           ConstrainedSignature
-            (map resolveSignatureConstraint constraints)
-            (resolveSignatureType signatureType)
-        UnsupportedSignature tokens -> UnsupportedSignature (map resolveSignatureToken tokens)
+            (map (resolveSignatureConstraint owner) constraints)
+            (resolveSignatureType owner signatureType)
+        UnsupportedSignature tokens -> UnsupportedSignature (map (resolveSignatureToken owner) tokens)
 
-    resolveSignatureToken = fmap (resolveName Map.empty TypeNamespace)
+    resolveSignatureToken owner = fmap (resolveDeclarationReference owner . resolveName Map.empty TypeNamespace)
 
-    resolveSignatureConstraint (SignatureConstraint name arguments) =
-      SignatureConstraint (resolveName Map.empty CapabilityNamespace name) (map resolveSignatureType arguments)
+    resolveSignatureConstraint owner (SignatureConstraint name arguments) =
+      SignatureConstraint (resolveDeclarationReference owner (resolveName Map.empty CapabilityNamespace name)) (map (resolveSignatureType owner) arguments)
 
-    resolveSignatureType =
+    resolveSignatureType owner =
       bimap
-        (resolveName Map.empty TypeNamespace)
+        (resolveDeclarationReference owner . resolveName Map.empty TypeNamespace)
         (resolveBinder TypeNamespace)
 
     sourceNameText name =
       case name of
         UserName (UnqualifiedSourceName identifier) -> Just (identifierText identifier)
+        GeneratedName _ -> Just (identifierText name)
         _ -> Nothing
 
-    corePatternBinders patternValue =
+    patternBindings patternValue =
       case patternValue of
-        PWildcard _ -> Set.empty
-        PVariable _ name -> maybe Set.empty Set.singleton (sourceNameText name)
-        PLiteral _ _ -> Set.empty
-        PConstructor _ _ patterns -> Set.unions (map corePatternBinders patterns)
-        PList _ patterns -> Set.unions (map corePatternBinders patterns)
-        PConsList _ headPattern tailPattern ->
-          Set.union (corePatternBinders headPattern) (corePatternBinders tailPattern)
-        PTuple _ patterns -> Set.unions (map corePatternBinders patterns)
-        PAs _ name nestedPattern ->
-          maybe id Set.insert (sourceNameText name) (corePatternBinders nestedPattern)
-        POr _ alternatives ->
-          case alternatives of
-            [] -> Set.empty
-            firstAlternative : rest ->
-              foldl' Set.intersection (corePatternBinders firstAlternative) (map corePatternBinders rest)
+        PVariable _ name -> insertVisibleName ValueNamespace name Map.empty
+        PConstructor _ _ patterns -> Map.unions (map (patternBindings) patterns)
+        PList _ patterns -> Map.unions (map (patternBindings) patterns)
+        PConsList _ headPattern tailPattern -> Map.union (patternBindings headPattern) (patternBindings tailPattern)
+        PTuple _ patterns -> Map.unions (map (patternBindings) patterns)
+        PAs _ name nestedPattern -> insertVisibleName ValueNamespace name (patternBindings nestedPattern)
+        POr _ alternatives -> case alternatives of
+          [] -> Map.empty
+          firstAlternative : rest -> foldl' Map.intersection (patternBindings firstAlternative) (map (patternBindings) rest)
+        _ -> Map.empty
 
 -- | Resolve a lowered, import-free source unit. The local inventory is derived
 -- from its declarations so constructors, types, and capabilities receive the
@@ -497,24 +570,24 @@ resolveExprNames context rootExpression = Right (resolveExpr Map.empty rootExpre
 resolveStandaloneExprNames ::
   ModuleExportInventory ->
   Expr 'Lowered ->
-  Either (NonEmpty Diagnostic) (Expr 'Resolved)
+  Expr 'Resolved
 resolveStandaloneExprNames ambientExports expression =
   resolveExprNames
     ResolutionContext
-      { resolutionAmbientExports = ambientExports,
+      { resolutionSourceOwner = StandaloneSourceUnit standaloneModulePath,
+        resolutionExternalReferences = Map.empty,
+        resolutionAmbientExports = ambientExports,
         resolutionLocalInventory = standaloneLocalInventory expression,
-        resolutionInventoriesByModule = Map.empty,
-        resolutionImports = []
+        resolutionImportScope = emptyImportScope
       }
     expression
 
 standaloneLocalInventory :: Expr 'Lowered -> ModuleExportInventory
 standaloneLocalInventory expression =
-  exportInventory
-    ( case expression of
-        EBlock _ statements -> concatMap statementExports statements
-        _ -> []
-    )
+  statementInventory (case expression of EBlock _ statements -> statements; _ -> [])
+
+statementInventory :: [Statement 'Lowered] -> ModuleExportInventory
+statementInventory = exportInventory . concatMap statementExports
   where
     statementExports statement =
       case statement of
@@ -522,19 +595,32 @@ standaloneLocalInventory expression =
         SData _ typeName _ constructors ->
           maybeExport TypeNamespace typeName
             <> concatMap constructorExports constructors
-        SClass _ className _ methods ->
+        SClass _ className _ _ ->
           maybeExport CapabilityNamespace className
-            <> concatMap methodExports methods
         _ -> []
 
     constructorExports (DataConstructor _ name _) =
       maybeExport ConstructorNamespace name
-
-    methodExports (ClassMethodSignature _ name _) =
-      maybeExport ValueNamespace name
 
     maybeExport namespace name =
       case name of
         UserName (UnqualifiedSourceName identifier) ->
           [ModuleExport namespace (identifierText identifier)]
         _ -> []
+
+-- | The public identity projection of a resolved unit. Import aliases select
+-- these targets without changing the declaration's defining source identity.
+resolvedPublicReferences :: ResolvedNameOrigin -> ModuleExportInventory -> [Statement 'Resolved] -> Map ResolvedName ResolvedReference
+resolvedPublicReferences origin inventory = Map.fromList . concatMap statementReferences
+  where
+    key namespace name = UserName (ResolvedUserName origin namespace (mkIdentifier (identifierText name)))
+    binding namespace name node =
+      [(key namespace name, LexicalReference binder) | Set.member (identifierText name) (exportNamesInNamespace namespace inventory), Just binder <- [resolvedNodeBinder (coreNodeFacts node)]]
+    statementReferences :: Statement 'Resolved -> [(ResolvedName, ResolvedReference)]
+    statementReferences statement = case statement of
+      SLet node name _ -> binding ValueNamespace name node
+      SData _ _ _ constructors -> concat [binding ConstructorNamespace name node | DataConstructor node name _ <- constructors]
+      SClass _ name _ methods
+        | Set.member (identifierText name) (exportNamesInNamespace CapabilityNamespace inventory) ->
+            [(UserName (ResolvedUserName origin ValueNamespace (mkIdentifier (identifierText name <> "::" <> identifierText method))), CapabilityMethodReference (CapabilityId name) (mkIdentifier (identifierText method))) | ClassMethodSignature _ method _ <- methods]
+      _ -> []

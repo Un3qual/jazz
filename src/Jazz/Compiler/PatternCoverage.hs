@@ -19,7 +19,7 @@ import Data.Foldable (asum)
 import Data.List (find, sortOn)
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
-import Data.Maybe (isJust)
+import Data.Maybe (fromMaybe, isJust, isNothing)
 import qualified Data.Set as Set
 import Data.Text (Text)
 import qualified Data.Text as Text
@@ -45,10 +45,11 @@ import Jazz.Compiler.TypeInference.Types
   ( ConstructorArgumentType (..),
     DataTypeBinding (..),
     ExpressionType,
+    SemanticBinding (..),
     SemanticType (..),
-    TypeBinding (..),
     TypeEnv,
-    instantiateConstructorFieldType,
+    TypeEnvKey (..),
+    instantiateDeclarationType,
   )
 
 data PatternCoverageFailure
@@ -69,7 +70,7 @@ data PatternCoverageSite = PatternCoverageSite
 -- from that match's scrutinee.
 data ConstructorInventory = ConstructorInventory
   { constructorInventoryWitnessNames :: Map ResolvedName UnresolvedName,
-    constructorInventoryDataTypes :: Map Text DataTypeBinding,
+    constructorInventoryDataTypes :: Map ResolvedName DataTypeBinding,
     constructorInventoryEnvironment :: TypeEnv
   }
   deriving (Eq, Show)
@@ -77,7 +78,7 @@ data ConstructorInventory = ConstructorInventory
 -- | Constructor shapes reachable from one match's resolved scrutinee type.
 -- Visible shapes remain useful even when hidden constructors keep the outer
 -- domain open.
-newtype PreparedConstructorInventory = PreparedConstructorInventory (Map Text DataConstructorInventory)
+newtype PreparedConstructorInventory = PreparedConstructorInventory (Map ResolvedName DataConstructorInventory)
 
 data DataConstructorInventory = DataConstructorInventory
   { inventoryTypeParameters :: [ResolvedName],
@@ -98,7 +99,7 @@ emptyConstructorInventory :: ConstructorInventory
 emptyConstructorInventory = ConstructorInventory Map.empty Map.empty Map.empty
 
 constructorInventoryFromBindings ::
-  Map Text DataTypeBinding ->
+  Map ResolvedName DataTypeBinding ->
   TypeEnv ->
   ConstructorInventory
 constructorInventoryFromBindings =
@@ -106,7 +107,7 @@ constructorInventoryFromBindings =
 
 constructorInventoryFromBindingsWithWitnessNames ::
   Map ResolvedName UnresolvedName ->
-  Map Text DataTypeBinding ->
+  Map ResolvedName DataTypeBinding ->
   TypeEnv ->
   ConstructorInventory
 constructorInventoryFromBindingsWithWitnessNames = ConstructorInventory
@@ -132,21 +133,20 @@ prepareConstructorInventory source expressionType =
         SemanticTuple fieldTypes ->
           collectExpressionTypes (visited, collected) fieldTypes
         SemanticData typeName actualTypeArguments ->
-          let typeNameText = renderName typeName
-              alreadyVisited = Set.member typeNameText visited
-              visitedWithType = Set.insert typeNameText visited
+          let alreadyVisited = Set.member typeName visited
+              visitedWithType = Set.insert typeName visited
               (visitedAfterArguments, collectedAfterArguments) =
                 collectExpressionTypes
                   (visitedWithType, collected)
                   actualTypeArguments
            in if alreadyVisited
                 then (visitedAfterArguments, collectedAfterArguments)
-                else case Map.lookup typeNameText (constructorInventoryDataTypes source) of
+                else case Map.lookup typeName (constructorInventoryDataTypes source) of
                   Nothing -> (visitedAfterArguments, collectedAfterArguments)
                   Just dataTypeBinding ->
-                    let preparedDataInventory = dataInventory typeNameText dataTypeBinding
+                    let preparedDataInventory = dataInventory typeName dataTypeBinding
                         collectedWithType =
-                          Map.insert typeNameText preparedDataInventory collectedAfterArguments
+                          Map.insert typeName preparedDataInventory collectedAfterArguments
                         typeArguments =
                           Map.fromList
                             [ (identifierText parameter, argument)
@@ -165,7 +165,7 @@ prepareConstructorInventory source expressionType =
                           reachableFieldTypes
         _ -> (visited, collected)
 
-    dataInventory typeNameText (DataTypeBinding typeParameters declaredConstructors) =
+    dataInventory typeName (DataTypeBinding typeParameters declaredConstructors) =
       DataConstructorInventory
         { inventoryTypeParameters = typeParameters,
           inventoryConstructors = visibleConstructors,
@@ -186,18 +186,18 @@ prepareConstructorInventory source expressionType =
                   visibleConstructorArguments = argumentTypes
                 }
             | (constructorName, argumentTypes) <-
-                Map.findWithDefault [] typeNameText visibleConstructorsByType
+                Map.findWithDefault [] typeName visibleConstructorsByType
             ]
 
     (visibleConstructorsByType, localConstructorNames) =
       Map.foldlWithKey' indexBinding (Map.empty, Set.empty) (constructorInventoryEnvironment source)
 
-    indexBinding (constructorsByType, localNames) constructorName binding =
+    indexBinding (constructorsByType, localNames) (TypeEnvKey _ constructorName) binding =
       case binding of
         ConstructorTypeBinding declaredTypeName _ argumentTypes ->
           ( Map.insertWith
               (<>)
-              (renderName declaredTypeName)
+              declaredTypeName
               [(constructorName, argumentTypes)]
               constructorsByType,
             case constructorName of
@@ -237,7 +237,7 @@ analyzePatternCoverage inventory expressionType arms =
               expressionType
               (normalizePattern patternValue)
           useful =
-            hasWitness
+            isJust
               ( usefulPatternVector
                   preparedInventory
                   [expressionType]
@@ -259,9 +259,6 @@ analyzePatternCoverage inventory expressionType arms =
         Nothing -> []
         Just [missing] -> [NonExhaustivePattern missing]
         Just _ -> [NonExhaustivePattern CoverageWildcard]
-
-hasWitness :: Maybe value -> Bool
-hasWitness = isJust
 
 data CoveragePattern
   = CoverageWildcard
@@ -428,14 +425,12 @@ coveragePatternsAreTotal ::
   [CoveragePattern] ->
   Bool
 coveragePatternsAreTotal inventory expressionType patterns =
-  not
-    ( hasWitness
-        ( usefulPatternVector
-            inventory
-            [expressionType]
-            (map (: []) patterns)
-            [CoverageWildcard]
-        )
+  isNothing
+    ( usefulPatternVector
+        inventory
+        [expressionType]
+        (map (: []) patterns)
+        [CoverageWildcard]
     )
 
 coveragePatternCoversShape ::
@@ -472,14 +467,7 @@ usefulPatternVector inventory (expressionType : restTypes) matrix (query : restQ
   case query of
     CoverageConstructor constructor fields -> do
       shape <- constructorShape inventory expressionType constructor (length fields)
-      witness <-
-        usefulPatternVector
-          inventory
-          (shapeFieldTypes shape <> restTypes)
-          (specializeMatrix shape matrix)
-          (fields <> restQuery)
-      let (fieldWitnesses, restWitnesses) = splitAt (length (shapeFieldTypes shape)) witness
-      pure (CoverageConstructor constructor fieldWitnesses : restWitnesses)
+      usefulSpecialization constructor shape fields
     CoverageOr alternatives ->
       asum
         ( map
@@ -496,7 +484,10 @@ usefulPatternVector inventory (expressionType : restTypes) matrix (query : restQ
       case constructorShapes inventory expressionType of
         Just shapes
           | allShapeConstructorsPresent shapes matrix ->
-              firstUsefulSpecialization shapes
+              asum
+                [ usefulSpecialization (shapeConstructor shape) shape (wildcardFields shape)
+                | shape <- shapes
+                ]
           | otherwise -> do
               restWitness <-
                 usefulPatternVector inventory restTypes (defaultMatrix matrix) restQuery
@@ -504,28 +495,29 @@ usefulPatternVector inventory (expressionType : restTypes) matrix (query : restQ
               pure
                 ( CoverageConstructor
                     (shapeConstructor missingShape)
-                    (replicate (length (shapeFieldTypes missingShape)) CoverageWildcard)
+                    (wildcardFields missingShape)
                     : restWitness
                 )
         Nothing -> do
           restWitness <-
             usefulPatternVector inventory restTypes (defaultMatrix matrix) restQuery
           pure (CoverageWildcard : restWitness)
-      where
-        firstUsefulSpecialization shapes =
-          asum (map usefulSpecialization shapes)
-
-        usefulSpecialization shape = do
-          witness <-
-            usefulPatternVector
-              inventory
-              (shapeFieldTypes shape <> restTypes)
-              (specializeMatrix shape matrix)
-              (replicate (length (shapeFieldTypes shape)) CoverageWildcard <> restQuery)
-          let (fieldWitnesses, restWitnesses) = splitAt (length (shapeFieldTypes shape)) witness
-          pure
-            (CoverageConstructor (shapeConstructor shape) fieldWitnesses : restWitnesses)
+  where
+    -- Concrete queries retain their own diagnostic spelling; wildcard queries
+    -- use the visible constructor's witness name from the inventory.
+    usefulSpecialization constructor shape fields = do
+      witness <-
+        usefulPatternVector
+          inventory
+          (shapeFieldTypes shape <> restTypes)
+          (specializeMatrix shape matrix)
+          (fields <> restQuery)
+      let (fieldWitnesses, restWitnesses) = splitAt (length (shapeFieldTypes shape)) witness
+      pure (CoverageConstructor constructor fieldWitnesses : restWitnesses)
 usefulPatternVector _ _ _ _ = Nothing
+
+wildcardFields :: ConstructorShape -> [CoveragePattern]
+wildcardFields shape = replicate (length (shapeFieldTypes shape)) CoverageWildcard
 
 constructorShapes :: PreparedConstructorInventory -> ExpressionType -> Maybe [ConstructorShape]
 constructorShapes inventory expressionType = do
@@ -575,7 +567,7 @@ dataConstructorDomain ::
   [ExpressionType] ->
   Maybe ConstructorDomain
 dataConstructorDomain (PreparedConstructorInventory inventories) typeName actualTypeArguments = do
-  dataInventory <- Map.lookup (renderName typeName) inventories
+  dataInventory <- Map.lookup typeName inventories
   let typeArguments =
         Map.fromList
           [ (identifierText parameter, argument)
@@ -599,11 +591,8 @@ dataConstructorDomain (PreparedConstructorInventory inventories) typeName actual
 instantiateArgument :: Map Text ExpressionType -> ConstructorArgumentType -> ExpressionType
 instantiateArgument typeArguments argument =
   case argument of
-    ConstructorArgumentMonomorphic expressionType -> expressionType
-    ConstructorArgumentParameter parameter ->
-      Map.findWithDefault unknownFieldType parameter typeArguments
-    ConstructorArgumentStructured signatureType ->
-      maybe unknownFieldType id (instantiateConstructorFieldType typeArguments signatureType)
+    ConstructorArgumentType fieldType ->
+      fromMaybe unknownFieldType (instantiateDeclarationType typeArguments fieldType)
     ConstructorArgumentFresh -> unknownFieldType
 
 unknownFieldType :: ExpressionType
@@ -635,7 +624,7 @@ specializeMatrix shape = concatMap specializeRow
       case row of
         [] -> []
         CoverageWildcard : rest ->
-          [replicate (length (shapeFieldTypes shape)) CoverageWildcard <> rest]
+          [wildcardFields shape <> rest]
         CoverageConstructor constructor fields : rest
           | constructor == shapeConstructor shape -> [fields <> rest]
           | otherwise -> []

@@ -1,11 +1,9 @@
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DerivingStrategies #-}
-{-# LANGUAGE GeneralizedNewtypeDeriving #-}
 
--- | Phase-local semantic identities and the complete facts attached by
--- analysis. This module is intentionally neutral: syntax imports it, while
--- inference and runtime populate or consume it in later phases.
+-- | Complete semantic decisions owned by analyzed nodes. Syntax imports this
+-- neutral vocabulary; checking constructs the facts and execution consumes them.
 module Jazz.Compiler.SemanticFacts
   ( AnalyzedType,
     AnalyzedMethodSignature (..),
@@ -15,20 +13,14 @@ module Jazz.Compiler.SemanticFacts
     AnalyzedSchemeConstraint (..),
     BinaryOperation (..),
     BinaryOperandTyping (..),
-    CapabilityId (..),
-    CoreBinderId (..),
-    CoreNodeId (..),
     EvidenceReference (..),
     ExpressionFacts (..),
-    ImplId (..),
-    MethodId (..),
     PatternConstructorFact (..),
     PatternFacts (..),
     PatternRefutability (..),
-    RuntimeObligation (..),
-    RuntimePlan (..),
     SemanticFactInvariantFailure (..),
     SemanticInstantiation (..),
+    InstantiationTarget (..),
     StatementDeclarationFact (..),
     StatementFacts (..),
   )
@@ -37,42 +29,26 @@ where
 import Control.DeepSeq (NFData)
 import Data.List.NonEmpty (NonEmpty)
 import Data.Map.Strict (Map)
-import Data.Sequence (Seq)
 import Data.Text (Text)
 import GHC.Generics (Generic)
-import Jazz.Compiler.ModuleIdentity (ModulePath, SourceUnitOwner)
-import Jazz.Compiler.Name (Identifier, ResolvedName)
+import Jazz.Compiler.CoreIdentity (CapabilityId, CapabilityMethodKey, CoreBinderId, CoreNodeId, ImplId, MethodId, ResolvedNodeFacts)
+import Jazz.Compiler.ModuleIdentity (ModulePath)
+import Jazz.Compiler.Name (ResolvedName)
 import Jazz.Compiler.TypeRepresentation
   ( InferenceVariable,
-    NumericType,
     SemanticType,
   )
 
 type AnalyzedType = SemanticType ResolvedName InferenceVariable
 
-newtype CoreNodeId = CoreNodeId Int
-  deriving stock (Eq, Generic, Ord, Show)
-  deriving newtype (Enum)
-  deriving anyclass (NFData)
-
-newtype CoreBinderId = CoreBinderId (ModulePath, CoreNodeId)
-  deriving stock (Eq, Generic, Ord, Show)
-  deriving anyclass (NFData)
-
-newtype CapabilityId = CapabilityId ResolvedName
-  deriving stock (Eq, Generic, Ord, Show)
-  deriving anyclass (NFData)
-
-newtype ImplId = ImplId (SourceUnitOwner, CoreNodeId)
-  deriving stock (Eq, Generic, Ord, Show)
-  deriving anyclass (NFData)
-
-newtype MethodId = MethodId (ImplId, Identifier)
+data InstantiationTarget
+  = LexicalInstantiation CoreBinderId
+  | MethodInstantiation CapabilityMethodKey
   deriving stock (Eq, Generic, Ord, Show)
   deriving anyclass (NFData)
 
 data SemanticInstantiation = SemanticInstantiation
-  { instantiatedBinder :: CoreBinderId,
+  { instantiatedTarget :: InstantiationTarget,
     instantiatedTypes :: NonEmpty AnalyzedType
   }
   deriving stock (Eq, Generic, Ord, Show)
@@ -81,23 +57,10 @@ data SemanticInstantiation = SemanticInstantiation
 data EvidenceReference = EvidenceReference
   { evidenceCapability :: CapabilityId,
     evidenceImplementation :: ImplId,
-    evidenceMethod :: Maybe MethodId,
+    evidenceMethod :: MethodId,
     evidenceType :: AnalyzedType
   }
   deriving stock (Eq, Generic, Ord, Show)
-  deriving anyclass (NFData)
-
-newtype RuntimePlan = RuntimePlan (Seq RuntimeObligation)
-  deriving stock (Eq, Generic, Show)
-  deriving newtype (Semigroup, Monoid)
-  deriving anyclass (NFData)
-
-data RuntimeObligation
-  = InstantiateTypes (NonEmpty AnalyzedType)
-  | SupplyEvidence (NonEmpty EvidenceReference)
-  | SpecializeNumericLiteral NumericType
-  | ConstrainResult AnalyzedType
-  deriving stock (Eq, Generic, Show)
   deriving anyclass (NFData)
 
 -- | The primitive operation selected by inference, including the original
@@ -119,12 +82,15 @@ data BinaryOperandTyping
   deriving anyclass (NFData)
 
 data ExpressionFacts = ExpressionFacts
-  { expressionSemanticType :: AnalyzedType,
+  { expressionResolution :: ResolvedNodeFacts,
+    expressionSemanticType :: AnalyzedType,
     expressionBinaryOperation :: Maybe BinaryOperation,
     expressionNumericConstraints :: Map InferenceVariable AnalyzedNumericConstraint,
     expressionInstantiations :: [SemanticInstantiation],
     expressionEvidence :: [EvidenceReference],
-    expressionRuntimePlan :: RuntimePlan
+    -- | Closed representation enforced on return. Generalized definitions may
+    -- suppress this even when a particular checked use has a concrete type.
+    expressionResultRepresentation :: Maybe AnalyzedType
   }
   deriving stock (Eq, Generic, Show)
   deriving anyclass (NFData)
@@ -142,7 +108,8 @@ data PatternRefutability
   deriving anyclass (NFData)
 
 data PatternFacts = PatternFacts
-  { patternBindingTypes :: Map ResolvedName AnalyzedType,
+  { patternResolution :: ResolvedNodeFacts,
+    patternBindingTypes :: Map ResolvedName AnalyzedType,
     patternConstructorFact :: PatternConstructorFact,
     patternRefutability :: PatternRefutability
   }
@@ -150,8 +117,8 @@ data PatternFacts = PatternFacts
   deriving anyclass (NFData)
 
 data StatementFacts = StatementFacts
-  { statementBinderIds :: [CoreBinderId],
-    statementGeneralizedSchemes :: Map CoreBinderId AnalyzedScheme,
+  { statementResolution :: ResolvedNodeFacts,
+    statementBinding :: Maybe (CoreBinderId, AnalyzedScheme),
     statementDeclarationFact :: StatementDeclarationFact
   }
   deriving stock (Eq, Generic, Show)
@@ -167,22 +134,19 @@ data StatementDeclarationFact
   | CapabilityDeclaration ResolvedName [ResolvedName]
   | MethodDeclaration ResolvedName AnalyzedMethodSignature
   | ImplementationDeclaration ResolvedName [AnalyzedType]
-  | ModuleDeclaration [Text]
-  | ImportDeclaration [Text]
+  | ModuleDeclaration ModulePath
+  | ImportDeclaration ModulePath
   | ExpressionDeclaration
   deriving stock (Eq, Generic, Show)
   deriving anyclass (NFData)
 
--- | Violations detected while collecting or attaching facts. These are
+-- | Violations detected while finalizing checked facts. These are
 -- compiler invariant failures, not source diagnostics.
 data SemanticFactInvariantFailure
-  = DuplicateExpressionFacts CoreNodeId
-  | DuplicateExplicitInstantiationSeed CoreNodeId
-  | DuplicatePatternFacts CoreNodeId
-  | DuplicateStatementFacts CoreNodeId
+  = MissingScopeFacts CoreNodeId
   | MissingExpressionFacts CoreNodeId
+  | UnresolvedExpressionReference CoreNodeId ResolvedName
   | MissingExpressionEvidence CoreNodeId
-  | AmbiguousExpressionEvidence CoreNodeId
   | MissingExplicitInstantiationSeed CoreNodeId
   | MismatchedExplicitInstantiationSeed CoreNodeId ResolvedName ResolvedName
   | UnexpectedExplicitInstantiationSeed CoreNodeId
@@ -190,10 +154,10 @@ data SemanticFactInvariantFailure
   | UnidentifiedExplicitInstantiationBinder CoreNodeId
   | MissingPatternFacts CoreNodeId
   | MissingStatementFacts CoreNodeId
+  | MissingStatementBinder CoreNodeId
   | MissingStatementScheme CoreNodeId CoreBinderId
   | AnalyzedModuleRootNotBlock CoreNodeId
   | InvalidAnalyzedMethodSignature Text
-  | InvalidAnalyzedImplementationTarget CoreNodeId
   deriving stock (Eq, Generic, Ord, Show)
   deriving anyclass (NFData)
 
@@ -210,9 +174,9 @@ data AnalyzedScheme = AnalyzedScheme
   deriving anyclass (NFData)
 
 data AnalyzedSchemeConstraint
-  = AnalyzedExplicitCapabilityConstraint Text AnalyzedType
-  | AnalyzedInferredCapabilityConstraint Text AnalyzedType
-  | AnalyzedMethodCapabilityConstraint Text Text AnalyzedType
+  = AnalyzedExplicitCapabilityConstraint CapabilityId AnalyzedType
+  | AnalyzedInferredCapabilityConstraint CapabilityId AnalyzedType
+  | AnalyzedMethodCapabilityConstraint CapabilityId CapabilityMethodKey AnalyzedType
   deriving stock (Eq, Generic, Ord, Show)
   deriving anyclass (NFData)
 

@@ -2,6 +2,7 @@
 
 module Jazz.Compiler.Stdlib.FoundationsTests
   ( foundationTests,
+    foundationPerformanceTests,
   )
 where
 
@@ -35,8 +36,12 @@ foundationTests =
     ("list partial applications and stable sorting stay generic", runStdlibFixtureExpecting ["Stdlib", "Foundations", "ListPartialStable"] "stdlib/foundations/ListPartialStable.jz" expectedListPartialStable),
     ("Maybe and Result helpers preserve branch semantics", runStdlibFixtureExpecting ["Stdlib", "Foundations", "MaybeResult"] "stdlib/foundations/MaybeResult.jz" expectedMaybeResult),
     ("Maybe and Result helpers preserve alternate branches", runStdlibFixtureExpecting ["Stdlib", "Foundations", "MaybeResultBranches"] "stdlib/foundations/MaybeResultBranches.jz" expectedMaybeResultBranches),
-    ("NonEmpty keeps its head-tail invariant", runStdlibFixtureExpecting ["Stdlib", "Foundations", "NonEmpty"] "stdlib/foundations/NonEmpty.jz" expectedNonEmpty),
-    ("large Jazz-written list traversals stay stack safe", testLargeListTraversal),
+    ("NonEmpty keeps its head-tail invariant", runStdlibFixtureExpecting ["Stdlib", "Foundations", "NonEmpty"] "stdlib/foundations/NonEmpty.jz" expectedNonEmpty)
+  ]
+
+foundationPerformanceTests :: [NamedTest]
+foundationPerformanceTests =
+  [ ("large Jazz-written list traversals stay stack safe", testLargeListTraversal),
     ("stable list sorting stays within its logarithmic work bound", testStableSortWorkBound),
     ("list combination stays within a linear allocation bound", testListCombinationWorkBound)
   ]

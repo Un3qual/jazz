@@ -17,7 +17,7 @@
 # extension needs (notably explicit pattern imports and derived traversals).
 - ignore:
     name: "Fuse foldr/map"
-    within: ["Jazz.Compiler.Semantics.Runtime.Fixtures.statementData", "Jazz.Compiler.TypeInference.inferExprTypeDetailedRaw"]
+    within: ["Jazz.Compiler.Semantics.Runtime.Fixtures.statementData"]
 - ignore:
     name: "Fuse traverse/map"
     within: ["Jazz.Repository.HaskellSourcePolicy.listHaskellSources"]
@@ -41,7 +41,7 @@
     within: ["Jazz.Compiler.Parser.Signature.signatureTypeHeadParser"]
 - ignore:
     name: "Replace case with fromMaybe"
-    within: ["Jazz.Compiler.Parser.CapabilityDeclaration.parseCapabilityDeclaration", "Jazz.Compiler.Runtime.Engine.evaluateRuntimeScopePureRequest", "Jazz.Compiler.Semantics.BindingSignature.InferenceOwnershipTests.testRecursivePreviewRefreshesAfterSolverChange", "Jazz.Compiler.TypeInference.inferExprTypeDetailedRaw", "Jazz.Compiler.TypeInference.inferExpressionWork"]
+    within: ["Jazz.Compiler.Runtime.Engine.evaluateRuntimeScopePureRequest", "Jazz.Compiler.Semantics.BindingSignature.InferenceOwnershipTests.testRecursivePreviewRefreshesAfterSolverChange", "Jazz.Compiler.TypeInference.inferExpressionWork"]
 - ignore:
     name: "Replace case with maybe"
     within: ["Jazz.CLI.Main.parseCliOptions", "Jazz.Compiler.Prelude.resolvedExplicitPrelude", "Jazz.Compiler.Runtime.Engine.stepEvaluationMachine", "Jazz.Compiler.Runtime.Primitives.renderFloatOperandTarget", "Jazz.Compiler.Runtime.Primitives.renderIntegerOperandTarget", "Jazz.Compiler.Runtime.Primitives.runtimeIntMetadataIsIntegral", "Jazz.Compiler.Runtime.Semantics.renderRuntimeType", "Jazz.Compiler.TypeInference.literalExpressionType"]
@@ -55,9 +55,6 @@
     name: "Use <$>"
     within: ["Jazz.Compiler.ModuleResolver.resolveProgramWithAmbientExports", "Main.resolveTestModuleGraph"]
 - ignore:
-    name: "Use bimap"
-    within: ["Jazz.Compiler.Analyzer.analysisVisibleForwardBindings"]
-- ignore:
     name: "Use elem"
     within: ["Jazz.Compiler.Bootstrap.CanonicalValue.normalizeCanonicalSourcePath"]
 - ignore:
@@ -68,7 +65,7 @@
     within: ["Jazz.Compiler.Runtime.Engine.stepEvaluationMachine"]
 - ignore:
     name: "Use fromMaybe"
-    within: ["Jazz.Compiler.Analyzer.analysisBindingToVisibleBinding", "Jazz.Compiler.PatternCoverage.instantiateArgument", "Jazz.Compiler.SourceUnitOwnership.statementOwners", "Jazz.Compiler.Stdlib.OrderedCollectionsTests.mapSummary", "Jazz.Compiler.TypeInference.Scope.inferExprTypeWithExpectedModeRaw"]
+    within: ["Jazz.Compiler.Analyzer.analysisBindingToVisibleBinding", "Jazz.Compiler.PatternCoverage.instantiateArgument", "Jazz.Compiler.Stdlib.OrderedCollectionsTests.mapSummary"]
 - ignore:
     name: "Use head"
     within: ["Main.testExplicitInstantiationBinderShadowing"]
@@ -82,9 +79,6 @@
 - ignore:
     name: "Use isNothing"
     within: ["Jazz.CLI.Main.parseCliOptions", "Jazz.Compiler.Analyzer.analysisBindingToVisibleBinding", "Jazz.Compiler.ModuleResolver.Names.resolveExprNames", "Jazz.Compiler.Parser.Lexer.unicodeScalarEscape", "Jazz.Compiler.Runtime.Semantics.attachDefaultBindingIntegerTarget", "Jazz.Compiler.Runtime.Semantics.runtimeValueExactlyMatchesConstraint", "Jazz.Compiler.TypeInference.Capabilities.inferredEqualityConstraintCanUseStructuralRuntimeEquality"]
-- ignore:
-    name: "Use lambda-case"
-    within: ["Jazz.Compiler.Driver.runExprWithSourceUnitStatementsAndHostObserved"]
 - ignore:
     name: "Use list literal pattern"
     within: ["Jazz.CLI.Main.parseCliOptions", "Main.testMinusAdjacency"]
@@ -105,11 +99,8 @@
     name: "Use tuple-section"
     within: ["Jazz.Compiler.Runtime.Engine.evaluateRuntimeScopePureRequest"]
 - ignore:
-    name: "Use uncurry"
-    within: ["Jazz.Compiler.Runtime.Engine.evalScopeWithHostInstance"]
-- ignore:
     name: "Use void"
-    within: ["Jazz.Compiler.Driver.buildAnalyzedProgram", "Jazz.Compiler.Parser.Declaration.consumeParsedPrefix"]
+    within: ["Jazz.Compiler.Driver.buildAnalyzedProgram"]
 - ignore:
     name: "Use when"
     within: ["Jazz.Benchmark.Stages.parseBenchmarkCommand", "Jazz.Compiler.Runtime.Engine.endHostOperation", "Jazz.Compiler.Runtime.Engine.runEvaluationControl", "Jazz.Compiler.Runtime.Engine.stepEvaluationMachine", "Jazz.Compiler.Runtime.HostEvaluation.recordRuntimeProfileOpenWhen", "Jazz.Compiler.Runtime.HostEvaluation.recordRuntimeStatisticWhen", "Jazz.Compiler.Semantics.PrimitiveSemantics.EqualityOperator.testSourcePipelineKeepsBuiltinPipeOffDeclaredOperatorBindingPath", "Jazz.TestHarness.runNamed", "Main.assertLeftDiagnosticNotContains"]

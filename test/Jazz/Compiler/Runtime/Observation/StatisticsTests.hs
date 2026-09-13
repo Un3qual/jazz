@@ -53,7 +53,6 @@ import Jazz.Compiler.Runtime
     RuntimeValue (..),
     ScopeResult (..),
     evaluateModuleScopeWithRequiredEvaluationHost,
-    evaluateRuntimeExprObserved,
     renderRuntimeValue,
     runRuntimeHostEvaluation,
   )
@@ -107,6 +106,7 @@ import Jazz.Compiler.Semantics.Runtime.Fixtures
     statementExpression,
     statementLet,
   )
+import Jazz.Compiler.Semantics.Runtime.ResolvedFixture
 import Jazz.Compiler.TypeRepresentation (SignatureType (..))
 import Jazz.Compiler.WarningConfig (defaultWarningSettings)
 import Jazz.TestHarness
@@ -191,7 +191,7 @@ testModuleRuntimeTransport = do
 
 testLiteralTransitions :: IO ()
 testLiteralTransitions = do
-  let observed = evaluateRuntimeExprObserved RuntimeObservationStatistics (expressionLiteral (LInt 1))
+  let observed = observeFixture RuntimeObservationStatistics (expressionLiteral (LInt 1))
   assertEqual
     "literal result"
     (RuntimeOutcomeCompleted (Just "1"))
@@ -206,7 +206,7 @@ testLiteralTransitions = do
 testNestedApplicationAccounting :: IO ()
 testNestedApplicationAccounting = do
   let expression = nestedIdentityApplication 64
-      observed = evaluateRuntimeExprObserved RuntimeObservationStatisticsAndProfile expression
+      observed = observeFixture RuntimeObservationStatisticsAndProfile expression
   assertEqual
     "nested application result"
     (RuntimeOutcomeCompleted (Just "7"))
@@ -225,7 +225,7 @@ testNestedApplicationAccounting = do
     profile
   profileOnlyReport <-
     requireObservedSuccess
-      (evaluateRuntimeExprObserved RuntimeObservationProfile expression)
+      (observeFixture RuntimeObservationProfile expression)
   profileOnly <- requireObservedProfile profileOnlyReport
   assertEqual
     "nested profile bytes are independent of statistics collection"
@@ -254,10 +254,9 @@ testDisabledObservationSkipsContinuationDepthState = do
           ( runRuntimeHostEvaluation disabledRuntimeHost $ \_ ->
               evaluateModuleScopeWithRequiredEvaluationHost
                 inspectingHost
-                Nothing
                 EvaluateEntryModule
                 Map.empty
-                [statementExpression (SourceSpan 1 1) expression]
+                (resolveRuntimeFixture (expressionBlock [statementExpression (SourceSpan 1 1) expression]))
           )
   case result of
     Right ScopeResult {scopeResultValue = Just (VList [VText observedMachineCount, VText observedDepth] _)} -> do
@@ -271,7 +270,7 @@ testClosureApplication = do
         expressionApply
           (expressionLambda "value" (expressionVariable "value"))
           (expressionLiteral (LInt 7))
-      observed = evaluateRuntimeExprObserved RuntimeObservationStatistics expression
+      observed = observeFixture RuntimeObservationStatistics expression
   report <- requireObservedSuccess observed
   let statistics = runtimeObservationStatistics report
   assertEqual "closure applications" 1 (runtimeClosureApplications statistics)
@@ -309,7 +308,7 @@ testBuiltinApplication = do
         expressionApply
           (expressionVariable (BuiltinName (mkIdentifier (builtinSymbolKernelName BuiltinTextLength))))
           (expressionLiteral (LText "Jazz"))
-      observed = evaluateRuntimeExprObserved RuntimeObservationStatistics expression
+      observed = observeFixture RuntimeObservationStatistics expression
   report <- requireObservedSuccess observed
   let statistics = runtimeObservationStatistics report
   assertEqual "builtin applications" 1 (runtimeBuiltinApplications statistics)
@@ -336,7 +335,7 @@ testConstructorApplication = do
               (SourceSpan 2 1)
               (expressionApply (expressionConstructor "Box") (expressionLiteral (LInt 1)))
           ]
-      observed = evaluateRuntimeExprObserved RuntimeObservationStatistics expression
+      observed = observeFixture RuntimeObservationStatistics expression
   report <- requireObservedSuccess observed
   let statistics = runtimeObservationStatistics report
   assertEqual "constructor applications" 1 (runtimeConstructorApplications statistics)
@@ -493,7 +492,7 @@ testDeferredCacheHitAndMiss = do
 testDeferredCacheRecursion :: IO ()
 testDeferredCacheRecursion = do
   let observed =
-        evaluateRuntimeExprObserved
+        observeFixture
           RuntimeObservationStatistics
           ( expressionBlock
               [ statementLet "loop" (SourceSpan 1 1) (expressionVariable "loop"),
@@ -592,7 +591,7 @@ assertPositive label value =
 
 statisticsFor :: Expr 'Analyzed -> IO RuntimeStatistics
 statisticsFor expression = do
-  report <- requireObservedSuccess (evaluateRuntimeExprObserved RuntimeObservationStatistics expression)
+  report <- requireObservedSuccess (observeFixture RuntimeObservationStatistics expression)
   pure (runtimeObservationStatistics report)
 
 kernelBuiltin :: BuiltinSymbol -> Expr 'Analyzed

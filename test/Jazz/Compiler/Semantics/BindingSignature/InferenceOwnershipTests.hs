@@ -8,15 +8,21 @@ module Jazz.Compiler.Semantics.BindingSignature.InferenceOwnershipTests
   )
 where
 
+import Data.List.NonEmpty (NonEmpty (..))
 import qualified Data.Map.Strict as Map
 import qualified Data.Sequence as Seq
 import qualified Data.Set as Set
 import Data.Text (Text)
 import Jazz.Compiler.AST
-  ( CorePhase (Resolved),
+  ( CoreNode (coreNodeFacts),
+    CorePhase (Resolved),
     Expr (..),
     Statement (..),
   )
+import Jazz.Compiler.CoreIdentity (CapabilityId (..), ResolvedReference (UnresolvedReference))
+import Jazz.Compiler.DiagnosticCatalog (ErrorCode (E2009))
+import Jazz.Compiler.Diagnostics (DiagnosticOrigin (CompilationOrigin), mkErrorDiagnostic)
+import Jazz.Compiler.ModuleIdentity (mkModulePath)
 import Jazz.Compiler.Name
   ( NameNamespace (CapabilityNamespace, TypeNamespace, ValueNamespace),
     ResolvedName,
@@ -24,13 +30,15 @@ import Jazz.Compiler.Name
     resolvedLocalName,
   )
 import Jazz.Compiler.RecursiveBindings
-  ( prepareRecursiveScope,
+  ( PreparedRecursiveScope,
+    prepareResolvedScope,
   )
-import Jazz.Compiler.SemanticFacts (StatementDeclarationFact (SignatureDeclaration))
 import Jazz.Compiler.Semantics.BindingSignature.Shared (resolvedProgram)
+import Jazz.Compiler.TypeInference (CheckedExpr (..))
 import Jazz.Compiler.TypeInference.Capabilities
   ( typeSchemeReferencedCapabilityFacts,
   )
+import Jazz.Compiler.TypeInference.Diagnostics (addTypeError)
 import Jazz.Compiler.TypeInference.ImplChecking (checkImplMethodBodies)
 import Jazz.Compiler.TypeInference.Operator
   ( builtinSectionOperatorSymbol,
@@ -40,7 +48,6 @@ import qualified Jazz.Compiler.TypeInference.Scope as TypeInferenceScope
 import Jazz.Compiler.TypeInference.Signature
   ( SignaturePayloadType (..),
     duplicateConstraintName,
-    expressionTypeToConcreteSignature,
     signaturePayloadToSignatureType,
   )
 import Jazz.Compiler.TypeInference.Solver
@@ -69,7 +76,6 @@ import Jazz.Compiler.TypeInference.State
     inferInferredClassConstraints,
     inferNextTypeVar,
     inferNumericVars,
-    inferStatementFactSeeds,
     inferStrictEqualityVars,
     initialInferState,
     modifyDeclarationState,
@@ -95,11 +101,12 @@ import Jazz.Compiler.TypeInference.Types
     NumericConstraint (..),
     SchemeConstraint (..),
     SchemePrimitiveConstraint (..),
-    ScopeCapabilityFacts,
+    ScopeCapabilityFacts (..),
+    SemanticBinding (..),
     SemanticType (..),
-    TypeBinding (..),
+    TypeEnvKey (..),
     emptyScopeCapabilityFacts,
-    schemeResultType,
+    typeEnvReferenceKey,
   )
 import Jazz.Compiler.TypeRepresentation
   ( InferenceVariable,
@@ -110,7 +117,6 @@ import Jazz.Compiler.TypeRepresentation
     pattern TypeInt,
     pattern TypeList,
     pattern TypeName,
-    pattern TypeTuple,
     pattern TypeVariable,
   )
 import Jazz.TestHarness
@@ -122,7 +128,6 @@ import Jazz.TestHarness
 inferenceOwnershipTests :: [NamedTest]
 inferenceOwnershipTests =
   [ ("impl checks roll back failed unification before subsequent bodies", testImplChecksPreserveRollback),
-    ("concrete signature projection rejects variable children", testConcreteSignatureChildFailuresPropagate),
     ("duplicate constraints report the first repeated name", testDuplicateConstraintsReportFirstRepeatedName),
     ("state record modifiers update only their owned partitions", testStateRecordModifiers),
     ("inference output preserves constraint order and explicit cursors", testInferenceOutputConstraintCursors),
@@ -139,25 +144,14 @@ inferenceOwnershipTests =
     ("signature payload normalization allocates ordered variables", testSignaturePayloadNormalizationAllocatesOrderedVariables),
     ("failed signature payload normalization rolls back state", testFailedSignaturePayloadNormalizationRollsBackState),
     ("production scope elaborates each signature once in source order", testProductionScopeElaboratesSignatureOnce),
-    ("prepared inference scopes rederive facts for current outer bindings", testPreparedInferenceScopeRederivesForOuterBindings),
     ("recursive previews do not expose speculative solver state to intervening bindings", testRecursivePreviewSolverStateIsTransactional),
+    ("failed recursive previews retain allocations without leaking diagnostics", testFailedRecursivePreviewRetainsAllocation),
     ("recursive previews refresh after semantic solver changes", testRecursivePreviewRefreshesAfterSolverChange),
     ("recursive previews refresh after numeric-constraint changes", testRecursivePreviewRefreshesAfterNumericConstraintChange),
     ("recursive previews refresh after strict-equality-constraint changes", testRecursivePreviewRefreshesAfterStrictEqualityConstraintChange),
     ("recursive previews are reused at an unchanged group frontier", testRecursivePreviewReuseAtSameFrontier),
     ("operator rule presence remains distinct from section support", testOperatorRulePresenceAndSectionSupport)
   ]
-
-testConcreteSignatureChildFailuresPropagate :: IO ()
-testConcreteSignatureChildFailuresPropagate = do
-  assertEqual
-    "list child failure"
-    Nothing
-    (expressionTypeToConcreteSignature (SemanticList (SemanticVariable 1)))
-  assertEqual
-    "function child failure"
-    Nothing
-    (expressionTypeToConcreteSignature (SemanticFunction SemanticInt (SemanticVariable 1)))
 
 testDuplicateConstraintsReportFirstRepeatedName :: IO ()
 testDuplicateConstraintsReportFirstRepeatedName =
@@ -174,17 +168,24 @@ testDuplicateConstraintsReportFirstRepeatedName =
 
 testStateRecordModifiers :: IO ()
 testStateRecordModifiers = do
-  assertEqual "declaration update" (Map.singleton "Eq" 1) (inferClassFacts updatedState)
-  assertEqual "module update" (Just ["App", "Main"]) (inferCurrentModulePath updatedState)
+  assertEqual "declaration update" (Map.singleton (CapabilityId (capabilityName "Eq")) 1) (inferClassFacts updatedState)
+  assertEqual "module update" (Just (mkModulePath (mkIdentifier "App" :| [mkIdentifier "Main"]))) (inferCurrentModulePath updatedState)
   assertEqual "output update" 3 (inferErrorCount updatedState)
   where
     updatedState =
       modifyInferenceOutput
         (\output -> output {outputErrorCount = 3})
         ( modifyModuleInferenceState
-            (\moduleState -> moduleState {inferenceModulePath = Just ["App", "Main"]})
+            (\moduleState -> moduleState {inferenceModulePath = Just (mkModulePath (mkIdentifier "App" :| [mkIdentifier "Main"]))})
             ( modifyDeclarationState
-                (\declarations -> declarations {declarationClassFacts = Map.singleton "Eq" 1})
+                ( \declarations ->
+                    declarations
+                      { declarationCapabilities =
+                          (declarationCapabilities declarations)
+                            { scopeClassFacts = Map.singleton (CapabilityId (capabilityName "Eq")) 1
+                            }
+                      }
+                )
                 initialInferState
             )
         )
@@ -220,13 +221,13 @@ testInferenceOutputConstraintCursors = do
         initialInferState
     firstDeferred = deferredConstraint "Eq" SemanticInt
     secondDeferred = deferredConstraint "Show" SemanticText
-    firstInferred = TypeSchemeInferredConstraint "Eq" SemanticInt
-    secondInferred = TypeSchemeMethodConstraint "Show" "Show::show" SemanticText
+    firstInferred = TypeSchemeInferredConstraint (CapabilityId (capabilityName "Eq")) SemanticInt
+    secondInferred = TypeSchemeMethodConstraint (CapabilityId (capabilityName "Show")) (CapabilityId (capabilityName "Show"), mkIdentifier "show") SemanticText
 
 deferredConstraint :: Text -> ExpressionType -> DeferredExplicitConstraint
 deferredConstraint constraintName argumentType =
   DeferredExplicitConstraint
-    { deferredConstraintName = constraintName,
+    { deferredConstraintName = CapabilityId (capabilityName constraintName),
       deferredMethodKey = Nothing,
       deferredWasInferred = False,
       deferredArgumentType = argumentType,
@@ -244,8 +245,8 @@ testSchemeConstraintDeduplicationOrder =
     [middleConstraint, repeatedConstraint]
     (dedupeTypeSchemeConstraints [repeatedConstraint, middleConstraint, repeatedConstraint])
   where
-    repeatedConstraint = TypeSchemeConstraint "Eq" (SemanticVariable 0)
-    middleConstraint = TypeSchemeInferredConstraint "Ord" (SemanticVariable 1)
+    repeatedConstraint = TypeSchemeConstraint (CapabilityId (capabilityName "Eq")) (SemanticVariable 0)
+    middleConstraint = TypeSchemeInferredConstraint (CapabilityId (capabilityName "Ord")) (SemanticVariable 1)
 
 testEmptySchemeConstraintsSkipCapabilityFacts :: IO ()
 testEmptySchemeConstraintsSkipCapabilityFacts =
@@ -357,8 +358,8 @@ testTypeOpsCollectConstraintFreeVariables = do
     "class constraint free variables"
     (Set.fromList [1, 2])
     ( freeTypeVariablesInTypeSchemeConstraints
-        [ TypeSchemeConstraint "Eq" (SemanticList (SemanticVariable 1)),
-          TypeSchemeMethodConstraint "Show" "Show::show" (SemanticVariable 2)
+        [ TypeSchemeConstraint (CapabilityId (capabilityName "Eq")) (SemanticList (SemanticVariable 1)),
+          TypeSchemeMethodConstraint (CapabilityId (capabilityName "Show")) (CapabilityId (capabilityName "Show"), mkIdentifier "show") (SemanticVariable 2)
         ]
     )
   assertEqual
@@ -385,10 +386,10 @@ testTypeOpsInstantiateConstraints = do
   let replacements = Map.singleton 1 SemanticText
   assertEqual
     "class constraint instantiation"
-    (TypeSchemeMethodConstraint "Show" "Show::show" (SemanticList SemanticText))
+    (TypeSchemeMethodConstraint (CapabilityId (capabilityName "Show")) (CapabilityId (capabilityName "Show"), mkIdentifier "show") (SemanticList SemanticText))
     ( instantiateTypeSchemeConstraint
         replacements
-        (TypeSchemeMethodConstraint "Show" "Show::show" (SemanticList (SemanticVariable 1)))
+        (TypeSchemeMethodConstraint (CapabilityId (capabilityName "Show")) (CapabilityId (capabilityName "Show"), mkIdentifier "show") (SemanticList (SemanticVariable 1)))
     )
   assertEqual
     "primitive constraint instantiation"
@@ -424,10 +425,6 @@ testFailedSignaturePayloadNormalizationRollsBackState =
 
 testProductionScopeElaboratesSignatureOnce :: IO ()
 testProductionScopeElaboratesSignatureOnce = do
-  assertEqual
-    "source-ordered prepared signature"
-    [SemanticFunction (SemanticVariable 0) (SemanticVariable 0)]
-    [signatureType | (bindings, SignatureDeclaration _) <- Map.elems (inferStatementFactSeeds finalState), (_, binding) <- bindings, signatureType <- case binding of PlainTypeBinding t -> [t]; SchemeTypeBinding scheme -> [schemeResultType scheme]; _ -> []]
   assertEqual "one signature allocation plus one binding seed" 2 (inferNextTypeVar finalState)
   where
     (_, finalState) =
@@ -436,67 +433,21 @@ testProductionScopeElaboratesSignatureOnce = do
         InferConcreteFunctions
         Map.empty
         initialInferState
-        (programStatements (resolvedProgram "identity :: a -> a.\nidentity = \\(item) -> item."))
+        (programScope (resolvedProgram "identity :: a -> a.\nidentity = \\(item) -> item."))
 
     syntheticProductionInfer :: InferExprWithModeFn
     syntheticProductionInfer mode env state expression =
       case mode of
         InferConcreteFunctions ->
           case expression of
-            EVar _ name ->
-              case Map.lookup name env of
+            EVar node name ->
+              case Map.lookup (typeEnvReferenceKey (coreNodeFacts node) name) env of
                 Just (PlainTypeBinding expressionType) ->
-                  ((Just expressionType), state)
-                _ -> (Nothing, state)
-            _ -> (Nothing, state)
+                  (syntheticChecked (Just expressionType), state)
+                _ -> (syntheticChecked Nothing, state)
+            _ -> (syntheticChecked Nothing, state)
         InferenceOnly ->
           error "expected production callback invocation"
-
-testPreparedInferenceScopeRederivesForOuterBindings :: IO ()
-testPreparedInferenceScopeRederivesForOuterBindings = do
-  assertEqual
-    "ordinary inference errors"
-    0
-    (inferErrorCount ordinaryState)
-  assertEqual
-    "prepared inference errors"
-    0
-    (inferErrorCount preparedState)
-  where
-    statements = programStatements (resolvedProgram "self = self.")
-    (_, ordinaryState, _) =
-      TypeInferenceScope.inferScopeTypeWithModeAndForwardBindings
-        syntheticProductionInfer
-        InferenceOnly
-        Map.empty
-        initialInferState
-        statements
-    (_, preparedState, _) =
-      TypeInferenceScope.inferScopeTypeWithModeAndForwardBindingsUsingPreparedScope
-        (prepareRecursiveScope (Set.singleton (valueName "self")) statements)
-        syntheticProductionInfer
-        InferenceOnly
-        Map.empty
-        initialInferState
-
-    syntheticProductionInfer :: InferExprWithModeFn
-    syntheticProductionInfer mode env state expression =
-      case mode of
-        InferenceOnly ->
-          case expression of
-            EVar _ name ->
-              case Map.lookup name env of
-                Just (PlainTypeBinding expressionType) ->
-                  ((Just expressionType), state)
-                _ ->
-                  ( Nothing,
-                    modifyInferenceOutput
-                      (\output -> output {outputErrorCount = outputErrorCount output + 1})
-                      state
-                  )
-            _ -> (Nothing, state)
-        InferConcreteFunctions ->
-          error "expected inference-only callback invocation"
 
 testRecursivePreviewSolverStateIsTransactional :: IO ()
 testRecursivePreviewSolverStateIsTransactional =
@@ -510,7 +461,7 @@ testRecursivePreviewSolverStateIsTransactional =
         syntheticPreviewInfer
         Map.empty
         initialInferState
-        (programStatements (resolvedProgram "left = right.\nearly = probe.\nright = left."))
+        (programScope (resolvedProgram "left = right.\nearly = probe.\nright = left."))
 
     syntheticPreviewInfer :: InferExprWithModeFn
     syntheticPreviewInfer mode _ state expression =
@@ -541,6 +492,25 @@ testRecursivePreviewSolverStateIsTransactional =
 
     previewSentinel = 1000000
 
+testFailedRecursivePreviewRetainsAllocation :: IO ()
+testFailedRecursivePreviewRetainsAllocation = do
+  assertEqual "only the real body failure is reported" 1 (inferErrorCount finalState)
+  assertEqual "three binding seeds plus separate preview and real allocations" 5 (inferNextTypeVar finalState)
+  where
+    (_, finalState) =
+      TypeInferenceScope.inferScopeType
+        failingInfer
+        Map.empty
+        initialInferState
+        (programScope (resolvedProgram "left = right. early = probe. right = left."))
+    failingInfer :: InferExprWithModeFn
+    failingInfer mode _ state expression = case expression of
+      EVar _ name
+        | name == valueName "left" ->
+            let (_, allocated) = freshTypeVar state
+             in inferenceOnlyResult mode (Just SemanticBool) (addTypeError allocated (mkErrorDiagnostic E2009 CompilationOrigin "body failure"))
+      _ -> inferenceOnlyResult mode (Just SemanticBool) state
+
 testRecursivePreviewRefreshesAfterSolverChange :: IO ()
 testRecursivePreviewRefreshesAfterSolverChange =
   assertEqual
@@ -551,22 +521,22 @@ testRecursivePreviewRefreshesAfterSolverChange =
     (_, finalState) =
       TypeInferenceScope.inferScopeType
         syntheticPreviewInfer
-        (Map.singleton (valueName "shared") (PlainTypeBinding (SemanticVariable sharedTypeVar)))
+        (Map.singleton (TypeEnvKey (UnresolvedReference (valueName "shared")) (valueName "shared")) (PlainTypeBinding (SemanticVariable sharedTypeVar)))
         initialInferState
-        (programStatements (resolvedProgram "left = right.\nadvance = advanceSolver.\nprobe = probeLeft.\nright = left shared."))
+        (programScope (resolvedProgram "left = right.\nadvance = advanceSolver.\nprobe = left.\nright = left shared."))
 
     syntheticPreviewInfer :: InferExprWithModeFn
     syntheticPreviewInfer mode env state expression =
       case expression of
-        EVar _ name
+        EVar node name
           | name == valueName "right" ->
-              inferenceOnlyResult mode (bindingType =<< Map.lookup (valueName "right") env) state
-        EApply _ (EVar _ functionName) (EVar _ argumentName)
+              inferenceOnlyResult mode (bindingType =<< Map.lookup (typeEnvReferenceKey (coreNodeFacts node) name) env) state
+        EApply _ (EVar _ functionName) (EVar argumentNode argumentName)
           | functionName == valueName "left",
             argumentName == valueName "shared" ->
               inferenceOnlyResult
                 mode
-                (resolveType state <$> (bindingType =<< Map.lookup (valueName "shared") env))
+                (resolveType state <$> (bindingType =<< Map.lookup (typeEnvReferenceKey (coreNodeFacts argumentNode) argumentName) env))
                 state
         EVar _ name
           | name == valueName "advanceSolver" ->
@@ -577,12 +547,12 @@ testRecursivePreviewRefreshesAfterSolverChange =
                     Just nextState -> nextState
                     Nothing -> state
                 )
-        EVar _ name
-          | name == valueName "probeLeft" ->
+        EVar node name
+          | name == valueName "left" ->
               inferenceOnlyResult
                 mode
                 (Just SemanticBool)
-                ( case Map.lookup (valueName "left") env of
+                ( case Map.lookup (typeEnvReferenceKey (coreNodeFacts node) name) env of
                     Just (PlainTypeBinding SemanticBool) -> state
                     _ ->
                       modifyInferenceOutput
@@ -626,16 +596,16 @@ assertRecursivePreviewRefreshesAfterConstraintChange label addConstraint hasCons
     (_, finalState) =
       TypeInferenceScope.inferScopeType
         syntheticPreviewInfer
-        (Map.singleton (valueName "shared") (PlainTypeBinding (SemanticVariable sharedTypeVar)))
+        (Map.singleton (TypeEnvKey (UnresolvedReference (valueName "shared")) (valueName "shared")) (PlainTypeBinding (SemanticVariable sharedTypeVar)))
         initialInferState
-        (programStatements (resolvedProgram "left = right.\nadvance = advanceConstraint.\nprobe = probeLeft.\nright = left constraintSensitive."))
+        (programScope (resolvedProgram "left = right.\nadvance = advanceConstraint.\nprobe = left.\nright = left constraintSensitive."))
 
     syntheticPreviewInfer :: InferExprWithModeFn
     syntheticPreviewInfer mode env state expression =
       case expression of
-        EVar _ name
+        EVar node name
           | name == valueName "right" ->
-              inferenceOnlyResult mode (bindingType =<< Map.lookup (valueName "right") env) state
+              inferenceOnlyResult mode (bindingType =<< Map.lookup (typeEnvReferenceKey (coreNodeFacts node) name) env) state
         EApply _ (EVar _ functionName) (EVar _ argumentName)
           | functionName == valueName "left",
             argumentName == valueName "constraintSensitive" ->
@@ -651,12 +621,12 @@ assertRecursivePreviewRefreshesAfterConstraintChange label addConstraint hasCons
         EVar _ name
           | name == valueName "advanceConstraint" ->
               inferenceOnlyResult mode (Just SemanticBool) (addConstraint sharedTypeVar state)
-        EVar _ name
-          | name == valueName "probeLeft" ->
+        EVar node name
+          | name == valueName "left" ->
               inferenceOnlyResult
                 mode
                 (Just SemanticBool)
-                ( case Map.lookup (valueName "left") env of
+                ( case Map.lookup (typeEnvReferenceKey (coreNodeFacts node) name) env of
                     Just (PlainTypeBinding SemanticBool) -> state
                     _ ->
                       modifyInferenceOutput
@@ -684,16 +654,16 @@ testRecursivePreviewReuseAtSameFrontier =
         allocatingInfer
         Map.empty
         initialInferState
-        (programStatements (resolvedProgram "left = right.\nearlyOne = probe.\nearlyTwo = probe.\nearlyThree = probe.\nright = left."))
+        (programScope (resolvedProgram "left = right.\nearlyOne = probe.\nearlyTwo = probe.\nearlyThree = probe.\nright = left."))
 
     allocatingInfer :: InferExprWithModeFn
     allocatingInfer mode _ state _ =
       let (_, nextState) = freshTypeVar state
        in inferenceOnlyResult mode (Just SemanticBool) nextState
 
-programStatements :: Expr 'Resolved -> [Statement 'Resolved]
-programStatements (EBlock _ statements) = statements
-programStatements expression = error ("expected resolved block, got " <> show expression)
+programScope :: Expr 'Resolved -> PreparedRecursiveScope 'Resolved
+programScope (EBlock node statements) = either (error . show) id (prepareResolvedScope node statements)
+programScope expression = error ("expected resolved block, got " <> show expression)
 
 valueName :: Text -> ResolvedName
 valueName = resolvedLocalName ValueNamespace . mkIdentifier
@@ -704,10 +674,10 @@ typeName = resolvedLocalName TypeNamespace . mkIdentifier
 capabilityName :: Text -> ResolvedName
 capabilityName = resolvedLocalName CapabilityNamespace . mkIdentifier
 
-inferenceOnlyResult :: InferenceMode -> Maybe ExpressionType -> InferState -> (Maybe ExpressionType, InferState)
+inferenceOnlyResult :: InferenceMode -> Maybe ExpressionType -> InferState -> (CheckedExpr, InferState)
 inferenceOnlyResult mode expressionType state =
   case mode of
-    InferenceOnly -> (expressionType, state)
+    InferenceOnly -> (syntheticChecked expressionType, state)
     InferConcreteFunctions ->
       error "expected inference-only callback invocation"
 
@@ -730,20 +700,30 @@ testOperatorRulePresenceAndSectionSupport = do
 testImplChecksPreserveRollback :: IO ()
 testImplChecksPreserveRollback = do
   let (variable, allocated) = freshTypeVar initialInferState
-      signature = ClassMethodType "a" (SignatureType (TypeTuple [TypeInt, TypeInt]))
-      initialState =
-        modifyDeclarationState
-          (\declarations -> declarations {declarationClassMethodSignatures = Map.fromList [("Probe::first", signature), ("Probe::second", signature)]})
-          allocated
+      signature = ClassMethodType "a" (SemanticTuple [SemanticInt, SemanticInt])
       inferBody _ current expected expression =
         case expression of
           ELit _ _ -> ((Just (SemanticTuple [variable, SemanticBool]), resolveType current variable), current)
           _ -> ((Just expected, resolveType current variable), current)
   case resolvedProgram "class Probe(a) { first :: (Int, Int). second :: (Int, Int). }. impl Probe(Int) { first = 0. second = (1, 2). }." of
-    EBlock _ [SClass {}, SImpl _ capability arguments methods] -> do
-      let (finalState, results) = checkImplMethodBodies inferBody fst Map.empty initialState capability arguments methods
+    EBlock _ [SClass {}, SImpl _ capability _ methods] -> do
+      let initialState =
+            modifyDeclarationState
+              ( \declarations ->
+                  declarations
+                    { declarationCapabilities =
+                        (declarationCapabilities declarations)
+                          { scopeClassMethodSignatures = Map.fromList [((CapabilityId capability, mkIdentifier method), signature) | method <- ["first", "second"]]
+                          }
+                    }
+              )
+              allocated
+          (finalState, results) = checkImplMethodBodies inferBody fst Map.empty initialState capability [SemanticInt] methods
       assertEqual "both bodies checked in source order" [0, 1] (map fst results)
       assertEqual "failed tuple unification did not leak into next body" [variable, variable] (map (snd . snd) results)
       assertEqual "one mismatch survives the successful subsequent body" 1 (inferErrorCount finalState)
       assertEqual "failed substitutions remain absent at completion" variable (resolveType finalState variable)
     _ -> failTest "expected resolved impl fixture"
+
+syntheticChecked :: Maybe ExpressionType -> CheckedExpr
+syntheticChecked value = CheckedExpr value (error "synthetic scope callback has no executable subtree")

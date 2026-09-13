@@ -31,10 +31,10 @@ import Jazz.Compiler.Name
     sourceName,
   )
 import Jazz.Compiler.Runtime
-  ( evaluateRuntimeExpr,
-    renderRuntimeValue,
+  ( renderRuntimeValue,
   )
 import Jazz.Compiler.Semantics.Runtime.Fixtures
+import Jazz.Compiler.Semantics.Runtime.ResolvedFixture
 import Jazz.Compiler.TypeRepresentation
   ( SignaturePayload (..),
     SignatureType (..),
@@ -135,7 +135,7 @@ assertRuntimeCompletesWithin timeoutMicros label expression expectedRendering = 
     try
       ( timeout
           timeoutMicros
-          ( case evaluateRuntimeExpr expression of
+          ( case evaluateFixture expression of
               Left diagnostic ->
                 failTest (label <> " failed: " <> renderDiagnostic diagnostic)
               Right Nothing ->

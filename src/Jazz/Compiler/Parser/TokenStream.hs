@@ -10,7 +10,6 @@ module Jazz.Compiler.Parser.TokenStream
     pattern EmptyTokens,
     pattern (:<),
     tokenStreamAt,
-    tokenStreamDrop,
     tokenStreamFromList,
     tokenStreamLength,
     tokenStreamNull,

@@ -5,15 +5,16 @@
 -- | Surface AST produced directly by the parser before the program is lowered
 -- into the smaller core AST used by later phases.
 module Jazz.Compiler.Parser.AST
-  ( SurfaceCaseArm (..),
+  ( Literal (..),
+    SurfaceCaseArm (..),
     SurfaceClassMethodSignature (..),
     SurfaceDataConstructor (..),
     SurfaceExpr (..),
     SurfaceExprForm (..),
     SurfaceImplMethod (..),
     SurfaceLambdaParameter (..),
-    SurfaceLiteral (..),
     SurfaceNumericType,
+    SurfaceName (..),
     SurfacePatternLambdaClause (..),
     SurfacePattern (..),
     SurfacePatternForm (..),
@@ -32,36 +33,39 @@ import GHC.Generics (Generic)
 import Jazz.Compiler.Diagnostics
   ( SourceSpan,
   )
-import Jazz.Compiler.FractionalLiteral
-  ( FractionalLiteralSource,
-  )
+import Jazz.Compiler.Literal (Literal (..))
 import Jazz.Compiler.ModuleExports
   ( ModuleExportSelector,
   )
 import Jazz.Compiler.Name
   ( Identifier,
+    IdentifierLike (..),
   )
 import qualified Jazz.Compiler.TypeRepresentation as TypeRepresentation
 
 type SurfaceNumericType = TypeRepresentation.NumericType
 
-type SurfaceSignatureType = TypeRepresentation.SignatureType Identifier Identifier
+type SurfaceSignatureType = TypeRepresentation.SignatureType SurfaceName Identifier
 
-type SurfaceSignatureConstraint = TypeRepresentation.SignatureConstraint Identifier Identifier
+type SurfaceSignatureConstraint = TypeRepresentation.SignatureConstraint SurfaceName Identifier
 
 type SurfaceSignatureToken = TypeRepresentation.SignatureToken Text
 
-type SurfaceSignaturePayload = TypeRepresentation.SignaturePayload Identifier Identifier Text
+type SurfaceSignaturePayload = TypeRepresentation.SignaturePayload SurfaceName Identifier Text
 
--- | Literals as they appear in parsed source before lowering.
-data SurfaceLiteral
-  = SLInt Integer
-  | SLFloat Double FractionalLiteralSource (Maybe SurfaceNumericType)
-  | SLBool Bool
-  | SLChar Char
-  | SLText Text
+-- | A named type or capability retains the exact component locations at parse
+-- time. The member span is also the name span for an unqualified name.
+data SurfaceName = SurfaceName
+  { surfaceNameIdentifier :: Identifier,
+    surfaceNameSpan :: SourceSpan,
+    surfaceNameQualifierSpan :: Maybe SourceSpan
+  }
   deriving stock (Eq, Generic, Show)
   deriving anyclass (NFData)
+
+instance IdentifierLike SurfaceName where
+  identifierText = identifierText . surfaceNameIdentifier
+  identifierPurity = identifierPurity . surfaceNameIdentifier
 
 -- | Surface patterns accepted by the current parser slice for general case
 -- expressions.
@@ -75,7 +79,7 @@ data SurfacePattern = SurfacePattern
 data SurfacePatternForm
   = SPWildcard
   | SPVariable Identifier
-  | SPLiteral SurfaceLiteral
+  | SPLiteral Literal
   | SPConstructor Identifier [SurfacePattern]
   | SPList [SurfacePattern]
   | SPConsList SurfacePattern SurfacePattern
@@ -122,10 +126,10 @@ data SurfaceExpr = SurfaceExpr
   deriving anyclass (NFData)
 
 data SurfaceExprForm
-  = SELit SurfaceLiteral
+  = SELit Literal
   | SEVar Identifier
   | SEQualifiedVar Identifier Identifier
-  | SEQualifiedMethod Identifier Identifier Identifier SourceSpan
+  | SEQualifiedMethod Identifier Identifier Identifier SourceSpan SourceSpan SourceSpan
   | SELambda (NonEmpty SurfaceLambdaParameter) SurfaceExpr
   | SEPatternLambda (NonEmpty SurfacePatternLambdaClause)
   | SEOperatorValue Text
@@ -156,7 +160,7 @@ data SurfaceStatement
   | SSSignature Identifier SourceSpan SurfaceSignaturePayload
   | SSData SourceSpan Identifier [Identifier] [SurfaceDataConstructor]
   | SSClass SourceSpan Identifier [Identifier] [SurfaceClassMethodSignature]
-  | SSImpl SourceSpan Identifier [SurfaceSignatureType] [SurfaceImplMethod]
+  | SSImpl SourceSpan SurfaceName [SurfaceSignatureType] [SurfaceImplMethod]
   | SSModule SourceSpan [Text] (Maybe [ModuleExportSelector])
   | SSImport SourceSpan [Text] (Maybe Text) (Maybe [Text])
   | SSExpr SourceSpan SurfaceExpr

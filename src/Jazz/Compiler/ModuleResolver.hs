@@ -17,6 +17,7 @@ module Jazz.Compiler.ModuleResolver
     resolveExprNames,
     resolvePreludeArtifact,
     resolveStandaloneExprNames,
+    resolveStandaloneProgram,
     resolveProgramWithAmbientExports,
   )
 where
@@ -37,6 +38,7 @@ import Data.Bifunctor
   ( bimap,
     first,
   )
+import Data.Containers.ListUtils (nubOrd)
 import Data.Foldable
   ( toList,
   )
@@ -52,7 +54,6 @@ import Data.Map.Strict
   ( Map,
   )
 import qualified Data.Map.Strict as Map
-import Data.Maybe (fromMaybe)
 import Data.Sequence
   ( Seq,
   )
@@ -69,9 +70,12 @@ import GHC.Generics
   ( Generic,
   )
 import Jazz.Compiler.AST
-  ( CorePhase (..),
+  ( CoreNode (coreNodeFacts),
+    CorePhase (..),
     Expr (..),
+    Statement (..),
   )
+import Jazz.Compiler.CoreIdentity (ResolvedNodeFacts (..), ResolvedReference)
 import Jazz.Compiler.DiagnosticCatalog
   ( ErrorCode (..),
   )
@@ -107,16 +111,20 @@ import Jazz.Compiler.ModuleExports
 import qualified Jazz.Compiler.ModuleGraph as ModuleGraph
 import Jazz.Compiler.ModuleIdentity
   ( ModulePath,
+    SourceUnitOwner (..),
     mkModulePath,
     mkSourceFile,
     moduleIdentity,
     modulePathRelativeFile,
     parseModulePathText,
     renderModulePath,
+    sourceUnitOwnerModulePath,
   )
 import Jazz.Compiler.ModuleResolver.Imports
   ( ResolverImport,
+    ValidatedImportScope,
     declaredImportSpan,
+    emptyImportScope,
     validateImportBindings,
   )
 import Jazz.Compiler.ModuleResolver.Names
@@ -124,17 +132,21 @@ import Jazz.Compiler.ModuleResolver.Names
     resolveExprNames,
     resolveNode,
     resolveStandaloneExprNames,
+    resolvedPublicReferences,
+    standaloneLocalInventory,
   )
 import Jazz.Compiler.Name
-  ( Identifier,
+  ( IdentifierLike,
     NameNamespace (..),
+    ResolvedName,
+    ResolvedNameOrigin (..),
     identifierText,
     isOperatorBindingIdentifierText,
     mkIdentifier,
     splitQualifiedIdentifierText,
   )
 import Jazz.Compiler.Parser
-  ( parseSurfaceProgramTokens,
+  ( parseSurfaceProgram,
   )
 import Jazz.Compiler.Parser.AST
   ( SurfaceCaseArm (..),
@@ -144,6 +156,7 @@ import Jazz.Compiler.Parser.AST
     SurfaceExprForm (..),
     SurfaceImplMethod (..),
     SurfaceLambdaParameter (..),
+    SurfaceName (..),
     SurfacePattern (..),
     SurfacePatternForm (..),
     SurfacePatternLambdaClause (..),
@@ -151,11 +164,10 @@ import Jazz.Compiler.Parser.AST
     SurfaceSignatureType,
     SurfaceStatement (..),
   )
-import Jazz.Compiler.Parser.Lexer (Token (..), TokenKind (..), tokenize)
 import Jazz.Compiler.Parser.Lower
   ( lowerSurfaceModule,
   )
-import Jazz.Compiler.Parser.Signature (parseConstraintBlockHeadsDetailed)
+import Jazz.Compiler.SourceProgram (standaloneSourceModule)
 import Jazz.Compiler.TypeRepresentation
   ( pattern ConstrainedSignature,
     pattern SignatureConstraint,
@@ -198,7 +210,8 @@ data ReferenceInventory = ReferenceInventory
 data ResolvedState = ResolvedState
   { resolvedSetState :: Set ModulePath,
     resolvedModulesState :: Seq (ModuleGraph.CoreModule 'Resolved),
-    resolvedExportInventoriesState :: Map ModulePath ModuleExportInventory
+    resolvedExportInventoriesState :: Map ModulePath ModuleExportInventory,
+    resolvedPublicReferencesState :: Map ResolvedName ResolvedReference
   }
 
 modulePathFromTextSegments :: [Text] -> Either Diagnostic ModulePath
@@ -223,6 +236,7 @@ resolveProgramWithAmbientExports config prelude ambientExports loadSource entryM
         resolveStateWithLookupAndVisibleSymbols
           config
           ambientExports
+          (maybe Map.empty (resolvedPublicReferences AmbientPrelude ambientExports . ModuleGraph.coreModuleStatements) (ModuleGraph.preludeModule prelude))
           loadSource
           nominalEntryPath
   where
@@ -237,21 +251,56 @@ resolveProgramWithAmbientExports config prelude ambientExports loadSource entryM
     mkProgramInvariantDiagnostic failures =
       mkErrorDiagnostic E4016 CompilationOrigin ("resolved program invariant failed: " <> Text.pack (show failures))
 
+-- | Standalone source enters the same graph coordinator with an independent
+-- prelude artifact. A source header retains its named-unit ownership.
+resolveStandaloneProgram ::
+  ModuleGraph.PreludeArtifact 'Resolved ->
+  ModuleExportInventory ->
+  Expr 'Lowered ->
+  Either Diagnostic (ModuleGraph.CoreProgram 'Resolved)
+resolveStandaloneProgram prelude ambientExports expression = do
+  resolvedModule <-
+    first NonEmpty.head $
+      resolveCoreModuleNames owner ambientReferences ambientExports inventory inventory emptyImportScope [] loweredModule
+  first (\failures -> mkErrorDiagnostic E4016 CompilationOrigin ("standalone program invariant failed: " <> Text.pack (show failures))) $
+    ModuleGraph.mkCoreProgram prelude modulePath (NonEmpty.singleton resolvedModule)
+  where
+    loweredModule = standaloneSourceModule expression
+    modulePath = ModuleGraph.coreModulePath loweredModule
+    owner =
+      if any isModule (ModuleGraph.coreModuleStatements loweredModule)
+        then NamedSourceUnit modulePath
+        else StandaloneSourceUnit modulePath
+    isModule SModule {} = True
+    isModule _ = False
+    inventory = standaloneLocalInventory (ModuleGraph.coreModuleExpr loweredModule)
+    ambientReferences =
+      maybe
+        Map.empty
+        ( \preludeModule ->
+            Map.union
+              (resolvedPublicReferences AmbientPrelude ambientExports (ModuleGraph.coreModuleStatements preludeModule))
+              (resolvedPublicReferences CurrentModule ambientExports (ModuleGraph.coreModuleStatements preludeModule))
+        )
+        (ModuleGraph.preludeModule prelude)
+
 resolveStateWithLookupAndVisibleSymbols ::
   (Monad m) =>
   ModuleResolutionConfig ->
   ModuleExportInventory ->
+  Map ResolvedName ResolvedReference ->
   (FilePath -> m (Maybe Text)) ->
   ModulePath ->
   m (Either Diagnostic ResolvedState)
-resolveStateWithLookupAndVisibleSymbols config ambientExports loadSource entryModulePath =
+resolveStateWithLookupAndVisibleSymbols config ambientExports ambientReferences loadSource entryModulePath =
   runExceptT (visitModule [] initialState entryModulePath)
   where
     initialState =
       ResolvedState
         { resolvedSetState = Set.empty,
           resolvedModulesState = Seq.empty,
-          resolvedExportInventoriesState = Map.empty
+          resolvedExportInventoriesState = Map.empty,
+          resolvedPublicReferencesState = ambientReferences
         }
 
     visitModule callStack state modulePath
@@ -266,34 +315,38 @@ resolveStateWithLookupAndVisibleSymbols config ambientExports loadSource entryMo
               references = discoveryReferences discovery
               sortedImports = sortModulePaths (collectImportPaths imports)
           stateAfterDeps <- foldM (visitModule nextStack) state sortedImports
-          except $
-            validateImportBindings
-              sourcePath
-              modulePath
-              imports
-              (exportNamesInNamespace CapabilityNamespace (discoveryLocalInventory discovery))
-              (referenceFactUnqualified references)
-              (referenceFactQualifiedValues references)
-              (referenceFactQualifiedTypes references)
-              (referenceFactQualifiedClasses references)
-              ambientVisibleSymbols
-              ambientVisibleClassNames
-              (resolvedExportInventoriesState stateAfterDeps)
+          importScope <-
+            except $
+              validateImportBindings
+                sourcePath
+                modulePath
+                imports
+                (exportNamesInNamespace CapabilityNamespace (discoveryLocalInventory discovery))
+                (referenceFactUnqualified references)
+                (referenceFactQualifiedValues references)
+                (referenceFactQualifiedTypes references)
+                (referenceFactQualifiedClasses references)
+                ambientVisibleSymbols
+                ambientVisibleClassNames
+                (resolvedExportInventoriesState stateAfterDeps)
           resolvedModule <-
             except $
               first NonEmpty.head $
                 resolveCoreModuleNames
+                  (NamedSourceUnit modulePath)
+                  (resolvedPublicReferencesState stateAfterDeps)
                   ambientExports
                   (discoveryLocalInventory discovery)
                   (discoveryPublicInventory discovery)
-                  (resolvedExportInventoriesState stateAfterDeps)
+                  importScope
                   imports
                   coreModule
           pure
             stateAfterDeps
               { resolvedSetState = Set.insert modulePath (resolvedSetState stateAfterDeps),
                 resolvedModulesState = resolvedModulesState stateAfterDeps Seq.|> resolvedModule,
-                resolvedExportInventoriesState = Map.insert modulePath (discoveryPublicInventory discovery) (resolvedExportInventoriesState stateAfterDeps)
+                resolvedExportInventoriesState = Map.insert modulePath (discoveryPublicInventory discovery) (resolvedExportInventoriesState stateAfterDeps),
+                resolvedPublicReferencesState = Map.union (resolvedPublicReferences (ImportedModule modulePath) (discoveryPublicInventory discovery) (ModuleGraph.coreModuleStatements resolvedModule)) (resolvedPublicReferencesState stateAfterDeps)
               }
 
     ambientVisibleSymbols =
@@ -307,7 +360,7 @@ resolveStateWithLookupAndVisibleSymbols config ambientExports loadSource entryMo
     loadModuleSource callStack modulePath = do
       let relativePath = modulePathRelativeFile (moduleExtension config) modulePath
           candidatePaths =
-            dedupePreservingOrder
+            nubOrd
               (map (normalise . appendRelativePath relativePath) (moduleRoots config))
       candidatesWithContents <-
         mapM
@@ -351,12 +404,14 @@ resolveStateWithLookupAndVisibleSymbols config ambientExports loadSource entryMo
                   )
               )
 
-resolveImportExposure :: ModulePath -> ResolverImport -> Either Diagnostic (ModuleGraph.ModuleImport 'Resolved)
-resolveImportExposure importerPath coreImport = do
+resolveImportExposure :: SourceUnitOwner -> ResolverImport -> Either Diagnostic (ModuleGraph.ModuleImport 'Resolved)
+resolveImportExposure owner coreImport = do
   resolvedExposure <- exposure
   pure
     ModuleGraph.ModuleImport
-      { ModuleGraph.moduleImportNode = resolveNode (ModuleGraph.moduleImportNode coreImport),
+      { ModuleGraph.moduleImportNode =
+          let node = resolveNode owner (ModuleGraph.moduleImportNode coreImport)
+           in node {coreNodeFacts = (coreNodeFacts node) {resolvedNodeImportTarget = Just (ModuleGraph.importedModule coreImport)}},
         ModuleGraph.importedModule = ModuleGraph.importedModule coreImport,
         ModuleGraph.importExposure = resolvedExposure
       }
@@ -366,7 +421,7 @@ resolveImportExposure importerPath coreImport = do
         ModuleGraph.DeclaredImportAll Nothing -> Right ModuleGraph.ImportAllUnqualified
         ModuleGraph.DeclaredImportOnly Nothing symbolNames -> Right (ModuleGraph.ImportOnlyUnqualified symbolNames)
         ModuleGraph.DeclaredImportAll (Just alias) -> Right (ModuleGraph.ImportQualifiedOnly alias)
-        ModuleGraph.DeclaredImportOnly (Just _) _ -> Left (mkImportExposureInvariantError importerPath coreImport)
+        ModuleGraph.DeclaredImportOnly (Just _) _ -> Left (mkImportExposureInvariantError (sourceUnitOwnerModulePath owner) coreImport)
 
 mkImportExposureInvariantError :: ModulePath -> ResolverImport -> Diagnostic
 mkImportExposureInvariantError importerPath coreImport =
@@ -393,10 +448,7 @@ appendRelativePath relativePath root
 parseModuleDetails :: FilePath -> ModulePath -> Text -> Either Diagnostic ModuleDiscoveryFacts
 parseModuleDetails sourcePath expectedModulePath sourceText =
   {-# SCC "jazz-stage:module-resolution" #-}
-  case do
-    tokens <- tokenize sourceText
-    surface <- parseSurfaceProgramTokens tokens
-    pure (tokens, surface) of
+  case parseSurfaceProgram sourceText of
     Left parseError ->
       Left
         ( setDiagnosticErrorCode
@@ -406,7 +458,7 @@ parseModuleDetails sourcePath expectedModulePath sourceText =
                 (qualifyDiagnosticSpans sourcePath parseError)
             )
         )
-    Right (tokens, surfaceExpr) -> do
+    Right surfaceExpr -> do
       coreModule <-
         lowerSurfaceModule
           (moduleIdentity expectedModulePath (mkSourceFile sourcePath))
@@ -423,7 +475,7 @@ parseModuleDetails sourcePath expectedModulePath sourceText =
         ModuleDiscoveryFacts
           { discoveryLocalInventory = localInventory,
             discoveryPublicInventory = publicInventory,
-            discoveryReferences = locateQualifiedClassReferences sourcePath tokens references,
+            discoveryReferences = references {referenceFactQualifiedClasses = Map.map (bimap (qualifySourceSpan sourcePath) (qualifySourceSpan sourcePath)) (referenceFactQualifiedClasses references)},
             discoveryCoreModule = coreModule
           }
 
@@ -616,20 +668,22 @@ collectImportPaths imports =
   ]
 
 resolveCoreModuleNames ::
+  SourceUnitOwner ->
+  Map ResolvedName ResolvedReference ->
   ModuleExportInventory ->
   ModuleExportInventory ->
   ModuleExportInventory ->
-  Map ModulePath ModuleExportInventory ->
+  ValidatedImportScope ->
   [ModuleGraph.ModuleImport 'Lowered] ->
   ModuleGraph.CoreModule 'Lowered ->
   Either (NonEmpty Diagnostic) (ModuleGraph.CoreModule 'Resolved)
-resolveCoreModuleNames ambientExports localInventory publicInventory inventoriesByModule imports coreModule = do
-  resolvedExpr <- resolveExprNames context (ModuleGraph.coreModuleExpr coreModule)
+resolveCoreModuleNames owner externalReferences ambientExports localInventory publicInventory importScope imports coreModule = do
+  let resolvedExpr = resolveExprNames context (ModuleGraph.coreModuleExpr coreModule)
   resolvedImports <-
     either
       (Left . NonEmpty.singleton)
       Right
-      (traverse (resolveImportExposure (ModuleGraph.coreModulePath coreModule)) imports)
+      (traverse (resolveImportExposure owner) imports)
   case resolvedExpr of
     EBlock bodyNode statements ->
       pure
@@ -641,6 +695,7 @@ resolveCoreModuleNames ambientExports localInventory publicInventory inventories
             ModuleGraph.coreModuleFacts =
               ModuleGraph.ResolvedModuleFacts
                 { ModuleGraph.resolvedModuleExports = publicInventory,
+                  ModuleGraph.resolvedModuleImportScope = importScope,
                   ModuleGraph.resolvedModuleExportSelectors =
                     ModuleGraph.declaredModuleExportSelectors
                       <$> ModuleGraph.declaredModuleExports (ModuleGraph.coreModuleFacts coreModule)
@@ -654,10 +709,11 @@ resolveCoreModuleNames ambientExports localInventory publicInventory inventories
   where
     context =
       ResolutionContext
-        { resolutionAmbientExports = ambientExports,
+        { resolutionSourceOwner = owner,
+          resolutionExternalReferences = externalReferences,
+          resolutionAmbientExports = ambientExports,
           resolutionLocalInventory = localInventory,
-          resolutionInventoriesByModule = inventoriesByModule,
-          resolutionImports = imports
+          resolutionImportScope = importScope
         }
 
 resolvePreludeArtifact ::
@@ -669,10 +725,12 @@ resolvePreludeArtifact publicInventory artifact =
     Nothing -> Right (artifactWithoutModule artifact)
     Just loweredModule ->
       case resolveCoreModuleNames
+        (PreludeSourceUnit (ModuleGraph.coreModulePath loweredModule))
+        Map.empty
         (exportInventory [])
         publicInventory
         publicInventory
-        Map.empty
+        emptyImportScope
         (ModuleGraph.coreModuleImports loweredModule)
         loweredModule of
         Left failures -> Left (NonEmpty.head failures)
@@ -711,9 +769,9 @@ collectExprReferenceFacts boundNames surfaceExpr facts =
               (identifierText qualifier, identifierText member)
               (referenceFactQualifiedValues facts)
         }
-    SEQualifiedMethod alias className _ _ ->
+    SEQualifiedMethod alias className _ aliasSpan classSpan _ ->
       collectQualifiedClassReference
-        (surfaceExprSpan surfaceExpr)
+        (aliasSpan, classSpan)
         (identifierText alias, identifierText className)
         facts
     SELambda params body ->
@@ -779,7 +837,7 @@ collectStatementReferenceFacts :: Set Text -> SurfaceStatement -> ReferenceInven
 collectStatementReferenceFacts boundNames statement facts =
   case statement of
     SSLet _ _ valueExpr -> collectExprReferenceFacts boundNames valueExpr facts
-    SSSignature _ spanValue payload -> collectSignaturePayloadReferenceFacts spanValue payload facts
+    SSSignature _ _ payload -> collectSignaturePayloadReferenceFacts payload facts
     SSData _ _ _ constructors ->
       foldl'
         (flip collectSignatureTypeReferenceFacts)
@@ -790,13 +848,13 @@ collectStatementReferenceFacts boundNames statement facts =
         ]
     SSClass _ _ _ methods ->
       foldl'
-        (\current (SurfaceClassMethodSignature _ spanValue payload) -> collectSignaturePayloadReferenceFacts spanValue payload current)
+        (\current (SurfaceClassMethodSignature _ _ payload) -> collectSignaturePayloadReferenceFacts payload current)
         facts
         methods
-    SSImpl spanValue className arguments methods ->
+    SSImpl _ className arguments methods ->
       foldl'
         (\current (SurfaceImplMethod _ _ body) -> collectExprReferenceFacts boundNames body current)
-        (foldl' (flip collectSignatureTypeReferenceFacts) (collectClassNameReference spanValue className facts) arguments)
+        (foldl' (flip collectSignatureTypeReferenceFacts) (collectClassNameReference className facts) arguments)
         methods
     SSModule {} -> facts
     SSImport {} -> facts
@@ -877,8 +935,8 @@ collectLambdaParameterReferenceFacts parameter facts =
     SurfaceLambdaIdentifier _ _ -> facts
     SurfaceLambdaPattern patternValue -> collectPatternReferenceFacts patternValue facts
 
-collectSignaturePayloadReferenceFacts :: SourceSpan -> SurfaceSignaturePayload -> ReferenceInventory -> ReferenceInventory
-collectSignaturePayloadReferenceFacts spanValue payload facts =
+collectSignaturePayloadReferenceFacts :: SurfaceSignaturePayload -> ReferenceInventory -> ReferenceInventory
+collectSignaturePayloadReferenceFacts payload facts =
   case payload of
     SignatureType signatureType ->
       collectSignatureTypeReferenceFacts signatureType facts
@@ -890,44 +948,19 @@ collectSignaturePayloadReferenceFacts spanValue payload facts =
         collectConstraint current (SignatureConstraint name arguments) =
           foldl'
             (flip collectSignatureTypeReferenceFacts)
-            (collectClassNameReference spanValue name current)
+            (collectClassNameReference name current)
             arguments
     UnsupportedSignature _ -> facts
 
-collectClassNameReference :: SourceSpan -> Identifier -> ReferenceInventory -> ReferenceInventory
-collectClassNameReference spanValue name facts =
-  case splitQualifiedIdentifierText (identifierText name) of
-    Nothing -> facts
-    Just reference -> collectQualifiedClassReference spanValue reference facts
+collectClassNameReference :: SurfaceName -> ReferenceInventory -> ReferenceInventory
+collectClassNameReference name facts =
+  case (splitQualifiedIdentifierText (identifierText name), surfaceNameQualifierSpan name) of
+    (Just reference, Just aliasSpan) -> collectQualifiedClassReference (aliasSpan, surfaceNameSpan name) reference facts
+    _ -> facts
 
-collectQualifiedClassReference :: SourceSpan -> (Text, Text) -> ReferenceInventory -> ReferenceInventory
-collectQualifiedClassReference spanValue reference facts =
-  facts {referenceFactQualifiedClasses = Map.insertWith (const id) reference (spanValue, spanValue) (referenceFactQualifiedClasses facts)}
-
--- Signature types retain names rather than token spans. Reuse the constraint
--- parser's head scan so a same-spelled type argument cannot supply a class span.
-locateQualifiedClassReferences :: FilePath -> [Token] -> ReferenceInventory -> ReferenceInventory
-locateQualifiedClassReferences sourcePath tokens facts =
-  facts {referenceFactQualifiedClasses = Map.mapWithKey locate (referenceFactQualifiedClasses facts)}
-  where
-    locations = foldr insertLocation Map.empty (qualifiedTokens tokens)
-    insertLocation (key, spans) = Map.insertWith (<>) key [spans]
-    position spanValue = (spanLine spanValue, spanColumn spanValue)
-    locate key (anchor, _) =
-      let candidates = Map.findWithDefault [] key locations
-          spans =
-            fromMaybe
-              (anchor, anchor)
-              (find (\(aliasSpan, _) -> position aliasSpan >= position anchor) candidates)
-       in bimap (qualifySourceSpan sourcePath) (qualifySourceSpan sourcePath) spans
-    qualifiedTokens (Token {tokenKind = TColonColon} : Token {tokenKind = TAt} : Token {tokenKind = TLBrace} : rest)
-      | Right (heads, afterConstraints) <- parseConstraintBlockHeadsDetailed rest =
-          map reference heads <> qualifiedTokens afterConstraints
-    qualifiedTokens (alias@Token {tokenKind = TIdentifier {}} : colon@Token {tokenKind = TColonColon} : member@Token {tokenKind = TIdentifier {}} : rest) =
-      reference (alias, member) : qualifiedTokens (colon : member : rest)
-    qualifiedTokens (_ : rest) = qualifiedTokens rest
-    qualifiedTokens [] = []
-    reference (alias, member) = ((tokenLexeme alias, tokenLexeme member), (tokenSpan alias, tokenSpan member))
+collectQualifiedClassReference :: (SourceSpan, SourceSpan) -> (Text, Text) -> ReferenceInventory -> ReferenceInventory
+collectQualifiedClassReference spans reference facts =
+  facts {referenceFactQualifiedClasses = Map.insertWith (const id) reference spans (referenceFactQualifiedClasses facts)}
 
 collectSignatureTypeReferenceFacts :: SurfaceSignatureType -> ReferenceInventory -> ReferenceInventory
 collectSignatureTypeReferenceFacts signatureType facts =
@@ -948,7 +981,7 @@ collectSignatureTypeReferenceFacts signatureType facts =
         (collectSignatureTypeReferenceFacts argumentType facts)
     _ -> facts
 
-collectQualifiedTypeReference :: Identifier -> ReferenceInventory -> ReferenceInventory
+collectQualifiedTypeReference :: (IdentifierLike name) => name -> ReferenceInventory -> ReferenceInventory
 collectQualifiedTypeReference name facts =
   case splitQualifiedIdentifierText (identifierText name) of
     Nothing -> facts
@@ -982,13 +1015,3 @@ renderImporterContext callStack =
   case callStack of
     importerPath : _ -> " imported by '" <> renderModulePath importerPath <> "'"
     [] -> ""
-
--- | Preserve the first occurrence of each candidate path so module-root lookup
--- order remains stable while removing duplicates.
-dedupePreservingOrder :: (Ord a) => [a] -> [a]
-dedupePreservingOrder =
-  reverse . fst . foldl' step ([], Set.empty)
-  where
-    step (uniqueRev, seen) value
-      | Set.member value seen = (uniqueRev, seen)
-      | otherwise = (value : uniqueRev, Set.insert value seen)

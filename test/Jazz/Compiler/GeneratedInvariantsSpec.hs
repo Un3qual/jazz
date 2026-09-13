@@ -141,7 +141,7 @@ stableSetHistory operations = conjoin (zipWith check actualStates expectedStates
     fromList = foldl (flip stableSetInsert) stableSetEmpty
     apply stable operation = case operation of
       Insert value -> stableSetInsert value stable
-      Delete value -> stableSetDelete value stable
+      Delete value -> stableSetDifference stable (Set.singleton value)
       Difference values -> stableSetDifference stable (Set.fromList values)
       Append values -> stable <> fromList values
     reference values operation = case operation of
@@ -160,7 +160,7 @@ stableSetPreferred preferred supplied =
   conjoin
     [ stableSetOrderedList actual === expected,
       Set.toAscList (stableSetMembershipSet actual) === members,
-      stableSetOrderedList (stableSetFromSet (Set.fromList supplied)) === members
+      stableSetOrderedList (stableSetFromPreferred [] (Set.fromList supplied)) === members
     ]
   where
     members = sort (nub supplied)

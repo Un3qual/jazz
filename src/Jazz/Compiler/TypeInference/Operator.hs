@@ -4,11 +4,12 @@
 -- | Builtin operator typing rules, isolated from expression orchestration.
 module Jazz.Compiler.TypeInference.Operator
   ( applyOperatorAliasSchemeConstraints,
+    builtinDollarOperatorExpr,
+    builtinOperatorSymbolExpr,
     builtinSectionOperatorSymbol,
     hasOperatorRule,
     inferBinaryType,
-    inferSectionLeftType,
-    inferSectionRightType,
+    inferSectionType,
     instantiateOperatorType,
   )
 where
@@ -22,11 +23,13 @@ import Jazz.Compiler.AST
   ( CorePhase (..),
     Expr (..),
     Literal (..),
+    coreNodeFacts,
   )
 import Jazz.Compiler.BuiltinCatalog
   ( numericTypeFloatIntegerBounds,
     numericTypeIsIntegral,
   )
+import Jazz.Compiler.CoreIdentity (ResolvedReference (BuiltinOperatorReference), resolvedNodeReference)
 import Jazz.Compiler.SemanticFacts (BinaryOperandTyping (..))
 import Jazz.Compiler.TypeInference.Capabilities
   ( addInferredEqualityClassConstraintIfVisible,
@@ -72,11 +75,42 @@ import Jazz.Compiler.TypeInference.Types
   ( ExpressionType,
     IntegerLiteralRange (..),
     NumericConstraint (..),
+    SemanticBinding (..),
+    SemanticScheme (..),
     SemanticType (..),
-    TypeScheme (..),
+    TypeEnv,
+    TypeScheme,
     quantifiedVariablesMembershipSet,
+    typeEnvReferenceKey,
   )
 import Jazz.Compiler.TypeRepresentation (NumericType (..))
+
+builtinDollarOperatorExpr :: TypeEnv -> Expr 'Resolved -> Bool
+builtinDollarOperatorExpr env expr =
+  case expr of
+    EVar node _ | resolvedNodeReference (coreNodeFacts node) == Just (BuiltinOperatorReference "$") -> True
+    EVar node name ->
+      case Map.lookup (typeEnvReferenceKey (coreNodeFacts node) name) env of
+        Just (BuiltinOperatorAliasTypeBinding "$") -> True
+        Just (OperatorAliasSchemeTypeBinding "$" _) -> True
+        _ -> False
+    _ -> False
+
+builtinOperatorSymbolExpr :: TypeEnv -> Expr 'Resolved -> Maybe (Text, Maybe TypeScheme)
+builtinOperatorSymbolExpr env expr =
+  case expr of
+    EVar node _
+      | Just (BuiltinOperatorReference operatorSymbol) <- resolvedNodeReference (coreNodeFacts node) ->
+          Just (operatorSymbol, Nothing)
+    EApply _ dollarExpr operatorExpr
+      | builtinDollarOperatorExpr env dollarExpr ->
+          builtinOperatorSymbolExpr env operatorExpr
+    EVar node name ->
+      case Map.lookup (typeEnvReferenceKey (coreNodeFacts node) name) env of
+        Just (BuiltinOperatorAliasTypeBinding operatorSymbol) -> Just (operatorSymbol, Nothing)
+        Just (OperatorAliasSchemeTypeBinding operatorSymbol typeScheme) -> Just (operatorSymbol, Just typeScheme)
+        _ -> Nothing
+    _ -> Nothing
 
 data OperatorRule
   = NumericRule NumericRuleResult
@@ -433,17 +467,17 @@ applyStrictEqualityBinaryRule operatorSymbol leftExpr rightExpr leftType rightTy
               )
           )
 
-inferSectionLeftType ::
+inferSectionType ::
   Text ->
   ExpressionType ->
   InferState ->
   (Maybe ExpressionType, InferState)
-inferSectionLeftType operatorSymbol leftType state =
+inferSectionType operatorSymbol operandType state =
   case lookupOperatorRule operatorSymbol of
     Just (NumericRule resultType) ->
-      applyNumericSectionLeftRule operatorSymbol resultType leftType state
+      applyNumericSectionRule operatorSymbol resultType operandType state
     Just StrictEqualityRule ->
-      applyStrictEqualitySectionLeftRule operatorSymbol leftType state
+      applyStrictEqualitySectionRule operatorSymbol operandType state
     _ ->
       ( Nothing,
         addTypeError
@@ -451,22 +485,22 @@ inferSectionLeftType operatorSymbol leftType state =
           (mkUnsupportedSectionOperatorError operatorSymbol)
       )
 
-applyNumericSectionLeftRule ::
+applyNumericSectionRule ::
   Text ->
   NumericRuleResult ->
   ExpressionType ->
   InferState ->
   (Maybe ExpressionType, InferState)
-applyNumericSectionLeftRule operatorSymbol resultRule leftType state =
-  let resolvedLeftType = resolveType state leftType
-   in case constrainNumericOperatorType (numericRuleConstraint resultRule) resolvedLeftType state of
+applyNumericSectionRule operatorSymbol resultRule operandType state =
+  let resolvedOperandType = resolveType state operandType
+   in case constrainNumericOperatorType (numericRuleConstraint resultRule) resolvedOperandType state of
         Just stateAfterNumericConstraint ->
-          let (rightType, stateAfterSectionType) =
-                numericSectionCounterpartType resolvedLeftType stateAfterNumericConstraint
+          let (argumentType, stateAfterSectionType) =
+                numericSectionCounterpartType resolvedOperandType stateAfterNumericConstraint
            in ( Just
                   ( SemanticFunction
-                      rightType
-                      (numericRuleResultType resultRule rightType)
+                      argumentType
+                      (numericRuleResultType resultRule argumentType)
                   ),
                 stateAfterSectionType
               )
@@ -474,99 +508,31 @@ applyNumericSectionLeftRule operatorSymbol resultRule leftType state =
           ( Nothing,
             addTypeError
               state
-              (mkNumericSectionOperandTypeError operatorSymbol (diagnosticType state leftType))
+              (mkNumericSectionOperandTypeError operatorSymbol (diagnosticType state operandType))
           )
 
-applyStrictEqualitySectionLeftRule ::
+applyStrictEqualitySectionRule ::
   Text ->
   ExpressionType ->
   InferState ->
   (Maybe ExpressionType, InferState)
-applyStrictEqualitySectionLeftRule operatorSymbol leftType state =
-  let resolvedLeftType = resolveType state leftType
-   in case resolvedLeftType of
+applyStrictEqualitySectionRule operatorSymbol operandType state =
+  let resolvedOperandType = resolveType state operandType
+   in case resolvedOperandType of
         SemanticVariable typeVar ->
-          ( Just (SemanticFunction resolvedLeftType SemanticBool),
+          ( Just (SemanticFunction resolvedOperandType SemanticBool),
             addInferredEqualityClassConstraintIfVisible
-              resolvedLeftType
+              resolvedOperandType
               (addStrictEqualityTypeVarConstraint typeVar state)
           )
         _
-          | supportsRuntimeEqualityType state resolvedLeftType ->
-              (Just (SemanticFunction resolvedLeftType SemanticBool), state)
+          | supportsRuntimeEqualityType state resolvedOperandType ->
+              (Just (SemanticFunction resolvedOperandType SemanticBool), state)
           | otherwise ->
               ( Nothing,
                 addTypeError
                   state
-                  (mkStrictEqualityUnsupportedTypeError operatorSymbol (diagnosticType state resolvedLeftType))
-              )
-
-inferSectionRightType ::
-  Text ->
-  ExpressionType ->
-  InferState ->
-  (Maybe ExpressionType, InferState)
-inferSectionRightType operatorSymbol rightType state =
-  case lookupOperatorRule operatorSymbol of
-    Just (NumericRule resultType) ->
-      applyNumericSectionRightRule operatorSymbol resultType rightType state
-    Just StrictEqualityRule ->
-      applyStrictEqualitySectionRightRule operatorSymbol rightType state
-    _ ->
-      ( Nothing,
-        addTypeError
-          state
-          (mkUnsupportedSectionOperatorError operatorSymbol)
-      )
-
-applyNumericSectionRightRule ::
-  Text ->
-  NumericRuleResult ->
-  ExpressionType ->
-  InferState ->
-  (Maybe ExpressionType, InferState)
-applyNumericSectionRightRule operatorSymbol resultRule rightType state =
-  let resolvedRightType = resolveType state rightType
-   in case constrainNumericOperatorType (numericRuleConstraint resultRule) resolvedRightType state of
-        Just stateAfterNumericConstraint ->
-          let (leftType, stateAfterSectionType) =
-                numericSectionCounterpartType resolvedRightType stateAfterNumericConstraint
-           in ( Just
-                  ( SemanticFunction
-                      leftType
-                      (numericRuleResultType resultRule leftType)
-                  ),
-                stateAfterSectionType
-              )
-        Nothing ->
-          ( Nothing,
-            addTypeError
-              state
-              (mkNumericSectionOperandTypeError operatorSymbol (diagnosticType state rightType))
-          )
-
-applyStrictEqualitySectionRightRule ::
-  Text ->
-  ExpressionType ->
-  InferState ->
-  (Maybe ExpressionType, InferState)
-applyStrictEqualitySectionRightRule operatorSymbol rightType state =
-  let resolvedRightType = resolveType state rightType
-   in case resolvedRightType of
-        SemanticVariable typeVar ->
-          ( Just (SemanticFunction resolvedRightType SemanticBool),
-            addInferredEqualityClassConstraintIfVisible
-              resolvedRightType
-              (addStrictEqualityTypeVarConstraint typeVar state)
-          )
-        _
-          | supportsRuntimeEqualityType state resolvedRightType ->
-              (Just (SemanticFunction resolvedRightType SemanticBool), state)
-          | otherwise ->
-              ( Nothing,
-                addTypeError
-                  state
-                  (mkStrictEqualityUnsupportedTypeError operatorSymbol (diagnosticType state resolvedRightType))
+                  (mkStrictEqualityUnsupportedTypeError operatorSymbol (diagnosticType state resolvedOperandType))
               )
 
 numericSectionCounterpartType :: ExpressionType -> InferState -> (ExpressionType, InferState)

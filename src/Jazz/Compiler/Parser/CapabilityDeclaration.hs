@@ -4,8 +4,7 @@
 
 -- | Class and implementation declaration grammar.
 module Jazz.Compiler.Parser.CapabilityDeclaration
-  ( ImplExpressionParser,
-    parseCapabilityDeclarationTokensDetailed,
+  ( parseCapabilityDeclarationParser,
     looksLikeSupportedCapabilityDeclaration,
     rejectReservedAbstractionSyntax,
   )
@@ -14,6 +13,7 @@ where
 import Data.Char
   ( isLower,
   )
+import Data.Maybe (fromMaybe)
 import qualified Data.Set as Set
 import Data.Text
   ( Text,
@@ -30,12 +30,12 @@ import Jazz.Compiler.Parser.AST
   ( SurfaceClassMethodSignature (..),
     SurfaceExpr,
     SurfaceImplMethod (..),
+    SurfaceName (..),
     SurfaceSignatureType,
     SurfaceStatement (..),
   )
 import Jazz.Compiler.Parser.DeclarationTokens
-  ( collectUntilDot,
-    consumeDot,
+  ( collectUntilDotParser,
     isConstructorIdentifierText,
     looksLikeAbstractionDeclaration,
     rejectNestedOperatorDeclaration,
@@ -48,7 +48,6 @@ import Jazz.Compiler.Parser.Failure
     ParserFailure,
     ParserFailureReason (..),
     ParserUnsupportedFeature (..),
-    parserFailure,
     parserFailureAt,
   )
 import Jazz.Compiler.Parser.Lexer
@@ -61,6 +60,7 @@ import Jazz.Compiler.Parser.Signature
     parseSignaturePayloadDetailed,
     splitTopLevelCommaTokensDetailed,
   )
+import Jazz.Compiler.Parser.TokenParser (Parser, failParserFailure, failTokenParser, failTokenParserAt, foundToken, parseAnyToken, parseToken, peekToken)
 import Jazz.Compiler.Parser.TokenStream
   ( TokenStream,
     pattern EmptyTokens,
@@ -74,404 +74,144 @@ import Jazz.Compiler.TypeRepresentation
     pattern TypeTuple,
     pattern TypeVariable,
   )
-
-type ImplExpressionParser = TokenStream -> Either ParserFailure (SurfaceExpr, TokenStream)
-
-data CapabilityDeclarationBody
-  = CapabilityClassBody [SurfaceClassMethodSignature]
-  | CapabilityImplBody [SurfaceImplMethod]
+import qualified Text.Megaparsec as MP
 
 capabilityDeclarationKind :: Text -> ParserDeclarationKind
-capabilityDeclarationKind declarationKind =
-  case declarationKind of
-    "impl" -> ImplDeclaration
-    _ -> ClassDeclaration
+capabilityDeclarationKind kind = case kind of
+  "impl" -> ImplDeclaration
+  _ -> ClassDeclaration
 
-parseCapabilityDeclarationTokensDetailed ::
-  ImplExpressionParser ->
-  TokenStream ->
-  Either ParserFailure (SurfaceStatement, TokenStream)
-parseCapabilityDeclarationTokensDetailed parseImplExpression tokens =
+parseCapabilityDeclarationParser :: Parser SurfaceExpr -> Parser SurfaceStatement
+parseCapabilityDeclarationParser expression = do
+  tokens <- MP.getInput
   case tokens of
-    declarationToken@Token {tokenKind = TIdentifier declarationKind} :< tokensAfterKeyword ->
-      case declarationKind of
-        "class" ->
-          parseCapabilityDeclaration parseImplExpression declarationKind declarationToken tokensAfterKeyword
-        "impl" ->
-          parseCapabilityDeclaration parseImplExpression declarationKind declarationToken tokensAfterKeyword
-        _ ->
-          rejectReservedAbstractionSyntax declarationToken
-    EmptyTokens ->
-      Left
-        (parserFailure (ExpectedSyntax "capability declaration" ParserEndOfInput))
-    token :< _ ->
-      Left
-        ( parserFailureAt
-            (tokenSpan token)
-            ( ExpectedSyntax
-                "capability declaration"
-                (ParserFoundToken (tokenKind token) (tokenLexeme token))
-            )
-        )
+    declaration@Token {tokenKind = TIdentifier kind} :< _
+      | kind == "class" || kind == "impl" -> do
+          _ <- parseAnyToken
+          (name, arguments) <- parseCapabilityHeader kind declaration
+          case kind of
+            "class" -> do
+              parameters <- either failParserFailure pure (validateClassHeaderParameters declaration arguments)
+              _ <- parseToken TLBrace
+              methods <- parseClassBody declaration Set.empty []
+              SSClass (tokenSpan declaration) (surfaceNameIdentifier name) parameters methods <$ parseToken TDot
+            _ -> do
+              _ <- parseToken TLBrace
+              methods <- parseImplBody expression declaration Set.empty []
+              _ <- parseToken TDot
+              let targets = fromMaybe [] arguments
+              if surfaceConcreteImplArguments targets
+                then pure (SSImpl (tokenSpan declaration) name targets methods)
+                else failTokenParserAt (tokenSpan declaration) (DeclarationFailure ImplRequiresConcreteTarget)
+      | otherwise -> either failParserFailure pure (rejectReservedAbstractionSyntax declaration)
+    EmptyTokens -> failTokenParser (ExpectedSyntax "capability declaration" ParserEndOfInput)
+    token :< _ -> failTokenParserAt (tokenSpan token) (ExpectedSyntax "capability declaration" (foundToken token))
 
-parseCapabilityDeclaration ::
-  ImplExpressionParser ->
-  Text ->
-  Token ->
-  TokenStream ->
-  Either ParserFailure (SurfaceStatement, TokenStream)
-parseCapabilityDeclaration parseImplExpression declarationKind declarationToken tokensAfterKeyword = do
-  (capabilityName, maybeHeaderArguments, headerRemaining) <-
-    parseCapabilityHeaderName declarationKind declarationToken tokensAfterKeyword
-  let headerArguments =
-        case maybeHeaderArguments of
-          Just arguments -> arguments
-          Nothing -> []
-  case declarationKind of
-    "class" -> do
-      classParameters <-
-        validateClassHeaderParameters declarationToken maybeHeaderArguments
-      (capabilityBody, afterBody) <- parseCapabilityDeclarationBody parseImplExpression declarationKind declarationToken headerRemaining
-      remaining <- consumeDot afterBody
-      case capabilityBody of
-        CapabilityClassBody methodSignatures ->
-          Right (SSClass (tokenSpan declarationToken) capabilityName classParameters methodSignatures, remaining)
-        CapabilityImplBody {} ->
-          rejectReservedAbstractionSyntax declarationToken
-    "impl" -> do
-      (capabilityBody, afterBody) <- parseCapabilityDeclarationBody parseImplExpression declarationKind declarationToken headerRemaining
-      remaining <- consumeDot afterBody
-      case capabilityBody of
-        CapabilityImplBody methods ->
-          if surfaceConcreteImplArguments headerArguments
-            then Right (SSImpl (tokenSpan declarationToken) capabilityName headerArguments methods, remaining)
-            else
-              Left
-                ( parserFailureAt
-                    (tokenSpan declarationToken)
-                    (DeclarationFailure ImplRequiresConcreteTarget)
-                )
-        CapabilityClassBody {} ->
-          rejectReservedAbstractionSyntax declarationToken
-    _ ->
-      rejectReservedAbstractionSyntax declarationToken
-
-parseCapabilityHeaderName :: Text -> Token -> TokenStream -> Either ParserFailure (Identifier, Maybe [SurfaceSignatureType], TokenStream)
-parseCapabilityHeaderName declarationKind declarationToken tokensAfterKeyword =
-  case tokensAfterKeyword of
-    candidateToken@Token {tokenKind = TIdentifier candidateName, tokenSpan = nameSpan} :< rest ->
+parseCapabilityHeader :: Text -> Token -> Parser (SurfaceName, Maybe [SurfaceSignatureType])
+parseCapabilityHeader kind declaration = do
+  tokens <- MP.getInput
+  name <- case tokens of
+    candidate@Token {tokenKind = TIdentifier candidateName, tokenSpan = nameSpan} :< rest ->
       case rest of
-        qualifierColon@Token {tokenKind = TColonColon} :< classToken@Token {tokenKind = TIdentifier className} :< afterClass
-          | isImmediatelyAfter candidateToken qualifierColon,
-            isImmediatelyAfter qualifierColon classToken ->
-              if declarationKind == "impl"
+        colon@Token {tokenKind = TColonColon} :< member@Token {tokenKind = TIdentifier memberName} :< _
+          | isImmediatelyAfter candidate colon,
+            isImmediatelyAfter colon member ->
+              if kind == "impl"
                 then
-                  if isConstructorIdentifierText className
-                    then parseCapabilityHeaderTail (mkQualifiedIdentifier candidateName className) afterClass
-                    else
-                      Left
-                        ( parserFailureAt
-                            (tokenSpan classToken)
-                            ( ExpectedSyntax
-                                "uppercase class name after '::'"
-                                (ParserFoundToken (TIdentifier className) className)
-                            )
-                        )
-                else rejectQualifiedClassDeclaration qualifierColon
-        qualifierColon@Token {tokenKind = TColonColon} :< EmptyTokens
-          | isImmediatelyAfter candidateToken qualifierColon ->
-              if declarationKind == "impl"
+                  if isConstructorIdentifierText memberName
+                    then SurfaceName (mkQualifiedIdentifier candidateName memberName) (tokenSpan member) (Just nameSpan) <$ MP.takeP Nothing 3
+                    else failTokenParserAt (tokenSpan member) (ExpectedSyntax "uppercase class name after '::'" (foundToken member))
+                else rejectQualifiedClass colon
+        colon@Token {tokenKind = TColonColon} :< EmptyTokens
+          | isImmediatelyAfter candidate colon ->
+              if kind == "impl"
+                then failTokenParserAt (tokenSpan colon) (ExpectedSyntax "class name" (ParserEndOfInputAfter "'::'"))
+                else rejectQualifiedClass colon
+        colon@Token {tokenKind = TColonColon} :< member :< _
+          | isImmediatelyAfter candidate colon ->
+              if kind == "impl"
                 then
-                  Left
-                    ( parserFailureAt
-                        (tokenSpan qualifierColon)
-                        (ExpectedSyntax "class name" (ParserEndOfInputAfter "'::'"))
-                    )
-                else rejectQualifiedClassDeclaration qualifierColon
-        qualifierColon@Token {tokenKind = TColonColon} :< classToken :< _
-          | isImmediatelyAfter candidateToken qualifierColon ->
-              if declarationKind == "impl"
-                then
-                  Left
-                    ( parserFailureAt
-                        (tokenSpan classToken)
-                        ( ExpectedSyntax
-                            ( case tokenKind classToken of
-                                TIdentifier {} -> "adjacent class name after '::'"
-                                _ -> "class name after '::'"
-                            )
-                            (ParserFoundToken (tokenKind classToken) (tokenLexeme classToken))
-                        )
-                    )
-                else rejectQualifiedClassDeclaration qualifierColon
+                  failTokenParserAt
+                    (tokenSpan member)
+                    (ExpectedSyntax (case tokenKind member of TIdentifier {} -> "adjacent class name after '::'"; _ -> "class name after '::'") (foundToken member))
+                else rejectQualifiedClass colon
         _
-          | isConstructorIdentifierText candidateName ->
-              parseCapabilityHeaderTail (mkIdentifier candidateName) rest
-          | otherwise ->
-              Left
-                ( parserFailureAt
-                    nameSpan
-                    ( ExpectedSyntax
-                        "uppercase capability name"
-                        (ParserFoundToken (TIdentifier candidateName) candidateName)
-                    )
-                )
-    Token {tokenKind = TLBrace} :< _ ->
-      Left
-        ( parserFailureAt
-            (tokenSpan declarationToken)
-            ( ExpectedSyntax
-                "capability name"
-                ( ParserBeforeToken
-                    TLBrace
-                    "{"
-                    (Just (declarationKind <> " declaration"))
-                )
-            )
-        )
-    Token {tokenKind = TDot} :< _ ->
-      Left
-        ( parserFailureAt
-            (tokenSpan declarationToken)
-            ( ExpectedSyntax
-                "capability name"
-                (ParserBeforeToken TDot "." (Just (declarationKind <> " declaration")))
-            )
-        )
-    token :< _ ->
-      Left
-        ( parserFailureAt
-            (tokenSpan token)
-            (ExpectedSyntax "capability name" (ParserFoundToken (tokenKind token) (tokenLexeme token)))
-        )
-    EmptyTokens ->
-      Left
-        ( parserFailureAt
-            (tokenSpan declarationToken)
-            (ExpectedSyntax "capability name" (ParserEndOfInputIn (declarationKind <> " declaration")))
-        )
+          | isConstructorIdentifierText candidateName -> SurfaceName (mkIdentifier candidateName) nameSpan Nothing <$ parseAnyToken
+          | otherwise -> failTokenParserAt nameSpan (ExpectedSyntax "uppercase capability name" (foundToken candidate))
+    token :< _
+      | tokenKind token `elem` [TLBrace, TDot] ->
+          failTokenParserAt (tokenSpan declaration) (ExpectedSyntax "capability name" (ParserBeforeToken (tokenKind token) (tokenLexeme token) (Just (kind <> " declaration"))))
+    token :< _ -> failTokenParserAt (tokenSpan token) (ExpectedSyntax "capability name" (foundToken token))
+    EmptyTokens -> failTokenParserAt (tokenSpan declaration) (ExpectedSyntax "capability name" (ParserEndOfInputIn (kind <> " declaration")))
+  next <- peekToken
+  arguments <- case next of
+    Just Token {tokenKind = TLParen} -> do
+      _ <- parseAnyToken
+      argumentTokens <- collectHeaderArguments kind declaration
+      if null argumentTokens
+        then pure (Just [])
+        else case splitTopLevelCommaTokensDetailed argumentTokens >>= traverse parseConstrainedSignatureTypeDetailed of
+          Right parsed -> pure (Just parsed)
+          Left _ -> failTokenParserAt (tokenSpan declaration) (UnsupportedSyntax (DeclarationHeaderArguments (capabilityDeclarationKind kind)))
+    _ -> pure Nothing
+  body <- peekToken
+  case body of
+    Just Token {tokenKind = TLBrace} -> pure (name, arguments)
+    Just Token {tokenKind = TDot} -> failTokenParserAt (tokenSpan declaration) (ExpectedSyntax "'{'" (ParserBeforeToken TDot "." (Just (kind <> " declaration"))))
+    Just token -> failTokenParserAt (tokenSpan token) (UnexpectedSyntaxIn (foundToken token) (kind <> " declaration header"))
+    Nothing -> failTokenParserAt (tokenSpan declaration) (ExpectedSyntax "'{'" (ParserEndOfInputIn (kind <> " declaration")))
   where
-    rejectQualifiedClassDeclaration qualifierColon =
-      Left
-        ( parserFailureAt
-            (tokenSpan qualifierColon)
-            ( ExpectedSyntax
-                "unqualified class name"
-                (ParserFoundToken TColonColon (tokenLexeme qualifierColon))
-            )
-        )
+    rejectQualifiedClass token = failTokenParserAt (tokenSpan token) (ExpectedSyntax "unqualified class name" (foundToken token))
 
-    parseCapabilityHeaderTail capabilityName tokens =
-      case tokens of
-        Token {tokenKind = TLParen} :< rest -> do
-          (headerArguments, afterHeaderParameters) <- parseParenthesizedCapabilityHeader rest
-          requireCapabilityBodyStart capabilityName (Just headerArguments) afterHeaderParameters
-        _ -> requireCapabilityBodyStart capabilityName Nothing tokens
+collectHeaderArguments :: Text -> Token -> Parser [Token]
+collectHeaderArguments kind declaration = go (1 :: Int) []
+  where
+    go depth reversed = do
+      next <- peekToken
+      case next of
+        Just token@Token {tokenKind = TLParen} -> parseAnyToken *> go (depth + 1) (token : reversed)
+        Just token@Token {tokenKind = TRParen}
+          | depth == 1 -> reverse reversed <$ parseAnyToken
+          | otherwise -> parseAnyToken *> go (depth - 1) (token : reversed)
+        Just Token {tokenKind = TLBrace, tokenSpan = spanValue} ->
+          failTokenParserAt spanValue (ExpectedSyntax "')'" (ParserBeforeToken TLBrace "{" (Just (kind <> " declaration header"))))
+        Just token -> parseAnyToken *> go depth (token : reversed)
+        Nothing -> failTokenParserAt (tokenSpan declaration) (ExpectedSyntax "')'" (ParserEndOfInputIn (kind <> " declaration header")))
 
-    requireCapabilityBodyStart capabilityName headerArguments tokens =
-      case tokens of
-        Token {tokenKind = TLBrace} :< _ ->
-          Right (capabilityName, headerArguments, tokens)
-        Token {tokenKind = TDot} :< _ ->
-          Left
-            ( parserFailureAt
-                (tokenSpan declarationToken)
-                ( ExpectedSyntax
-                    "'{'"
-                    (ParserBeforeToken TDot "." (Just (declarationKind <> " declaration")))
-                )
-            )
-        token :< _ ->
-          Left
-            ( parserFailureAt
-                (tokenSpan token)
-                ( UnexpectedSyntaxIn
-                    (ParserFoundToken (tokenKind token) (tokenLexeme token))
-                    (declarationKind <> " declaration header")
-                )
-            )
-        EmptyTokens ->
-          Left
-            ( parserFailureAt
-                (tokenSpan declarationToken)
-                (ExpectedSyntax "'{'" (ParserEndOfInputIn (declarationKind <> " declaration")))
-            )
-
-    parseParenthesizedCapabilityHeader tokens = do
-      (argumentTokens, remaining) <- collectParenthesizedCapabilityHeader tokens
-      headerArguments <-
-        if null argumentTokens
-          then Right []
-          else case splitTopLevelCommaTokensDetailed argumentTokens >>= traverse parseConstrainedSignatureTypeDetailed of
-            Right parsedArguments -> Right parsedArguments
-            Left _ ->
-              Left
-                ( parserFailureAt
-                    (tokenSpan declarationToken)
-                    (UnsupportedSyntax (DeclarationHeaderArguments (capabilityDeclarationKind declarationKind)))
-                )
-      Right (headerArguments, remaining)
-
-    collectParenthesizedCapabilityHeader tokens =
-      go (1 :: Int) [] tokens
-      where
-        go depth acc remaining =
-          case remaining of
-            token@Token {tokenKind = TLParen} :< rest ->
-              go (depth + 1) (token : acc) rest
-            token@Token {tokenKind = TRParen} :< rest
-              | depth == 1 -> Right (reverse acc, rest)
-              | otherwise -> go (depth - 1) (token : acc) rest
-            Token {tokenKind = TLBrace, tokenSpan = braceSpan} :< _ ->
-              Left
-                ( parserFailureAt
-                    braceSpan
-                    ( ExpectedSyntax
-                        "')'"
-                        ( ParserBeforeToken
-                            TLBrace
-                            "{"
-                            (Just (declarationKind <> " declaration header"))
-                        )
-                    )
-                )
-            token :< rest ->
-              go depth (token : acc) rest
-            EmptyTokens ->
-              Left
-                ( parserFailureAt
-                    (tokenSpan declarationToken)
-                    (ExpectedSyntax "')'" (ParserEndOfInputIn (declarationKind <> " declaration header")))
-                )
-
-parseCapabilityDeclarationBody ::
-  ImplExpressionParser ->
-  Text ->
-  Token ->
-  TokenStream ->
-  Either ParserFailure (CapabilityDeclarationBody, TokenStream)
-parseCapabilityDeclarationBody parseImplExpression declarationKind declarationToken tokens =
+parseClassBody :: Token -> Set.Set Text -> [SurfaceClassMethodSignature] -> Parser [SurfaceClassMethodSignature]
+parseClassBody declaration seen reversed = do
+  tokens <- MP.getInput
   case tokens of
-    Token {tokenKind = TLBrace} :< rest ->
-      case declarationKind of
-        "class" -> do
-          (methodSignatures, afterBody) <- consumeClassBody Set.empty [] rest
-          Right (CapabilityClassBody methodSignatures, afterBody)
-        "impl" -> do
-          (methods, afterBody) <- consumeImplBody Set.empty [] rest
-          Right (CapabilityImplBody methods, afterBody)
-        _ ->
-          rejectReservedAbstractionSyntax declarationToken
-    EmptyTokens ->
-      Left
-        ( parserFailureAt
-            (tokenSpan declarationToken)
-            (ExpectedSyntax "'{'" (ParserEndOfInputIn (declarationKind <> " declaration")))
-        )
-    token :< _ ->
-      Left
-        ( parserFailureAt
-            (tokenSpan token)
-            (ExpectedSyntax "'{'" (ParserFoundToken (tokenKind token) (tokenLexeme token)))
-        )
-  where
-    consumeClassBody seenMethodNames reversedMethods remainingTokens =
-      case remainingTokens of
-        EmptyTokens ->
-          Left
-            ( parserFailureAt
-                (tokenSpan declarationToken)
-                (ExpectedSyntax "'}'" (ParserEndOfInputIn (declarationKind <> " declaration")))
-            )
-        Token {tokenKind = TRBrace} :< rest ->
-          Right (reverse reversedMethods, rest)
-        operatorToken@Token {tokenKind = TIdentifier "operator"} :< _ ->
-          rejectNestedOperatorDeclaration operatorToken
-        methodToken@Token {tokenKind = TIdentifier methodName, tokenSpan = methodSpan} :< Token {tokenKind = TColonColon} :< rest
-          | Set.member methodName seenMethodNames ->
-              Left
-                ( parserFailureAt
-                    methodSpan
-                    (DeclarationFailure (DuplicateName ClassMethodName methodName ClassDeclaration))
-                )
-          | otherwise -> do
-              (signatureTokens, afterSignature) <-
-                collectUntilDot rest
-              payload <- parseSignaturePayloadDetailed signatureTokens
-              let methodSignature =
-                    SurfaceClassMethodSignature
-                      (mkIdentifier methodName)
-                      (tokenSpan methodToken)
-                      payload
-              consumeClassBody
-                (Set.insert methodName seenMethodNames)
-                (methodSignature : reversedMethods)
-                afterSignature
-        Token {tokenKind = TIdentifier methodName, tokenSpan = methodSpan} :< Token {tokenKind = TEquals} :< _ ->
-          Left
-            ( parserFailureAt
-                methodSpan
-                (UnsupportedSyntax (ClassMethodBody methodName))
-            )
-        token :< _ ->
-          Left
-            ( parserFailureAt
-                (tokenSpan token)
-                ( ExpectedSyntax
-                    ("signature-only method declaration or '}' in " <> declarationKind <> " declaration body")
-                    (ParserFoundToken (tokenKind token) (tokenLexeme token))
-                )
-            )
+    EmptyTokens -> failTokenParserAt (tokenSpan declaration) (ExpectedSyntax "'}'" (ParserEndOfInputIn "class declaration"))
+    Token {tokenKind = TRBrace} :< _ -> reverse reversed <$ parseAnyToken
+    operator@Token {tokenKind = TIdentifier "operator"} :< _ -> either failParserFailure pure (rejectNestedOperatorDeclaration operator)
+    method@Token {tokenKind = TIdentifier name, tokenSpan = spanValue} :< Token {tokenKind = TColonColon} :< _
+      | Set.member name seen -> failTokenParserAt spanValue (DeclarationFailure (DuplicateName ClassMethodName name ClassDeclaration))
+      | otherwise -> do
+          _ <- MP.takeP Nothing 2
+          signatureTokens <- collectUntilDotParser
+          payload <- either failParserFailure pure (parseSignaturePayloadDetailed signatureTokens)
+          parseClassBody declaration (Set.insert name seen) (SurfaceClassMethodSignature (mkIdentifier name) (tokenSpan method) payload : reversed)
+    Token {tokenKind = TIdentifier name, tokenSpan = spanValue} :< Token {tokenKind = TEquals} :< _ ->
+      failTokenParserAt spanValue (UnsupportedSyntax (ClassMethodBody name))
+    token :< _ -> failTokenParserAt (tokenSpan token) (ExpectedSyntax "signature-only method declaration or '}' in class declaration body" (foundToken token))
 
-    consumeImplBody seenMethodNames reversedMethods remainingTokens =
-      case remainingTokens of
-        EmptyTokens ->
-          Left
-            ( parserFailureAt
-                (tokenSpan declarationToken)
-                (ExpectedSyntax "'}'" (ParserEndOfInputIn (declarationKind <> " declaration")))
-            )
-        Token {tokenKind = TRBrace} :< rest ->
-          Right (reverse reversedMethods, rest)
-        operatorToken@Token {tokenKind = TIdentifier "operator"} :< _ ->
-          rejectNestedOperatorDeclaration operatorToken
-        methodToken@Token {tokenKind = TIdentifier methodName, tokenSpan = methodSpan}
-          :< Token {tokenKind = TEquals}
-          :< afterEquals
-            | Set.member methodName seenMethodNames ->
-                Left
-                  ( parserFailureAt
-                      methodSpan
-                      (DeclarationFailure (DuplicateName ImplMethodName methodName ImplDeclaration))
-                  )
-            | otherwise -> do
-                (methodExpr, afterExpr) <-
-                  parseImplExpression afterEquals
-                afterMethod <- consumeDot afterExpr
-                let method =
-                      SurfaceImplMethod
-                        (mkIdentifier methodName)
-                        (tokenSpan methodToken)
-                        methodExpr
-                consumeImplBody
-                  (Set.insert methodName seenMethodNames)
-                  (method : reversedMethods)
-                  afterMethod
-        Token {tokenKind = TIdentifier methodName, tokenSpan = methodSpan} :< Token {tokenKind = TColonColon} :< _ ->
-          Left
-            ( parserFailureAt
-                methodSpan
-                (DeclarationFailure (ExpectedOrdinaryImplMethodBinding methodName))
-            )
-        token :< _ ->
-          Left
-            ( parserFailureAt
-                (tokenSpan token)
-                ( ExpectedSyntax
-                    "ordinary method binding or '}' in impl declaration body"
-                    (ParserFoundToken (tokenKind token) (tokenLexeme token))
-                )
-            )
+parseImplBody :: Parser SurfaceExpr -> Token -> Set.Set Text -> [SurfaceImplMethod] -> Parser [SurfaceImplMethod]
+parseImplBody expression declaration seen reversed = do
+  tokens <- MP.getInput
+  case tokens of
+    EmptyTokens -> failTokenParserAt (tokenSpan declaration) (ExpectedSyntax "'}'" (ParserEndOfInputIn "impl declaration"))
+    Token {tokenKind = TRBrace} :< _ -> reverse reversed <$ parseAnyToken
+    operator@Token {tokenKind = TIdentifier "operator"} :< _ -> either failParserFailure pure (rejectNestedOperatorDeclaration operator)
+    method@Token {tokenKind = TIdentifier name, tokenSpan = spanValue} :< Token {tokenKind = TEquals} :< _
+      | Set.member name seen -> failTokenParserAt spanValue (DeclarationFailure (DuplicateName ImplMethodName name ImplDeclaration))
+      | otherwise -> do
+          _ <- MP.takeP Nothing 2
+          body <- expression <* parseToken TDot
+          parseImplBody expression declaration (Set.insert name seen) (SurfaceImplMethod (mkIdentifier name) (tokenSpan method) body : reversed)
+    Token {tokenKind = TIdentifier name, tokenSpan = spanValue} :< Token {tokenKind = TColonColon} :< _ ->
+      failTokenParserAt spanValue (DeclarationFailure (ExpectedOrdinaryImplMethodBinding name))
+    token :< _ -> failTokenParserAt (tokenSpan token) (ExpectedSyntax "ordinary method binding or '}' in impl declaration body" (foundToken token))
 
 surfaceConcreteImplArguments :: [SurfaceSignatureType] -> Bool
 surfaceConcreteImplArguments arguments =
@@ -484,9 +224,9 @@ surfaceConcreteConstraintArgument signatureType =
   case signatureType of
     TypeVariable {} -> False
     TypeName name ->
-      not (surfaceIdentifierLooksLikeTypeVariable name)
+      not (surfaceIdentifierLooksLikeTypeVariable (surfaceNameIdentifier name))
     TypeApplication name arguments ->
-      not (surfaceIdentifierLooksLikeTypeVariable name) && all surfaceConcreteConstraintArgument arguments
+      not (surfaceIdentifierLooksLikeTypeVariable (surfaceNameIdentifier name)) && all surfaceConcreteConstraintArgument arguments
     TypeList innerType ->
       surfaceConcreteConstraintArgument innerType
     TypeTuple elementTypes ->
@@ -507,47 +247,24 @@ surfaceIdentifierLooksLikeTypeVariable name =
 validateClassHeaderParameters :: Token -> Maybe [SurfaceSignatureType] -> Either ParserFailure [Identifier]
 validateClassHeaderParameters declarationToken maybeHeaderArguments =
   case maybeHeaderArguments of
-    Nothing ->
-      Left
-        ( parserFailureAt
-            (tokenSpan declarationToken)
-            (DeclarationFailure ClassRequiresExplicitParameterList)
-        )
-    Just [] ->
-      Left
-        ( parserFailureAt
-            (tokenSpan declarationToken)
-            (DeclarationFailure ClassRequiresLowercaseParameter)
-        )
+    Nothing -> reject ClassRequiresExplicitParameterList
+    Just [] -> reject ClassRequiresLowercaseParameter
     Just headerArguments -> do
       classParameters <- traverse classParameterFromHeaderArgument headerArguments
       case duplicateClassParameterName classParameters of
-        Just duplicateName ->
-          Left
-            ( parserFailureAt
-                (tokenSpan declarationToken)
-                (DeclarationFailure (DuplicateClassParameter duplicateName))
-            )
+        Just duplicateName -> reject (DuplicateClassParameter duplicateName)
         Nothing ->
           case classParameters of
             [_] -> Right classParameters
-            _ ->
-              Left
-                ( parserFailureAt
-                    (tokenSpan declarationToken)
-                    (DeclarationFailure ClassSupportsExactlyOneParameter)
-                )
+            _ -> reject ClassSupportsExactlyOneParameter
   where
+    reject = Left . parserFailureAt (tokenSpan declarationToken) . DeclarationFailure
+
     classParameterFromHeaderArgument argument =
       case argument of
         TypeVariable parameterName ->
           Right parameterName
-        _ ->
-          Left
-            ( parserFailureAt
-                (tokenSpan declarationToken)
-                (DeclarationFailure ClassParameterMustBeLowercase)
-            )
+        _ -> reject ClassParameterMustBeLowercase
 
     duplicateClassParameterName classParameters =
       go Set.empty classParameters

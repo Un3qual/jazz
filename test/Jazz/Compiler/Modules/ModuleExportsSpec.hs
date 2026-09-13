@@ -6,6 +6,7 @@ import Data.List.NonEmpty (NonEmpty (..))
 import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
 import Data.Text (Text)
+import Jazz.Compiler.CoreIdentity (CapabilityId (..), CoreBinderId (..), CoreNodeId (..))
 import Jazz.Compiler.Diagnostics (SourceSpan (..))
 import Jazz.Compiler.ModuleExports
   ( LocatedModuleExportName (..),
@@ -24,15 +25,19 @@ import Jazz.Compiler.ModuleExports
     selectValidatedModuleExportSelectors,
     selectorEligibleNames,
   )
+import Jazz.Compiler.ModuleIdentity (SourceUnitOwner (..), standaloneModulePath)
 import Jazz.Compiler.ModuleInterface
   ( ModuleInterface (..),
+    ModuleValueBinding (..),
     emptyModuleInterface,
     moduleInterfaceExportInventory,
+    publishModuleInterface,
   )
-import Jazz.Compiler.Name (NameNamespace (..))
+import Jazz.Compiler.Name (NameNamespace (..), mkIdentifier, resolvedLocalName)
+import Jazz.Compiler.SemanticDeclarations (ConstructorArgumentType (..), DataTypeBinding (..), ScopeCapabilityFacts (..))
 import Jazz.Compiler.TypeInference.Types
-  ( SemanticType (..),
-    TypeBinding (PlainTypeBinding),
+  ( SemanticBinding (PlainTypeBinding),
+    SemanticType (..),
   )
 import Jazz.TestHarness (NamedTest, assertEqual, runTestSuite)
 
@@ -53,7 +58,8 @@ tests =
     ("drops constructor ownership when filtering its constructor or type", testFilteredConstructorOwnership),
     ("combines conflicting constructor owners without bias", testConflictingConstructorOwnership),
     ("finds the first requested namespace deterministically", testFirstNamespace),
-    ("derives compiled interface exports by namespace", testInterfaceInventory)
+    ("derives compiled interface exports by namespace", testInterfaceInventory),
+    ("publication retains reachable private types through cycles", testPublicationRetainsReachablePrivateTypes)
   ]
 
 sampleInventory :: ModuleExportInventory
@@ -273,9 +279,22 @@ testInterfaceInventory =
   where
     interface =
       emptyModuleInterface
-        { interfaceValueTypes =
+        { interfacePublicExports = exportInventory [ModuleExport ValueNamespace "answer", ModuleExport CapabilityNamespace "Eq"],
+          interfaceValueBindings =
             Map.singleton
               (ModuleExport ValueNamespace "answer")
-              (PlainTypeBinding SemanticInt),
-          interfaceClassFacts = Map.singleton "Eq" 1
+              (ModuleValueBinding (CoreBinderId (StandaloneSourceUnit standaloneModulePath, CoreNodeId 1)) (PlainTypeBinding SemanticInt)),
+          interfaceCapabilities = mempty {scopeClassFacts = Map.singleton (CapabilityId (resolvedLocalName CapabilityNamespace (mkIdentifier "Eq"))) 1}
         }
+
+testPublicationRetainsReachablePrivateTypes :: IO ()
+testPublicationRetainsReachablePrivateTypes = do
+  let published = publishModuleInterface (Just exports) definitions declarations
+  assertEqual "reachable definitions include the private cycle" (Map.delete (name "Unused") definitions) (interfaceDataTypes published)
+  assertEqual "supporting definitions do not become public exports" exports (interfacePublicExports published)
+  where
+    name = resolvedLocalName TypeNamespace . mkIdentifier
+    references target = DataTypeBinding [] [[ConstructorArgumentType (SemanticData (name target) [])]]
+    definitions = Map.fromList [(name "Root", references "Middle"), (name "Middle", references "Leaf"), (name "Leaf", references "Middle"), (name "Unused", DataTypeBinding [] [[]])]
+    exports = exportInventory [ModuleExport TypeNamespace "Root"]
+    declarations = emptyModuleInterface {interfaceDataTypes = definitions}

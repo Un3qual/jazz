@@ -10,6 +10,7 @@ import Data.Text (Text)
 import qualified Data.Text as Text
 import Jazz.Compiler.AST (CoreNode (..), Expr (..), Statement (..))
 import Jazz.Compiler.Diagnostics (SourceSpan (..), diagnosticPrimarySpan, diagnosticRelatedSpan, qualifySourceSpan, sourceSpanEnd, sourceSpanStart)
+import Jazz.Compiler.ModuleAnalysis (analyzeResolvedExpression)
 import Jazz.Compiler.ModuleExports (exportInventory)
 import Jazz.Compiler.ModuleGraph (coreModuleExpr, coreModuleImports)
 import Jazz.Compiler.ModuleIdentity (mkSourceFile, moduleIdentity, standaloneModulePath)
@@ -21,8 +22,7 @@ import Jazz.Compiler.Parser.Lexer (Token (..), tokenize)
 import Jazz.Compiler.Parser.Lower (lowerSurfaceExpr, lowerSurfaceModule, reindexLoweredExpr)
 import Jazz.Compiler.Parser.Pattern (parseCaseArmPatternTokens)
 import Jazz.Compiler.Prelude (ResolvedPrelude (..), preparePrelude)
-import Jazz.Compiler.TypeInference (inferExpressionDefault)
-import Jazz.Compiler.TypeInference.Result (InferenceResult (inferredExpr))
+import Jazz.Compiler.WarningConfig (defaultWarningSettings)
 import Jazz.TestHarness (assertEqual, assertRight, failTest, runTestSuite)
 
 main :: IO ()
@@ -35,7 +35,7 @@ main =
       ("explicit type argument range survives lowering", typeApplicationExtent),
       ("nested patterns retain delimiters and constructor extents", patternExtents),
       ("lambda unit parameters and pattern clauses retain ranges", lambdaExtents),
-      ("lowering reindexing and inference preserve expression ranges", lowerAndAnalyze),
+      ("lowering reindexing and analysis preserve expression ranges", lowerAndAnalyze),
       ("parser diagnostics expose the offending token range", parserDiagnosticRange),
       ("prelude bridge diagnostic unqualification retains both ranges", preludeDiagnosticRanges),
       ("import alias collision diagnostics retain both ranges", importDiagnosticRanges),
@@ -122,17 +122,19 @@ lowerAndAnalyze = assertRight "parse" (parseSurfaceProgram "[1,\n 2].") $ \surfa
         _ -> []
   assertEqual "lowered" expected (spans lowered)
   assertEqual "reindexed" expected (spans (reindexLoweredExpr lowered))
-  assertRight "resolve" (resolveStandaloneExprNames (exportInventory []) lowered) $ \resolved -> do
-    inferred <- inferExpressionDefault resolved
-    assertEqual "inferred" expected (spans (inferredExpr inferred))
+  let resolved = resolveStandaloneExprNames (exportInventory []) lowered
+  (_, analyzed) <- analyzeResolvedExpression defaultWarningSettings resolved
+  assertRight "analyze" analyzed $ \analyzedExpr ->
+    assertEqual "analyzed" (Just expected) (spans <$> analyzedExpr)
   let identity = moduleIdentity standaloneModulePath (mkSourceFile "Main.jz")
   assertRight "lower qualified module" (lowerSurfaceModule identity surface) $ \coreModule -> do
     let qualified = map (qualifySourceSpan "Main.jz") expected
         moduleExpr = coreModuleExpr coreModule
     assertEqual "qualified lowering" qualified (spans moduleExpr)
-    assertRight "resolve qualified module" (resolveStandaloneExprNames (exportInventory []) moduleExpr) $ \resolved -> do
-      inferred <- inferExpressionDefault resolved
-      assertEqual "qualified inference" qualified (spans (inferredExpr inferred))
+    let qualifiedResolved = resolveStandaloneExprNames (exportInventory []) moduleExpr
+    (_, qualifiedAnalyzed) <- analyzeResolvedExpression defaultWarningSettings qualifiedResolved
+    assertRight "analyze qualified expression" qualifiedAnalyzed $ \analyzedExpr ->
+      assertEqual "qualified analysis" (Just qualified) (spans <$> analyzedExpr)
 
 qualifyRanges :: IO ()
 qualifyRanges = do
@@ -157,9 +159,13 @@ lambdaExtents = do
     _ -> failTest "expected pattern lambda"
 
 parserDiagnosticRange :: IO ()
-parserDiagnosticRange = case parseSurfaceProgram "[1,\n ] ." of
-  Left diagnostic -> assertEqual "offending delimiter" (Just (SourceRange 2 2 2 3)) (diagnosticPrimarySpan diagnostic)
-  Right _ -> failTest "expected missing list element diagnostic"
+parserDiagnosticRange = do
+  case parseSurfaceProgram "[1,\n ] ." of
+    Left diagnostic -> assertEqual "offending delimiter" (Just (SourceRange 2 2 2 3)) (diagnosticPrimarySpan diagnostic)
+    Right _ -> failTest "expected missing list element diagnostic"
+  case parseSurfaceProgram "data Choice = Same |\n  Same Int." of
+    Left diagnostic -> assertEqual "duplicate constructor name" (Just (SourceRange 2 3 2 7)) (diagnosticPrimarySpan diagnostic)
+    Right _ -> failTest "expected duplicate constructor diagnostic"
 
 typeApplicationExtent :: IO ()
 typeApplicationExtent = expression "f @Bool." $ \value -> do
