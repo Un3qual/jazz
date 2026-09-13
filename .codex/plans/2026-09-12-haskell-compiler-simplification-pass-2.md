@@ -5,7 +5,7 @@ User-authorized second pass, on `codex/simplify-haskell-compiler` above
 operations and clearer functions while preserving functionality, diagnostics,
 identity, source order, runtime observations and evaluation behavior.
 
-This is the second-pass historical record. Its reduction totals cover the first
+This is the second-pass historical record. The subtotal below covers the first
 two passes only; subsequent test repair removed four more Haskell lines, and the
 [Haskell practices implementation](2026-09-12-haskell-practices-implementation.md)
 removed another 21. Thus `dfd0bde6..705b09b5` removes 1,494 net lines across 43
@@ -73,8 +73,9 @@ the second-pass base rather than treating a baseline mismatch as a regression.
 
 Implementation is committed as `3719cd14` on the original
 `codex/simplify-haskell-compiler` branch. This pass shares no changed source
-file with the first pass and brings the combined reduction to 1,469 lines in
-36 `src/Jazz` files. No remaining review findings or implementation work.
+file with the first pass. The first two passes alone (`dfd0bde6..3719cd14`)
+remove 1,469 net lines across 36 `src/Jazz` files, excluding the subsequent
+test repair and Haskell practices implementation described above.
 
 ## Inspected and retained
 
