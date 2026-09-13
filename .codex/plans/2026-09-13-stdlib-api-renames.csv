@@ -1,0 +1,184 @@
+source,module,old_name,new_name,current_signature
+jazz/stdlib/List.jz,List,listPrepend,prepend,a -> [a] -> [a]
+jazz/stdlib/List.jz,List,listReverse,reverse,[a] -> [a]
+jazz/stdlib/List.jz,List,listLength,length,[a] -> Int
+jazz/stdlib/List.jz,List,listIsEmpty,isEmpty,[a] -> Bool
+jazz/stdlib/List.jz,List,listHead,head,[a] -> Maybe(a)
+jazz/stdlib/List.jz,List,listTail,tail,[a] -> Maybe([a])
+jazz/stdlib/List.jz,List,listLast,last,[a] -> Maybe(a)
+jazz/stdlib/List.jz,List,listInit,init,[a] -> Maybe([a])
+jazz/stdlib/List.jz,List,listAt,at,Int -> [a] -> Maybe(a)
+jazz/stdlib/List.jz,List,listTake,take,Int -> [a] -> [a]
+jazz/stdlib/List.jz,List,listDrop,drop,Int -> [a] -> [a]
+jazz/stdlib/List.jz,List,listSplitAt,splitAt,"Int -> [a] -> ([a], [a])"
+jazz/stdlib/List.jz,List,listAppend,append,[a] -> [a] -> [a]
+jazz/stdlib/List.jz,List,listConcat,concat,[[a]] -> [a]
+jazz/stdlib/List.jz,List,listRepeat,repeat,Int -> a -> [a]
+jazz/stdlib/List.jz,List,listIntersperse,intersperse,a -> [a] -> [a]
+jazz/stdlib/List.jz,List,listIntercalate,intercalate,[a] -> [[a]] -> [a]
+jazz/stdlib/List.jz,List,listMap,map,(a -> b) -> [a] -> [b]
+jazz/stdlib/List.jz,List,listFilter,filter,(a -> Bool) -> [a] -> [a]
+jazz/stdlib/List.jz,List,listFilterMap,filterMap,(a -> Maybe(b)) -> [a] -> [b]
+jazz/stdlib/List.jz,List,listPartition,partition,"(a -> Bool) -> [a] -> ([a], [a])"
+jazz/stdlib/List.jz,List,listFoldLeft,foldLeft,(b -> a -> b) -> b -> [a] -> b
+jazz/stdlib/List.jz,List,listFoldRight,foldRight,(a -> b -> b) -> b -> [a] -> b
+jazz/stdlib/List.jz,List,listScanLeft,scanLeft,(b -> a -> b) -> b -> [a] -> [b]
+jazz/stdlib/List.jz,List,listAny,any,(a -> Bool) -> [a] -> Bool
+jazz/stdlib/List.jz,List,listAll,all,(a -> Bool) -> [a] -> Bool
+jazz/stdlib/List.jz,List,listContains,contains,@{Eq(a)}: a -> [a] -> Bool
+jazz/stdlib/List.jz,List,listFind,find,(a -> Bool) -> [a] -> Maybe(a)
+jazz/stdlib/List.jz,List,listFindIndex,findIndex,(a -> Bool) -> [a] -> Maybe(Int)
+jazz/stdlib/List.jz,List,listZip,zip,"[a] -> [b] -> [(a, b)]"
+jazz/stdlib/List.jz,List,listUnzip,unzip,"[(a, b)] -> ([a], [b])"
+jazz/stdlib/List.jz,List,listIndexed,indexed,"[a] -> [(Int, a)]"
+jazz/stdlib/List.jz,List,listDistinct,distinct,@{Eq(a)}: [a] -> [a]
+jazz/stdlib/List.jz,List,listGroup,group,@{Eq(a)}: [a] -> [[a]]
+jazz/stdlib/List.jz,List,listGroupBy,groupBy,(a -> a -> Bool) -> [a] -> [[a]]
+jazz/stdlib/List.jz,List,listMinimum,minimum,@{Ord(a)}: [a] -> Maybe(a)
+jazz/stdlib/List.jz,List,listMaximum,maximum,@{Ord(a)}: [a] -> Maybe(a)
+jazz/stdlib/List.jz,List,listSort,sort,@{Ord(a)}: [a] -> [a]
+jazz/stdlib/List.jz,List,listSortBy,sortBy,(a -> a -> Ordering) -> [a] -> [a]
+jazz/stdlib/Queue.jz,Queue,queueEmpty,empty,Queue(a)
+jazz/stdlib/Queue.jz,Queue,queueSingleton,singleton,a -> Queue(a)
+jazz/stdlib/Queue.jz,Queue,queueFromList,fromList,[a] -> Queue(a)
+jazz/stdlib/Queue.jz,Queue,queueToList,toList,Queue(a) -> [a]
+jazz/stdlib/Queue.jz,Queue,queueSize,size,Queue(a) -> Int
+jazz/stdlib/Queue.jz,Queue,queueIsEmpty,isEmpty,Queue(a) -> Bool
+jazz/stdlib/Queue.jz,Queue,queueEnqueue,enqueue,Queue(a) -> a -> Queue(a)
+jazz/stdlib/Queue.jz,Queue,queueEnqueueAll,enqueueAll,Queue(a) -> [a] -> Queue(a)
+jazz/stdlib/Queue.jz,Queue,queuePeek,peek,Queue(a) -> Maybe(a)
+jazz/stdlib/Queue.jz,Queue,queueDequeue,dequeue,"Queue(a) -> Maybe((a, Queue(a)))"
+jazz/stdlib/Queue.jz,Queue,queueMap,map,Queue(a) -> (a -> b) -> Queue(b)
+jazz/stdlib/Queue.jz,Queue,queueFoldLeft,foldLeft,Queue(a) -> b -> (b -> a -> b) -> b
+jazz/stdlib/Queue.jz,Queue,queueFoldRight,foldRight,Queue(a) -> b -> (a -> b -> b) -> b
+jazz/stdlib/Maybe.jz,Maybe,maybeMap,map,(a -> b) -> Maybe(a) -> Maybe(b)
+jazz/stdlib/Maybe.jz,Maybe,maybeAndThen,andThen,(a -> Maybe(b)) -> Maybe(a) -> Maybe(b)
+jazz/stdlib/Maybe.jz,Maybe,maybeWithDefault,withDefault,a -> Maybe(a) -> a
+jazz/stdlib/Maybe.jz,Maybe,maybeOrElse,orElse,Maybe(a) -> Maybe(a) -> Maybe(a)
+jazz/stdlib/Maybe.jz,Maybe,maybeFilter,filter,(a -> Bool) -> Maybe(a) -> Maybe(a)
+jazz/stdlib/Maybe.jz,Maybe,maybeIsJust,isJust,Maybe(a) -> Bool
+jazz/stdlib/Maybe.jz,Maybe,maybeIsNothing,isNothing,Maybe(a) -> Bool
+jazz/stdlib/Maybe.jz,Maybe,maybeToList,toList,Maybe(a) -> [a]
+jazz/stdlib/Maybe.jz,Maybe,maybeFromList,fromList,[a] -> Maybe(a)
+jazz/stdlib/Result.jz,Result,resultMap,map,"(a -> b) -> Result(e, a) -> Result(e, b)"
+jazz/stdlib/Result.jz,Result,resultMapError,mapError,"(e -> f) -> Result(e, a) -> Result(f, a)"
+jazz/stdlib/Result.jz,Result,resultAndThen,andThen,"(a -> Result(e, b)) -> Result(e, a) -> Result(e, b)"
+jazz/stdlib/Result.jz,Result,resultRecover,recover,"(e -> Result(f, a)) -> Result(e, a) -> Result(f, a)"
+jazz/stdlib/Result.jz,Result,resultWithDefault,withDefault,"a -> Result(e, a) -> a"
+jazz/stdlib/Result.jz,Result,resultIsOk,isOk,"Result(e, a) -> Bool"
+jazz/stdlib/Result.jz,Result,resultIsErr,isErr,"Result(e, a) -> Bool"
+jazz/stdlib/Result.jz,Result,resultToMaybe,toMaybe,"Result(e, a) -> Maybe(a)"
+jazz/stdlib/Result.jz,Result,resultErrorToMaybe,errorToMaybe,"Result(e, a) -> Maybe(e)"
+jazz/stdlib/Result.jz,Result,resultFromMaybe,fromMaybe,"e -> Maybe(a) -> Result(e, a)"
+jazz/stdlib/NonEmpty.jz,NonEmpty,nonEmptySingleton,singleton,a -> NonEmpty(a)
+jazz/stdlib/NonEmpty.jz,NonEmpty,nonEmptyFromList,fromList,[a] -> Maybe(NonEmpty(a))
+jazz/stdlib/NonEmpty.jz,NonEmpty,nonEmptyToList,toList,NonEmpty(a) -> [a]
+jazz/stdlib/NonEmpty.jz,NonEmpty,nonEmptyHead,head,NonEmpty(a) -> a
+jazz/stdlib/NonEmpty.jz,NonEmpty,nonEmptyTail,tail,NonEmpty(a) -> [a]
+jazz/stdlib/NonEmpty.jz,NonEmpty,nonEmptyLast,last,NonEmpty(a) -> a
+jazz/stdlib/NonEmpty.jz,NonEmpty,nonEmptyPrepend,prepend,a -> NonEmpty(a) -> NonEmpty(a)
+jazz/stdlib/NonEmpty.jz,NonEmpty,nonEmptyAppendList,appendList,NonEmpty(a) -> [a] -> NonEmpty(a)
+jazz/stdlib/NonEmpty.jz,NonEmpty,nonEmptyMap,map,(a -> b) -> NonEmpty(a) -> NonEmpty(b)
+jazz/stdlib/NonEmpty.jz,NonEmpty,nonEmptyLength,length,NonEmpty(a) -> Int
+jazz/stdlib/NonEmpty.jz,NonEmpty,nonEmptyFoldLeft,foldLeft,(b -> a -> b) -> b -> NonEmpty(a) -> b
+jazz/stdlib/NonEmpty.jz,NonEmpty,nonEmptyFoldRight,foldRight,(a -> b -> b) -> b -> NonEmpty(a) -> b
+jazz/stdlib/Map.jz,Map,mapEmpty,empty,"Map(k, v)"
+jazz/stdlib/Map.jz,Map,mapSingleton,singleton,"k -> v -> Map(k, v)"
+jazz/stdlib/Map.jz,Map,mapFromList,fromList,"@{Ord(k)}: [(k, v)] -> Map(k, v)"
+jazz/stdlib/Map.jz,Map,mapToList,toList,"Map(k, v) -> [(k, v)]"
+jazz/stdlib/Map.jz,Map,mapSize,size,"Map(k, v) -> Int"
+jazz/stdlib/Map.jz,Map,mapIsEmpty,isEmpty,"Map(k, v) -> Bool"
+jazz/stdlib/Map.jz,Map,mapLookup,lookup,"@{Ord(k)}: Map(k, v) -> k -> Maybe(v)"
+jazz/stdlib/Map.jz,Map,mapGetOr,getOr,"@{Ord(k)}: Map(k, v) -> k -> v -> v"
+jazz/stdlib/Map.jz,Map,mapContainsKey,containsKey,"@{Ord(k)}: Map(k, v) -> k -> Bool"
+jazz/stdlib/Map.jz,Map,mapInsert,insert,"@{Ord(k)}: Map(k, v) -> k -> v -> Map(k, v)"
+jazz/stdlib/Map.jz,Map,mapReplace,replace,"@{Ord(k)}: Map(k, v) -> k -> v -> Maybe(Map(k, v))"
+jazz/stdlib/Map.jz,Map,mapRemove,remove,"@{Ord(k)}: Map(k, v) -> k -> Map(k, v)"
+jazz/stdlib/Map.jz,Map,mapUpdate,update,"@{Ord(k)}: Map(k, v) -> k -> (Maybe(v) -> Maybe(v)) -> Map(k, v)"
+jazz/stdlib/Map.jz,Map,mapMinimum,minimum,"Map(k, v) -> Maybe((k, v))"
+jazz/stdlib/Map.jz,Map,mapMaximum,maximum,"Map(k, v) -> Maybe((k, v))"
+jazz/stdlib/Map.jz,Map,mapPopMinimum,popMinimum,"Map(k, v) -> Maybe(((k, v), Map(k, v)))"
+jazz/stdlib/Map.jz,Map,mapPopMaximum,popMaximum,"Map(k, v) -> Maybe(((k, v), Map(k, v)))"
+jazz/stdlib/Map.jz,Map,mapKeys,keys,"Map(k, v) -> [k]"
+jazz/stdlib/Map.jz,Map,mapValues,values,"Map(k, v) -> [v]"
+jazz/stdlib/Map.jz,Map,mapMapValues,mapValues,"Map(k, v) -> (v -> w) -> Map(k, w)"
+jazz/stdlib/Map.jz,Map,mapFilter,filter,"@{Ord(k)}: Map(k, v) -> (k -> v -> Bool) -> Map(k, v)"
+jazz/stdlib/Map.jz,Map,mapFoldLeft,foldLeft,"Map(k, v) -> a -> (a -> k -> v -> a) -> a"
+jazz/stdlib/Map.jz,Map,mapFoldRight,foldRight,"Map(k, v) -> a -> (k -> v -> a -> a) -> a"
+jazz/stdlib/Set.jz,Set,setEmpty,empty,Set(a)
+jazz/stdlib/Set.jz,Set,setSingleton,singleton,a -> Set(a)
+jazz/stdlib/Set.jz,Set,setFromList,fromList,@{Ord(a)}: [a] -> Set(a)
+jazz/stdlib/Set.jz,Set,setToList,toList,Set(a) -> [a]
+jazz/stdlib/Set.jz,Set,setSize,size,Set(a) -> Int
+jazz/stdlib/Set.jz,Set,setIsEmpty,isEmpty,Set(a) -> Bool
+jazz/stdlib/Set.jz,Set,setContains,contains,@{Ord(a)}: Set(a) -> a -> Bool
+jazz/stdlib/Set.jz,Set,setInsert,insert,@{Ord(a)}: Set(a) -> a -> Set(a)
+jazz/stdlib/Set.jz,Set,setRemove,remove,@{Ord(a)}: Set(a) -> a -> Set(a)
+jazz/stdlib/Set.jz,Set,setUnion,union,@{Ord(a)}: Set(a) -> Set(a) -> Set(a)
+jazz/stdlib/Set.jz,Set,setIntersection,intersection,@{Ord(a)}: Set(a) -> Set(a) -> Set(a)
+jazz/stdlib/Set.jz,Set,setDifference,difference,@{Ord(a)}: Set(a) -> Set(a) -> Set(a)
+jazz/stdlib/Set.jz,Set,setIsSubset,isSubset,@{Ord(a)}: Set(a) -> Set(a) -> Bool
+jazz/stdlib/Set.jz,Set,setFilter,filter,@{Ord(a)}: Set(a) -> (a -> Bool) -> Set(a)
+jazz/stdlib/Set.jz,Set,setMap,map,@{Ord(b)}: Set(a) -> (a -> b) -> Set(b)
+jazz/stdlib/Set.jz,Set,setFoldLeft,foldLeft,Set(a) -> b -> (b -> a -> b) -> b
+jazz/stdlib/Set.jz,Set,setFoldRight,foldRight,Set(a) -> b -> (a -> b -> b) -> b
+jazz/stdlib/Dictionary.jz,Dictionary,dictionaryEmpty,empty,"Dictionary(k, v)"
+jazz/stdlib/Dictionary.jz,Dictionary,dictionarySingleton,singleton,"k -> v -> Dictionary(k, v)"
+jazz/stdlib/Dictionary.jz,Dictionary,dictionaryFromList,fromList,"@{Eq(k)}: [(k, v)] -> Dictionary(k, v)"
+jazz/stdlib/Dictionary.jz,Dictionary,dictionaryToList,toList,"Dictionary(k, v) -> [(k, v)]"
+jazz/stdlib/Dictionary.jz,Dictionary,dictionarySize,size,"Dictionary(k, v) -> Int"
+jazz/stdlib/Dictionary.jz,Dictionary,dictionaryIsEmpty,isEmpty,"Dictionary(k, v) -> Bool"
+jazz/stdlib/Dictionary.jz,Dictionary,dictionaryLookup,lookup,"@{Eq(k)}: Dictionary(k, v) -> k -> Maybe(v)"
+jazz/stdlib/Dictionary.jz,Dictionary,dictionaryGetOr,getOr,"@{Eq(k)}: Dictionary(k, v) -> k -> v -> v"
+jazz/stdlib/Dictionary.jz,Dictionary,dictionaryContainsKey,containsKey,"@{Eq(k)}: Dictionary(k, v) -> k -> Bool"
+jazz/stdlib/Dictionary.jz,Dictionary,dictionaryInsert,insert,"@{Eq(k)}: Dictionary(k, v) -> k -> v -> Dictionary(k, v)"
+jazz/stdlib/Dictionary.jz,Dictionary,dictionaryReplace,replace,"@{Eq(k)}: Dictionary(k, v) -> k -> v -> Maybe(Dictionary(k, v))"
+jazz/stdlib/Dictionary.jz,Dictionary,dictionaryRemove,remove,"@{Eq(k)}: Dictionary(k, v) -> k -> Dictionary(k, v)"
+jazz/stdlib/Dictionary.jz,Dictionary,dictionaryUpdate,update,"@{Eq(k)}: Dictionary(k, v) -> k -> (Maybe(v) -> Maybe(v)) -> Dictionary(k, v)"
+jazz/stdlib/Dictionary.jz,Dictionary,dictionaryKeys,keys,"Dictionary(k, v) -> [k]"
+jazz/stdlib/Dictionary.jz,Dictionary,dictionaryValues,values,"Dictionary(k, v) -> [v]"
+jazz/stdlib/Dictionary.jz,Dictionary,dictionaryMapValues,mapValues,"Dictionary(k, v) -> (v -> w) -> Dictionary(k, w)"
+jazz/stdlib/Dictionary.jz,Dictionary,dictionaryFilter,filter,"Dictionary(k, v) -> (k -> v -> Bool) -> Dictionary(k, v)"
+jazz/stdlib/Dictionary.jz,Dictionary,dictionaryFoldLeft,foldLeft,"Dictionary(k, v) -> a -> (a -> k -> v -> a) -> a"
+jazz/stdlib/Dictionary.jz,Dictionary,dictionaryFoldRight,foldRight,"Dictionary(k, v) -> a -> (k -> v -> a -> a) -> a"
+jazz/stdlib/Char.jz,Char,charToUInt32,toUInt32,Char -> UInt32
+jazz/stdlib/Char.jz,Char,charFromUInt32,fromUInt32,UInt32 -> Maybe(Char)
+jazz/stdlib/Char.jz,Char,charIsAlpha,isAlpha,Char -> Bool
+jazz/stdlib/Char.jz,Char,charIsAlphaNum,isAlphaNum,Char -> Bool
+jazz/stdlib/Char.jz,Char,charIsDigit,isDigit,Char -> Bool
+jazz/stdlib/Char.jz,Char,charIsSpace,isSpace,Char -> Bool
+jazz/stdlib/Char.jz,Char,charIsHexDigit,isHexDigit,Char -> Bool
+jazz/stdlib/Char.jz,Char,charIsLower,isLower,Char -> Bool
+jazz/stdlib/Char.jz,Char,charIsUpper,isUpper,Char -> Bool
+jazz/stdlib/Char.jz,Char,charToLower,toLower,Char -> Char
+jazz/stdlib/Char.jz,Char,charToUpper,toUpper,Char -> Char
+jazz/stdlib/Char.jz,Char,charIsNewline,isNewline,Char -> Bool
+jazz/stdlib/Text.jz,Text,textEmpty,empty,Text
+jazz/stdlib/Text.jz,Text,textLength,length,Text -> Int
+jazz/stdlib/Text.jz,Text,textIsEmpty,isEmpty,Text -> Bool
+jazz/stdlib/Text.jz,Text,textUncons,uncons,"Text -> Maybe((Char, Text))"
+jazz/stdlib/Text.jz,Text,textAppend,append,Text -> Text -> Text
+jazz/stdlib/Text.jz,Text,textAppendChar,appendChar,Text -> Char -> Text
+jazz/stdlib/Text.jz,Text,textFromChars,fromChars,[Char] -> Text
+jazz/stdlib/Text.jz,Text,textAt,at,Int -> Text -> Maybe(Char)
+jazz/stdlib/Text.jz,Text,textTake,take,Int -> Text -> Text
+jazz/stdlib/Text.jz,Text,textDrop,drop,Int -> Text -> Text
+jazz/stdlib/Text.jz,Text,textSlice,slice,Int -> Int -> Text -> Text
+jazz/stdlib/Text.jz,Text,textToChars,toChars,Text -> [Char]
+jazz/stdlib/Text.jz,Text,textReverse,reverse,Text -> Text
+jazz/stdlib/Text.jz,Text,textRepeat,repeat,Int -> Text -> Text
+jazz/stdlib/Text.jz,Text,textConcat,concat,[Text] -> Text
+jazz/stdlib/Text.jz,Text,textJoin,join,Text -> [Text] -> Text
+jazz/stdlib/Text.jz,Text,textStartsWith,startsWith,Text -> Text -> Bool
+jazz/stdlib/Text.jz,Text,textEndsWith,endsWith,Text -> Text -> Bool
+jazz/stdlib/Text.jz,Text,textContains,contains,Text -> Text -> Bool
+jazz/stdlib/Text.jz,Text,textFind,find,Text -> Text -> Maybe(Int)
+jazz/stdlib/Text.jz,Text,textSplit,split,Text -> Text -> [Text]
+jazz/stdlib/Text.jz,Text,textLines,lines,Text -> [Text]
+jazz/stdlib/Text.jz,Text,textWords,words,Text -> [Text]
+jazz/stdlib/Text.jz,Text,textReplaceAll,replaceAll,Text -> Text -> Text -> Text
+jazz/stdlib/Text.jz,Text,textTrim,trim,Text -> Text
+jazz/stdlib/Text.jz,Text,textTrimStart,trimStart,Text -> Text
+jazz/stdlib/Text.jz,Text,textTrimEnd,trimEnd,Text -> Text
+jazz/stdlib/Text.jz,Text,textPadLeft,padLeft,Int -> Char -> Text -> Text
+jazz/stdlib/Text.jz,Text,textPadRight,padRight,Int -> Char -> Text -> Text

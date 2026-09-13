@@ -39,6 +39,10 @@ only `docs/` and does not publish this directory.
 | [0017](accepted/0017-alias-qualified-classes.md)                  | Alias-qualified classes                  |
 | [0018](accepted/0018-direct-analyzed-runtime-facts.md)            | Direct analyzed runtime facts            |
 
+## Proposed decisions
+
+- [0019: Generic capabilities and library names](proposed/0019-generic-capabilities-and-library-names.md)
+
 ## Process
 
 Open a proposal only for a decision that should outlive its implementation
