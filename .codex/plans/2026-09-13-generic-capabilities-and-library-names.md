@@ -1,10 +1,10 @@
 ---
 id: JN-GENERIC-CAPABILITIES-CORE-001
-status: blocked
+status: ready
 priority: P1
 size: L
 kind: impl
-autonomous_ready: no
+autonomous_ready: yes
 depends_on: []
 plan_section: "Implementation"
 target_paths:
@@ -45,10 +45,10 @@ library functions. Imported modules transport generic instance evidence.
 **Tech stack:** Haskell and Jazz, existing Cabal suites and Python/shell gates,
 the repository-pinned Nix development/quality shells.
 
-**Spec:** [RFC 0019](../../rfcs/proposed/0019-generic-capabilities-and-library-names.md).
-The naming direction and separate Text/Set mapping are approved. This revision
-replaces the earlier requested-output relation. The detailed contract remains
-proposed and is the basis for the simpler plan requested by the maintainer.
+**Spec:** [RFC 0019](../../rfcs/accepted/0019-generic-capabilities-and-library-names.md).
+The revised contract and seven simplifications are approved on 2026-09-13.
+The maintainer explicitly retained the Reduce module and safe seedless helper.
+This accepted future contract is not yet implemented.
 
 ## Global constraints
 
@@ -59,7 +59,8 @@ proposed and is the basis for the simpler plan requested by the maintainer.
   type. Text uses a separate Char-to-Char map; Set uses its existing constrained
   map. Other destinations use explicit conversion functions.
 - Defer functional dependencies, `determines`, associated types, multi-parameter
-  classes, automatic cross-collection mapping, Empty, and new class selectors.
+  classes, automatic cross-collection mapping, Empty, parenthesized application
+  heads, and new class selectors. Keep the explicit-import Reduce module.
 - Keep the single analyzed-core interpreter and nominal class/impl identities.
 - Preserve numeric widths, builtin structural equality semantics, direct-call
   purity rules, host behavior, and permanent rejection of `trait` syntax.
@@ -73,15 +74,13 @@ proposed and is the basis for the simpler plan requested by the maintainer.
 
 ## Promotion and delivery
 
-After RFC acceptance, move it to `rfcs/accepted/`, update the RFC index and
-this link, set this plan to `status: ready` and `autonomous_ready: yes`, and
-promote the matching curation candidate with exactly this ordered target and
-verification list. The first queue child covers Tasks 1-4 as one complete
-compiler deliverable; do not close it at parser-only support.
+RFC 0019 is accepted and this plan is ready. The queue row uses exactly this
+ordered target and verification list. The first queue child covers Tasks 1-4
+as one complete compiler deliverable; do not close it at parser-only support.
 
-Tasks 5-6 are the dependent library migration, child
+Task 5 is the dependent library migration, child
 `JN-GENERIC-CAPABILITIES-LIBRARY-001`. At core closeout, create its ready plan
-from those tasks, naming the concrete stdlib, catalog, and test files. Preserve
+from that task, naming the concrete stdlib, catalog, and test files. Preserve
 the approved scope and continue to that milestone without reopening it for
 permission. The separate child is an integration/verification boundary, not a
 request to leave the rename undone.
@@ -91,20 +90,47 @@ request to leave the rename undone.
 ### Task 1: Kinded applications and generic declaration templates
 
 **Files:** `src/Jazz/Compiler/TypeRepresentation.hs`,
-`SemanticDeclarations.hs`, `AST.hs`, `Parser/AST.hs`, `Parser/Signature.hs`,
+`SemanticDeclarations.hs`, `AST.hs`, `Parser/AST.hs`,
 `Parser/CapabilityDeclaration.hs`, `Parser/Lower.hs`, `SignatureRendering.hs`,
 `TypeInference/Signature.hs`, `TypeInference/Solver.hs`,
-`jazz/compiler/ParserSignature.jz`, `jazz/compiler/ParserDeclaration.jz`, and
+`jazz/compiler/ParserDeclaration.jz`, and
 the canonical/hosted adapters that consume those declarations.
 
-**Interfaces:** Replace the type-name-only head of `TypeApplication` with a
-recursive type head. The shared representation owns `Kind = TypeKind |
-FunctionKind Kind Kind`; inference owns fresh kind variables and substitutions.
-Keep one class parameter in `ClassMethodType`, adding its inferred kind,
-independent method quantifiers, prerequisites, and the method type. One checked
-implementation template carries `ImplId`, quantifiers/kinds, one head target,
-prerequisites, and method identities, replacing the concrete-only
-catalog rather than adding a competing generic catalog.
+**Interfaces:** Keep surface `SignatureType` applications as `TypeApplication
+name [arguments]`. Existing parsing already accepts `f(a)`, `f(a, b)`, and
+`Result(error)`; extend name resolution and kind-aware normalization to give
+them meaning. Defer parenthesized application heads without changing the
+surface AST or hosted type-application encoding.
+
+Use one shared kind tree:
+
+```haskell
+data Kind variable
+  = TypeKind
+  | FunctionKind (Kind variable) (Kind variable)
+  | KindVariable variable
+  deriving stock (Eq, Ord, Show, Functor, Foldable, Traversable, Generic)
+```
+
+Inference uses `Kind KindVariableId`; solved kinds use `Kind Void`. Derive
+traversals for renaming and collecting variables and checking that solving and
+defaulting leave no unresolved variables. Keep substitutions local to kind
+inference; do not introduce a general solver framework or a second kind tree.
+
+Normalize named and variable applications, including partial constructors and
+List, into one semantic application form. Use bidirectional Haskell pattern
+synonyms for existing list/function/named-data views where they simplify current
+callers. Do not store duplicate equivalent forms or add Jazz pattern-synonym
+syntax. Preserve numeric primitives and source-oriented rendering/diagnostics.
+
+Store the class parameter kind once on class declaration metadata. Reuse
+`SemanticScheme` for method quantifiers, prerequisites, and instantiation,
+retaining class/method identities and the class parameter's binding order for
+explicit `Class::method@[Type]`. Do not add a second quantification mechanism
+to `ClassMethodType` or recursively embed a full class environment in each
+method scheme. One checked implementation template carries `ImplId`,
+quantifiers/kinds, one head target, prerequisites, and method identities,
+replacing the concrete-only catalog.
 
 - [ ] In parser/signature and binding suites, add focused source cases:
 
@@ -129,10 +155,14 @@ binding-signature-coherence-spec signature-rendering-spec --jobs=1
 - [ ] Extend parsing/lowering for `@{...}:` declaration contexts and class
       default bodies. Retain the one-parameter class/impl arity checks. Reject
       multi-parameter declarations and dependency clauses in focused syntax tests.
-      Parse arbitrary type applications and normalize them through the existing
-      shared owner; substitutions and renderers must agree on one semantic shape.
-- [ ] Extend hosted declaration/type encodings and complete all exhaustive
-      adapters; retain structural differential checks for the changed syntax.
+      Normalize the existing named-head applications through the shared owner;
+      substitutions and renderers must agree on one semantic shape. Validate
+      implementation contexts as `C(a)` for head-bound variables and superclass
+      contexts as `C(classParameter)`. Keep method-local and use-site constraints
+      governed by ordinary schemes, including compound targets.
+- [ ] Extend hosted declaration encodings for contexts/default bodies and complete
+      their exhaustive adapters; reuse existing type-application encodings and
+      retain structural differential checks for the changed declaration syntax.
       Run the focused suites plus `canonical-parser-comparison-spec`,
       `canonical-core-comparison-spec`, and
       `jazz-parser-types-declarations-modules-spec`. Commit the coherent type and
@@ -181,10 +211,23 @@ driver result APIs.
 - [ ] Run binding/runtime suites and confirm failures concern unsupported new
       semantics, not fixture/import mistakes.
 - [ ] Freshen each instance's variables, unify the entire head against the
-      obligation and solve prerequisites under the
-      strict size/occurrence rules in the RFC. Reject syntactic overlap independently
-      of prerequisites and available runtime values. Check bodies under declared
-      prerequisites; instantiate method-local variables separately on each use.
+      obligation, and solve its variable-only declaration prerequisites. The
+      declaration restrictions provide descent; add no size/occurrence accounting.
+      Reject overlapping heads independently of prerequisites and runtime values.
+      Reject compound/unbound declaration prerequisites, while accepting inferred
+      and use-site compound obligations such as `Same([[Int]])`.
+- [ ] Wrap candidate trials locally in `StateT InferState Maybe`, using existing
+      `transformers` and unification functions. Run every candidate from the same
+      immutable pre-trial state, discard failures, and examine all successes
+      before accepting a unique match. Preserve inference allocation/rollback
+      policies and report diagnostics outside silent trials. Keep unknown generic
+      targets deferred; do not select the first plausible concrete implementation.
+      Cover failed-trial isolation through observable inference/dispatch behavior
+      and reject overlapping heads even when one prerequisite is unavailable.
+- [ ] Check bodies under declared prerequisites. Register method types as ordinary
+      constrained `SemanticScheme` values and reuse `instantiateTypeScheme` in
+      `TypeInference/Instantiation.hs`; instantiate method-local variables freshly
+      per use while preserving the explicit class-parameter binding order.
 - [ ] Pass selected/deferred evidence through analyzed binders and callables.
       Cover stored/partial methods, expected-result methods, empty collections,
       returned closures, and recursive dictionaries. Assert distinguishable results
@@ -209,8 +252,10 @@ supports superclass projection and omitted-method default bodies.
       methods with different results; reject missing methods and superclass cycles.
 - [ ] Run binding/runtime and `purity-semantics-spec` tests to establish the
       new cases' failures.
-- [ ] Publish class methods into the normal local value environment and resolve
-      them before inference. Follow current lexical rules and reject same-scope
+- [ ] Publish class methods with the ordinary schemes from Tasks 1-2 into the
+      normal local value environment and resolve them before inference. Do not
+      add a separate method generalization or value-lookup path. Follow current
+      lexical rules and reject same-scope
       duplicate values. Resolve defaults through the implementation's evidence,
       with supplied methods overriding defaults. Derive superclass evidence from
       its declared graph, never from coincidental same-spelled facts.
@@ -250,9 +295,9 @@ original declaration identities.
       `module-pipeline-contract-spec`.
 - [ ] Complete the core queue child only after Tasks 1-4 work end to end and
       the frontmatter verification commands pass. Publish matching public contract
-      changes, promote the library child from Tasks 5-6, and commit closeout.
+      changes, promote the library child from Task 5, and commit closeout.
 
-### Task 5: Bundled capabilities and separate Text/Set mapping
+### Task 5: Bundled capabilities, final library names, and consumers
 
 **Files:** `jazz/stdlib/Prelude.jz`, `List.jz`, `Queue.jz`, `Maybe.jz`,
 `Result.jz`, `NonEmpty.jz`, `Map.jz`, `Dictionary.jz`, `Set.jz`, `Text.jz`,
@@ -260,12 +305,33 @@ new `jazz/stdlib/Reduce.jz`, `src/Jazz/Compiler/BuiltinCatalog.hs`,
 `PreludeContract.hs`, `Prelude.hs`, `TypeInference/Capabilities.hs`,
 `test/Jazz/Compiler/Stdlib/{LinearCollectionsTests,OrderedCollectionsTests,TextTests,FoundationsTests}.hs`,
 `test/Jazz/Repository/AuditSpec.hs`, and new `docs/standard-library/reduce.md`.
+Also every source/export in `2026-09-13-stdlib-api-renames.csv`,
+`jazz/compiler/`, `test/fixtures/stdlib/`, Haskell-embedded Jazz fixtures,
+`programs/`, `examples/`, `docs/standard-library/`, public examples/signatures,
+`jazz/stdlib/README.md`, `scripts/check-stdlib-api-docs.py`,
+`scripts/test-check-stdlib-api-docs.py`, and affected editor grammar owners.
 
 **Interfaces:** Define the five RFC classes in the Prelude. `Mappable(f)` uses
 `map :: (a -> b) -> f(a) -> f(b)`; `Reducible(f)` uses ordinary `f(a)` folds.
 Collection-owned instances arrive on import through Task 4; list instances
 remain in the Prelude. The public list-only builtin map becomes the class
 method. Add Text map and retain Set's existing map signature/argument order.
+The CSV maps 183 existing exports without changing their argument orders; the
+two class renames and new exports are tracked separately. Migrate a module's
+public names, instances, consumers, and documentation together, using final
+names from the start. Generic Prelude methods remain distinct from specialized
+module values. There is no separate second pass to rename newly added adapters.
+
+- [ ] Reconcile the CSV with live exports before editing. Rename Eq/Ord to
+      Equatable/Comparable with their compiler consumers, fixtures, and public
+      documentation. Update the public builtin map binding and hardcoded class
+      inventories with the Prelude classes/instances. Keep `Default` separate.
+- [ ] Work through modules in dependency order, keeping related modules together
+      when needed for a compiling milestone. For each group, add behavioral
+      fixtures with final names, implement its instances and renames, and update
+      consumers and API docs before committing. Resolve references by module
+      ownership; do not globally replace common names such as map or empty.
+      Use `import List as List` and equivalent qualification to avoid collisions.
 
 - [ ] In module fixtures, use `import Queue as Queue.`, `import Maybe as Maybe.`,
       `import Text as Text.`, and `import Set as Set.` with this helper:
@@ -279,8 +345,6 @@ method. Add Text map and retain Set's existing map signature/argument order.
   unique = Set::map (Set::fromList [1, 2]) (\(value) -> 0).
   ```
 
-  These use final library names; during Task 5 use the existing prefixed Queue
-  and Set construction/mapping names until Task 6 renames their definitions.
   Expect `[True, False]`, a Queue with those values, `Just True`, `"abc"`, and a
   singleton Set. No helper signature or destination-collection annotation is
   required. Add Result error preservation, NonEmpty, and Map/Dictionary key
@@ -297,49 +361,35 @@ method. Add Text map and retain Set's existing map signature/argument order.
 - [ ] Implement ordinary Jazz instances using existing traversals. Add the new
       function-first Text map with type `(Char -> Char) -> Text -> Text` and
       Unicode scalar coverage. Do not create a Mapping module or Empty class.
-      Text implementation may map over `textToChars` and rebuild with
-      `textFromChars`, with the existing linear cost and no new kernel operation.
-- [ ] Rename Eq/Ord to Equatable/Comparable with their compiler consumers and
-      fixtures. Implement the RFC's Reducible and Combinable families and the
-      safe helper in Reduce. Keep `Default` separate and existing empty values.
-      Register Reduce in the authored module/doc inventory. Check mapping
-      identity/composition, FIFO/key order, and empty/NonEmpty behavior.
+      Text implementation may use `toChars`, `Mappable::map`, and `fromChars`,
+      with the existing linear cost and no new kernel operation. Qualify the
+      generic map reference so Text's local `map` does not shadow it.
+- [ ] Implement the RFC's Reducible and Combinable families while migrating their
+      owning modules. Keep existing empty values. Check mapping identity/composition,
+      FIFO/key order, and empty/NonEmpty behavior.
+- [ ] Keep `Reduce.jz` as a small explicit-import module after Maybe is available.
+      Implement `reduce :: @{Reducible(f)}: (a -> a -> a) -> f(a) -> Maybe(a)`
+      once using `foldLeft` with a Maybe accumulator. Nothing takes the first
+      element; Just combines the accumulator with the next element. Do not add
+      intermediate List conversion, a runtime primitive, or another capability.
+      Test empty and singleton inputs plus a non-associative callback that shows
+      left-fold order on List and Queue through one generic helper. Register the
+      module and its documentation in the authored module/API inventories.
 - [ ] Run `stdlib-spec`, `prelude-loading-spec`, `builtin-catalog-spec`,
       `binding-signature-coherence-spec`, `runtime-semantics-spec`, and `loader-spec`.
       Update public capability/stdlib documentation and commit.
 
-### Task 6: Public rename, consumers, and final verification
-
-**Files:** Every source/export named in
-`2026-09-13-stdlib-api-renames.csv`; `jazz/compiler/`,
-`test/fixtures/stdlib/`, Haskell-embedded Jazz fixtures, `programs/`,
-`examples/`, `docs/standard-library/`, public examples and signatures,
-`jazz/stdlib/README.md`, `scripts/check-stdlib-api-docs.py`,
-`scripts/test-check-stdlib-api-docs.py`, and editor grammar owners affected by
-the new contextual syntax.
-
-**Interfaces:** The CSV maps existing exports and preserves their argument
-orders. Generic Prelude methods remain distinct from specialized module values.
-The two class renames are recorded separately in the RFC.
-
-- [ ] Reconcile the CSV with live exports before editing; new exports from Task
-      5 already use final names. First migrate public definitions/signatures and
-      imports, then references by resolved module ownership. Do not perform a blind
-      global replacement of common names such as map, empty, or compare.
-- [ ] Preserve current specialized argument orders; use `import List as List`
-      and equivalent qualified imports to avoid collisions. Existing List mapping
-      keeps its inferred List result without new destination annotations. Update
-      overloaded builtin map handling and all hardcoded public capability-name
-      inventories together with their consumers.
 - [ ] Run `stdlib-spec`, `repository-audit-spec`, the complete retained hosted
       parser/core suites, and the API-doc checker. Assert old public prefix names
       are absent from active exports and consumer code, allowing historical records
       and migration documentation. Add no compiler workaround unless a focused
       source case demonstrates a real required compatibility issue.
 - [ ] Run the complete frontmatter verification commands in pinned shells.
-      Record each command/result and any explicit new waiver. Full-scale parser
-      suites are included by default because grammar changed. No performance claim
-      follows from functional tests.
+      Record each command/result and any explicit new waiver. Also run the four
+      `jazz-parser-scale-full-{expression,declarations,control-flow,operator}-spec`
+      suites with `-ffull-parser-scale --jobs=1 --test-show-details=failures`
+      because declaration grammar changed; they are disabled in the default
+      Cabal configuration. No performance claim follows from functional tests.
 - [ ] Review the full RFC acceptance matrix against observed behavior. Update
       shipped status and public API docs, close the library queue child, refresh
       curation/blocker state, and commit the completed migration.
@@ -363,5 +413,20 @@ queue, docs, and whitespace checks for the design documents themselves.
   parameter too, so Set participates and Text uses character conversion.
 - Retained module change: importing a collection supplies its generic instances,
   including implementations of Prelude-owned classes.
-- The revised RFC remains proposed while this simpler plan is presented.
-  Compiler execution is not claimed by the planning change.
+- Review decisions approved on 2026-09-13, in the original audit order:
+  1. Defer parenthesized application heads; retain the surface application AST
+     and implement constructor variables through semantic normalization (Task 1).
+  2. Restrict implementation/superclass declaration prerequisites to their
+     bound variables instead of general termination accounting (Tasks 1-2).
+  3. Combine capabilities, renames, consumers, and docs per module (Task 5).
+  4. Maintainer correction: retain Reduce and the seedless helper; implement it
+     with one fold and a Maybe accumulator (Task 5).
+  5. Reuse ordinary method schemes and instantiation; store the parameter kind
+     once in class metadata (Tasks 1-3).
+  6. Use one parameterized Kind tree with derived traversals (Task 1).
+  7. Use canonical semantic applications with Haskell pattern-synonym views
+     where useful, without changing Jazz pattern syntax (Task 1).
+  8. Use local `StateT InferState Maybe` candidate trials with isolated state,
+     all-match uniqueness, and independent overlap checks (Task 2).
+- RFC acceptance and ready plan metadata record this approval. Compiler and
+  library implementation are not claimed by the documentation change.

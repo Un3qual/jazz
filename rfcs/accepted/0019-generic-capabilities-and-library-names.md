@@ -1,8 +1,8 @@
 # RFC 0019: Generic capabilities and library names
 
-Status: Proposed
+Status: Accepted
 Date: 2026-09-13
-Supersedes: On acceptance, the concrete-implementation and instance-transport restrictions of RFC 0017; its nominal identities and qualified spellings remain.
+Supersedes: The concrete-implementation and instance-transport restrictions of RFC 0017; its nominal identities and qualified spellings remain.
 
 ## Decision
 
@@ -20,8 +20,11 @@ requested-destination mapping proposal; it does not add functional dependencies,
 `determines` syntax, associated types, multi-parameter classes, or a matrix of
 cross-collection mapping implementations.
 
-The detailed contract remains proposed. Public documentation continues to
-describe shipped behavior until implementation lands. Keep Jazz's evaluation
+The maintainer approved the revised contract and seven implementation
+simplifications on 2026-09-13, explicitly retaining the Reduce module and its
+safe seedless helper. This is an accepted, unimplemented contract delta. Public
+documentation continues to describe shipped behavior until implementation lands.
+Keep Jazz's evaluation
 strategy, numeric widths and promotion rules, purity boundary, and analyzed-core
 interpreter. Automatic deriving, overlapping instances, explicit higher-rank
 types, re-exports, new operator transport, and broader self-hosting/native work
@@ -53,12 +56,14 @@ Infer kinds from declarations and signatures. A complete value type has kind
 `Type -> Type -> Type`; `Result(error)` fixes its first argument. Kinds remain
 implicit in source code.
 
-Allow a variable as an application head: `f(a)` and `f(a, b)`. Applications
-associate to the left: `Result(error, a)` and `(Result(error))(a)` denote the
-same type. `List(a)` and `[a]` denote the same builtin list type. Allow partial
-named type application when the expected kind permits it. Term bindings and
-datatype fields require complete types. Reject kind mismatches, overapplication,
-and infinite kinds. Extend the shared type representation and normalization.
+Allow a variable as an application head: `f(a)` and `f(a, b)`. Retain the
+existing named-head surface grammar; defer parenthesized application heads
+such as `(Result(error))(a)`. Normalize `Result(error, a)` as successive
+applications internally. `List(a)` and `[a]` denote the same builtin list type.
+Allow partial named type application such as `Result(error)` when the expected
+kind permits it. Term bindings and datatype fields require complete types.
+Reject kind mismatches, overapplication, and infinite kinds. Extend semantic
+normalization without replacing the existing surface type-application shape.
 
 A class still has exactly one parameter, whose kind is inferred. Variables in
 a method signature other than that parameter are independently generalized on
@@ -115,10 +120,15 @@ Reject a bare-variable catch-all head. Function targets retain their current
 rejection in this release; named, list, and tuple targets cover the initial
 library families.
 
-For each prerequisite, count type constructors, applications, and variables in
-its argument. Require a strictly smaller total than the instance head and no
-greater occurrence count for any variable. This admits `Equatable(a)` as a
-prerequisite of `Equatable([a])` and rejects non-decreasing instance search.
+Each implementation prerequisite must have the form `C(a)`, where `a` is an
+individual variable bound by the head. Each superclass prerequisite must have
+the form `C(a)`, where `a` is the class parameter. Reject compound declaration
+prerequisites such as `Equatable([a])` and prerequisites with unbound variables.
+Together with constructor-headed instances, these restrictions make instance
+search descend through the target without general size or occurrence counting.
+This restriction applies only to implementation and superclass declarations;
+inferred constraints, use-site constraints such as `Equatable([Int])`, and
+method-local prerequisites continue to use ordinary constrained schemes.
 
 Two visible heads for the same class overlap if their targets unify after
 freshening. Reject overlap independently of prerequisites. A generic list
@@ -203,10 +213,13 @@ for Maybe/Result, map/set key order, and Dictionary's documented entry order.
 Set reduction does not construct a new Set and needs no ordering prerequisite.
 Text uses explicit character conversion for generic reduction.
 
-Retain the proposed safe, no-seed helper in an explicit-import `Reduce` module:
+Provide a safe, no-seed helper in an explicit-import `Reduce` module:
 `reduce :: @{Reducible(f)}: (a -> a -> a) -> f(a) -> Maybe(a)`. It returns
 Nothing for an empty input and otherwise left-folds from the first element.
-Keeping it outside the Prelude avoids a dependency on Maybe.
+Keeping it outside the Prelude avoids a dependency on Maybe. Implement it once
+with `foldLeft` and a Maybe accumulator; do not convert to an intermediate List
+or add a primitive or another class. Its order is the collection's documented
+reduction order. A singleton returns its element without invoking the callback.
 
 Defer the additional `Empty` class. Existing collection-specific empty values
 and the separate `Default` class remain. NonEmpty can implement Combinable
@@ -275,6 +288,31 @@ examples, API inventories, docs, and affected syntax highlighting. Remove old
 public spellings without duplicate compatibility aliases. Historical RFCs
 remain historical. Keep filter, hd, tl, host operations, and purity unchanged.
 
+After the compiler core is complete, migrate each library module's names,
+instances, consumers, and documentation together. New Text and Reduce functions
+use final names immediately; there is no intermediate library batch that adds
+capabilities under old prefixes and then rewrites the same consumers.
+
+## Compiler implementation approach
+
+Keep one parameterized Haskell `Kind variable` tree, with inference variables
+during solving and `Void` after solving/defaulting. Derived traversals handle
+variable operations. Normalize semantic type applications into one form, with
+Haskell pattern synonyms preserving useful list, function, and named-data views
+where needed. This does not add pattern synonyms to Jazz source syntax.
+
+Store each class parameter's kind once in class metadata. Represent method
+polymorphism with ordinary `SemanticScheme` values and reuse their instantiation
+path, preserving nominal method identity and explicit class-parameter binding
+order. Do not create a separate method generalization mechanism.
+
+Use a local `StateT InferState Maybe` adapter for candidate trials. Every trial
+starts from the same state; failures discard trial changes. Inspect all successful
+matches and require a unique instance, retaining declaration overlap checks
+independently of prerequisites. Keep diagnostics outside silent trials and
+defer obligations whose generic targets remain unknown. This requires no
+whole-compiler monad migration or additional dependency.
+
 ## Acceptance evidence
 
 1. One unannotated map helper runs on List, Queue, Maybe, Result, NonEmpty, Map,
@@ -282,7 +320,7 @@ remain historical. Keep filter, hd, tl, host operations, and purity unchanged.
    preserved collection structure. No destination annotations are introduced.
 2. Generic constrained implementations recursively obtain element evidence.
    Missing prerequisites, overlapping heads, escaping variables, bare-variable
-   targets, kind errors, and non-decreasing contexts produce diagnostics.
+   targets, kind errors, and compound declaration prerequisites produce diagnostics.
 3. Stored, partial, higher-order, exported, and result-constrained methods use
    correct evidence, including on empty collections and in returned closures.
 4. Defaults, overrides, missing bodies, superclass evidence, and superclass
@@ -297,8 +335,9 @@ remain historical. Keep filter, hd, tl, host operations, and purity unchanged.
 7. Reducible, safe reduce, and Combinable execute on representative values,
    including empty inputs and NonEmpty. Preserve numeric, purity, and host rules.
 8. All 183 renamed exports and their consumers agree. Existing supported hosted
-   syntax/lowering comparisons are extended for the changed declaration/type
-   syntax; this does not resume the separate hosted semantic compiler project.
+   syntax/lowering comparisons are extended for declaration contexts and default
+   bodies; the surface type-application encoding is retained. This does not
+   resume the separate hosted semantic compiler project.
 
 Run the compiler/stdlib/module suites, retained hosted frontend comparisons,
 examples, quality gates, and repository checks in the implementation plan.
@@ -309,11 +348,11 @@ Previous run-specific full-scale-test waivers do not apply automatically.
 The release gains reusable generic classes with ordinary inference. Separate
 Text/Set functions and explicit conversions keep collection restrictions in
 library signatures. Functional dependencies, associated types, multi-parameter
-classes, automatic cross-collection mapping, the Empty class, and new class
-export selectors are deferred. Generic library instance transport remains
+classes, automatic cross-collection mapping, the Empty class, parenthesized
+application heads, and new class export selectors are deferred. Generic library instance transport remains
 necessary and is retained in the compiler batch.
 
-Implementation follows acceptance of this revised contract under RFC 0001.
+Implementation follows this accepted contract under RFC 0001.
 The execution plan remains internal coordination state and defines no public
 behavior by itself.
 

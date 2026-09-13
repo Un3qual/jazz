@@ -74,18 +74,25 @@ Each blocked item should answer these questions:
   inferred constraints, generic implementations, higher-kinded support, and
   ordinary method values. Generic map preserves its collection constructor;
   Text and Set use separate mapping functions as approved by the maintainer.
-- Smallest unblocker: review the detailed semantic contract in
-  [RFC 0019](../../rfcs/proposed/0019-generic-capabilities-and-library-names.md).
-- Revised contract: one-parameter classes, constructor-preserving mapping, and
-  separate Text/Set operations. Defer functional dependencies, associated types,
+- Smallest unblocker: implement the accepted, unimplemented contract in
+  [RFC 0019](../../rfcs/accepted/0019-generic-capabilities-and-library-names.md)
+  through the ready core child.
+- Accepted contract: one-parameter classes, constructor-preserving mapping,
+  variable-only declaration prerequisites, and separate Text/Set operations.
+  Defer parenthesized application heads, functional dependencies, associated types,
   multi-parameter classes, automatic destination selection, Empty, and new class
-  selectors. Generic library instance transport remains in scope.
-- Recommended default: execute the general core once that contract is accepted,
-  then the dependent library capability and rename migration. Preserve nominal
+  selectors. Generic library instance transport and Reduce remain in scope.
+  The maintainer approved the seven simplifications and explicitly retained
+  Reduce on 2026-09-13. Reuse ordinary schemes, a parameterized kind tree,
+  canonical semantic applications with Haskell pattern-synonym views, and local
+  state-isolated candidate trials as specified in the plan.
+- Recommended default: execute the ready general core, then the dependent
+  library migration, combining instances, names, consumers, and docs per module.
+  Preserve nominal
   identities and the existing analyzed-core interpreter.
-- Candidate child: `JN-GENERIC-CAPABILITIES-CORE-001`.
+- Ready child: `JN-GENERIC-CAPABILITIES-CORE-001`.
 - Active plan: [generic capabilities and library names](../plans/2026-09-13-generic-capabilities-and-library-names.md),
-  Tasks 1-4. Tasks 5-6 specify the dependent library child.
+  Tasks 1-4. Task 5 specifies the dependent library child, including Reduce.
 - Target paths: `src/Jazz/Compiler/TypeRepresentation.hs`,
   `src/Jazz/Compiler/SemanticDeclarations.hs`,
   `src/Jazz/Compiler/Parser/CapabilityDeclaration.hs`,
@@ -98,8 +105,8 @@ Each blocked item should answer these questions:
   `bash scripts/check-examples.sh --jazz-bin "$(cabal list-bin jazz)"`;
   `bash scripts/check-docs.sh`; `bash scripts/check-execution-queue.sh`;
   `git diff --check`.
-- Promotion check: accept RFC 0019 and reconcile its link/frontmatter with the
-  queue. The current plan is blocked and not autonomous-ready.
+- Promotion check: complete. RFC 0019 is accepted; the core plan and queue row
+  are ready with matching targets and verification. No implementation is claimed.
 - Not in scope: an Append-specific workaround, concrete-instance enumeration,
   same-name runtime lookup, mathematical public naming, re-exports, native work,
   broader self-hosting, or performance/profiling work. New syntax receives
@@ -157,11 +164,12 @@ Each blocked item should answer these questions:
 - Retained baseline: ordinary schemes, inferred constraints, numeric defaulting,
   explicit type application, and existing runtime evidence remain complete.
 - Smallest unblocker: the shared
-  [generic-capability contract](../../rfcs/proposed/0019-generic-capabilities-and-library-names.md)
-  review under `JN-ABSTRACTION-SEMANTICS-PLAN-001`.
-- Revised contract: single-parameter classes, inferred constructor kinds, and
-  generic instance prerequisites in RFC 0019. Functional dependencies and
-  associated types are deferred; the simpler plan is being presented.
+  [generic-capability contract](../../rfcs/accepted/0019-generic-capabilities-and-library-names.md)
+  implementation under `JN-ABSTRACTION-SEMANTICS-PLAN-001`.
+- Accepted contract: single-parameter classes, inferred constructor kinds, and
+  variable-only declaration prerequisites in RFC 0019. Reuse ordinary schemes
+  and one parameterized kind tree; retain the surface application encoding.
+  Functional dependencies and associated types are deferred.
 - Recommended default: keep solver and evidence changes in the single
   abstraction-owned core child, followed by the library migration.
 - Candidate child: none independently; use `JN-GENERIC-CAPABILITIES-CORE-001`
