@@ -305,33 +305,20 @@ constrainNumericOperatorType numericConstraint expressionType state =
 
 typeSatisfiesNumericConstraint :: NumericConstraint -> ExpressionType -> Bool
 typeSatisfiesNumericConstraint numericConstraint expressionType =
-  case numericConstraint of
-    AnyNumericConstraint -> anyNumeric
-    RuntimeArithmeticNumericConstraint -> anyNumeric
-    RuntimeComparisonNumericConstraint -> anyNumeric
-    IntegralNumericConstraint -> integralNumeric
-    IntegralLiteralNumericConstraint literalRange ->
-      case expressionType of
-        SemanticInt -> True
-        SemanticNumeric numericType ->
+  case expressionType of
+    SemanticInt -> True
+    SemanticVariable {} -> True
+    SemanticFloat -> acceptsNumericType NumericFloat64
+    SemanticNumeric numericType -> acceptsNumericType numericType
+    _ -> False
+  where
+    acceptsNumericType numericType =
+      case numericConstraint of
+        IntegralNumericConstraint -> numericTypeIsIntegral numericType
+        IntegralLiteralNumericConstraint literalRange ->
           numericTypeIsIntegral numericType
             && integerLiteralRangeFitsNumericType literalRange numericType
-        SemanticVariable {} -> True
-        _ -> False
-  where
-    anyNumeric =
-      case expressionType of
-        SemanticInt -> True
-        SemanticFloat -> True
-        SemanticNumeric {} -> True
-        SemanticVariable {} -> True
-        _ -> False
-    integralNumeric =
-      case expressionType of
-        SemanticInt -> True
-        SemanticNumeric numericType -> numericTypeIsIntegral numericType
-        SemanticVariable {} -> True
-        _ -> False
+        _ -> True
 
 integerLiteralRangeFitsNumericType :: IntegerLiteralRange -> NumericType -> Bool
 integerLiteralRangeFitsNumericType literalRange numericType =

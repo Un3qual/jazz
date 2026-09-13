@@ -30,10 +30,10 @@ import Jazz.Compiler.Name
     qualifiedName,
   )
 import Jazz.Compiler.Parser.AST
-  ( SurfaceExpr (..),
+  ( Literal (..),
+    SurfaceExpr (..),
     SurfaceExprForm (..),
     SurfaceImplMethod (..),
-    SurfaceLiteral (..),
     SurfaceStatement (..),
   )
 import Jazz.Compiler.Parser.Lower
@@ -133,7 +133,7 @@ testParsesModuleDeclaration =
     ( Right
         ( seBlock
             [ SSModule (SourceSpan 1 1) ["App", "Core"] Nothing,
-              SSLet "x" (SourceSpan 2 1) (seLit (SLInt 1))
+              SSLet "x" (SourceSpan 2 1) (seLit (LInt 1))
             ]
         )
     )
@@ -161,7 +161,7 @@ testParsesModuleExportList =
                       ModuleExportSelector Nothing "mapMaybe"
                     ]
                 ),
-              SSLet "mapMaybe" (SourceSpan 2 1) (seLit (SLInt 1))
+              SSLet "mapMaybe" (SourceSpan 2 1) (seLit (LInt 1))
             ]
         )
     )
@@ -190,7 +190,7 @@ testParsesNamespaceAwareModuleExportList =
                       ModuleExportSelector Nothing "legacy"
                     ]
                 ),
-              SSLet "legacy" (SourceSpan 2 1) (seLit (SLInt 1))
+              SSLet "legacy" (SourceSpan 2 1) (seLit (LInt 1))
             ]
         )
     )
@@ -244,7 +244,7 @@ testParsesNamespacePrefixWordsAsBareExports =
                       ModuleExportSelector Nothing "class"
                     ]
                 ),
-              SSLet "answer" (SourceSpan 2 1) (seLit (SLInt 1))
+              SSLet "answer" (SourceSpan 2 1) (seLit (LInt 1))
             ]
         )
     )
@@ -263,7 +263,7 @@ testParsesEmptyModuleExportList =
     ( Right
         ( seBlock
             [ SSModule (SourceSpan 1 1) ["App", "Internal"] (Just []),
-              SSLet "helper" (SourceSpan 2 1) (seLit (SLInt 1))
+              SSLet "helper" (SourceSpan 2 1) (seLit (LInt 1))
             ]
         )
     )
@@ -544,7 +544,7 @@ testParsesConstructorStyleSignatureWhenNotAlias =
     ( Right
         ( seBlock
             [ SSSignature "Result" (SourceSpan 1 1) (SignatureType TypeInt),
-              SSLet "Result" (SourceSpan 2 1) (seLit (SLInt 1))
+              SSLet "Result" (SourceSpan 2 1) (seLit (LInt 1))
             ]
         )
     )
@@ -562,7 +562,7 @@ testParsesCompactSignatureWhenNotAlias =
     ( Right
         ( seBlock
             [ SSSignature "result" (SourceSpan 1 1) (SignatureType TypeInt),
-              SSLet "result" (SourceSpan 2 1) (seLit (SLInt 1))
+              SSLet "result" (SourceSpan 2 1) (seLit (LInt 1))
             ]
         )
     )
@@ -580,7 +580,7 @@ testParsesCompactSignatureBeforeDifferentBindingWhenNotAlias =
     ( Right
         ( seBlock
             [ SSSignature "result" (SourceSpan 1 1) (SignatureType TypeInt),
-              SSLet "other" (SourceSpan 2 1) (seLit (SLInt 1))
+              SSLet "other" (SourceSpan 2 1) (seLit (LInt 1))
             ]
         )
     )
@@ -598,7 +598,7 @@ testParsesConstructorStyleTypeVariableSignatureWhenNotAlias =
     ( Right
         ( seBlock
             [ SSSignature "Result" (SourceSpan 1 1) (SignatureType (TypeVariable "a")),
-              SSLet "Result" (SourceSpan 2 1) (seLit (SLInt 1))
+              SSLet "Result" (SourceSpan 2 1) (seLit (LInt 1))
             ]
         )
     )
@@ -616,7 +616,7 @@ testParsesCompactTypeVariableSignatureBeforeDifferentBindingWhenNotAlias =
     ( Right
         ( seBlock
             [ SSSignature "Result" (SourceSpan 1 1) (SignatureType (TypeVariable "a")),
-              SSLet "other" (SourceSpan 2 1) (seLit (SLInt 1))
+              SSLet "other" (SourceSpan 2 1) (seLit (LInt 1))
             ]
         )
     )
@@ -635,7 +635,7 @@ testParsesSignatureForBindingSharingAliasName =
         ( seBlock
             [ SSImport (SourceSpan 1 1) ["Lib", "Math"] (Just "math") Nothing,
               SSSignature "math" (SourceSpan 2 1) (SignatureType TypeInt),
-              SSLet "math" (SourceSpan 3 1) (seLit (SLInt 1))
+              SSLet "math" (SourceSpan 3 1) (seLit (LInt 1))
             ]
         )
     )
@@ -655,7 +655,7 @@ testParsesLowercaseSignaturePayloadForBindingSharingAliasName =
         ( seBlock
             [ SSImport (SourceSpan 1 1) ["Lib", "Math"] (Just "math") Nothing,
               SSSignature "math" (SourceSpan 2 1) (SignatureType (TypeVariable "a")),
-              SSLet "math" (SourceSpan 3 1) (seLit (SLInt 1))
+              SSLet "math" (SourceSpan 3 1) (seLit (LInt 1))
             ]
         )
     )
@@ -674,7 +674,7 @@ testParsesLowercaseSignaturePayloadWhenNotAlias =
     ( Right
         ( seBlock
             [ SSSignature "result" (SourceSpan 1 1) (SignatureType (TypeVariable "a")),
-              SSLet "result" (SourceSpan 2 1) (seLit (SLInt 1))
+              SSLet "result" (SourceSpan 2 1) (seLit (LInt 1))
             ]
         )
     )
@@ -1083,7 +1083,7 @@ fixtureSpan = SourceSpan 1 1
 seBlock :: [SurfaceStatement] -> SurfaceExpr
 seBlock = SurfaceExpr fixtureSpan . SEBlock
 
-seLit :: SurfaceLiteral -> SurfaceExpr
+seLit :: Literal -> SurfaceExpr
 seLit = SurfaceExpr fixtureSpan . SELit
 
 seQualifiedVar :: Identifier -> Identifier -> SurfaceExpr

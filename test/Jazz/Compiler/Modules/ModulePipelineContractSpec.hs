@@ -211,7 +211,7 @@ tests =
     ("runtime consumes analyzed declarations after source types are erased", testRuntimeUsesAnalyzedDeclarations),
     ("operation facts retain the numeric rule decision across equivalent aliases", testBinaryOperandAliasSelection),
     ("analyzed operations retain operand typing and alias selection", testAnalyzedBinaryOperations),
-    ("analyzed expressions preserve literal-range constraints for backend specialization", testAnalyzedLiteralRangeFacts),
+    ("analyzed expressions preserve literal-range constraints for numeric specialization", testAnalyzedLiteralRangeFacts),
     ("checked subtrees own their facts before finalization", testCheckedSubtreeOwnership),
     ("successful inference attaches complete analyzed facts", testAnalyzedProgramFactsAreComplete),
     ("analyzed methods identify used and unused class parameters", testAnalyzedMethodParameterIdentity),
@@ -472,7 +472,7 @@ testAnalyzedLiteralRangeFacts = do
     Right (ELit (CoreNode _ _ facts) _) -> do
       assertEqual "uncommitted numeric representation" literalType (expressionSemanticType facts)
       assertEqual
-        "backend retains the solver's complete literal range"
+        "analyzed facts retain the solver's complete literal range"
         [AnalyzedIntegralLiteralNumericConstraint 0 255]
         (Map.elems (expressionNumericConstraints facts))
     result -> fail ("literal fact attachment failed: " <> show result)
@@ -687,7 +687,7 @@ testAnalyzedFactInvariantFailures = do
           }
   case finalizeBinding (SchemeTypeBinding scheme) of
     Right (EBlock _ [SLet (CoreNode _ _ facts) _ _]) ->
-      assertEqual "generalized schemes preserve integral literal ranges" True (any schemeHasLiteralRange (Map.elems (statementGeneralizedSchemes facts)))
+      assertEqual "generalized schemes preserve integral literal ranges" True (any (schemeHasLiteralRange . snd) (statementBinding facts))
     result -> fail ("failed to finalize literal-range scheme: " <> show result)
 
 type NodeIdentity = (CoreNodeId, SourceSpan)
@@ -846,7 +846,7 @@ moduleBinderIds = foldMap statementBinderInventory . moduleStatements
           SClass _ _ _ methods -> foldMap (\(ClassMethodSignature node _ _) -> nodeBinders node) methods
           SImpl _ _ _ methods -> foldMap (\(ImplMethod node _ _) -> nodeBinders node) methods
           _ -> []
-    nodeBinders (CoreNode _ _ facts) = statementBinderIds facts
+    nodeBinders (CoreNode _ _ facts) = foldMap (\(binder, _) -> [binder]) (statementBinding facts)
 
 moduleSchemes :: CoreModule 'Analyzed -> [AnalyzedScheme]
 moduleSchemes = foldMap statementSchemes . moduleStatements
@@ -862,7 +862,7 @@ moduleSchemes = foldMap statementSchemes . moduleStatements
           SClass _ _ _ methods -> foldMap (\(ClassMethodSignature node _ _) -> nodeSchemes node) methods
           SImpl _ _ _ methods -> foldMap (\(ImplMethod node _ _) -> nodeSchemes node) methods
           _ -> []
-    nodeSchemes (CoreNode _ _ facts) = Map.elems (statementGeneralizedSchemes facts)
+    nodeSchemes (CoreNode _ _ facts) = foldMap (\(_, scheme) -> [scheme]) (statementBinding facts)
 
 schemeHasLiteralRange :: AnalyzedScheme -> Bool
 schemeHasLiteralRange scheme =
@@ -968,8 +968,9 @@ assertStatementFacts statement = do
   where
     assertBindingStatement expected facts = do
       assertEqual "statement declaration identity" expected (statementDeclarationFact facts)
-      assertEqual "statement owns one binder" 1 (length (statementBinderIds facts))
-      assertEqual "statement binder owns a generalized scheme" (Set.fromList (statementBinderIds facts)) (Map.keysSet (statementGeneralizedSchemes facts))
+      case statementBinding facts of
+        Just (binder, _) -> assertEqual "statement binding agrees with resolution" (Just binder) (resolvedNodeBinder (statementResolution facts))
+        Nothing -> fail "statement is missing its analyzed binding"
     assertConstructorFacts (DataConstructor (CoreNode _ _ facts) name _) = assertBindingStatement (ValueDeclaration name) facts
     assertClassMethodFacts (ClassMethodSignature (CoreNode _ _ facts) name _) =
       case statementDeclarationFact facts of
@@ -1189,7 +1190,7 @@ testExplicitOperatorInstantiationBinder = do
         [ binder
         | SLet (CoreNode _ _ facts) name _ <- moduleStatements (coreModuleExpr coreModule),
           name == operatorBindingName "%%",
-          binder <- statementBinderIds facts
+          Just (binder, _) <- [statementBinding facts]
         ]
       instantiatedBinders =
         [ binder
@@ -1299,7 +1300,7 @@ identityDefinitionBinderIds expression =
     statementIds statement =
       case statement of
         SLet (CoreNode _ _ facts) name value ->
-          [binder | identifierText name == "identity", binder <- statementBinderIds facts]
+          [binder | identifierText name == "identity", Just (binder, _) <- [statementBinding facts]]
             <> identityDefinitionBinderIds value
         SImpl _ _ _ methods -> foldMap (\(ImplMethod _ _ body) -> identityDefinitionBinderIds body) methods
         SExpr _ value -> identityDefinitionBinderIds value
@@ -1315,7 +1316,7 @@ namedLetSchemes expectedName expression =
     statementSchemes statement =
       case statement of
         SLet (CoreNode _ _ facts) name _
-          | identifierText name == expectedName -> Map.elems (statementGeneralizedSchemes facts)
+          | identifierText name == expectedName -> foldMap (\(_, scheme) -> [scheme]) (statementBinding facts)
         _ -> []
 
 testRuntimeModulePublishesDeclaredExports :: IO ()

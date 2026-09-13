@@ -10,7 +10,6 @@ module Jazz.Compiler.ModuleAnalysis
     inferredDiagnostics,
     analyzeResolvedExpression,
     inferExpressionWithInputs,
-    inferExpressionDefault,
     analyzeModule,
     dependencyImportInterface,
     importWholeInterface,
@@ -35,11 +34,7 @@ import Jazz.Compiler.AST
     expressionNode,
   )
 import Jazz.Compiler.Analyzer (AnalysisBinding (..), AnalysisInputs (..), AnalysisResult (..), analyzeProgramWithInputs, analyzeProgramWithInputsAndPreparedScope)
-import Jazz.Compiler.CapabilityFacts
-  ( ConcreteImplFact (..),
-    concreteImplFactCapability,
-  )
-import Jazz.Compiler.CoreIdentity (CapabilityMethodKey, ResolvedReference (LexicalReference), capabilityExportName, capabilityResolvedName, resolvedNodeOwner)
+import Jazz.Compiler.CoreIdentity (ResolvedReference (LexicalReference), capabilityExportName, capabilityResolvedName, resolvedNodeOwner)
 import Jazz.Compiler.Diagnostics (CompilationDiagnostics (..), Diagnostic, diagnosticWarningCategory, isErrorDiagnostic)
 import Jazz.Compiler.ModuleExports
   ( ModuleExportInventory,
@@ -76,7 +71,7 @@ import Jazz.Compiler.Name
     sourceName,
   )
 import Jazz.Compiler.PatternCoverage (PatternCoverageFailure (..), PatternCoverageSite (..), analyzePatternCoverage)
-import Jazz.Compiler.SemanticDeclarations (DeclarationVariable)
+import Jazz.Compiler.SemanticDeclarations (DeclarationVariable, filterScopeCapabilities)
 import Jazz.Compiler.SemanticFacts
   ( SemanticFactInvariantFailure (..),
     StatementDeclarationFact (..),
@@ -103,7 +98,7 @@ import Jazz.Compiler.TypeInference.Types
     TypeEnvKey (..),
     emptyScopeCapabilityFacts,
   )
-import Jazz.Compiler.WarningConfig (WarningSettings, defaultWarningSettings)
+import Jazz.Compiler.WarningConfig (WarningSettings)
 
 -- | Analyze one resolved module against its complete imported interface. The
 -- resolved root supplies source ownership and the caller selects warning policy,
@@ -116,11 +111,11 @@ analyzeModule inputs hideRootBindings importedInterface resolvedModule = do
       (moduleInferenceInputs inputs resolvedModule importedInterface)
       hideRootBindings
       (coreModuleExpr resolvedModule)
-  maybeAnalyzedExpression <- checkedAttachment modulePath attachment
+  maybeAnalyzedExpression <- checkedSemanticFacts modulePath attachment
   maybeAnalyzedModule <-
     traverse
       ( \analyzedExpression ->
-          checkedAnalyzedModule
+          checkedSemanticFacts
             modulePath
             (analyzedModuleFromExpression resolvedModule inference analyzedExpression)
       )
@@ -132,17 +127,10 @@ analyzeModule inputs hideRootBindings importedInterface resolvedModule = do
     _ -> pure ()
   pure (inference, maybeAnalyzedModule)
 
-checkedAttachment :: ModulePath -> Either (NonEmpty.NonEmpty SemanticFactInvariantFailure) (Maybe value) -> IO (Maybe value)
-checkedAttachment modulePath attachment =
-  case attachment of
-    Left failures -> fail ("semantic fact invariant failure in " <> Text.unpack (renderModulePath modulePath) <> ": " <> show failures)
-    Right value -> pure value
-
-checkedAnalyzedModule :: ModulePath -> Either SemanticFactInvariantFailure value -> IO value
-checkedAnalyzedModule modulePath result =
-  case result of
-    Left failure -> fail ("semantic fact invariant failure in " <> Text.unpack (renderModulePath modulePath) <> ": " <> show failure)
-    Right value -> pure value
+checkedSemanticFacts :: (Show failure) => ModulePath -> Either failure value -> IO value
+checkedSemanticFacts modulePath result = case result of
+  Left failure -> fail ("semantic fact invariant failure in " <> Text.unpack (renderModulePath modulePath) <> ": " <> show failure)
+  Right value -> pure value
 
 moduleInferenceInputs :: CompileInputs -> CoreModule 'Resolved -> ImportedInterface -> InferenceInputs
 moduleInferenceInputs inputs resolvedModule importedInterface =
@@ -192,7 +180,7 @@ analyzedImport importDecl =
     { ModuleGraph.moduleImportNode =
         case ModuleGraph.moduleImportNode importDecl of
           CoreNode nodeId spanValue resolution ->
-            CoreNode nodeId spanValue (StatementFacts resolution [] Map.empty (ImportDeclaration (ModuleGraph.importedModule importDecl))),
+            CoreNode nodeId spanValue (StatementFacts resolution Nothing (ImportDeclaration (ModuleGraph.importedModule importDecl))),
       ModuleGraph.importedModule = ModuleGraph.importedModule importDecl,
       ModuleGraph.importExposure = ModuleGraph.importExposure importDecl
     }
@@ -257,7 +245,7 @@ importSelectedInterface origin maybeAlias selectedInventory moduleInterface =
   ImportedInterface
     { importedTypes =
         Map.fromList
-          [ ( TypeEnvKey (LexicalReference binder) (UserName (ResolvedUserName origin (moduleExportNamespace export) (mkIdentifier (moduleExportName export)))),
+          [ ( TypeEnvKey (LexicalReference binder) (importedName export),
               binding
             )
           | (export, ModuleValueBinding binder binding) <- Map.toList selectedValueTypes
@@ -296,36 +284,8 @@ importSelectedInterface origin maybeAlias selectedInventory moduleInterface =
         (interfaceValueBindings moduleInterface)
     selectedClassNames = exportNamesInNamespace CapabilityNamespace selectedInventory
     capabilities = interfaceCapabilities moduleInterface
-    selectedClassFacts =
-      Map.filterWithKey
-        (\capability _ -> Set.member (capabilityExportName capability) selectedClassNames)
-        (scopeClassFacts capabilities)
     selectedCapabilities =
-      capabilities
-        { scopeClassFacts = selectedClassFacts,
-          scopeGeneratedEqualityClassFacts =
-            Set.filter
-              (\capability -> Set.member (capabilityExportName capability) selectedClassNames)
-              (scopeGeneratedEqualityClassFacts capabilities),
-          scopeConcreteImplFacts =
-            Set.filter (factUsesClass selectedClassNames) (scopeConcreteImplFacts capabilities),
-          scopeClassMethodSignatures =
-            Map.filterWithKey (methodUsesClass selectedClassNames) (scopeClassMethodSignatures capabilities),
-          scopeConcreteImplMethods =
-            Map.filterWithKey (methodUsesClass selectedClassNames) (scopeConcreteImplMethods capabilities)
-        }
-
-factUsesClass :: Set.Set Text -> ConcreteImplFact -> Bool
-factUsesClass classNames fact = Set.member (capabilityExportName (concreteImplFactCapability fact)) classNames
-
-methodUsesClass :: Set.Set Text -> CapabilityMethodKey -> value -> Bool
-methodUsesClass classNames methodKey _ =
-  Set.member (capabilityExportName (fst methodKey)) classNames
-
-data InferenceRequest = InferenceRequest
-  { requestedInferenceInputs :: InferenceInputs,
-    requestedHideRootBindings :: Bool
-  }
+      filterScopeCapabilities ((`Set.member` selectedClassNames) . capabilityExportName) capabilities
 
 analyzeResolvedExpression ::
   WarningSettings ->
@@ -339,21 +299,13 @@ analyzeResolvedExpression ::
 analyzeResolvedExpression settings = analyzeExpressionWithInputs (emptyInferenceInputs settings) False
 
 inferExpressionWithInputs :: InferenceInputs -> Expr 'Resolved -> IO InferenceResult
-inferExpressionWithInputs inputs =
-  inferExpressionWithRequest
-    InferenceRequest
-      { requestedInferenceInputs = inputs,
-        requestedHideRootBindings = False
-      }
+inferExpressionWithInputs inputs expr =
+  (\(result, _, _) -> result) <$> inferExpressionWithState inputs False expr
 
-inferExpressionWithRequest :: InferenceRequest -> Expr 'Resolved -> IO InferenceResult
-inferExpressionWithRequest request expr = (\(result, _, _) -> result) <$> inferExpressionWithRequestAndState request expr
-
-inferExpressionWithRequestAndState :: InferenceRequest -> Expr 'Resolved -> IO (InferenceResult, InferState, CheckedExpr)
-inferExpressionWithRequestAndState request expr =
+inferExpressionWithState :: InferenceInputs -> Bool -> Expr 'Resolved -> IO (InferenceResult, InferState, CheckedExpr)
+inferExpressionWithState inputs hideRootBindings expr =
   {-# SCC "jazz-stage:type-inference" #-}
-  let inputs = requestedInferenceInputs request
-      (inferredResult, finalState, inferenceSubject) =
+  let (inferredResult, finalState, inferenceSubject) =
         inferExpressionWork
           inputs
           expr
@@ -365,7 +317,7 @@ inferExpressionWithRequestAndState request expr =
             inference <-
               finishInference
                 inputs
-                (requestedHideRootBindings request)
+                hideRootBindings
                 inferenceSubject
                 (checkedExprType inferredResult)
                 finalizedInference
@@ -383,12 +335,7 @@ analyzeExpressionWithInputs ::
     )
 analyzeExpressionWithInputs inputs hideRootBindings expression = do
   (inference, finalState, checked) <-
-    inferExpressionWithRequestAndState
-      InferenceRequest
-        { requestedInferenceInputs = inputs,
-          requestedHideRootBindings = hideRootBindings
-        }
-      expression
+    inferExpressionWithState inputs hideRootBindings expression
   if any isErrorDiagnostic (inferredDiagnostics inference)
     then pure (inference, Right Nothing)
     else
@@ -431,7 +378,13 @@ finishInference inputs hideRootBindings subject inferredResult finalizedInferenc
           hideRootBindings
           expr
   let (warnings, analysisErrors) = partition (isJust . diagnosticWarningCategory) analyzerDiagnostics
-      diagnostics = CompilationDiagnostics warnings analysisErrors (finalizedTypeErrors finalizedInference) (finalizedPatternCoverageDiagnostics finalizedInference)
+      diagnostics =
+        CompilationDiagnostics
+          { compilationWarnings = warnings,
+            compilationAnalysisErrors = analysisErrors,
+            compilationTypeErrors = finalizedTypeErrors finalizedInference,
+            compilationCoverageErrors = finalizedPatternCoverageDiagnostics finalizedInference
+          }
   expression `seq`
     inferredResult `seq`
       pure
@@ -512,11 +465,3 @@ analysisInputsForInference inputs =
           (Set.map (resolvedAmbientName CapabilityNamespace . mkIdentifier) (inferenceImportedClassNames inputs))
           (Set.map capabilityResolvedName (Map.keysSet (scopeClassFacts (inferenceImportedCapabilities inputs))))
     }
-
-inferExpressionDefault :: Expr 'Resolved -> IO InferenceResult
-inferExpressionDefault =
-  inferExpressionWithRequest
-    InferenceRequest
-      { requestedInferenceInputs = emptyInferenceInputs defaultWarningSettings,
-        requestedHideRootBindings = False
-      }

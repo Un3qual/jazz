@@ -26,11 +26,11 @@ import Jazz.Compiler.Name
     mkIdentifier,
   )
 import Jazz.Compiler.Parser.AST
-  ( SurfaceCaseArm (..),
+  ( Literal (..),
+    SurfaceCaseArm (..),
     SurfaceExpr (..),
     SurfaceExprForm (..),
     SurfaceLambdaParameter (..),
-    SurfaceLiteral (..),
     SurfaceNumericType,
     SurfacePattern (..),
     SurfacePatternForm (..),
@@ -100,7 +100,8 @@ parseExprWithMinPrecedenceUntil parseBlock context stop minPrecedence = do
   parseInfixTailWithUntil
     context
     stop
-    (parseExprWithMinPrecedenceUntil parseBlock context)
+    (const neverStop)
+    (\rhsStop _ -> parseExprWithMinPrecedenceUntil parseBlock context rhsStop)
     minPrecedence
     (maybe (surfaceExprSpan leftExpr) tokenSpan maybeStartToken)
     leftExpr
@@ -190,14 +191,15 @@ startsPrimaryExpr token =
 parseInfixTailWithUntil ::
   ParserContext ->
   Stop ->
-  (Stop -> Int -> Parser SurfaceExpr) ->
+  (SurfaceExpr -> Stop) ->
+  (Stop -> Text -> Int -> Parser SurfaceExpr) ->
   Int ->
   SourceSpan ->
   SurfaceExpr ->
   Parser SurfaceExpr
-parseInfixTailWithUntil context stop parseRhs minPrecedence expressionSpan leftExpr = do
+parseInfixTailWithUntil context stop boundary parseRhs minPrecedence expressionSpan leftExpr = do
   tokens <- MP.getInput
-  if stop tokens
+  if stop tokens || boundary leftExpr tokens
     then pure leftExpr
     else case tokens of
       operatorToken@Token {tokenKind = TOperator symbol} :< tokensAfterOperator
@@ -217,11 +219,12 @@ parseInfixTailWithUntil context stop parseRhs minPrecedence expressionSpan leftE
                             (parserDeclaredOperators context)
                             operatorInfo
                             stop
-                    (rightSpan, rightExpr) <- parseRangedExpr (parseRhs rhsStop (operatorNextMinPrecedence operatorInfo))
+                    (rightSpan, rightExpr) <- parseRangedExpr (parseRhs rhsStop symbol (operatorNextMinPrecedence operatorInfo))
                     rejectNonAssociativeContinuation context operatorInfo operatorToken
                     parseInfixTailWithUntil
                       context
                       stop
+                      boundary
                       parseRhs
                       minPrecedence
                       expressionSpan
@@ -287,16 +290,16 @@ parsePrimaryExpr parseBlock context stop = withConsumedSpan locateExprRange $ do
       void parseAnyToken
       case tokenKind token of
         TInt value -> do
-          literal <- parseNumericSurfaceLiteral token value
+          literal <- parseNumericLiteral token value
           pure (locatedExpr token (SELit literal))
         TChar value ->
-          pure (locatedExpr token (SELit (SLChar value)))
+          pure (locatedExpr token (SELit (LChar value)))
         TText value ->
-          pure (locatedExpr token (SELit (SLText value)))
+          pure (locatedExpr token (SELit (LText value)))
         TIdentifier "True" ->
-          pure (locatedExpr token (SELit (SLBool True)))
+          pure (locatedExpr token (SELit (LBool True)))
         TIdentifier "False" ->
-          pure (locatedExpr token (SELit (SLBool False)))
+          pure (locatedExpr token (SELit (LBool False)))
         TIdentifier name ->
           parseIdentifierExpr token name
         TIf ->
@@ -406,8 +409,8 @@ parseQualifiedIdentifierExpr identifierToken qualifierName memberToken memberNam
             (SEQualifiedVar (mkIdentifier qualifierName) (mkIdentifier memberName))
         )
 
-parseNumericSurfaceLiteral :: Token -> Integer -> Parser SurfaceLiteral
-parseNumericSurfaceLiteral wholeToken wholeValue = do
+parseNumericLiteral :: Token -> Integer -> Parser Literal
+parseNumericLiteral wholeToken wholeValue = do
   tokens <- MP.getInput
   case tokens of
     dotToken@Token {tokenKind = TDot} :< fractionalToken@Token {tokenKind = TInt fractionalValue} :< _
@@ -429,9 +432,9 @@ parseNumericSurfaceLiteral wholeToken wholeValue = do
               (parseFloatLiteral literalText)
           if fractionalLiteralExceedsMagnitude literalSource float64MaxFinite
             then failTokenParserAt (tokenSpan wholeToken) (InvalidFractionalLiteral literalText)
-            else pure (SLFloat floatValue literalSource maybeTargetType)
+            else pure (LFloat floatValue literalSource maybeTargetType)
     _ ->
-      pure (SLInt wholeValue)
+      pure (LInt wholeValue)
 
 parseFractionalLiteralSuffix :: Token -> Parser (Maybe SurfaceNumericType)
 parseFractionalLiteralSuffix fractionalToken = do
@@ -690,11 +693,11 @@ parseCaseArmGuard parseBlock context rhsStop parentOperator minPrecedence = do
           parseBlock
           context
           (stopsBeforeCaseGuardTerminatorOr rhsStop)
-      parseCaseGuardInfixTail
-        parseBlock
+      parseInfixTailWithUntil
         context
         rhsStop
-        parentOperator
+        (caseInfixBoundary stopsBeforeCaseGuardTerminator (caseGuardPipeStartsBoundary context parentOperator minPrecedence))
+        (\nextStop symbol -> parseCaseArmGuard parseBlock context nextStop (Just symbol))
         minPrecedence
         (maybe (surfaceExprSpan leftExpr) tokenSpan maybeStartToken)
         leftExpr
@@ -713,114 +716,24 @@ parseCaseArmBodyExpr parseBlock context rhsStop parentOperator minPrecedence = d
       parseBlock
       context
       (stopsBeforeCaseArmBoundaryOr rhsStop)
-  parseCaseArmBodyInfixTail
-    parseBlock
+  parseInfixTailWithUntil
     context
     rhsStop
-    parentOperator
+    (caseInfixBoundary stopsBeforeCaseArmTerminator (caseArmPipeStartsBoundary context parentOperator minPrecedence))
+    (\nextStop symbol -> parseCaseArmBodyExpr parseBlock context nextStop (Just symbol))
     minPrecedence
     (maybe (surfaceExprSpan leftExpr) tokenSpan maybeStartToken)
     leftExpr
 
-parseCaseArmBodyInfixTail ::
-  StatementBlockParser ->
-  ParserContext ->
-  Stop ->
-  Maybe Text ->
-  Int ->
-  SourceSpan ->
-  SurfaceExpr ->
-  Parser SurfaceExpr
-parseCaseArmBodyInfixTail parseBlock context rhsStop parentOperator minPrecedence expressionSpan leftExpr = do
-  tokens <- MP.getInput
-  if stopsBeforeCaseArmTerminator tokens || rhsStop tokens
-    then pure leftExpr
-    else case tokens of
-      operatorToken@Token {tokenKind = TOperator symbol} :< tokensAfterOperator
-        | startsRightParen tokensAfterOperator -> pure leftExpr
-        | symbol == "|",
-          caseArmPipeStartsBoundary context parentOperator minPrecedence leftExpr tokensAfterOperator ->
-            pure leftExpr
-        | otherwise ->
-            case lookupOperatorInfoIn (parserDeclaredOperators context) symbol of
-              Nothing -> failUndeclaredOperator operatorToken symbol
-              Just operatorInfo
-                | operatorPrecedence operatorInfo < minPrecedence -> pure leftExpr
-                | otherwise -> do
-                    void parseAnyToken
-                    let nextStop =
-                          samePrecedenceNonAssociativeRhsStop
-                            (parserDeclaredOperators context)
-                            operatorInfo
-                            rhsStop
-                    (rightSpan, rightExpr) <-
-                      parseRangedExpr $
-                        parseCaseArmBodyExpr
-                          parseBlock
-                          context
-                          nextStop
-                          (Just symbol)
-                          (operatorNextMinPrecedence operatorInfo)
-                    rejectNonAssociativeContinuation context operatorInfo operatorToken
-                    parseCaseArmBodyInfixTail
-                      parseBlock
-                      context
-                      rhsStop
-                      parentOperator
-                      minPrecedence
-                      expressionSpan
-                      (SurfaceExpr (spanThrough expressionSpan rightSpan) (SEBinary symbol leftExpr rightExpr))
-      _ -> pure leftExpr
-
-parseCaseGuardInfixTail ::
-  StatementBlockParser ->
-  ParserContext ->
-  Stop ->
-  Maybe Text ->
-  Int ->
-  SourceSpan ->
-  SurfaceExpr ->
-  Parser SurfaceExpr
-parseCaseGuardInfixTail parseBlock context rhsStop parentOperator minPrecedence expressionSpan leftExpr = do
-  tokens <- MP.getInput
-  if stopsBeforeCaseGuardTerminator tokens || rhsStop tokens
-    then pure leftExpr
-    else case tokens of
-      operatorToken@Token {tokenKind = TOperator symbol} :< tokensAfterOperator
-        | startsRightParen tokensAfterOperator -> pure leftExpr
-        | symbol == "|",
-          caseGuardPipeStartsBoundary context parentOperator minPrecedence leftExpr tokensAfterOperator ->
-            pure leftExpr
-        | otherwise ->
-            case lookupOperatorInfoIn (parserDeclaredOperators context) symbol of
-              Nothing -> failUndeclaredOperator operatorToken symbol
-              Just operatorInfo
-                | operatorPrecedence operatorInfo < minPrecedence -> pure leftExpr
-                | otherwise -> do
-                    void parseAnyToken
-                    let nextStop =
-                          samePrecedenceNonAssociativeRhsStop
-                            (parserDeclaredOperators context)
-                            operatorInfo
-                            rhsStop
-                    (rightSpan, rightExpr) <-
-                      parseRangedExpr $
-                        parseCaseArmGuard
-                          parseBlock
-                          context
-                          nextStop
-                          (Just symbol)
-                          (operatorNextMinPrecedence operatorInfo)
-                    rejectNonAssociativeContinuation context operatorInfo operatorToken
-                    parseCaseGuardInfixTail
-                      parseBlock
-                      context
-                      rhsStop
-                      parentOperator
-                      minPrecedence
-                      expressionSpan
-                      (SurfaceExpr (spanThrough expressionSpan rightSpan) (SEBinary symbol leftExpr rightExpr))
-      _ -> pure leftExpr
+-- Case boundaries depend on the expression accumulated before a pipe. Keep
+-- them local to each infix level; only the inherited RHS stop is propagated.
+caseInfixBoundary :: Stop -> (SurfaceExpr -> TokenStream -> Bool) -> SurfaceExpr -> Stop
+caseInfixBoundary terminator pipeBoundary leftExpr tokens =
+  terminator tokens
+    || case tokens of
+      Token {tokenKind = TOperator "|"} :< rest ->
+        not (startsRightParen rest) && pipeBoundary leftExpr rest
+      _ -> False
 
 stopsBeforeCaseArmTerminator :: Stop
 stopsBeforeCaseArmTerminator tokens =

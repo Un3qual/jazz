@@ -1,5 +1,6 @@
 module ParserSignature (
   value parseSignaturePayload,
+  value parseSignaturePayloadDetailed,
   value parseSignatureType,
   value parseSignatureTypes
 ) {
@@ -14,6 +15,7 @@ module ParserSignature (
     AtPunctuation,
     ColonPunctuation,
     DoubleColonPunctuation,
+    DotPunctuation,
     LeftBracePunctuation,
     RightBracePunctuation,
     LeftParenPunctuation,
@@ -29,6 +31,7 @@ module ParserSignature (
     TokenParseSucceeded,
     canonicalTokenKind,
     canonicalTokenLexeme,
+    canonicalTokenSpan,
     tokensAreAdjacent,
     tokenSucceed,
     tokenTransform,
@@ -79,8 +82,17 @@ module ParserSignature (
               (tokenPunctuation DoubleColonPunctuation)
               (tokenAndThen
                 (\(memberToken) -> case canonicalTokenKind memberToken {
-                  | IdentifierKind member -> tokenSucceed
-                    (memberToken, textAppend (textAppend qualifier "::") member)
+                  | IdentifierKind member -> {
+                    adjacent = if tokensAreAdjacent firstToken separatorToken then
+                      tokensAreAdjacent separatorToken memberToken else False.
+                    if adjacent then tokenSucceed
+                      (memberToken, textAppend (textAppend qualifier "::") member)
+                      else tokenFailAt
+                        (Just (canonicalTokenSpan separatorToken))
+                        (ExpectedSyntax
+                          "adjacent qualified type name"
+                          (FoundToken (canonicalTokenKind separatorToken) (canonicalTokenLexeme separatorToken))).
+                  }
                   | other -> tokenFailCurrent
                     (\(encountered) -> ExpectedSyntax "identifier" encountered)
                 })
@@ -401,4 +413,77 @@ module ParserSignature (
     | TokenParseSucceeded payload -> payload
     | other -> UnsupportedSignature (listMap signatureToken tokens)
   }.
+
+  invalidConstraintHead :: CanonicalToken -> Text -> TokenParser(()).
+  invalidConstraintHead = \(token, expected) -> tokenFailAt
+    (Just (canonicalTokenSpan token))
+    (ExpectedSyntax expected (FoundToken (canonicalTokenKind token) (canonicalTokenLexeme token))).
+
+  scanConstraintBlockHeads :: Int -> [CanonicalToken] -> TokenParser(()).
+  scanConstraintBlockHeads = \(depth, tokens) -> case tokens {
+    | [] -> tokenSucceed ()
+    | [token | rest] -> case canonicalTokenKind token {
+      | PunctuationKind DotPunctuation -> tokenSucceed ()
+      | PunctuationKind LeftParenPunctuation -> scanConstraintBlockHeads (depth + 1) rest
+      | PunctuationKind LeftBracketPunctuation -> scanConstraintBlockHeads (depth + 1) rest
+      | PunctuationKind RightParenPunctuation -> scanConstraintBlockHeads (if depth > 0 then depth - 1 else 0) rest
+      | PunctuationKind RightBracketPunctuation -> scanConstraintBlockHeads (if depth > 0 then depth - 1 else 0) rest
+      | PunctuationKind CommaPunctuation -> if depth == 0 then validateConstraintBlockHead 0 rest
+        else scanConstraintBlockHeads depth rest
+      | PunctuationKind RightBracePunctuation -> if depth == 0 then tokenSucceed ()
+        else scanConstraintBlockHeads depth rest
+      | other -> scanConstraintBlockHeads depth rest
+    }
+  }.
+
+  validateQualifiedConstraintHead :: Int -> CanonicalToken -> CanonicalToken -> CanonicalToken -> [CanonicalToken] -> TokenParser(()).
+  validateQualifiedConstraintHead = \(depth, alias, separator, member, rest) -> tokenKeepRight
+    (case canonicalTokenKind alias {
+      | IdentifierKind name -> tokenSucceed ()
+      | other -> invalidConstraintHead alias "alias before '::'"
+    })
+    (tokenKeepRight
+      (if (if tokensAreAdjacent alias separator then tokensAreAdjacent separator member else False) then
+        tokenSucceed () else invalidConstraintHead separator "adjacent alias-qualified class name")
+      (tokenKeepRight
+        (case canonicalTokenKind member {
+          | IdentifierKind name -> tokenSucceed ()
+          | other -> invalidConstraintHead member "class name after '::'"
+        })
+        (case rest {
+          | [extra | after] -> case canonicalTokenKind extra {
+            | PunctuationKind DoubleColonPunctuation -> invalidConstraintHead extra "two-component class name"
+            | other -> scanConstraintBlockHeads depth rest
+          }
+          | [] -> tokenSucceed ()
+        }))).
+
+  validateConstraintBlockHead :: Int -> [CanonicalToken] -> TokenParser(()).
+  validateConstraintBlockHead = \(depth, tokens) -> case tokens {
+    | [first | rest] -> case canonicalTokenKind first {
+      | PunctuationKind LeftParenPunctuation -> validateConstraintBlockHead (depth + 1) rest
+      | PunctuationKind DoubleColonPunctuation -> invalidConstraintHead first "alias before '::'"
+      | other -> case rest {
+        | [separator | [member | after]] -> case canonicalTokenKind separator {
+          | PunctuationKind DoubleColonPunctuation -> validateQualifiedConstraintHead depth first separator member after
+          | other -> scanConstraintBlockHeads depth tokens
+        }
+        | other -> scanConstraintBlockHeads depth tokens
+      }
+    }
+    | [] -> tokenSucceed ()
+  }.
+
+  # Malformed qualified constraint heads fail validation; other unsupported
+  # payloads, including type arguments, retain their token representation.
+  parseSignaturePayloadDetailed :: [CanonicalToken] -> TokenParser(SurfaceSignaturePayload).
+  parseSignaturePayloadDetailed = \(tokens) -> tokenKeepRight
+    (case tokens {
+      | [first | [second | rest]] -> case (canonicalTokenKind first, canonicalTokenKind second) {
+        | (PunctuationKind AtPunctuation, PunctuationKind LeftBracePunctuation) -> validateConstraintBlockHead 0 rest
+        | other -> tokenSucceed ()
+      }
+      | other -> tokenSucceed ()
+    })
+    (tokenSucceed (parseSignaturePayload tokens)).
 }

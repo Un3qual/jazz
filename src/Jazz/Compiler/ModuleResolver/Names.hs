@@ -56,6 +56,7 @@ import Jazz.Compiler.ModuleExports
     exportInventory,
     exportNamesInNamespace,
     firstExportNamespace,
+    inventoryHasExport,
     selectExportNames,
   )
 import Jazz.Compiler.ModuleIdentity (SourceUnitOwner (..), mkModulePath, standaloneModulePath)
@@ -119,12 +120,8 @@ resolveExprNames context rootExpression = publishResolvedCaptures (resolveLexica
     inventoriesByModule = importScopeInventories importScope
     ambientValues = exportNamesInNamespace ValueNamespace ambientExports
     ambientConstructors = exportNamesInNamespace ConstructorNamespace ambientExports
-    ambientTypes = exportNamesInNamespace TypeNamespace ambientExports
-    ambientClasses = exportNamesInNamespace CapabilityNamespace ambientExports
     localValues = exportNamesInNamespace ValueNamespace localInventory
-    localDataTypes = exportNamesInNamespace TypeNamespace localInventory
     localConstructors = exportNamesInNamespace ConstructorNamespace localInventory
-    localClasses = exportNamesInNamespace CapabilityNamespace localInventory
 
     aliasPaths = Map.map bindingOriginModulePath (importScopeAliases importScope)
     visibleValueOrigins = importedNameOrigins ValueNamespace importScope
@@ -193,11 +190,7 @@ resolveExprNames context rootExpression = publishResolvedCaptures (resolveLexica
         nameText = identifierText identifier
 
     localName namespace nameText =
-      case namespace of
-        ValueNamespace -> Set.member nameText localValues
-        ConstructorNamespace -> Set.member nameText localConstructors
-        CapabilityNamespace -> Set.member nameText localClasses
-        TypeNamespace -> Set.member nameText localDataTypes
+      inventoryHasExport (ModuleExport namespace nameText) localInventory
 
     importedOrigin namespace nameText =
       case namespace of
@@ -221,16 +214,12 @@ resolveExprNames context rootExpression = publishResolvedCaptures (resolveLexica
           Map.findWithDefault (exportInventory []) dependencyPath inventoriesByModule
 
     ambientName namespace nameText =
-      case namespace of
-        ValueNamespace -> Set.member nameText ambientValues
-        ConstructorNamespace -> Set.member nameText ambientConstructors
-        TypeNamespace -> Set.member nameText ambientTypes
-        CapabilityNamespace -> Set.member nameText ambientClasses
+      inventoryHasExport (ModuleExport namespace nameText) ambientExports
 
     classOrigin className
-      | Set.member className localClasses = CurrentModule
+      | localName CapabilityNamespace className = CurrentModule
       | Just dependencyPath <- Map.lookup className visibleClassOrigins = ImportedModule dependencyPath
-      | Set.member className ambientClasses = AmbientPrelude
+      | ambientName CapabilityNamespace className = AmbientPrelude
       | otherwise = CurrentModule
 
     resolveExpr owner boundValues expression =
@@ -240,7 +229,7 @@ resolveExprNames context rootExpression = publishResolvedCaptures (resolveLexica
           let targetName = resolveName boundValues (referenceNamespace boundValues name) name
            in EVar (resolveReferenceNode owner targetName node) targetName
         ELambda node parameter body ->
-          let lambdaBoundValues = maybe boundValues (\name -> Map.insert name ValueNamespace boundValues) (sourceNameText parameter)
+          let lambdaBoundValues = insertVisibleName ValueNamespace parameter boundValues
            in ELambda (resolveBinderNode owner node) (resolveBinder ValueNamespace parameter) (resolveExpr owner lambdaBoundValues body)
         EOperatorValue node symbol -> EVar (resolveOperatorNode owner boundValues symbol node) (operatorBindingName symbol)
         EList node items -> EList (resolveNode owner node) (map (resolveExpr owner boundValues) items)
@@ -457,12 +446,7 @@ resolveExprNames context rootExpression = publishResolvedCaptures (resolveLexica
       case name of
         UserName (UnqualifiedSourceName identifier) ->
           UserName (ResolvedUserName CurrentModule namespace identifier)
-        UserName (QualifiedSourceName qualifier member) ->
-          resolveName Map.empty namespace (UserName (QualifiedSourceName qualifier member))
-        UserName qualified@QualifiedMethodSourceName {} ->
-          resolveName Map.empty namespace (UserName qualified)
-        BuiltinName identifier -> BuiltinName identifier
-        GeneratedName generatedKind -> GeneratedName generatedKind
+        _ -> resolveName Map.empty namespace name
 
     resolveCaseArm owner boundValues (CaseArm node patternValue guard body) =
       let armBoundValues = Map.union (patternBindings patternValue) boundValues
@@ -497,10 +481,20 @@ resolveExprNames context rootExpression = publishResolvedCaptures (resolveLexica
         SData node name parameters constructors ->
           SData (resolveNode owner node) (resolveDeclarationOwner owner (resolveBinder TypeNamespace name)) (map (resolveBinder TypeNamespace) parameters) (map (resolveDataConstructor owner) constructors)
         SClass node name parameters methods ->
-          SClass (resolveNode owner node) (resolveDeclarationOwner owner (resolveBinder CapabilityNamespace name)) (map (resolveBinder TypeNamespace) parameters) (map (resolveClassMethod owner (resolveDeclarationOwner owner (resolveBinder CapabilityNamespace name))) methods)
+          let capability = resolveDeclarationOwner owner (resolveBinder CapabilityNamespace name)
+           in SClass
+                (resolveNode owner node)
+                capability
+                (map (resolveBinder TypeNamespace) parameters)
+                (map (resolveClassMethod owner capability) methods)
         SImpl node name arguments methods ->
-          let methodBindings = foldl' (\acc (ImplMethod _ methodName _) -> insertVisibleName ValueNamespace methodName acc) boundValues methods
-           in SImpl (resolveNode owner node) (resolveDeclarationReference owner (resolveName Map.empty CapabilityNamespace name)) (map (resolveSignatureType owner) arguments) (map (resolveImplMethod owner methodBindings (resolveDeclarationReference owner (resolveName Map.empty CapabilityNamespace name))) methods)
+          let capability = resolveDeclarationReference owner (resolveName Map.empty CapabilityNamespace name)
+              methodBindings = foldl' (\acc (ImplMethod _ methodName _) -> insertVisibleName ValueNamespace methodName acc) boundValues methods
+           in SImpl
+                (resolveNode owner node)
+                capability
+                (map (resolveSignatureType owner) arguments)
+                (map (resolveImplMethod owner methodBindings capability) methods)
         SModule node path -> SModule (resolveNode owner node) path
         SImport node path alias symbols ->
           let target = mkModulePath <$> NonEmpty.nonEmpty (map mkIdentifier path)

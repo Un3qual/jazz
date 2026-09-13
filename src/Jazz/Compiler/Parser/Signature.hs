@@ -99,6 +99,7 @@ validateConstraintBlockHeads :: [Token] -> Either ParserFailure ()
 validateConstraintBlockHeads = validateHead 0
   where
     validateHead depth (Token {tokenKind = TLParen} : rest) = validateHead (depth + 1) rest
+    validateHead _ (colon@Token {tokenKind = TColonColon} : _) = invalid colon "alias before '::'"
     validateHead depth (alias : colon@Token {tokenKind = TColonColon} : member : rest) = do
       case tokenKind alias of
         TIdentifier {} -> Right ()
@@ -195,8 +196,7 @@ parseFunctionResult argumentType = do
 
 functionOperandTypeParser :: TokenParser.Parser SurfaceSignatureType
 functionOperandTypeParser =
-  MP.try typeApplicationParser
-    <|> namedSignatureTypeParser
+  namedOrAppliedSignatureTypeParser
     <|> listSignatureTypeParser
     <|> parenthesizedSignatureTypeParser
 
@@ -220,31 +220,30 @@ parenthesizedSignatureTypeParser =
           _ ->
             pure (TypeTuple (firstElement : remainingElements))
 
-namedSignatureTypeParser :: TokenParser.Parser SurfaceSignatureType
-namedSignatureTypeParser = do
+namedOrAppliedSignatureTypeParser :: TokenParser.Parser SurfaceSignatureType
+namedOrAppliedSignatureTypeParser = do
   (typeNameToken, typeNameIdentifier) <- signatureTypeHeadParser
-  maybeNextToken <- TokenParser.peekToken
-  case maybeNextToken of
-    Just nextToken
-      | tokenKind nextToken == TLParen,
-        isImmediatelyAfter typeNameToken nextToken ->
-          MP.empty
-    _ -> pure ()
-  let typeName = identifierText typeNameIdentifier
-      typeMemberName = tokenLexeme typeNameToken
-  case parseNamedSignatureType typeName of
-    Just signatureType ->
-      pure signatureType
-    Nothing ->
-      pure
-        ( if identifierStartsLower typeMemberName
+  -- A failed application may leave a spaced '(' for the caller to parse.
+  MP.try (typeApplicationParser typeNameIdentifier)
+    <|> do
+      maybeNextToken <- TokenParser.peekToken
+      case maybeNextToken of
+        Just nextToken
+          | tokenKind nextToken == TLParen,
+            isImmediatelyAfter typeNameToken nextToken ->
+              MP.empty
+        _ -> pure ()
+      let typeName = identifierText typeNameIdentifier
+          typeMemberName = tokenLexeme typeNameToken
+      pure $ case parseNamedSignatureType typeName of
+        Just signatureType -> signatureType
+        Nothing ->
+          if identifierStartsLower typeMemberName
             then TypeVariable (surfaceNameIdentifier typeNameIdentifier)
             else TypeName typeNameIdentifier
-        )
 
-typeApplicationParser :: TokenParser.Parser SurfaceSignatureType
-typeApplicationParser = do
-  (_, typeNameIdentifier) <- signatureTypeHeadParser
+typeApplicationParser :: SurfaceName -> TokenParser.Parser SurfaceSignatureType
+typeApplicationParser typeNameIdentifier = do
   arguments <-
     betweenTokenKinds
       TLParen

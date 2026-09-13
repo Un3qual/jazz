@@ -83,11 +83,12 @@ import Jazz.Compiler.TypeInference.Environment (insertResolvedTypeBinding)
 import Jazz.Compiler.TypeInference.Interface (closeModuleBindings, importBindingTypes)
 import Jazz.Compiler.TypeInference.Operator
   ( applyOperatorAliasSchemeConstraints,
+    builtinDollarOperatorExpr,
+    builtinOperatorSymbolExpr,
     builtinSectionOperatorSymbol,
     hasOperatorRule,
     inferBinaryType,
-    inferSectionLeftType,
-    inferSectionRightType,
+    inferSectionType,
     instantiateOperatorType,
   )
 import Jazz.Compiler.TypeInference.Pattern
@@ -316,8 +317,10 @@ inferExprTypeDetailed env state expr = case expr of
             inferredFinalState
      in finish expressionType finalState (\node -> EPatternCase <$> node <*> checkedExprTree scrutineeCheck <*> armDrafts)
   EBinary _ symbol left right -> inferBinaryExpression symbol left right
-  ESectionLeft _ left symbol -> inferLeftSection symbol left
-  ESectionRight _ symbol right -> inferRightSection symbol right
+  ESectionLeft _ left symbol ->
+    inferSection symbol (\node operand -> ESectionLeft node operand symbol) left
+  ESectionRight _ symbol right ->
+    inferSection symbol (\node operand -> ESectionRight node symbol operand) right
   EApply _ function argument
     | Just (symbol, aliasScheme, left, right, sectionFallback) <- builtinOperatorApplicationSpine env expr ->
         if sectionFallback then inferSectionApplicationWithFallback function argument symbol left right else inferBuiltinOperatorApplication symbol aliasScheme left right
@@ -348,66 +351,34 @@ inferExprTypeDetailed env state expr = case expr of
     finishOperation operation result finalState make =
       (CheckedExpr result (make (draftOperationNode operation result expr)), finalState)
 
-    selectedBinaryOperation operatorSymbol leftExpr rightExpr operandTyping =
-      BinaryOperation
-        operatorSymbol
-        operandTyping
-        (coreNodeId (expressionNode leftExpr))
-        (coreNodeId (expressionNode rightExpr))
-
     inferBinaryExpression operatorSymbol leftExpr rightExpr =
-      let leftResult = checkedExprType leftCheck
-          rightResult = checkedExprType rightCheck
-          (leftCheck, stateAfterLeft) =
-            inferExprTypeDetailed env state leftExpr
-          (rightCheck, stateAfterRight) =
-            inferExprTypeDetailed env stateAfterLeft rightExpr
-          (expressionType, operandTyping, finalState) =
-            case (leftResult, rightResult) of
-              (Just leftType, Just rightType) ->
-                inferBinaryType
-                  operatorSymbol
-                  leftExpr
-                  rightExpr
-                  leftType
-                  rightType
-                  stateAfterRight
-              _ -> (Nothing, Nothing, stateAfterRight)
-          operation = selectedBinaryOperation operatorSymbol leftExpr rightExpr <$> operandTyping
+      let (leftCheck, rightCheck, expressionType, operation, finalState) = inferBinaryOperands operatorSymbol leftExpr rightExpr
        in finishOperation operation expressionType finalState (\node -> EBinary <$> node <*> pure operatorSymbol <*> checkedExprTree leftCheck <*> checkedExprTree rightCheck)
 
-    inferLeftSection operatorSymbol leftExpr =
-      let (leftCheck, stateAfterLeft) =
-            inferExprTypeDetailed env state leftExpr
-          (expressionType, finalState) =
-            case checkedExprType leftCheck of
-              Just leftType ->
-                inferSectionLeftType operatorSymbol leftType stateAfterLeft
-              Nothing -> (Nothing, stateAfterLeft)
-       in finish expressionType finalState (\node -> ESectionLeft <$> node <*> checkedExprTree leftCheck <*> pure operatorSymbol)
-
-    inferRightSection operatorSymbol rightExpr =
-      let (rightCheck, stateAfterRight) =
-            inferExprTypeDetailed env state rightExpr
-          (expressionType, finalState) =
-            case checkedExprType rightCheck of
-              Just rightType ->
-                inferSectionRightType operatorSymbol rightType stateAfterRight
-              Nothing -> (Nothing, stateAfterRight)
-       in finish expressionType finalState (\node -> ESectionRight <$> node <*> pure operatorSymbol <*> checkedExprTree rightCheck)
-
-    inferBuiltinOperatorApplication operatorSymbol maybeAliasScheme (_, leftExpr) (_, rightExpr) =
-      let leftResult = checkedExprType leftCheck
-          rightResult = checkedExprType rightCheck
-          (leftCheck, stateAfterLeft) =
-            inferExprTypeDetailed env state leftExpr
-          (rightCheck, stateAfterRight) =
-            inferExprTypeDetailed env stateAfterLeft rightExpr
-          (expressionType, operandTyping, stateAfterBinary) =
-            case (leftResult, rightResult) of
+    inferBinaryOperands operatorSymbol leftExpr rightExpr =
+      let (leftCheck, stateAfterLeft) = inferExprTypeDetailed env state leftExpr
+          (rightCheck, stateAfterRight) = inferExprTypeDetailed env stateAfterLeft rightExpr
+          (expressionType, operandTyping, finalState) =
+            case (checkedExprType leftCheck, checkedExprType rightCheck) of
               (Just leftType, Just rightType) ->
                 inferBinaryType operatorSymbol leftExpr rightExpr leftType rightType stateAfterRight
               _ -> (Nothing, Nothing, stateAfterRight)
+          operation =
+            (\typing -> BinaryOperation operatorSymbol typing (coreNodeId (expressionNode leftExpr)) (coreNodeId (expressionNode rightExpr))) <$> operandTyping
+       in (leftCheck, rightCheck, expressionType, operation, finalState)
+
+    inferSection operatorSymbol make operand =
+      let (checked, afterOperand) = inferExprTypeDetailed env state operand
+          (expressionType, finalState) =
+            case checkedExprType checked of
+              Just operandType -> inferSectionType operatorSymbol operandType afterOperand
+              Nothing -> (Nothing, afterOperand)
+       in finish expressionType finalState (\node -> make <$> node <*> checkedExprTree checked)
+
+    inferBuiltinOperatorApplication operatorSymbol maybeAliasScheme (_, leftExpr) (_, rightExpr) =
+      let (leftCheck, rightCheck, expressionType, operation, stateAfterBinary) = inferBinaryOperands operatorSymbol leftExpr rightExpr
+          leftResult = checkedExprType leftCheck
+          rightResult = checkedExprType rightCheck
           finalState =
             case (maybeAliasScheme, leftResult, rightResult) of
               (Just aliasScheme, Just leftType, Just rightType)
@@ -419,7 +390,6 @@ inferExprTypeDetailed env state expr = case expr of
                       rightType
                       stateAfterBinary
               _ -> stateAfterBinary
-          operation = selectedBinaryOperation operatorSymbol leftExpr rightExpr <$> operandTyping
           tree = case (leftResult, rightResult, expressionType) of
             (Just leftType, Just rightType, Just resultType) -> draftBuiltinApplication env operatorSymbol operation expr leftCheck rightCheck leftType rightType resultType finalState
             _ -> rejectedDraft (MissingExpressionFacts (coreNodeId (expressionNode expr)))
@@ -718,22 +688,6 @@ builtinOperatorApplicationSpine env expr =
       if hasOperatorRule operatorSymbol
         then Just (operatorSymbol, maybeAliasScheme, ([0, 1], leftExpr), ([1], rightExpr), False)
         else Nothing
-    _ -> Nothing
-
-builtinOperatorSymbolExpr :: TypeEnv -> Expr 'Resolved -> Maybe (Text, Maybe TypeScheme)
-builtinOperatorSymbolExpr env expr =
-  case expr of
-    EVar node _
-      | Just (BuiltinOperatorReference operatorSymbol) <- resolvedNodeReference (coreNodeFacts node) ->
-          Just (operatorSymbol, Nothing)
-    EApply _ dollarExpr operatorExpr
-      | builtinDollarOperatorExpr env dollarExpr ->
-          builtinOperatorSymbolExpr env operatorExpr
-    EVar node name ->
-      case Map.lookup (typeEnvReferenceKey (coreNodeFacts node) name) env of
-        Just (BuiltinOperatorAliasTypeBinding operatorSymbol) -> Just (operatorSymbol, Nothing)
-        Just (OperatorAliasSchemeTypeBinding operatorSymbol typeScheme) -> Just (operatorSymbol, Just typeScheme)
-        _ -> Nothing
     _ -> Nothing
 
 literalExpressionType :: Literal -> InferState -> (ExpressionType, InferState)

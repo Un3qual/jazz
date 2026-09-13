@@ -418,6 +418,7 @@ expectedComposedFixtureNames =
     "signature-primitives",
     "signature-recursive-shapes",
     "signature-qualified",
+    "qualified-method",
     "signature-constrained",
     "signature-unsupported-forall",
     "data-nullary",
@@ -443,6 +444,7 @@ composedFixtures =
       "variable :: a. named :: Result. maybe :: Maybe(Char). list :: [a]. tuple :: (Int, Bool). unit :: (). apply :: (Int -> Int) -> Text."
     ),
     ("signature-qualified", "qualified :: Alias::Result."),
+    ("qualified-method", "result = Alias::Class::method."),
     ( "signature-constrained",
       "constrained :: @{Eq(a), Ord(List(a))}: a -> List(a)."
     ),
@@ -554,7 +556,7 @@ span2 :: SourceSpan
 span2 = SourceSpan 2 3
 
 seInt :: Integer -> SurfaceExpr
-seInt = se . SELit . SLInt
+seInt = se . SELit . LInt
 
 seVar :: Identifier -> SurfaceExpr
 seVar = se . SEVar

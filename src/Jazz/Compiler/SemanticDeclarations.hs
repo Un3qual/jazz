@@ -23,6 +23,7 @@ module Jazz.Compiler.SemanticDeclarations
     SchemeConstraint (..),
     SchemePrimitiveConstraint (..),
     emptyScopeCapabilityFacts,
+    filterScopeCapabilities,
     quantifiedVariablesFromPreferred,
     quantifiedVariablesMembershipSet,
     quantifiedVariablesOrderedList,
@@ -297,6 +298,20 @@ instance Monoid ScopeCapabilityFacts where
         scopeClassMethodSignatures = Map.empty,
         scopeConcreteImplMethods = Map.empty
       }
+
+-- | Keep every fact belonging to a selected class together when publishing
+-- module interfaces or selecting imports.
+filterScopeCapabilities :: (CapabilityId -> Bool) -> ScopeCapabilityFacts -> ScopeCapabilityFacts
+filterScopeCapabilities selected facts =
+  ScopeCapabilityFacts
+    { scopeClassFacts = Map.filterWithKey (\capability _ -> selected capability) (scopeClassFacts facts),
+      scopeGeneratedEqualityClassFacts = Set.filter selected (scopeGeneratedEqualityClassFacts facts),
+      scopeConcreteImplFacts = Set.filter (\(ConcreteImplFact capability _) -> selected capability) (scopeConcreteImplFacts facts),
+      scopeClassMethodSignatures = Map.filterWithKey selectedMethod (scopeClassMethodSignatures facts),
+      scopeConcreteImplMethods = Map.filterWithKey selectedMethod (scopeConcreteImplMethods facts)
+    }
+  where
+    selectedMethod (capability, _) _ = selected capability
 
 emptyScopeCapabilityFacts :: ScopeCapabilityFacts
 emptyScopeCapabilityFacts = mempty

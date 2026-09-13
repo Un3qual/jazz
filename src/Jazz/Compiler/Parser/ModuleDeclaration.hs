@@ -10,8 +10,6 @@ module Jazz.Compiler.Parser.ModuleDeclaration
     registerImportAliases,
     collectImportAliasesUntilEnd,
     collectImportAliasesUntilBrace,
-    rejectNestedModuleDeclaration,
-    rejectNestedImportDeclaration,
   )
 where
 
@@ -43,13 +41,10 @@ import Jazz.Compiler.Parser.DeclarationTokens
   )
 import Jazz.Compiler.Parser.Failure
   ( ParserDeclarationFailure (..),
-    ParserDeclarationKind (..),
     ParserEncountered (..),
-    ParserFailure,
     ParserFailureReason (..),
     ParserListKind (..),
     ParserNameRole (..),
-    parserFailureAt,
   )
 import Jazz.Compiler.Parser.Lexer
   ( Token (..),
@@ -282,19 +277,3 @@ collectImportAliasesInStatementList stopAtRightBrace = go (0 :: Int) Set.empty
         Token {tokenKind = TDot} :< _ -> Nothing
         Token {tokenKind = TAs} :< Token {tokenKind = TIdentifier aliasName} :< _ -> Just aliasName
         _ :< rest -> collectImportAlias rest
-
-rejectNestedModuleDeclaration :: Token -> Either ParserFailure a
-rejectNestedModuleDeclaration moduleToken =
-  Left
-    ( parserFailureAt
-        (tokenSpan moduleToken)
-        (DeclarationFailure (DeclarationOutsideAllowedScope ModuleDeclaration))
-    )
-
-rejectNestedImportDeclaration :: Token -> Either ParserFailure a
-rejectNestedImportDeclaration importToken =
-  Left
-    ( parserFailureAt
-        (tokenSpan importToken)
-        (DeclarationFailure (DeclarationOutsideAllowedScope ImportDeclaration))
-    )

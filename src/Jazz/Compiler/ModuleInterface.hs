@@ -48,6 +48,7 @@ import Jazz.Compiler.SemanticDeclarations
     ScopeCapabilityFacts (..),
     SemanticBinding (..),
     SemanticScheme (..),
+    filterScopeCapabilities,
   )
 import Jazz.Compiler.WarningConfig (WarningSettings)
 
@@ -102,14 +103,7 @@ publishModuleInterface requested typeDefinitions declarations =
           interfaceCapabilities = publicCapabilities
         }
     capabilities = interfaceCapabilities declarations
-    publicCapabilities =
-      capabilities
-        { scopeClassFacts = Map.filterWithKey (\capability _ -> publicCapability capability) (scopeClassFacts capabilities),
-          scopeGeneratedEqualityClassFacts = Set.filter publicCapability (scopeGeneratedEqualityClassFacts capabilities),
-          scopeConcreteImplFacts = Set.filter (\(ConcreteImplFact capability _) -> publicCapability capability) (scopeConcreteImplFacts capabilities),
-          scopeClassMethodSignatures = Map.filterWithKey (\(capability, _) _ -> publicCapability capability) (scopeClassMethodSignatures capabilities),
-          scopeConcreteImplMethods = Map.filterWithKey (\(capability, _) _ -> publicCapability capability) (scopeConcreteImplMethods capabilities)
-        }
+    publicCapabilities = filterScopeCapabilities publicCapability capabilities
     publicCapability capability = inventoryHasExport (ModuleExport CapabilityNamespace (renderCapabilityId capability)) exports
     roots =
       Set.unions

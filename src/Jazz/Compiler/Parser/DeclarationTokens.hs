@@ -8,6 +8,7 @@ module Jazz.Compiler.Parser.DeclarationTokens
     looksLikeOperatorDeclaration,
     looksLikeReservedAbstractionDeclaration,
     looksLikeAbstractionDeclaration,
+    rejectNestedDeclaration,
     rejectNestedOperatorDeclaration,
     isReservedLiteralName,
     isConstructorIdentifierText,
@@ -143,11 +144,14 @@ hasAbstractionBodyBeforeTerminator tokens =
     _ :< rest -> hasAbstractionBodyBeforeTerminator rest
 
 rejectNestedOperatorDeclaration :: Token -> Either ParserFailure a
-rejectNestedOperatorDeclaration operatorToken =
+rejectNestedOperatorDeclaration = rejectNestedDeclaration OperatorDeclaration
+
+rejectNestedDeclaration :: ParserDeclarationKind -> Token -> Either ParserFailure a
+rejectNestedDeclaration kind token =
   Left
     ( parserFailureAt
-        (tokenSpan operatorToken)
-        (DeclarationFailure (DeclarationOutsideAllowedScope OperatorDeclaration))
+        (tokenSpan token)
+        (DeclarationFailure (DeclarationOutsideAllowedScope kind))
     )
 
 isReservedLiteralName :: Text -> Bool

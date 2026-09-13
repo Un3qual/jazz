@@ -17,7 +17,6 @@ import Jazz.Compiler.Parser.AST
   ( SurfaceExpr (..),
     SurfaceExprForm (..),
     SurfaceLambdaParameter (..),
-    SurfaceLiteral (..),
     SurfacePattern (..),
     SurfacePatternForm (..),
     SurfacePatternLambdaClause (..),
@@ -180,7 +179,7 @@ testParsesParenthesizedLambdaApplication =
                         7
                         ( SEApply
                             (e 1 8 (SELambda (SurfaceLambdaIdentifier (SourceSpan 1 10) "x" :| []) (e 1 16 (SEVar "x"))))
-                            (e 1 19 (SELit (SLInt 1)))
+                            (e 1 19 (SELit (LInt 1)))
                         )
                     )
                 ]
@@ -262,7 +261,7 @@ testParsesUnitLambdaShorthand =
                         9
                         ( SELambda
                             (SurfaceLambdaPattern (p 1 10 (SPTuple [])) :| [])
-                            (e 1 16 (SELit (SLInt 42)))
+                            (e 1 16 (SELit (LInt 42)))
                         )
                     )
                 ]
@@ -288,7 +287,7 @@ testParsesExplicitUnitLambdaParameter =
                         9
                         ( SELambda
                             (SurfaceLambdaPattern (p 1 11 (SPTuple [])) :| [])
-                            (e 1 18 (SELit (SLInt 42)))
+                            (e 1 18 (SELit (LInt 42)))
                         )
                     )
                 ]

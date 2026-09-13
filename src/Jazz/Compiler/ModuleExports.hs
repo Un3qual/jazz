@@ -145,9 +145,12 @@ exportedConstructorOwners constructorName =
 
 exportNamesInNamespace :: NameNamespace -> ModuleExportInventory -> Set Text
 exportNamesInNamespace namespace =
+  namesInNamespace namespace . exportInventoryEntries
+
+namesInNamespace :: NameNamespace -> Set ModuleExport -> Set Text
+namesInNamespace namespace =
   Set.map moduleExportName
     . Set.filter ((== namespace) . moduleExportNamespace)
-    . exportInventoryEntries
 
 exportNamesInNamespaces :: [NameNamespace] -> ModuleExportInventory -> Set Text
 exportNamesInNamespaces namespaces inventory =
@@ -165,7 +168,7 @@ selectorEligibleNames =
 
 inventoryHasSelector :: ModuleExportSelector -> ModuleExportInventory -> Bool
 inventoryHasSelector selector =
-  any (moduleExportSelectorMatches selector) . Set.toList . exportInventoryEntries
+  any (moduleExportSelectorMatches selector) . exportInventoryEntries
 
 renderModuleExportSelector :: ModuleExportSelector -> Text
 renderModuleExportSelector selector =
@@ -270,13 +273,9 @@ restrictExportInventory selectedEntries inventory =
     }
   where
     selectedConstructorNames =
-      Set.map
-        moduleExportName
-        (Set.filter ((== ConstructorNamespace) . moduleExportNamespace) selectedEntries)
+      namesInNamespace ConstructorNamespace selectedEntries
     selectedTypeNames =
-      Set.map
-        moduleExportName
-        (Set.filter ((== TypeNamespace) . moduleExportNamespace) selectedEntries)
+      namesInNamespace TypeNamespace selectedEntries
     retainSelectedOwners owners =
       case Set.intersection selectedTypeNames owners of
         selectedOwners

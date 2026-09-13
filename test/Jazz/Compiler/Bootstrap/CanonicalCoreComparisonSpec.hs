@@ -43,6 +43,7 @@ import Jazz.Compiler.Name
     NameNamespace (..),
     generatedName,
     mkIdentifier,
+    qualifiedMethodName,
     qualifiedName,
     sourceName,
   )
@@ -277,6 +278,7 @@ coreInventory =
     loweredLiteral (LText "Jazz"),
     loweredVariable (sourceName (mkIdentifier "value")),
     loweredVariable (qualifiedName (mkIdentifier "Alias") (mkIdentifier "member")),
+    loweredVariable (qualifiedMethodName (mkIdentifier "Alias") (mkIdentifier "Class") (mkIdentifier "method")),
     loweredVariable (generatedName (LambdaPatternArgument 2)),
     loweredVariable (generatedName (OperatorBinding "$operator:2B")),
     loweredLambda (sourceName (mkIdentifier "argument")) (loweredVariable (sourceName (mkIdentifier "argument"))),
@@ -426,6 +428,7 @@ expectedConstructors =
     "CoreVariableExpression",
     "CoreSourceName",
     "CoreQualifiedName",
+    "CoreQualifiedMethodName",
     "CoreGeneratedName",
     "CoreLambdaPatternArgument",
     "CoreOperatorBinding",

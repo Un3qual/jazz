@@ -19,7 +19,7 @@ import Data.Foldable (asum)
 import Data.List (find, sortOn)
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
-import Data.Maybe (fromMaybe, isJust)
+import Data.Maybe (fromMaybe, isJust, isNothing)
 import qualified Data.Set as Set
 import Data.Text (Text)
 import qualified Data.Text as Text
@@ -237,7 +237,7 @@ analyzePatternCoverage inventory expressionType arms =
               expressionType
               (normalizePattern patternValue)
           useful =
-            hasWitness
+            isJust
               ( usefulPatternVector
                   preparedInventory
                   [expressionType]
@@ -259,9 +259,6 @@ analyzePatternCoverage inventory expressionType arms =
         Nothing -> []
         Just [missing] -> [NonExhaustivePattern missing]
         Just _ -> [NonExhaustivePattern CoverageWildcard]
-
-hasWitness :: Maybe value -> Bool
-hasWitness = isJust
 
 data CoveragePattern
   = CoverageWildcard
@@ -428,14 +425,12 @@ coveragePatternsAreTotal ::
   [CoveragePattern] ->
   Bool
 coveragePatternsAreTotal inventory expressionType patterns =
-  not
-    ( hasWitness
-        ( usefulPatternVector
-            inventory
-            [expressionType]
-            (map (: []) patterns)
-            [CoverageWildcard]
-        )
+  isNothing
+    ( usefulPatternVector
+        inventory
+        [expressionType]
+        (map (: []) patterns)
+        [CoverageWildcard]
     )
 
 coveragePatternCoversShape ::
@@ -472,14 +467,7 @@ usefulPatternVector inventory (expressionType : restTypes) matrix (query : restQ
   case query of
     CoverageConstructor constructor fields -> do
       shape <- constructorShape inventory expressionType constructor (length fields)
-      witness <-
-        usefulPatternVector
-          inventory
-          (shapeFieldTypes shape <> restTypes)
-          (specializeMatrix shape matrix)
-          (fields <> restQuery)
-      let (fieldWitnesses, restWitnesses) = splitAt (length (shapeFieldTypes shape)) witness
-      pure (CoverageConstructor constructor fieldWitnesses : restWitnesses)
+      usefulSpecialization constructor shape fields
     CoverageOr alternatives ->
       asum
         ( map
@@ -496,7 +484,10 @@ usefulPatternVector inventory (expressionType : restTypes) matrix (query : restQ
       case constructorShapes inventory expressionType of
         Just shapes
           | allShapeConstructorsPresent shapes matrix ->
-              firstUsefulSpecialization shapes
+              asum
+                [ usefulSpecialization (shapeConstructor shape) shape (wildcardFields shape)
+                | shape <- shapes
+                ]
           | otherwise -> do
               restWitness <-
                 usefulPatternVector inventory restTypes (defaultMatrix matrix) restQuery
@@ -504,28 +495,29 @@ usefulPatternVector inventory (expressionType : restTypes) matrix (query : restQ
               pure
                 ( CoverageConstructor
                     (shapeConstructor missingShape)
-                    (replicate (length (shapeFieldTypes missingShape)) CoverageWildcard)
+                    (wildcardFields missingShape)
                     : restWitness
                 )
         Nothing -> do
           restWitness <-
             usefulPatternVector inventory restTypes (defaultMatrix matrix) restQuery
           pure (CoverageWildcard : restWitness)
-      where
-        firstUsefulSpecialization shapes =
-          asum (map usefulSpecialization shapes)
-
-        usefulSpecialization shape = do
-          witness <-
-            usefulPatternVector
-              inventory
-              (shapeFieldTypes shape <> restTypes)
-              (specializeMatrix shape matrix)
-              (replicate (length (shapeFieldTypes shape)) CoverageWildcard <> restQuery)
-          let (fieldWitnesses, restWitnesses) = splitAt (length (shapeFieldTypes shape)) witness
-          pure
-            (CoverageConstructor (shapeConstructor shape) fieldWitnesses : restWitnesses)
+  where
+    -- Concrete queries retain their own diagnostic spelling; wildcard queries
+    -- use the visible constructor's witness name from the inventory.
+    usefulSpecialization constructor shape fields = do
+      witness <-
+        usefulPatternVector
+          inventory
+          (shapeFieldTypes shape <> restTypes)
+          (specializeMatrix shape matrix)
+          (fields <> restQuery)
+      let (fieldWitnesses, restWitnesses) = splitAt (length (shapeFieldTypes shape)) witness
+      pure (CoverageConstructor constructor fieldWitnesses : restWitnesses)
 usefulPatternVector _ _ _ _ = Nothing
+
+wildcardFields :: ConstructorShape -> [CoveragePattern]
+wildcardFields shape = replicate (length (shapeFieldTypes shape)) CoverageWildcard
 
 constructorShapes :: PreparedConstructorInventory -> ExpressionType -> Maybe [ConstructorShape]
 constructorShapes inventory expressionType = do
@@ -632,7 +624,7 @@ specializeMatrix shape = concatMap specializeRow
       case row of
         [] -> []
         CoverageWildcard : rest ->
-          [replicate (length (shapeFieldTypes shape)) CoverageWildcard <> rest]
+          [wildcardFields shape <> rest]
         CoverageConstructor constructor fields : rest
           | constructor == shapeConstructor shape -> [fields <> rest]
           | otherwise -> []

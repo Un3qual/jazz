@@ -18,11 +18,11 @@ import Jazz.Compiler.FractionalLiteral
   )
 import Jazz.Compiler.Parser (parseStatementsUntilBrace)
 import Jazz.Compiler.Parser.AST
-  ( SurfaceCaseArm (..),
+  ( Literal (..),
+    SurfaceCaseArm (..),
     SurfaceExpr (..),
     SurfaceExprForm (..),
     SurfaceLambdaParameter (..),
-    SurfaceLiteral (..),
     SurfacePattern (..),
     SurfacePatternForm (..),
     SurfaceStatement (..),
@@ -107,7 +107,7 @@ testParsesCharAndTextExpressions = do
   tokens <- lexSource "pair 'a' \"Jazz\"."
   assertExpression
     "Char/Text application"
-    (e 1 1 (SEApply (e 1 1 (SEApply (e 1 1 (SEVar "pair")) (e 1 6 (SELit (SLChar 'a'))))) (e 1 10 (SELit (SLText "Jazz")))))
+    (e 1 1 (SEApply (e 1 1 (SEApply (e 1 1 (SEVar "pair")) (e 1 6 (SELit (LChar 'a'))))) (e 1 10 (SELit (LText "Jazz")))))
     [TDot]
     (parseExpressionTokens Set.empty [] tokens)
 
@@ -121,14 +121,14 @@ testApplicationBeforeInfixPrecedence = do
         1
         ( SEBinary
             "+"
-            (e 1 1 (SEApply (e 1 1 (SEVar "f")) (e 1 3 (SELit (SLInt 1)))))
+            (e 1 1 (SEApply (e 1 1 (SEVar "f")) (e 1 3 (SELit (LInt 1)))))
             ( e
                 1
                 7
                 ( SEBinary
                     "*"
-                    (e 1 7 (SEApply (e 1 7 (SEVar "g")) (e 1 9 (SELit (SLInt 2)))))
-                    (e 1 13 (SELit (SLInt 3)))
+                    (e 1 7 (SEApply (e 1 7 (SEVar "g")) (e 1 9 (SELit (LInt 2)))))
+                    (e 1 13 (SELit (LInt 3)))
                 )
             )
         )
@@ -159,10 +159,10 @@ testQualifiedVariablesListsAndTuples = do
                 1
                 ( SEApply
                     (e 1 1 (SEQualifiedVar "Alias" "member"))
-                    (e 1 15 (SEList [e 1 16 (SELit (SLInt 1)), e 1 19 (SELit (SLInt 2))]))
+                    (e 1 15 (SEList [e 1 16 (SELit (LInt 1)), e 1 19 (SELit (LInt 2))]))
                 )
             )
-            (e 1 22 (SETuple [e 1 23 (SELit (SLInt 3)), e 1 26 (SELit (SLInt 4))]))
+            (e 1 22 (SETuple [e 1 23 (SELit (LInt 3)), e 1 26 (SELit (LInt 4))]))
         )
     )
     [TDot]
@@ -189,7 +189,7 @@ testControlFlowAndBlockExpressionStarters = do
   ifTokens <- lexSource "if True then 1 else 2."
   assertExpression
     "if expression starter"
-    (e 1 1 (SEIf (e 1 4 (SELit (SLBool True))) (e 1 14 (SELit (SLInt 1))) (e 1 21 (SELit (SLInt 2)))))
+    (e 1 1 (SEIf (e 1 4 (SELit (LBool True))) (e 1 14 (SELit (LInt 1))) (e 1 21 (SELit (LInt 2)))))
     [TDot]
     (parseExpressionTokens Set.empty [] ifTokens)
 
@@ -201,8 +201,8 @@ testControlFlowAndBlockExpressionStarters = do
         1
         ( SECase
             (e 1 6 (SEVar "subject"))
-            [ SurfaceCaseArm (p 1 18 (SPLiteral (SLInt 0))) Nothing (e 1 23 (SELit (SLInt 1))),
-              SurfaceCaseArm (p 1 27 SPWildcard) Nothing (e 1 32 (SELit (SLInt 2)))
+            [ SurfaceCaseArm (p 1 18 (SPLiteral (LInt 0))) Nothing (e 1 23 (SELit (LInt 1))),
+              SurfaceCaseArm (p 1 27 SPWildcard) Nothing (e 1 32 (SELit (LInt 2)))
             ]
         )
     )
@@ -223,7 +223,7 @@ testControlFlowAndBlockExpressionStarters = do
         1
         1
         ( SEBlock
-            [ SSLet "x" (SourceSpan 1 3) (e 1 7 (SELit (SLInt 1))),
+            [ SSLet "x" (SourceSpan 1 3) (e 1 7 (SELit (LInt 1))),
               SSExpr (SourceSpan 1 10) (e 1 10 (SEVar "x"))
             ]
         )
@@ -263,12 +263,12 @@ testFractionalCaseBodyBeforeLaterArm = do
         1
         1
         ( SECase
-            (e 1 6 (SELit (SLInt 0)))
+            (e 1 6 (SELit (LInt 0)))
             [ SurfaceCaseArm
                 (p 1 12 SPWildcard)
                 Nothing
-                (e 1 17 (SELit (SLFloat 1.2 (mkFractionalLiteralSource 1 2 1) Nothing))),
-              SurfaceCaseArm (p 1 23 SPWildcard) Nothing (e 1 28 (SELit (SLInt 3)))
+                (e 1 17 (SELit (LFloat 1.2 (mkFractionalLiteralSource 1 2 1) Nothing))),
+              SurfaceCaseArm (p 1 23 SPWildcard) Nothing (e 1 28 (SELit (LInt 3)))
             ]
         )
     )
@@ -284,8 +284,8 @@ testOperatorValuesAndSections = do
         1
         1
         ( SEApply
-            (e 1 1 (SEApply (e 1 1 (SEOperatorValue "+")) (e 1 5 (SESectionLeft (e 1 6 (SELit (SLInt 10))) "+"))))
-            (e 1 12 (SESectionRight "+" (e 1 15 (SELit (SLInt 20)))))
+            (e 1 1 (SEApply (e 1 1 (SEOperatorValue "+")) (e 1 5 (SESectionLeft (e 1 6 (SELit (LInt 10))) "+"))))
+            (e 1 12 (SESectionRight "+" (e 1 15 (SELit (LInt 20)))))
         )
     )
     [TDot]
@@ -296,7 +296,7 @@ testFractionalLiteralSuffix = do
   tokens <- lexSource "1.25f32."
   assertExpression
     "fractional suffix"
-    (e 1 1 (SELit (SLFloat 1.25 (mkFractionalLiteralSource 1 25 2) (Just NumericFloat32))))
+    (e 1 1 (SELit (LFloat 1.25 (mkFractionalLiteralSource 1 25 2) (Just NumericFloat32))))
     [TDot]
     (parseExpressionTokens Set.empty [] tokens)
 

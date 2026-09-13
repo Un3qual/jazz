@@ -93,7 +93,6 @@ import Jazz.Compiler.TypeInference.Capabilities
   ( MethodSelection (..),
     TypeEnvFreeVariables,
     addUnpreservedInferredMethodConstraintErrors,
-    builtinDollarOperatorExpr,
     capabilityFactsFromState,
     defaultBindingLiteralTypes,
     defaultLiteralTypes,
@@ -140,6 +139,7 @@ import Jazz.Compiler.TypeInference.Instantiation
     instantiateNonBuiltinTypeBinding,
     typeBindingScheme,
   )
+import Jazz.Compiler.TypeInference.Operator (builtinOperatorSymbolExpr)
 import qualified Jazz.Compiler.TypeInference.Signature as Signature
 import Jazz.Compiler.TypeInference.Solver
   ( freshTypeVar,
@@ -432,16 +432,7 @@ inferScopeTypeInternal
                     schemeVariables = freeTypeVariables resolvedType
                     inferredClassConstraints = typeSchemeInferredClassConstraints state schemeVariables
                  in SchemeTypeBinding
-                      SemanticScheme
-                        { schemeQuantifiedVariables =
-                            quantifiedVariablesFromPreferred
-                              (expressionTypeVariableOrder resolvedType)
-                              schemeVariables,
-                          schemeClassConstraints = inferredClassConstraints,
-                          schemePrimitiveConstraints = typeSchemePrimitiveConstraints state schemeVariables,
-                          schemeDefiningCapabilities = typeSchemeDefiningFactsFromState state inferredClassConstraints,
-                          schemeResultType = resolvedType
-                        }
+                      (bindingTypeScheme state (expressionTypeVariableOrder resolvedType) schemeVariables inferredClassConstraints resolvedType)
 
       buildStatement :: Int -> TypeEnv -> Maybe CheckedExpr -> [(Int, CheckedExpr)] -> Statement 'Resolved -> Draft (Statement 'Analyzed)
       buildStatement index visibleTypes body methods statement = case statement of
@@ -1012,24 +1003,6 @@ inferScopeTypeInternal
                               }
                             rest
                      in (scopeResultType, resultState)
-
-      builtinOperatorSymbolExpr :: TypeEnv -> Expr 'Resolved -> Maybe (Text, Maybe TypeScheme)
-      builtinOperatorSymbolExpr currentEnv expression =
-        case expression of
-          EVar node _
-            | Just (BuiltinOperatorReference operatorSymbol) <- resolvedNodeReference (coreNodeFacts node) ->
-                Just (operatorSymbol, Nothing)
-          EApply _ dollarExpr operatorExpr
-            | builtinDollarOperatorExpr currentEnv dollarExpr ->
-                builtinOperatorSymbolExpr currentEnv operatorExpr
-          EVar node name ->
-            case Map.lookup (typeEnvReferenceKey (coreNodeFacts node) name) currentEnv of
-              Just (BuiltinOperatorAliasTypeBinding operatorSymbol) ->
-                Just (operatorSymbol, Nothing)
-              Just (OperatorAliasSchemeTypeBinding operatorSymbol typeScheme) ->
-                Just (operatorSymbol, Just typeScheme)
-              _ -> Nothing
-          _ -> Nothing
 
       builtinOperatorAliasSymbol :: Text -> Bool
       builtinOperatorAliasSymbol operatorSymbol =
@@ -1776,20 +1749,8 @@ generalizedOrdinaryBinding environmentVariables state valueExpr expressionType =
   let resolvedType = bindingTypeForValue state valueExpr expressionType
       schemeVariables = ordinaryBindingSchemeVariables environmentVariables state valueExpr expressionType
       inferredClassConstraints = typeSchemeInferredClassConstraints state schemeVariables
-      primitiveConstraints = typeSchemePrimitiveConstraints state schemeVariables
-   in if Set.null schemeVariables
-        && null inferredClassConstraints
-        && null primitiveConstraints
-        then PlainTypeBinding resolvedType
-        else
-          SchemeTypeBinding
-            SemanticScheme
-              { schemeQuantifiedVariables = quantifiedVariablesFromPreferred (expressionTypeVariableOrder resolvedType) schemeVariables,
-                schemeClassConstraints = inferredClassConstraints,
-                schemePrimitiveConstraints = primitiveConstraints,
-                schemeDefiningCapabilities = typeSchemeDefiningFactsFromState state inferredClassConstraints,
-                schemeResultType = resolvedType
-              }
+   in generalizedTypeBinding
+        (bindingTypeScheme state (expressionTypeVariableOrder resolvedType) schemeVariables inferredClassConstraints resolvedType)
 
 ordinaryBindingSchemeVariables :: Set InferenceVariable -> InferState -> Expr 'Resolved -> ExpressionType -> Set InferenceVariable
 ordinaryBindingSchemeVariables environmentVariables state valueExpr expressionType =
@@ -1823,18 +1784,26 @@ generalizedExplicitSignatureBinding environmentVariables state pendingSignature 
         typeSchemeInferredClassConstraints state schemeVariables
       schemeConstraints =
         dedupeTypeSchemeConstraints (resolvedConstraints ++ inferredClassConstraints)
-      primitiveConstraints = typeSchemePrimitiveConstraints state schemeVariables
-   in if Set.null schemeVariables && null schemeConstraints && null primitiveConstraints
-        then PlainTypeBinding resolvedType
-        else
-          SchemeTypeBinding
-            SemanticScheme
-              { schemeQuantifiedVariables = quantifiedVariablesFromPreferred (pendingSignatureVariableOrder pendingSignature) schemeVariables,
-                schemeClassConstraints = schemeConstraints,
-                schemePrimitiveConstraints = primitiveConstraints,
-                schemeDefiningCapabilities = typeSchemeDefiningFactsFromState state schemeConstraints,
-                schemeResultType = resolvedType
-              }
+   in generalizedTypeBinding
+        (bindingTypeScheme state (pendingSignatureVariableOrder pendingSignature) schemeVariables schemeConstraints resolvedType)
+
+bindingTypeScheme :: InferState -> [InferenceVariable] -> Set InferenceVariable -> [TypeSchemeConstraint] -> ExpressionType -> TypeScheme
+bindingTypeScheme state variableOrder variables constraints resultType =
+  SemanticScheme
+    { schemeQuantifiedVariables = quantifiedVariablesFromPreferred variableOrder variables,
+      schemeClassConstraints = constraints,
+      schemePrimitiveConstraints = typeSchemePrimitiveConstraints state variables,
+      schemeDefiningCapabilities = typeSchemeDefiningFactsFromState state constraints,
+      schemeResultType = resultType
+    }
+
+generalizedTypeBinding :: TypeScheme -> TypeBinding
+generalizedTypeBinding scheme
+  | Set.null (quantifiedVariablesMembershipSet (schemeQuantifiedVariables scheme)),
+    null (schemeClassConstraints scheme),
+    null (schemePrimitiveConstraints scheme) =
+      PlainTypeBinding (schemeResultType scheme)
+  | otherwise = SchemeTypeBinding scheme
 
 addUndeclaredSignatureConstraintErrors :: Text -> InferState -> PendingSignatureType -> InferState -> InferState
 addUndeclaredSignatureConstraintErrors bindingName statementStartState pendingSignature state

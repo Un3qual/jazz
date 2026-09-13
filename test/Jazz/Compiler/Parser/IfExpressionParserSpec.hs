@@ -11,7 +11,6 @@ import Jazz.Compiler.Diagnostics
 import Jazz.Compiler.Parser.AST
   ( SurfaceExpr (..),
     SurfaceExprForm (..),
-    SurfaceLiteral (..),
     SurfaceStatement (..),
   )
 import Jazz.Compiler.Parser.Lower
@@ -48,8 +47,7 @@ tests =
     ("treats if and else as reserved keywords", testRejectsKeywordAsBindingName),
     ("rejects True as binding name", testRejectsTrueAsBindingName),
     ("rejects False as signature name", testRejectsFalseAsSignatureName),
-    ("lowers parsed if surface nodes into analyzer AST", testLowerIfExpression),
-    ("keeps lowered if nodes in canonical if form", testLoweredIfIsCanonical)
+    ("lowers parsed if surface nodes into canonical core", testLowerIfExpression)
   ]
 
 testParsesBasicIfExpression :: IO ()
@@ -64,7 +62,7 @@ testParsesBasicIfExpression =
                 [ SSLet
                     "x"
                     (SourceSpan 1 1)
-                    (e 1 5 (SEIf (e 1 8 (SELit (SLBool True))) (e 1 18 (SELit (SLInt 1))) (e 1 25 (SELit (SLInt 2)))))
+                    (e 1 5 (SEIf (e 1 8 (SELit (LBool True))) (e 1 18 (SELit (LInt 1))) (e 1 25 (SELit (LInt 2)))))
                 ]
             )
         )
@@ -114,9 +112,9 @@ testParsesIfInfixConditionBoundary =
                         1
                         5
                         ( SEIf
-                            (e 1 8 (SEBinary ">" (e 1 8 (SEVar "x")) (e 1 12 (SELit (SLInt 0)))))
-                            (e 1 19 (SELit (SLInt 1)))
-                            (e 1 26 (SELit (SLInt 2)))
+                            (e 1 8 (SEBinary ">" (e 1 8 (SEVar "x")) (e 1 12 (SELit (LInt 0)))))
+                            (e 1 19 (SELit (LInt 1)))
+                            (e 1 26 (SELit (LInt 2)))
                         )
                     )
                 ]
@@ -200,26 +198,6 @@ testLowerIfExpression =
     "parse + lower if"
     (parseSurfaceProgramPoints "x = if True then 1 else 2.")
     (\surfaceProgram -> assertLoweredCoreEqual "lowered if AST" expectedProgram (lowerSurfaceExpr surfaceProgram))
-  where
-    expectedProgram =
-      loweredBlock
-        [ loweredLet
-            "x"
-            (SourceSpan 1 1)
-            (loweredIf (loweredLiteral (LBool True)) (loweredLiteral (LInt 1)) (loweredLiteral (LInt 2)))
-        ]
-
-testLoweredIfIsCanonical :: IO ()
-testLoweredIfIsCanonical =
-  assertRight
-    "parse + canonical lower if"
-    (parseSurfaceProgramPoints "x = if True then 1 else 2.")
-    ( \surfaceProgram ->
-        assertLoweredCoreEqual
-          "canonical lowered if AST"
-          expectedProgram
-          (lowerSurfaceExpr surfaceProgram)
-    )
   where
     expectedProgram =
       loweredBlock

@@ -33,12 +33,12 @@ module ParserDeclaration (
     CommaPunctuation
   ).
   import Char (charIsLower, charIsUpper).
-  import List (listAll, listFoldLeft, listLast, listLength, listPrepend, listReverse).
+  import List (listAll, listAny, listFoldLeft, listLast, listLength, listPrepend, listReverse).
   import Maybe.
   import NonEmpty.
   import ParserContext.
   import ParserOperator.
-  import ParserSignature (parseSignaturePayload, parseSignatureType, parseSignatureTypes).
+  import ParserSignature (parseSignaturePayloadDetailed, parseSignatureType, parseSignatureTypes).
   import Set.
   import ParserToken (
     TokenParser,
@@ -262,83 +262,23 @@ module ParserDeclaration (
     | Nothing -> False
   }.
 
-  isBareSignatureNamePair :: Text -> Text -> Bool.
-  isBareSignatureNamePair = \(name, typeName) -> if identifierStartsUpper name then
-    if identifierStartsUpper typeName then True else textLength typeName == 1
-    else True.
-
-  isSignaturePayloadSyntax :: CanonicalToken -> Bool.
-  isSignaturePayloadSyntax = \(token) -> case canonicalTokenKind token {
-    | PunctuationKind ArrowPunctuation -> True
-    | PunctuationKind AtPunctuation -> True
-    | PunctuationKind ColonPunctuation -> True
-    | PunctuationKind LeftParenPunctuation -> True
-    | PunctuationKind RightParenPunctuation -> True
-    | PunctuationKind LeftBracketPunctuation -> True
-    | PunctuationKind RightBracketPunctuation -> True
-    | PunctuationKind LeftBracePunctuation -> True
-    | PunctuationKind RightBracePunctuation -> True
-    | PunctuationKind CommaPunctuation -> True
+  isSignaturePayloadSyntax :: SurfaceSignatureToken -> Bool.
+  isSignaturePayloadSyntax = \(token) -> case token {
+    | SignatureArrowToken -> True
+    | SignatureAtToken -> True
+    | SignatureColonToken -> True
+    | SignatureLeftParenToken -> True
+    | SignatureRightParenToken -> True
+    | SignatureLeftBracketToken -> True
+    | SignatureRightBracketToken -> True
+    | SignatureLeftBraceToken -> True
+    | SignatureRightBraceToken -> True
+    | SignatureCommaToken -> True
     | other -> False
   }.
 
   isReservedLiteralName :: Text -> Bool.
   isReservedLiteralName = \(name) -> if name == "True" then True else name == "False".
-
-  startsMatchingBinding :: [CanonicalToken] -> Bool.
-  startsMatchingBinding = \(tokens) -> case tokens {
-    | [first | rest] -> case canonicalTokenKind first {
-      | PunctuationKind EqualsPunctuation -> True
-      | other -> False
-    }
-    | [] -> False
-  }.
-
-  nextStatementStartsMatchingBinding :: Text -> TokenParser(()).
-  nextStatementStartsMatchingBinding = \(name) -> tokenKeepRight
-    (tokenPunctuation DotPunctuation)
-    (tokenKeepRight
-      (tokenTakeIf
-        (\(token) -> case canonicalTokenKind token {
-          | IdentifierKind nextName -> nextName == name
-          | other -> False
-        })
-        "matching binding name")
-      (tokenAndThen
-        (\(remaining) -> if startsMatchingBinding remaining then
-          tokenSucceed ()
-          else tokenFailAt Nothing
-            (ExpectedSyntax "matching binding" ImplicitBoundary))
-        tokenRemaining)).
-
-  parenthesizedBareTypeName :: () -> TokenParser(Text).
-  parenthesizedBareTypeName = \() -> tokenKeepRight
-    (tokenPunctuation LeftParenPunctuation)
-    (tokenAndThen
-      (\(current) -> case current {
-        | Nothing -> tokenFailAt Nothing (ExpectedSyntax "parenthesized signature type" EndOfInput)
-        | Just token -> case canonicalTokenKind token {
-          | IdentifierKind typeName -> tokenKeepRight
-            tokenIdentifier
-            (tokenKeepRight
-              (tokenPunctuation RightParenPunctuation)
-              (tokenSucceed typeName))
-          | PunctuationKind LeftParenPunctuation -> tokenAndThen
-            (\(typeName) -> tokenKeepRight
-              (tokenPunctuation RightParenPunctuation)
-              (tokenSucceed typeName))
-            (parenthesizedBareTypeName ())
-          | other -> tokenFailAtSpan
-            (canonicalTokenSpan token)
-            (ExpectedSyntax "parenthesized signature type" (canonicalTokenEncountered current))
-        }
-      })
-      tokenPeek).
-
-  rejectStatementInsideSignaturePayload :: CanonicalToken -> TokenParser(()).
-  rejectStatementInsideSignaturePayload = \(token) -> tokenFailAtSpan
-    (canonicalTokenSpan token)
-    (ExpectedSyntax "signature terminator before matching binding" (canonicalTokenEncountered (Just token))).
 
   declarationKeywordCandidate :: TokenParser(CanonicalToken).
   declarationKeywordCandidate = tokenTakeIf
@@ -371,183 +311,117 @@ module ParserDeclaration (
             (tokenAttempt unsupportedDeclarationCandidate)
             declarationKeywordCandidate)))).
 
-  signaturePayloadStatementBoundaryStart :: TokenParser(Maybe(CanonicalToken)).
-  signaturePayloadStatementBoundaryStart = tokenLookAhead
-    (tokenOptional (tokenAttempt signaturePayloadStatementBoundaryCandidate)).
-
-  # Stage 0 collects a complete signature payload before deciding whether the
-  # statement is a signature. Syntax evidence such as an arrow must not hide a
-  # later token shape that begins another statement.
-  signaturePayloadBeforeTerminator :: () -> TokenParser(()).
-  signaturePayloadBeforeTerminator = \() -> tokenAndThen
-    (\(statementBoundary) -> case statementBoundary {
-      | Just token -> rejectStatementInsideSignaturePayload token
-      | Nothing -> tokenAndThen
-        (\(current) -> case current {
-          | Nothing -> tokenFailAt Nothing (ExpectedSyntax "signature terminator" EndOfInput)
-          | Just token -> case canonicalTokenKind token {
-            | PunctuationKind DotPunctuation -> tokenSucceed ()
-            | other -> tokenKeepRight anyToken (signaturePayloadBeforeTerminator ())
-          }
-        })
-        tokenPeek
-    })
-    signaturePayloadStatementBoundaryStart.
-
-  scannedSignaturePayloadCandidate :: CanonicalToken -> CanonicalToken -> TokenParser((CanonicalToken, CanonicalToken)).
-  scannedSignaturePayloadCandidate = \(nameToken, separatorToken) -> tokenKeepRight
-    (signaturePayloadBeforeTerminator ())
-    (tokenSucceed (nameToken, separatorToken)).
-
-  scannedSignaturePayloadCandidateAfterHead :: CanonicalToken -> CanonicalToken -> TokenParser((CanonicalToken, CanonicalToken)).
-  scannedSignaturePayloadCandidateAfterHead = \(nameToken, separatorToken) -> tokenKeepRight
-    anyToken
-    (scannedSignaturePayloadCandidate nameToken separatorToken).
-
-  constructorParenthesizedSignatureBoundary :: Text -> CanonicalToken -> CanonicalToken -> TokenParser((CanonicalToken, CanonicalToken)).
-  constructorParenthesizedSignatureBoundary = \(name, nameToken, separatorToken) -> tokenAndThen
-    (\(maybeTypeName) -> case maybeTypeName {
-      | Nothing -> scannedSignaturePayloadCandidateAfterHead nameToken separatorToken
-      | Just typeName -> tokenAndThen
-        (\(current) -> case current {
-          | Nothing -> tokenFailAt Nothing (ExpectedSyntax "signature terminator" EndOfInput)
-          | Just token -> case canonicalTokenKind token {
-            | PunctuationKind DotPunctuation -> if isBareSignatureNamePair name typeName then
-              tokenSucceed (nameToken, separatorToken)
-              else tokenKeepRight
-                (nextStatementStartsMatchingBinding name)
-                (tokenSucceed (nameToken, separatorToken))
-            | other -> scannedSignaturePayloadCandidate nameToken separatorToken
-          }
-        })
-        tokenPeek
-    })
-    (tokenOptional (tokenAttempt (parenthesizedBareTypeName ()))).
-
-  # Stage 0 applies the matching-binding rule only after collecting the whole
-  # signature payload. Preserve syntax evidence discovered anywhere in an
-  # otherwise unsupported payload, while stopping at the same statement
-  # boundaries as the canonical collector.
-  likelyUnsupportedSignaturePayloadBeforeTerminator :: Text -> Bool -> TokenParser(()).
-  likelyUnsupportedSignaturePayloadBeforeTerminator = \(name, sawSyntax) -> tokenAndThen
-    (\(statementBoundary) -> case statementBoundary {
-      | Just token -> rejectStatementInsideSignaturePayload token
-      | Nothing -> tokenAndThen
-        (\(current) -> case current {
-          | Nothing -> tokenFailAt Nothing (ExpectedSyntax "signature terminator" EndOfInput)
-          | Just token -> case canonicalTokenKind token {
-            | PunctuationKind DotPunctuation -> if sawSyntax then tokenSucceed () else
-              nextStatementStartsMatchingBinding name
-            | other -> tokenKeepRight
-              anyToken
-              (likelyUnsupportedSignaturePayloadBeforeTerminator
-                name
-                (if isSignaturePayloadSyntax token then True else sawSyntax))
-          }
-        })
-        tokenPeek
-    })
-    signaturePayloadStatementBoundaryStart.
-
-  matchingBindingAfterSignaturePayload :: Text -> TokenParser(()).
-  matchingBindingAfterSignaturePayload = \(name) ->
-    likelyUnsupportedSignaturePayloadBeforeTerminator name False.
-
-  matchingBindingAfterUnsupportedPayloadHead :: Text -> TokenParser(()).
-  matchingBindingAfterUnsupportedPayloadHead = \(name) -> tokenKeepRight
-    anyToken
-    (matchingBindingAfterSignaturePayload name).
-
-  multiplyQualifiedPayloadCandidate :: TokenParser(CanonicalToken).
-  multiplyQualifiedPayloadCandidate = tokenAndThen
-    (\(qualifiedSeparator) -> tokenKeepRight
-      tokenIdentifier
-      (tokenKeepRight
-        (tokenPunctuation DoubleColonPunctuation)
-        (tokenSucceed qualifiedSeparator)))
-    (tokenPunctuation DoubleColonPunctuation).
-
-  qualifiedConstructorSignatureBoundary :: Text -> CanonicalToken -> CanonicalToken -> TokenParser((CanonicalToken, CanonicalToken)).
-  qualifiedConstructorSignatureBoundary = \(name, nameToken, separatorToken) -> tokenAndThen
-    (\(multiplyQualifiedStart) -> case multiplyQualifiedStart {
-      | Just token -> tokenFailAtSpan
-        (canonicalTokenSpan token)
-        (ExpectedSyntax "'.'" (canonicalTokenEncountered (Just token)))
-      | Nothing -> tokenKeepRight
-        (tokenPunctuation DoubleColonPunctuation)
-        (tokenAndThen
-          (\(memberToken) -> case canonicalTokenKind memberToken {
-            | IdentifierKind member -> tokenAndThen
-              (\(current) -> case current {
-                | Just token -> case canonicalTokenKind token {
-                  | PunctuationKind DotPunctuation -> if identifierStartsLower member then
-                    tokenKeepRight
-                      (nextStatementStartsMatchingBinding name)
-                      (tokenSucceed (nameToken, separatorToken))
-                    else tokenSucceed (nameToken, separatorToken)
-                  | other -> scannedSignaturePayloadCandidate nameToken separatorToken
-                }
-                | Nothing -> tokenFailAt Nothing (ExpectedSyntax "signature terminator" EndOfInput)
-              })
-              tokenPeek
-            | other -> tokenFailAtSpan
-              (canonicalTokenSpan memberToken)
-              (InternalParserFailure TokenStreamParseFailure)
-          })
-          tokenIdentifier)
-    })
-    (tokenLookAhead (tokenOptional (tokenAttempt multiplyQualifiedPayloadCandidate))).
-
-  signaturePayloadBoundary :: Text -> Text -> CanonicalToken -> CanonicalToken -> TokenParser((CanonicalToken, CanonicalToken)).
-  signaturePayloadBoundary = \(name, typeName, nameToken, separatorToken) -> tokenAndThen
-    (\(current) -> case current {
-      | Just token -> case canonicalTokenKind token {
-        | PunctuationKind DotPunctuation -> if isBareSignatureNamePair name typeName then
-          tokenSucceed (nameToken, separatorToken)
-          else tokenKeepRight
-            (nextStatementStartsMatchingBinding name)
-            (tokenSucceed (nameToken, separatorToken))
-        | PunctuationKind DoubleColonPunctuation -> if identifierStartsUpper name then
-          qualifiedConstructorSignatureBoundary name nameToken separatorToken
-          else scannedSignaturePayloadCandidate nameToken separatorToken
-        | other -> if isSignaturePayloadSyntax token then
-          scannedSignaturePayloadCandidate nameToken separatorToken
-          else tokenKeepRight
-            (matchingBindingAfterSignaturePayload name)
-            (tokenSucceed (nameToken, separatorToken))
+  # A qualified type after an opener or separator belongs to this payload,
+  # even though its identifier:: prefix can also start a new signature.
+  continuesQualifiedType :: [CanonicalToken] -> [CanonicalToken] -> Bool.
+  continuesQualifiedType = \(reversed, remaining) -> case (reversed, remaining) {
+    | ([previous | before], [alias | [separator | [member | after]]]) ->
+      case (canonicalTokenKind alias, canonicalTokenKind separator, canonicalTokenKind member) {
+        | (IdentifierKind aliasName, PunctuationKind DoubleColonPunctuation, IdentifierKind memberName) ->
+          if tokensAreAdjacent alias separator then
+            if tokensAreAdjacent separator member then case canonicalTokenKind previous {
+              | PunctuationKind ArrowPunctuation -> True
+              | PunctuationKind LeftParenPunctuation -> True
+              | PunctuationKind LeftBracketPunctuation -> True
+              | PunctuationKind LeftBracePunctuation -> True
+              | PunctuationKind CommaPunctuation -> True
+              | PunctuationKind ColonPunctuation -> True
+              | PunctuationKind DoubleColonPunctuation -> True
+              | other -> False
+            } else False
+          else False
+        | other -> False
       }
-      | Nothing -> tokenFailAt Nothing (ExpectedSyntax "signature payload continuation" EndOfInput)
+    | other -> False
+  }.
+
+  signaturePayloadStatementBoundaryStart :: [CanonicalToken] -> TokenParser(Maybe(CanonicalToken)).
+  signaturePayloadStatementBoundaryStart = \(reversed) -> case reversed {
+    | [] -> tokenSucceed Nothing
+    | [first | rest] -> tokenAndThen
+      (\(remaining) -> if continuesQualifiedType reversed remaining then tokenSucceed Nothing
+        else tokenLookAhead (tokenOptional (tokenAttempt signaturePayloadStatementBoundaryCandidate)))
+      tokenRemaining
+  }.
+
+  signatureDelimiterDepth :: Int -> CanonicalToken -> Int.
+  signatureDelimiterDepth = \(depth, token) -> case canonicalTokenKind token {
+    | PunctuationKind LeftParenPunctuation -> depth + 1
+    | PunctuationKind LeftBracketPunctuation -> depth + 1
+    | PunctuationKind LeftBracePunctuation -> depth + 1
+    | PunctuationKind RightParenPunctuation -> if depth > 0 then depth - 1 else 0
+    | PunctuationKind RightBracketPunctuation -> if depth > 0 then depth - 1 else 0
+    | PunctuationKind RightBracePunctuation -> if depth > 0 then depth - 1 else 0
+    | other -> depth
+  }.
+
+  # Both compact-signature probing and committed parsing collect the same full
+  # payload before inspecting its type shape or the following binding.
+  collectSignaturePayload :: Int -> [CanonicalToken] -> TokenParser([CanonicalToken]).
+  collectSignaturePayload = \(depth, reversed) -> tokenAndThen
+    (\(current) -> case current {
+      | Nothing -> tokenFailAt Nothing (ExpectedSyntax "'.'" EndOfInput)
+      | Just token -> case canonicalTokenKind token {
+        | PunctuationKind DotPunctuation -> case reversed {
+          | [] -> tokenFailAtSpan
+            (canonicalTokenSpan token)
+            (ExpectedSyntax "signature text" (BeforeToken (canonicalTokenKind token) (canonicalTokenLexeme token) Nothing))
+          | [first | rest] -> if depth > 0 then tokenFailAtSpan
+            (canonicalTokenSpan token)
+            (ExpectedSyntax "closing delimiter" (BeforeToken (canonicalTokenKind token) (canonicalTokenLexeme token) (Just "signature")))
+            else tokenKeepRight anyToken (tokenSucceed (listReverse reversed))
+        }
+        | other -> tokenAndThen
+          (\(statementBoundary) -> case statementBoundary {
+            | Just boundary -> tokenFailAtSpan
+              (canonicalTokenSpan boundary)
+              (ExpectedSyntax "'.'" (BeforeToken (canonicalTokenKind boundary) (canonicalTokenLexeme boundary) Nothing))
+            | Nothing -> tokenKeepRight anyToken
+              (collectSignaturePayload (signatureDelimiterDepth depth token) (listPrepend token reversed))
+          })
+          (signaturePayloadStatementBoundaryStart reversed)
+      }
     })
     tokenPeek.
+
+  isSingleLetterTypeVariable :: Text -> Bool.
+  isSingleLetterTypeVariable = \(name) -> if textLength name == 1 then identifierStartsLower name else False.
+
+  parseSignatureBody :: TokenParser(SurfaceSignaturePayload).
+  parseSignatureBody = tokenAndThen parseSignaturePayloadDetailed (collectSignaturePayload 0 []).
+
+  isCompactSignaturePayload :: Text -> SurfaceSignaturePayload -> Bool.
+  isCompactSignaturePayload = \(name, payload) -> case payload {
+    | TypeSignature (TypeVariable variable) -> if identifierStartsUpper name then
+      isSingleLetterTypeVariable variable else True
+    | TypeSignature other -> True
+    | ConstrainedSignature constraints signatureType -> True
+    | UnsupportedSignature [SignatureNameToken variable] -> isSingleLetterTypeVariable variable
+    | UnsupportedSignature tokens -> listAny isSignaturePayloadSyntax tokens
+  }.
+
+  nextStatementStartsMatchingBinding :: Text -> TokenParser(()).
+  nextStatementStartsMatchingBinding = \(name) -> tokenKeepRight
+    (tokenTakeIf
+      (\(token) -> case canonicalTokenKind token {
+        | IdentifierKind nextName -> nextName == name
+        | other -> False
+      })
+      "matching binding name")
+    (tokenTransform (\(token) -> ()) (tokenPunctuation EqualsPunctuation)).
 
   signatureBoundaryCandidate :: TokenParser((CanonicalToken, CanonicalToken)).
   signatureBoundaryCandidate = tokenAndThen
     (\(nameToken) -> case canonicalTokenKind nameToken {
       | IdentifierKind name -> tokenAndThen
-        (\(separatorToken) -> if isReservedLiteralName name then
-          tokenSucceed (nameToken, separatorToken)
+        (\(separatorToken) -> if isReservedLiteralName name then tokenSucceed (nameToken, separatorToken)
           else if tokensAreAdjacent nameToken separatorToken then tokenAndThen
-            (\(current) -> case current {
-              | Nothing -> tokenFailAt Nothing (ExpectedSyntax "signature payload" EndOfInput)
-              | Just token -> case canonicalTokenKind token {
-                | IdentifierKind typeName -> tokenAndThen
-                  (\(typeToken) -> signaturePayloadBoundary name typeName nameToken separatorToken)
-                  tokenIdentifier
-                | PunctuationKind LeftParenPunctuation -> if identifierStartsUpper name then
-                  constructorParenthesizedSignatureBoundary name nameToken separatorToken
-                  else scannedSignaturePayloadCandidateAfterHead nameToken separatorToken
-                | PunctuationKind DotPunctuation -> tokenFailAtSpan
-                  (canonicalTokenSpan token)
-                  (ExpectedSyntax "signature payload" (canonicalTokenEncountered current))
-                | other -> if isSignaturePayloadSyntax token then
-                  scannedSignaturePayloadCandidateAfterHead nameToken separatorToken
-                  else tokenKeepRight
-                    (matchingBindingAfterUnsupportedPayloadHead name)
-                    (tokenSucceed (nameToken, separatorToken))
-              }
-            })
-            tokenPeek
-            else tokenSucceed (nameToken, separatorToken))
+            (\(payload) -> if isCompactSignaturePayload name payload then tokenSucceed (nameToken, separatorToken)
+              else tokenKeepRight
+                (nextStatementStartsMatchingBinding name)
+                (tokenSucceed (nameToken, separatorToken)))
+            parseSignatureBody
+          else tokenSucceed (nameToken, separatorToken))
         (tokenPunctuation DoubleColonPunctuation)
       | other -> tokenFailAtSpan
         (canonicalTokenSpan nameToken)
@@ -600,40 +474,6 @@ module ParserDeclaration (
       (InternalParserFailure TokenStreamParseFailure)
   }.
 
-  collectSignaturePayloadToken :: [CanonicalToken] -> TokenParser([CanonicalToken]).
-  collectSignaturePayloadToken = \(reversed) -> tokenAndThen
-    (\(current) -> case current {
-      | Nothing -> tokenFailAt Nothing (ExpectedSyntax "'.'" EndOfInput)
-      | Just token -> case canonicalTokenKind token {
-        | PunctuationKind DotPunctuation -> case reversed {
-          | [] -> tokenFailAtSpan
-            (canonicalTokenSpan token)
-            (ExpectedSyntax
-              "signature text"
-              (BeforeToken
-                (canonicalTokenKind token)
-                (canonicalTokenLexeme token)
-                Nothing))
-          | [first | rest] -> tokenSucceed (listReverse reversed)
-        }
-        | other -> tokenKeepRight anyToken (collectSignaturePayload (listPrepend token reversed))
-      }
-    })
-    tokenPeek.
-
-  collectSignaturePayload :: [CanonicalToken] -> TokenParser([CanonicalToken]).
-  collectSignaturePayload = \(reversed) -> case reversed {
-    | [] -> collectSignaturePayloadToken reversed
-    | [first | rest] -> tokenAndThen
-      (\(statementBoundary) -> case statementBoundary {
-        | Just token -> tokenFailAtSpan
-          (canonicalTokenSpan token)
-          (ExpectedSyntax "'.'" (BeforeToken (canonicalTokenKind token) (canonicalTokenLexeme token) Nothing))
-        | Nothing -> collectSignaturePayloadToken reversed
-      })
-      signaturePayloadStatementBoundaryStart
-  }.
-
   parseSignature :: TokenParser(SurfaceStatement).
   parseSignature = tokenAndThen
     (\(nameToken) -> case canonicalTokenKind nameToken {
@@ -643,12 +483,9 @@ module ParserDeclaration (
           (DeclarationFailure (ReservedLiteralName BindingName name))
         else tokenKeepRight
           (tokenPunctuation DoubleColonPunctuation)
-          (tokenAndThen
-            (\(payloadTokens) -> tokenKeepRight
-              (tokenPunctuation DotPunctuation)
-              (tokenSucceed
-                (SignatureStatement name (canonicalTokenSpan nameToken) (parseSignaturePayload payloadTokens))))
-            (collectSignaturePayload []))
+          (tokenTransform
+            (\(payload) -> SignatureStatement name (canonicalTokenSpan nameToken) payload)
+            parseSignatureBody)
       | other -> tokenFailAtSpan
         (canonicalTokenSpan nameToken)
         (InternalParserFailure TokenStreamParseFailure)
@@ -1060,18 +897,13 @@ module ParserDeclaration (
                 (tokenKeepRight
                   (tokenPunctuation DoubleColonPunctuation)
                   (tokenAndThen
-                    (\(payloadTokens) -> tokenKeepRight
-                      (tokenPunctuation DotPunctuation)
-                      (parseClassBody
-                        declarationToken
-                        (setInsert seen methodName)
-                        (listPrepend
-                          (SurfaceClassMethodSignature
-                            methodName
-                            (canonicalTokenSpan first)
-                            (parseSignaturePayload payloadTokens))
-                          reversed)))
-                    (collectSignaturePayload [])))
+                    (\(payload) -> parseClassBody
+                      declarationToken
+                      (setInsert seen methodName)
+                      (listPrepend
+                        (SurfaceClassMethodSignature methodName (canonicalTokenSpan first) payload)
+                        reversed))
+                    parseSignatureBody))
             | PunctuationKind EqualsPunctuation -> tokenFailAtSpan
               (canonicalTokenSpan first)
               (UnsupportedSyntax (ClassMethodBody methodName))
@@ -2046,15 +1878,12 @@ module ParserDeclaration (
         (validateOperatorStatement context operatorToken symbol OperatorSignature SignatureOperatorUse)
         (tokenKeepRight
           (tokenPunctuation DoubleColonPunctuation)
-          (tokenAndThen
-            (\(payloadTokens) -> tokenKeepRight
-              (tokenPunctuation DotPunctuation)
-              (tokenSucceed
-                (SignatureStatement
-                  (operatorBindingName symbol)
-                  (canonicalTokenSpan operatorToken)
-                  (parseSignaturePayload payloadTokens))))
-            (collectSignaturePayload [])))
+          (tokenTransform
+            (\(payload) -> SignatureStatement
+              (operatorBindingName symbol)
+              (canonicalTokenSpan operatorToken)
+              payload)
+            parseSignatureBody))
     })
     parseParenthesizedOperator.
 

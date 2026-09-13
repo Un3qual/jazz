@@ -281,11 +281,11 @@ surfaceInventory =
 
 allExpressions :: [SurfaceExpr]
 allExpressions =
-  [ se (SELit (SLInt 42)),
-    se (SELit (SLFloat 0.0 (mkFractionalLiteralSource 0 10 4) Nothing)),
-    se (SELit (SLBool True)),
-    se (SELit (SLChar 'x')),
-    se (SELit (SLText "Jazz")),
+  [ se (SELit (LInt 42)),
+    se (SELit (LFloat 0.0 (mkFractionalLiteralSource 0 10 4) Nothing)),
+    se (SELit (LBool True)),
+    se (SELit (LChar 'x')),
+    se (SELit (LText "Jazz")),
     se (SEVar "value"),
     se (SEQualifiedVar "Text" "length"),
     se
@@ -311,14 +311,14 @@ allExpressions =
     se (SETuple [seInt 1, seInt 2]),
     se (SEApply (se (SEVar "identity")) (seInt 1)),
     se (SETypeApplication (se (SEVar "identity")) span1 (TypeName (SurfaceName "Int" span1 Nothing))),
-    se (SEIf (se (SELit (SLBool True))) (seInt 1) (seInt 0)),
+    se (SEIf (se (SELit (LBool True))) (seInt 1) (seInt 0)),
     patternInventory,
     se (SEBinary "+" (seInt 1) (seInt 2)),
     se (SESectionLeft (seInt 1) "+"),
     se (SESectionRight "+" (seInt 1)),
     se (SEBlock [SSExpr span1 (seInt 1)])
   ]
-    <> [se (SELit (SLFloat 0.0 (mkFractionalLiteralSource 1 5 1) (Just numericType))) | numericType <- allNumericTypes]
+    <> [se (SELit (LFloat 0.0 (mkFractionalLiteralSource 1 5 1) (Just numericType))) | numericType <- allNumericTypes]
 
 patternInventory :: SurfaceExpr
 patternInventory =
@@ -326,14 +326,14 @@ patternInventory =
     ( SECase
         (se (SEVar "value"))
         [ SurfaceCaseArm (sp SPWildcard) Nothing (seInt 0),
-          SurfaceCaseArm (sp (SPVariable "name")) (Just (se (SELit (SLBool True)))) (seInt 1),
-          SurfaceCaseArm (sp (SPLiteral (SLInt 2))) Nothing (seInt 2),
+          SurfaceCaseArm (sp (SPVariable "name")) (Just (se (SELit (LBool True)))) (seInt 1),
+          SurfaceCaseArm (sp (SPLiteral (LInt 2))) Nothing (seInt 2),
           SurfaceCaseArm (sp (SPConstructor "Just" [sp (SPVariable "item")])) Nothing (seInt 3),
           SurfaceCaseArm (sp (SPList [sp SPWildcard])) Nothing (seInt 4),
           SurfaceCaseArm (sp (SPConsList (sp SPWildcard) (sp (SPVariable "rest")))) Nothing (seInt 5),
           SurfaceCaseArm (sp (SPTuple [sp SPWildcard, sp SPWildcard])) Nothing (seInt 6),
           SurfaceCaseArm (sp (SPAs "whole" (sp SPWildcard))) Nothing (seInt 7),
-          SurfaceCaseArm (sp (SPOr [sp (SPLiteral (SLInt 8)), sp (SPLiteral (SLInt 9))])) Nothing (seInt 8)
+          SurfaceCaseArm (sp (SPOr [sp (SPLiteral (LInt 8)), sp (SPLiteral (LInt 9))])) Nothing (seInt 8)
         ]
     )
 
@@ -1014,10 +1014,10 @@ span2 :: SourceSpan
 span2 = SourceSpan 2 3
 
 seInt :: Integer -> SurfaceExpr
-seInt = se . SELit . SLInt
+seInt = se . SELit . LInt
 
 seText :: Text.Text -> SurfaceExpr
-seText = se . SELit . SLText
+seText = se . SELit . LText
 
 se :: SurfaceExprForm -> SurfaceExpr
 se = SurfaceExpr span1

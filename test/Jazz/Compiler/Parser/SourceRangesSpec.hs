@@ -10,7 +10,7 @@ import Data.Text (Text)
 import qualified Data.Text as Text
 import Jazz.Compiler.AST (CoreNode (..), Expr (..), Statement (..))
 import Jazz.Compiler.Diagnostics (SourceSpan (..), diagnosticPrimarySpan, diagnosticRelatedSpan, qualifySourceSpan, sourceSpanEnd, sourceSpanStart)
-import Jazz.Compiler.ModuleAnalysis (inferExpressionDefault)
+import Jazz.Compiler.ModuleAnalysis (analyzeResolvedExpression)
 import Jazz.Compiler.ModuleExports (exportInventory)
 import Jazz.Compiler.ModuleGraph (coreModuleExpr, coreModuleImports)
 import Jazz.Compiler.ModuleIdentity (mkSourceFile, moduleIdentity, standaloneModulePath)
@@ -22,7 +22,7 @@ import Jazz.Compiler.Parser.Lexer (Token (..), tokenize)
 import Jazz.Compiler.Parser.Lower (lowerSurfaceExpr, lowerSurfaceModule, reindexLoweredExpr)
 import Jazz.Compiler.Parser.Pattern (parseCaseArmPatternTokens)
 import Jazz.Compiler.Prelude (ResolvedPrelude (..), preparePrelude)
-import Jazz.Compiler.TypeInference.Result (InferenceResult (inferenceResolvedExpr))
+import Jazz.Compiler.WarningConfig (defaultWarningSettings)
 import Jazz.TestHarness (assertEqual, assertRight, failTest, runTestSuite)
 
 main :: IO ()
@@ -35,7 +35,7 @@ main =
       ("explicit type argument range survives lowering", typeApplicationExtent),
       ("nested patterns retain delimiters and constructor extents", patternExtents),
       ("lambda unit parameters and pattern clauses retain ranges", lambdaExtents),
-      ("lowering reindexing and inference preserve expression ranges", lowerAndAnalyze),
+      ("lowering reindexing and analysis preserve expression ranges", lowerAndAnalyze),
       ("parser diagnostics expose the offending token range", parserDiagnosticRange),
       ("prelude bridge diagnostic unqualification retains both ranges", preludeDiagnosticRanges),
       ("import alias collision diagnostics retain both ranges", importDiagnosticRanges),
@@ -123,16 +123,18 @@ lowerAndAnalyze = assertRight "parse" (parseSurfaceProgram "[1,\n 2].") $ \surfa
   assertEqual "lowered" expected (spans lowered)
   assertEqual "reindexed" expected (spans (reindexLoweredExpr lowered))
   let resolved = resolveStandaloneExprNames (exportInventory []) lowered
-  inferred <- inferExpressionDefault resolved
-  assertEqual "inferred" expected (spans (inferenceResolvedExpr inferred))
+  (_, analyzed) <- analyzeResolvedExpression defaultWarningSettings resolved
+  assertRight "analyze" analyzed $ \analyzedExpr ->
+    assertEqual "analyzed" (Just expected) (spans <$> analyzedExpr)
   let identity = moduleIdentity standaloneModulePath (mkSourceFile "Main.jz")
   assertRight "lower qualified module" (lowerSurfaceModule identity surface) $ \coreModule -> do
     let qualified = map (qualifySourceSpan "Main.jz") expected
         moduleExpr = coreModuleExpr coreModule
     assertEqual "qualified lowering" qualified (spans moduleExpr)
     let qualifiedResolved = resolveStandaloneExprNames (exportInventory []) moduleExpr
-    qualifiedInferred <- inferExpressionDefault qualifiedResolved
-    assertEqual "qualified inference" qualified (spans (inferenceResolvedExpr qualifiedInferred))
+    (_, qualifiedAnalyzed) <- analyzeResolvedExpression defaultWarningSettings qualifiedResolved
+    assertRight "analyze qualified expression" qualifiedAnalyzed $ \analyzedExpr ->
+      assertEqual "qualified analysis" (Just qualified) (spans <$> analyzedExpr)
 
 qualifyRanges :: IO ()
 qualifyRanges = do

@@ -123,7 +123,7 @@ statementNode spanValue =
   CoreNode
     (CoreNodeId (spanLine spanValue * 1000 + spanColumn spanValue))
     spanValue
-    (StatementFacts (emptyResolvedNodeFacts (StandaloneSourceUnit standaloneModulePath)) [] Map.empty ExpressionDeclaration)
+    (StatementFacts (emptyResolvedNodeFacts (StandaloneSourceUnit standaloneModulePath)) Nothing ExpressionDeclaration)
 
 resolvedName :: NameNamespace -> UnresolvedName -> ResolvedName
 resolvedName namespace =
@@ -331,7 +331,7 @@ statementData spanValue name parameters constructors =
     variables = zip (map typeName parameters) (map TypeRepresentation.InferenceVariable [0 ..])
     resultType = TypeRepresentation.SemanticData (typeName name) (map (TypeRepresentation.SemanticVariable . snd) variables)
     analyzedConstructor (DataConstructor node constructor fields) =
-      DataConstructor node {coreNodeFacts = StatementFacts (emptyResolvedNodeFacts (StandaloneSourceUnit standaloneModulePath)) [binder] (Map.singleton binder scheme) (ValueDeclaration constructor)} constructor fields
+      DataConstructor node {coreNodeFacts = StatementFacts (emptyResolvedNodeFacts (StandaloneSourceUnit standaloneModulePath)) (Just (binder, scheme)) (ValueDeclaration constructor)} constructor fields
       where
         binder = CoreBinderId (StandaloneSourceUnit standaloneModulePath, coreNodeId node)
         scheme =

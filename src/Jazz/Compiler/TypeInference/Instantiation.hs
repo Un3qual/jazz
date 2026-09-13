@@ -44,7 +44,7 @@ import Jazz.Compiler.TypeInference.Pattern
   )
 import qualified Jazz.Compiler.TypeInference.Signature as Signature
 import Jazz.Compiler.TypeInference.Solver
-  ( freshTypeVar,
+  ( freshTypeVars,
     resolveType,
   )
 import Jazz.Compiler.TypeInference.State
@@ -117,11 +117,8 @@ instantiateTypeSchemeWithBindings ::
   InferState ->
   (Maybe ExpressionType, InferState)
 instantiateTypeSchemeWithBindings typeScheme initialBindings remainingVariables state =
-  let (freshBindings, nextState) =
-        foldl'
-          allocateFreshBinding
-          (initialBindings, state)
-          remainingVariables
+  let (freshTypes, nextState) = freshTypeVars (length remainingVariables) state
+      freshBindings = Map.union (Map.fromList (zip remainingVariables freshTypes)) initialBindings
       instantiatedType =
         replaceTypeVariables freshBindings expressionType
       instantiatedConstraints =
@@ -142,10 +139,6 @@ instantiateTypeSchemeWithBindings typeScheme initialBindings remainingVariables 
     primitiveConstraints = schemePrimitiveConstraints typeScheme
     definingFacts = schemeDefiningCapabilities typeScheme
     expressionType = schemeResultType typeScheme
-
-    allocateFreshBinding (bindings, stateAcc) typeVar =
-      let (freshType, nextState) = freshTypeVar stateAcc
-       in (Map.insert typeVar freshType bindings, nextState)
 
 inferExplicitTypeApplication :: InferExprFn -> TypeEnv -> InferState -> Expr 'Resolved -> (CheckedExpr, InferState)
 inferExplicitTypeApplication inferExpression env state expression@(ETypeApplication node functionExpr typeArgumentSpan typeArgument) =

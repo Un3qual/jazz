@@ -20,7 +20,7 @@ import Jazz.Compiler.Analyzer.UnusedBindings (referencedScopeBindingIds)
 import Jazz.Compiler.BundledPrelude (bundledPreludeIdentity)
 import Jazz.Compiler.CoreIdentity (ResolvedNodeFacts (..), ResolvedReference (..))
 import Jazz.Compiler.DiagnosticCatalog (WarningCategory (SameScopeRebinding))
-import Jazz.Compiler.Diagnostics (CompilationDiagnostics (..), Diagnostic, compilationDiagnostics, diagnosticWarningCategory, isErrorDiagnostic, mkSameScopeRebindingWarning, promoteDiagnostic)
+import Jazz.Compiler.Diagnostics (CompilationDiagnostics (..), Diagnostic, compilationDiagnostics, isErrorDiagnostic, mkSameScopeRebindingWarning)
 import Jazz.Compiler.ModuleAnalysis
   ( ImportedInterface,
     analyzeModule,
@@ -44,7 +44,7 @@ import qualified Jazz.Compiler.ModuleGraph as ModuleGraph
 import Jazz.Compiler.ModuleInterface (CompileInputs (..))
 import Jazz.Compiler.Name (ResolvedNameOrigin (AmbientPrelude), identifierText)
 import Jazz.Compiler.TypeInference.Result (InferenceResult (..))
-import Jazz.Compiler.WarningConfig (isWarningEnabled, isWarningError)
+import Jazz.Compiler.WarningConfig (applyWarningPolicy, isWarningEnabled)
 
 analyzeProgram :: CompileInputs -> CoreProgram 'Resolved -> IO ([Diagnostic], Maybe (CoreProgram 'Analyzed))
 analyzeProgram inputs resolvedProgram =
@@ -58,7 +58,7 @@ analyzeProgram inputs resolvedProgram =
           foldM
             (analyzeDependency ambientInterface)
             (Seq.empty, Map.empty, Seq.empty)
-            (NonEmpty.toList (coreProgramModules resolvedProgram))
+            (coreProgramModules resolvedProgram)
     let diagnostics = orderedProgramDiagnostics resolvedProgram (preludeDiagnostics : toList moduleDiagnostics)
     if any isErrorDiagnostic diagnostics
       then pure (diagnostics, Nothing)
@@ -102,12 +102,9 @@ analyzeProgram inputs resolvedProgram =
           || ModuleGraph.preludeIdentity (coreProgramPrelude resolvedProgram) == bundledPreludeIdentity
           || not (isWarningEnabled settings SameScopeRebinding) =
           diagnostics
-      | otherwise = diagnostics {compilationWarnings = compilationWarnings diagnostics <> map promoteWarning extraWarnings}
+      | otherwise = diagnostics {compilationWarnings = compilationWarnings diagnostics <> map (applyWarningPolicy settings) extraWarnings}
       where
         settings = compileInputWarningSettings inputs
-        promoteWarning warning = case diagnosticWarningCategory warning of
-          Just category | isWarningError settings category -> promoteDiagnostic warning
-          _ -> warning
         extraWarnings =
           [ mkSameScopeRebindingWarning (identifierText name) (coreNodeSpan node) previousSpan
           | statement <- ModuleGraph.coreModuleStatements resolvedModule,

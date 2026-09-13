@@ -496,6 +496,9 @@ evaluateRuntimeScope storage evaluateValue forceCell request =
           _ -> go Nothing rest
 
 prepareRuntimeCells :: ScopeCellStorage -> RuntimeEnv -> PreparedRecursiveScope 'Analyzed -> PreparedRuntimeCells
+-- Binding cells capture environments that themselves contain the cells.
+-- The lazy maps tie this recursive knot without forcing a binding before its
+-- environment exists; cycle detection remains in the cell evaluation paths.
 prepareRuntimeCells storage initialEnv preparedScope =
   PreparedRuntimeCells scopePlan finalEnvironment envBefore bindingCellAt
   where
@@ -720,18 +723,8 @@ prepareRuntimeCells storage initialEnv preparedScope =
 
     selectRecursiveAliasTarget :: Int -> RuntimeEnv -> Expr 'Analyzed -> Expr 'Analyzed -> Expr 'Analyzed -> Either Diagnostic (Maybe Int)
     selectRecursiveAliasTarget statementIndex env conditionExpr thenExpr elseExpr = do
-      conditionValue <- evalValueAt statementIndex env conditionExpr
-      case conditionValue of
-        VBool True ->
-          selectedRecursiveAliasTarget statementIndex env thenExpr
-        VBool False ->
-          selectedRecursiveAliasTarget statementIndex env elseExpr
-        other ->
-          Left
-            ( runtimeDiagnostic
-                E3003
-                ("runtime branch condition must be Bool, found " <> renderRuntimeType other)
-            )
+      condition <- evalValueAt statementIndex env conditionExpr >>= runtimeBoolean "branch condition"
+      selectedRecursiveAliasTarget statementIndex env (if condition then thenExpr else elseExpr)
 
     selectMatchingCaseArmForAlias ::
       Maybe SourceUnitOwner ->
@@ -743,43 +736,17 @@ prepareRuntimeCells storage initialEnv preparedScope =
     selectMatchingCaseArmForAlias patternModulePath evalGuard env scrutineeValue =
       chooseRemainingArm
       where
-        chooseRemainingArm remainingArms =
-          case remainingArms of
-            [] -> Right Nothing
-            caseArm : rest ->
-              chooseArm caseArm rest
-
-        chooseArm caseArm rest =
+        chooseRemainingArm [] = Right Nothing
+        chooseRemainingArm (caseArm : rest) =
           case matchCaseArm patternModulePath env scrutineeValue caseArm of
-            Just (armEnv, guardExpr, bodyExpr) ->
-              case guardExpr of
-                Nothing ->
-                  Right
-                    ( Just
-                        ( armEnv,
-                          bodyExpr
-                        )
-                    )
-                Just conditionExpr -> do
-                  guardValue <- evalGuard armEnv conditionExpr
-                  case guardValue of
-                    VBool True ->
-                      Right
-                        ( Just
-                            ( armEnv,
-                              bodyExpr
-                            )
-                        )
-                    VBool False ->
-                      chooseRemainingArm rest
-                    other ->
-                      Left
-                        ( runtimeDiagnostic
-                            E3003
-                            ("runtime case guard must be Bool, found " <> renderRuntimeType other)
-                        )
-            Nothing ->
-              chooseRemainingArm rest
+            Nothing -> chooseRemainingArm rest
+            Just (armEnv, guardExpr, bodyExpr) -> do
+              selected <- case guardExpr of
+                Nothing -> Right True
+                Just conditionExpr -> evalGuard armEnv conditionExpr >>= runtimeBoolean "case guard"
+              if selected
+                then Right (Just (armEnv, bodyExpr))
+                else chooseRemainingArm rest
 
     -- Single-expression blocks are semantically transparent here, so peel
     -- them before following recursive alias edges and cycle detection.
@@ -857,8 +824,8 @@ prepareRuntimeCells storage initialEnv preparedScope =
         insertConstructor envAcc (DataConstructor node constructorName _) =
           Map.insert (resolvedBinderReference (statementResolution (coreNodeFacts node)) constructorName) (constructorValue node constructorName) envAcc
         constructorValue node constructorName =
-          case Map.elems (statementGeneralizedSchemes (coreNodeFacts node)) of
-            [scheme]
+          case statementBinding (coreNodeFacts node) of
+            Just (_, scheme)
               | (fields, SemanticData typeName arguments) <- runtimeFunctionArguments (analyzedSchemeType scheme),
                 Just parameters <- traverse parameterVariable arguments ->
                   Right
@@ -1012,18 +979,14 @@ prepareRuntimeCells storage initialEnv preparedScope =
 
     selectQualifiedMethodAliasTarget :: Maybe SourceUnitOwner -> Map ResolvedReference (Expr 'Analyzed) -> Set ResolvedReference -> RuntimeEnv -> ResolvedReference -> Expr 'Analyzed -> Expr 'Analyzed -> Expr 'Analyzed -> Either Diagnostic Bool
     selectQualifiedMethodAliasTarget methodModulePath methodExprsByKey visitedMethodKeys env methodKey conditionExpr thenExpr elseExpr = do
-      conditionValue <- evalValueWithModulePath methodModulePath env conditionExpr
-      case conditionValue of
-        VBool True ->
-          selectedQualifiedMethodAliasTarget methodModulePath methodExprsByKey visitedMethodKeys env methodKey thenExpr
-        VBool False ->
-          selectedQualifiedMethodAliasTarget methodModulePath methodExprsByKey visitedMethodKeys env methodKey elseExpr
-        other ->
-          Left
-            ( runtimeDiagnostic
-                E3003
-                ("runtime branch condition must be Bool, found " <> renderRuntimeType other)
-            )
+      condition <- evalValueWithModulePath methodModulePath env conditionExpr >>= runtimeBoolean "branch condition"
+      selectedQualifiedMethodAliasTarget methodModulePath methodExprsByKey visitedMethodKeys env methodKey (if condition then thenExpr else elseExpr)
+
+runtimeBoolean :: Text -> RuntimeValue -> Either Diagnostic Bool
+runtimeBoolean context runtimeValue =
+  case runtimeValue of
+    VBool condition -> Right condition
+    other -> Left (runtimeDiagnostic E3003 ("runtime " <> context <> " must be Bool, found " <> renderRuntimeType other))
 
 evalValue :: RuntimeEnv -> Expr 'Analyzed -> Either Diagnostic RuntimeValue
 evalValue =
@@ -1656,38 +1619,16 @@ resumeEvaluationFrame observeStatistics observeProfile host machine frame runtim
             machine
             (EvaluateTupleElement context (runtimeValue : reversedElements) rest)
             (EvaluateExpression context nextElement)
-    EvaluateIfBranch context thenExpr elseExpr ->
-      case runtimeValue of
-        VBool True ->
-          continueWith
-            (EvaluateExpression context thenExpr)
-            machine
-        VBool False ->
-          continueWith
-            (EvaluateExpression context elseExpr)
-            machine
-        other ->
-          throwRuntimeDiagnostic
-            (runtimeDiagnostic E3003 ("runtime branch condition must be Bool, found " <> renderRuntimeType other))
+    EvaluateIfBranch context thenExpr elseExpr -> do
+      condition <- liftRuntimeResult (runtimeBoolean "branch condition" runtimeValue)
+      continueWith (EvaluateExpression context (if condition then thenExpr else elseExpr)) machine
     EvaluateCaseArms context caseArms ->
       continueCaseEvaluation observeStatistics machine context runtimeValue caseArms
-    EvaluateCaseGuard context scrutineeValue armEnv bodyExpr remainingArms ->
-      case runtimeValue of
-        VBool True ->
-          continueWith
-            ( EvaluateExpression
-                ( context
-                    { evaluationEnvironment = armEnv
-                    }
-                )
-                bodyExpr
-            )
-            machine
-        VBool False ->
-          continueCaseEvaluation observeStatistics machine context scrutineeValue remainingArms
-        other ->
-          throwRuntimeDiagnostic
-            (runtimeDiagnostic E3003 ("runtime case guard must be Bool, found " <> renderRuntimeType other))
+    EvaluateCaseGuard context scrutineeValue armEnv bodyExpr remainingArms -> do
+      condition <- liftRuntimeResult (runtimeBoolean "case guard" runtimeValue)
+      if condition
+        then continueWith (EvaluateExpression context {evaluationEnvironment = armEnv} bodyExpr) machine
+        else continueCaseEvaluation observeStatistics machine context scrutineeValue remainingArms
     EvaluateBuiltinRightOperand context operatorSymbol rightExpr ->
       suspendEvaluation
         machine
@@ -1741,33 +1682,18 @@ continueCaseEvaluation observeStatistics machine context scrutineeValue =
             scrutineeValue
             caseArm of
             Nothing -> chooseArm rest
-            Just (armEnv, Nothing, bodyExpr) -> do
+            Just (armEnv, guardExpr, bodyExpr) -> do
               recordRuntimeStatisticWhen
                 observeStatistics
                 (recordRuntimePatternMatch (Set.size (patternBinderNames casePattern)))
-              continueWith
-                ( EvaluateExpression
-                    ( context
-                        { evaluationEnvironment = armEnv
-                        }
-                    )
-                    bodyExpr
-                )
-                machine
-            Just (armEnv, Just guardExpr, bodyExpr) -> do
-              recordRuntimeStatisticWhen
-                observeStatistics
-                (recordRuntimePatternMatch (Set.size (patternBinderNames casePattern)))
-              suspendEvaluation
-                machine
-                (EvaluateCaseGuard context scrutineeValue armEnv bodyExpr rest)
-                ( EvaluateExpression
-                    ( context
-                        { evaluationEnvironment = armEnv
-                        }
-                    )
-                    guardExpr
-                )
+              let armContext = context {evaluationEnvironment = armEnv}
+              case guardExpr of
+                Nothing -> continueWith (EvaluateExpression armContext bodyExpr) machine
+                Just conditionExpr ->
+                  suspendEvaluation
+                    machine
+                    (EvaluateCaseGuard context scrutineeValue armEnv bodyExpr rest)
+                    (EvaluateExpression armContext conditionExpr)
 
 applyRemainingArguments ::
   (Monad m) =>
@@ -2146,42 +2072,23 @@ evalBuiltinWithHost ::
   ExceptT RuntimeControl (RuntimeHostEvaluationT m) RuntimeValue
 evalBuiltinWithHost observeStatistics observeProfile host builtinFunction arguments =
   case (builtinFunction, arguments) of
-    (BuiltinReadTextRaw, [VText path]) -> do
-      beginHostOperation observeStatistics observeProfile ReadTextHostOperation
-      outcome <- lift (runtimeHostReadText host path)
-      endHostOperation observeProfile
-      pure (rawHostOutcome VText outcome)
-    (BuiltinWriteTextRaw, [VText path, VText contents]) -> do
-      beginHostOperation observeStatistics observeProfile WriteTextHostOperation
-      outcome <- lift (runtimeHostWriteText host path contents)
-      endHostOperation observeProfile
-      pure (rawHostOutcome (const (VText "")) outcome)
-    (BuiltinReadStdinRaw, [VTuple []]) -> do
-      beginHostOperation observeStatistics observeProfile ReadStdinHostOperation
-      outcome <- lift (runtimeHostReadStdin host)
-      endHostOperation observeProfile
-      pure (rawHostOutcome VText outcome)
-    (BuiltinWriteStdoutRaw, [VText contents]) -> do
-      beginHostOperation observeStatistics observeProfile WriteStdoutHostOperation
-      outcome <- lift (runtimeHostWriteStdout host contents)
-      endHostOperation observeProfile
-      pure (rawHostOutcome (const (VText "")) outcome)
-    (BuiltinWriteStderrRaw, [VText contents]) -> do
-      beginHostOperation observeStatistics observeProfile WriteStderrHostOperation
-      outcome <- lift (runtimeHostWriteStderr host contents)
-      endHostOperation observeProfile
-      pure (rawHostOutcome (const (VText "")) outcome)
+    (BuiltinReadTextRaw, [VText path]) ->
+      rawHostOutcome VText <$> observeHostOperation ReadTextHostOperation (runtimeHostReadText host path)
+    (BuiltinWriteTextRaw, [VText path, VText contents]) ->
+      rawHostOutcome (const (VText "")) <$> observeHostOperation WriteTextHostOperation (runtimeHostWriteText host path contents)
+    (BuiltinReadStdinRaw, [VTuple []]) ->
+      rawHostOutcome VText <$> observeHostOperation ReadStdinHostOperation (runtimeHostReadStdin host)
+    (BuiltinWriteStdoutRaw, [VText contents]) ->
+      rawHostOutcome (const (VText "")) <$> observeHostOperation WriteStdoutHostOperation (runtimeHostWriteStdout host contents)
+    (BuiltinWriteStderrRaw, [VText contents]) ->
+      rawHostOutcome (const (VText "")) <$> observeHostOperation WriteStderrHostOperation (runtimeHostWriteStderr host contents)
     (BuiltinArguments, [VTuple []]) -> do
-      beginHostOperation observeStatistics observeProfile ArgumentsHostOperation
-      argumentsText <- lift (runtimeHostArguments host)
-      endHostOperation observeProfile
+      argumentsText <- observeHostOperation ArgumentsHostOperation (runtimeHostArguments host)
       pure (VList (map VText argumentsText) (Just (SemanticList SemanticText)))
     (BuiltinExit, [statusValue])
       | Just status <- runtimeHostExitStatus statusValue,
         status >= 0 && status <= 255 -> do
-          beginHostOperation observeStatistics observeProfile ExitHostOperation
-          exitResult <- lift (runtimeHostExit host status)
-          endHostOperation observeProfile
+          exitResult <- observeHostOperation ExitHostOperation (runtimeHostExit host status)
           case exitResult of
             Right RuntimeHostExitReturned -> pure (VTuple [])
             Right RuntimeHostExitRequested ->
@@ -2206,6 +2113,12 @@ evalBuiltinWithHost observeStatistics observeProfile host builtinFunction argume
         (applyRuntimeFunctionWithHost host)
         builtinFunction
         arguments
+  where
+    observeHostOperation operation action = do
+      beginHostOperation observeStatistics observeProfile operation
+      outcome <- lift action
+      endHostOperation observeProfile
+      pure outcome
 
 beginHostOperation ::
   (Monad m) =>
