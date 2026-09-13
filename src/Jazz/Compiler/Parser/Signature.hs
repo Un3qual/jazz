@@ -99,6 +99,7 @@ validateConstraintBlockHeads :: [Token] -> Either ParserFailure ()
 validateConstraintBlockHeads = validateHead 0
   where
     validateHead depth (Token {tokenKind = TLParen} : rest) = validateHead (depth + 1) rest
+    validateHead _ (colon@Token {tokenKind = TColonColon} : _) = invalid colon "alias before '::'"
     validateHead depth (alias : colon@Token {tokenKind = TColonColon} : member : rest) = do
       case tokenKind alias of
         TIdentifier {} -> Right ()

@@ -462,6 +462,7 @@ module ParserSignature (
   validateConstraintBlockHead = \(depth, tokens) -> case tokens {
     | [first | rest] -> case canonicalTokenKind first {
       | PunctuationKind LeftParenPunctuation -> validateConstraintBlockHead (depth + 1) rest
+      | PunctuationKind DoubleColonPunctuation -> invalidConstraintHead first "alias before '::'"
       | other -> case rest {
         | [separator | [member | after]] -> case canonicalTokenKind separator {
           | PunctuationKind DoubleColonPunctuation -> validateQualifiedConstraintHead depth first separator member after
