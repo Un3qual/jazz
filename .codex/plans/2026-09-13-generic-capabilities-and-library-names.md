@@ -470,8 +470,13 @@ this is fixture maintenance, not new profiling work.
 **Files:** `jazz/stdlib/Prelude.jz`, `List.jz`, `Queue.jz`, `Maybe.jz`,
 `Result.jz`, `NonEmpty.jz`, `Map.jz`, `Dictionary.jz`, `Set.jz`, `Text.jz`,
 new `jazz/stdlib/Reduce.jz`, `src/Jazz/Compiler/BuiltinCatalog.hs`,
-`PreludeContract.hs`, `Prelude.hs`, `TypeInference/Capabilities.hs`,
+`BundledPrelude.hs`, `PreludeContract.hs`, `Prelude.hs`,
+`TypeInference/Capabilities.hs`, `TypeInference/Scope.hs`,
 `test/Jazz/Compiler/Stdlib/{LinearCollectionsTests,OrderedCollectionsTests,TextTests,FoundationsTests}.hs`,
+`test/Jazz/Compiler/Modules/PreludeLoadingSpec.hs`,
+`test/Jazz/Compiler/Semantics/BindingSignature/ConstraintsTests.hs`,
+`test/Jazz/Compiler/Semantics/PrimitiveSemantics/EqualityOperator.hs`,
+`test/Jazz/CLI/CLISpec.hs`,
 `test/Jazz/Repository/AuditSpec.hs`, and new `docs/standard-library/reduce.md`.
 Also every source/export in `2026-09-13-stdlib-api-renames.csv`,
 `jazz/compiler/`, `test/fixtures/stdlib/`, Haskell-embedded Jazz fixtures,
@@ -494,6 +499,14 @@ module values. There is no separate second pass to rename newly added adapters.
       Equatable/Comparable with their compiler consumers, fixtures, and public
       documentation. Update the public builtin map binding and hardcoded class
       inventories with the Prelude classes/instances. Keep `Default` separate.
+      Migrate `BundledPrelude.renderCapabilityClass` and
+      `renderDefaultCapabilityImpl` with the authored Prelude so default CLI and
+      driver compilation expose the same renamed capabilities. Update the strict
+      equality obligation label used by
+      `TypeInference/Scope.addUndeclaredSignatureConstraintErrors` for declared
+      constraint matching and diagnostics, preserving builtin structural `==`.
+      Reuse the existing Prelude-loading, signed-equality, primitive-equality,
+      and CLI cases listed above to check the renamed paths.
 - [ ] Work through modules in dependency order, keeping related modules together
       when needed for a compiling milestone. For each group, add behavioral
       fixtures with final names, implement its instances and renames, and update
@@ -553,7 +566,8 @@ module values. There is no separate second pass to rename newly added adapters.
       left-fold order on List and Queue through one generic helper. Register the
       module and its documentation in the authored module/API inventories.
 - [ ] Run `stdlib-spec`, `prelude-loading-spec`, `builtin-catalog-spec`,
-      `binding-signature-coherence-spec`, `runtime-semantics-spec`, and `loader-spec`.
+      `binding-signature-coherence-spec`, `primitive-semantics-spec`, `cli-spec`,
+      `runtime-semantics-spec`, and `loader-spec`.
       Update public capability/stdlib documentation and commit.
 
 - [ ] Run `stdlib-spec`, `repository-audit-spec`, the complete retained hosted
