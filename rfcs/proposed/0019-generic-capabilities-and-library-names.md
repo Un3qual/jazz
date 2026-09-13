@@ -2,40 +2,30 @@
 
 Status: Proposed
 Date: 2026-09-13
-Supersedes: On acceptance, the concrete-implementation and class-method visibility restrictions of RFC 0017; its nominal identities and qualified spellings remain.
+Supersedes: On acceptance, the concrete-implementation and instance-transport restrictions of RFC 0017; its nominal identities and qualified spellings remain.
 
 ## Decision
 
-Give Jazz ordinary Haskell-style constrained polymorphism through its existing
-`class` and `impl` syntax, with capability names that describe useful behavior.
-The maintainer approved this direction and the names `Equatable`, `Comparable`,
-`Mappable`, `Reducible`, and `Combinable` on 2026-09-13. This document supplies
-the detailed semantic and migration decisions for review. It is not a claim
-that these features are implemented or that these additional decisions have
-already been accepted.
+Give Jazz ordinary constrained polymorphism through its existing `class` and
+`impl` syntax, with behavior-based names: `Equatable`, `Comparable`, `Mappable`,
+`Reducible`, and `Combinable`. Support one parameter per class, generic
+implementations with prerequisites, inferred constraints and kinds, ordinary
+method values, superclasses, and default methods. User-defined classes receive
+the same support as the bundled classes.
 
-The contract includes generic implementations with prerequisites, inferred
-constraints, type-constructor parameters, methods usable as ordinary values,
-superclasses, default methods, and deterministic evidence across modules.
-The maintainer additionally requires both `Set` and `Text` to support `map`,
-with the destination collection inferred from the calling context. Mapping
-therefore relates an input type to an output type; it is not restricted to
-preserving a type constructor. Multi-parameter classes with declared type
-dependencies are included to express that relation in library code.
-Implement the compiler mechanism generally: user-defined classes receive the
-same support as the bundled classes.
+The maintainer approved the naming and generic-programming direction, then
+accepted separate mapping for Text and Set on 2026-09-13. Generic mapping
+preserves the collection constructor. This revision replaces the earlier
+requested-destination mapping proposal; it does not add functional dependencies,
+`determines` syntax, associated types, multi-parameter classes, or a matrix of
+cross-collection mapping implementations.
 
-Use familiar operation names such as `map`, `foldLeft`, `foldRight`, `reduce`,
-`combine`, and `empty`. Public names and introductory documentation describe
-behavior, with examples and explicit rules. Mathematical terminology may
-appear in contributor references but is not required vocabulary for users.
-
-This is the class-programming model, not a promise to implement every Haskell
-or GHC feature. Jazz keeps its evaluation strategy, numeric widths and promotion
-rules, effect boundary, source syntax, and interpreter. Automatic deriving,
-associated types, overlapping instances, explicit higher-rank types, and new operator transport are
-outside this contract. Existing accepted behavior outside these changes remains
-in force.
+The detailed contract remains proposed. Public documentation continues to
+describe shipped behavior until implementation lands. Keep Jazz's evaluation
+strategy, numeric widths and promotion rules, purity boundary, and analyzed-core
+interpreter. Automatic deriving, overlapping instances, explicit higher-rank
+types, re-exports, new operator transport, and broader self-hosting/native work
+remain outside this change.
 
 ## Context
 
@@ -43,105 +33,59 @@ The current compiler infers and transports some class constraints, but
 `ConcreteImplFact` has a variable-free target, declaration parsing rejects
 variable targets, signature normalization rejects type-variable application,
 and methods use explicit class-qualified references. Class bodies contain
-signatures only. The Prelude also exposes a list-specific builtin `map`.
+signatures only. The Prelude exposes a list-specific builtin `map`.
 
-The library already has polymorphic functions for lists, queues, optional
-values, results, and other structures. Renaming `listMap` to `map` preserves
-element polymorphism but does not give it a generic collection implementation.
-Names must resolve to declarations before types select implementation evidence;
-unrelated functions with matching names do not become overloads.
+The library already has polymorphic functions for collections, optional values,
+and results. Renaming `listMap` to `map` preserves element polymorphism but
+does not let one helper work across collection implementations. Names must
+resolve to declarations before types select evidence; unrelated same-named
+functions do not become overloads.
 
-The source owners are `src/Jazz/Compiler/TypeRepresentation.hs`,
+The active owners are `src/Jazz/Compiler/TypeRepresentation.hs`,
 `SemanticDeclarations.hs`, `Parser/CapabilityDeclaration.hs`,
 `TypeInference/Capabilities.hs`, `ModuleInterface.hs`, `ModuleResolver.hs`,
 `BuiltinCatalog.hs`, the analyzed runtime, and `jazz/stdlib/`.
 
 ## Type constructors and inference
 
-Infer kinds from declaration and signature use. A complete value type has kind
-`Type`; a constructor such as `List` or `Queue` has kind `Type -> Type`.
-`Result` has kind `Type -> Type -> Type`, and `Result(error)` fixes its first
-argument. Kinds remain implicit in source code.
+Infer kinds from declarations and signatures. A complete value type has kind
+`Type`; List and Queue have kind `Type -> Type`. Result has kind
+`Type -> Type -> Type`; `Result(error)` fixes its first argument. Kinds remain
+implicit in source code.
 
-Allow a type variable as an application head: `f(a)` and `f(a, b)`.
-Applications associate to the left; `Result(error, a)` and
-`(Result(error))(a)` denote the same type. `List(a)` and `[a]` denote the same
-builtin list type. A named type may be partially applied when the expected
-kind permits it; term bindings and datatype fields must have complete types.
-Reject kind mismatches, overapplication, and infinite kinds before method
-selection. Do not introduce an independently normalized parallel type tree.
+Allow a variable as an application head: `f(a)` and `f(a, b)`. Applications
+associate to the left: `Result(error, a)` and `(Result(error))(a)` denote the
+same type. `List(a)` and `[a]` denote the same builtin list type. Allow partial
+named type application when the expected kind permits it. Term bindings and
+datatype fields require complete types. Reject kind mismatches, overapplication,
+and infinite kinds. Extend the shared type representation and normalization.
 
-Class parameters have inferred kinds. Method-local variables are independently
-generalized for each method: the `a` and `b` below are not additional class
-parameters. Method signatures may declare additional constraints using the
-existing signature prefix. Callers supply both class and method prerequisites;
-implementations and defaults are checked under those same assumptions.
-Superclass arguments and implementation contexts must be well-kinded.
+A class still has exactly one parameter, whose kind is inferred. Variables in
+a method signature other than that parameter are independently generalized on
+each use. Method signatures may add prerequisites using the existing constraint
+prefix; implementations and defaults are checked under those assumptions.
 
 ```jazz
-class Transforming(f) {
-  transform :: (a -> b) -> f(a) -> f(b).
-}.
-```
-
-This custom class verifies higher-kinded support independently of the bundled
-mapping policy. A helper calling `transform` can infer
-`@{Transforming(f)}: (a -> b) -> f(a) -> f(b)`. It remains generic when exported,
-stored, passed as a monomorphic callable argument, or partially applied. This
-does not add rank-two argument polymorphism. Explicit signatures constrain
-inference rather than being required for ordinary generic helpers.
-
-Use expected types as well as argument types to solve method obligations.
-A method such as `empty :: a` must work with an explicit result type or a
-surrounding constraint. Unresolved choices receive an ambiguity diagnostic;
-the compiler must not pick an instance from declaration order or runtime data.
-Retain existing numeric defaulting rules; add no collection defaulting rule.
-
-## Mapping inputs to requested outputs
-
-Use one ordinary class declaration to describe the input/output relation.
-The example assumes the `Mapping` instances described below are imported:
-
-```jazz
-class Mappable(source, target, a, b)
-  determines (source -> a, target -> b) {
-  map :: (a -> b) -> source -> target.
+class Mappable(f) {
+  map :: (a -> b) -> f(a) -> f(b).
 }.
 
 convert = \(change, values) -> map change values.
-codes :: [Int].
-codes = convert (\(character) -> 1) "abc".
 ```
 
-`codes` is `[1, 1, 1]`. The inferred type of `convert` is
-`@{Mappable(source, target, a, b)}: (a -> b) -> source -> target`.
-The output type is solved from expected types, explicit signatures/type
-application, or subsequent operations that determine it. With an output of
-`Text`, the callback result must be `Char`. With an output of `Set(b)`, the
-selected implementation requires `Comparable(b)` and removes duplicates.
-These are instance prerequisites, not compiler exceptions for builtin types.
+The helper infers `@{Mappable(f)}: (a -> b) -> f(a) -> f(b)`. An input of
+`[Int]` fixes `f = List` and `a = Int`; the callback fixes `b`. Mapping a list
+returns a list, a Queue returns a Queue, and a Maybe returns a Maybe. An output
+annotation can constrain element types but cannot turn the result into another
+collection constructor. No new destination annotation is needed for ordinary
+list mapping.
 
-`determines (source -> a, target -> b)` means that the source type fixes the
-input element type and the target type fixes the output element type. A
-dependency side names one parameter or a parenthesized nonempty parameter list;
-multiple dependencies are comma-separated. Names must refer to class parameters.
-This is the functional-dependency mechanism with descriptive surface spelling.
-It introduces no runtime metadata or overload search by value.
-
-During inference, equal determinant types improve their dependent types.
-Freshened instance heads with unifiable determinants must agree on their
-dependents, even if their other class arguments differ. Check dependency
-coverage: all variables in dependent positions must be determined by the
-determinant positions, closing that set through declared dependencies in the
-instance prerequisites. Reject violations at the declaration. Instance heads
-still obey the overlap and termination rules below.
-
-An unannotated helper may retain its output constraint polymorphically.
-A concrete evaluated expression whose destination remains unconstrained is
-ambiguous; report the unresolved target and suggest a result annotation.
-Do not silently choose a List, preserve the input type by default, or choose
-whatever instance happens to be available first. Thus existing result-ambiguous
-`map f list` programs may need a result annotation in this migration.
+Generic helpers retain their constraints when exported, stored, partially
+applied, or passed as monomorphic callable arguments. This does not add
+rank-two argument polymorphism. Expected types participate in inference,
+including for existing result-only methods such as `defaultValue :: a`.
+Unresolved choices receive an ambiguity diagnostic. Preserve existing numeric
+defaulting and add no collection defaulting or declaration-order selection.
 
 ## Generic implementations and evidence
 
@@ -162,96 +106,73 @@ class @{Equatable(a)}: Comparable(a) {
 }.
 ```
 
-Implementation variables are implicitly bound by the head's arguments. Every
-prerequisite variable must occur in that head. Accept existing concrete targets
-and constructor-headed generic targets, including `Equatable([a])`,
-`Transforming(Queue)`, and `Mappable(Text, [b], Char, b)`. Variables may repeat
-across arguments where they express a relationship, but a constructor's generic
-argument positions contain distinct variables, not nested specialized patterns.
-At least one head argument must have a concrete constructor; reject an
-all-variable catch-all head. Function targets retain their
-existing rejection in this increment; the library instances below use named
-and list constructors.
+Implementation variables are implicitly bound by the single head argument.
+Every prerequisite variable must occur in that head. Accept existing concrete
+targets and constructor-headed generic targets such as `Equatable([a])`,
+`Mappable(Queue)`, and `Mappable(Result(error))`. Generic constructor argument
+positions contain distinct variables rather than nested specialized patterns.
+Reject a bare-variable catch-all head. Function targets retain their current
+rejection in this release; named, list, and tuple targets cover the initial
+library families.
 
-For each prerequisite, count every type constructor, application, and variable
-in its arguments. Require a strictly smaller total than the instance head,
-and no greater occurrence count for any variable. Reject recursive contexts
-that fail this structural decrease rule. This admits `Equatable(a)` as a
-prerequisite of `Equatable([a])` without arbitrary solver fuel or undecidable
-instance search.
+For each prerequisite, count type constructors, applications, and variables in
+its argument. Require a strictly smaller total than the instance head and no
+greater occurrence count for any variable. This admits `Equatable(a)` as a
+prerequisite of `Equatable([a])` and rejects non-decreasing instance search.
 
-Two visible implementation heads for the same class overlap if all their
-arguments can unify after freshening their variables. Reject overlap even when
-their prerequisite lists differ.
-In particular, a generic list implementation cannot coexist with a special
-`[Int]` implementation. Different import aliases for the same declaration
-deduplicate by implementation identity and do not create overlap.
+Two visible heads for the same class overlap if their targets unify after
+freshening. Reject overlap independently of prerequisites. A generic list
+implementation cannot coexist with an `[Int]` specialization. Repeated aliases
+of one declaration deduplicate by implementation identity.
 
-Check generic method bodies once under their declared prerequisites and the
-instance's own evidence. Select evidence at the caller, recursively solving
-prerequisites. Checked generic functions carry evidence parameters; concrete
-calls supply evidence identified by the defining `ImplId` and `MethodId`.
-Default methods and superclass projections use that same evidence. Extend
-the current analyzed expression/binder facts and runtime method cells; do not
-add a second interpreter, alternate IR, global name lookup, or runtime type
-inspection to choose implementations.
+Check generic method bodies once under their prerequisites and their own
+implementation evidence. Callers select evidence and recursively solve its
+prerequisites. Generic functions carry evidence parameters; concrete calls
+supply the selected `ImplId` and `MethodId`. Extend existing analyzed facts and
+runtime method cells. No second interpreter, runtime type inspection, or
+same-name method fallback is introduced.
 
-## Method names and module boundaries
+## Methods, defaults, and module boundaries
 
-A class method introduces one overloaded value declaration in its defining
-module. `map` can therefore be imported, stored, partially applied, and used
-without writing a wrapper. Resolve that value's identity before type inference.
-Same-spelled methods in distinct classes are distinct values and obey ordinary
-lexical shadowing and explicit-import collision rules. Types do not resolve
-an otherwise ambiguous name.
+A class method introduces an ordinary overloaded value in its defining scope.
+It can be called, stored, and partially applied without a wrapper. Its plain
+name, `Class::method`, and `Alias::Class::method` refer to the same identity.
+Normal lexical shadowing and import collision rules apply. Types do not resolve
+an ambiguous source name.
 
-Preserve `Class::method` and `Alias::Class::method` as references to the same
-method identity. An alias may also expose the method as `Alias::method` when
-that method value is exported. An alias-only import introduces no unqualified
-class or method names.
+Keep the existing module selectors. Exporting/importing `class C` makes its
+methods available with the class, including ordinary method names for an
+unqualified import. Aliased imports expose `Alias::method` and
+`Alias::Class::method` without leaking plain names. The existing `value method`
+selector may expose a method alone, preserving hidden supporting class metadata
+without exposing the class name. An omitted export list includes owned method
+values. Do not add `C(..)` or per-method class selectors in this release.
+Selecting a class exposes all its methods; there is no per-method privacy within
+that class selection. Imported declarations remain ineligible for re-export.
 
-Use Haskell-style separation of class names and exported methods:
+Import edges transport the complete checked instance environment, including
+transitive instances, independently of value/class selection and aliasing.
+This changes RFC 0017's instance filtering. It is needed so an ordinary library
+module can implement a Prelude class for its collection: importing Queue must
+make `Mappable(Queue)` usable without re-exporting the Prelude class. An import
+with an empty selection can supply instances. This does not expose private
+class/type names. Reject conflicting visible heads before entry evaluation.
 
-- `class C` selects the class for constraints and implementation heads.
-- `class C(..)` selects the class and all its declared methods.
-- `class C(method1, method2)` selects the class and named methods.
-- `value method` selects the ordinary method value, retaining hidden class
-  metadata required by its inferred type without exposing a private class name.
-- An omitted export list publishes all owned public declarations, including
-  method values. Imports support the corresponding explicit selectors.
+An imported generic function receives caller evidence for its constraints;
+a concrete exported binding retains its defining-module evidence. Preserve
+nominal identity across both cases and repeated imports. Third-party instances
+use the same overlap rules; there is no separate instance-import syntax.
 
-All method spellings honor the same selection: `C::method` cannot bypass an
-export list that hides the method. Update existing explicit `class C` exports
-that intend to expose methods to `class C(..)` in the migration. Re-exporting
-imported declarations remains disallowed.
+Superclass declarations form an acyclic graph. A subclass constraint supplies
+its superclass evidence. Each implementation must satisfy those superclass
+constraints; declaring a subclass implementation does not create missing
+superclass implementations.
 
-Instance availability follows the Haskell model: import edges carry the
-dependency's complete checked instance environment, including transitive
-instances, independently of value/class selection and aliasing. Importing a
-module with an empty selection can therefore make its instances available.
-This does not make private type or class names source-accessible. Resolve
-nominal identities and reject conflicting visible heads before evaluating
-the entry module. A third-party module may define an implementation for an
-imported class/type; no separate instance-import syntax is introduced.
-
-This explicitly changes RFC 0017's non-transitive instance policy. An imported
-generic function receives the caller's evidence for its constraints; a
-monomorphic exported binding retains evidence already selected in its defining
-module. There is no call-site replacement of fixed evidence.
-
-## Superclasses and defaults
-
-Superclass declarations form an acyclic graph. A subclass constraint provides
-its superclass evidence, including through imported and aliased classes.
-Declaring an implementation requires satisfying every superclass constraint;
-it does not manufacture missing superclass implementations.
-
-Allow one default body alongside a method's signature in a class declaration.
-Defaults may call other methods and are checked under the class and superclass
-constraints. An explicit implementation overrides that default. A method with
-neither an implementation nor a default is a compile error. Recursive method
-bodies follow ordinary Jazz recursion rules; do not promise termination or
-replace method checking with heuristic cycle rejection.
+Allow a default body alongside a method signature. Defaults may call other
+methods and are checked under class, superclass, and method prerequisites.
+Explicit implementations override defaults. A method with neither a supplied
+body nor a default is a compile error. Method recursion follows ordinary Jazz
+recursion rules.
 
 ```jazz
 class Equatable(a) {
@@ -263,182 +184,145 @@ class Equatable(a) {
 
 ## Bundled capabilities
 
-Define the foundational classes in the Prelude so collection modules can
-implement them without a Prelude-to-library dependency cycle. New classes
-are ordinary Jazz declarations. Preserve the separate default-value concept.
+Define the five classes in the Prelude. Collection-owned instances live in
+their library modules; list instances live in the Prelude. Avoid a Prelude
+dependency on those modules. Implement the classes in ordinary Jazz code.
 
-| Class                            | Methods and requirements                                                                                                               | First supported targets                                                                                                                  |
-| -------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
-| `Equatable(a)`                   | `equals :: a -> a -> Bool`; default `differs`                                                                                          | Existing scalar equality targets; lists, tuples, `Maybe(a)`, `Result(e, a)`, `NonEmpty(a)`, `Queue(a)` with required element constraints |
-| `Comparable(a)`                  | Superclass `Equatable(a)`; `compare :: a -> a -> Ordering`                                                                             | Existing scalar ordering targets                                                                                                         |
-| `Mappable(source, target, a, b)` | `source` determines `a`, `target` determines `b`; `map :: (a -> b) -> source -> target`                                                | Input/output pairs in the mapping matrix below, including `Text` and `Set`                                                               |
-| `Reducible(collection, a)`       | `collection` determines `a`; `foldLeft :: (b -> a -> b) -> b -> collection -> b`; `foldRight :: (a -> b -> b) -> b -> collection -> b` | Lists, Queue, Maybe, Result, NonEmpty, Map, Dictionary, Set, Text; maps/dictionaries visit values and Text visits Unicode scalars        |
-| `Combinable(a)`                  | `combine :: a -> a -> a`; regrouping combinations preserves the result                                                                 | `Text`, lists, `Queue(a)`, `NonEmpty(a)`, and `Set(a)` with `Comparable(a)`                                                              |
-| `Empty(a)`                       | Superclass `Combinable(a)`; `empty :: a`; combining with `empty` on either side preserves the other value                              | The combinable targets except `NonEmpty(a)`                                                                                              |
+| Class           | Methods                                                                                       | Initial instances                                                                                                  |
+| --------------- | --------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
+| `Equatable(a)`  | `equals`; default `differs`                                                                   | Existing scalar equality targets; generic lists, tuples, Maybe, Result, NonEmpty, Queue with element prerequisites |
+| `Comparable(a)` | `compare`; superclass Equatable                                                               | Existing scalar ordering targets                                                                                   |
+| `Mappable(f)`   | `map :: (a -> b) -> f(a) -> f(b)`                                                             | List, Queue, Maybe, NonEmpty, Result(error), Map(key), Dictionary(key)                                             |
+| `Reducible(f)`  | `foldLeft :: (b -> a -> b) -> b -> f(a) -> b`; `foldRight :: (a -> b -> b) -> b -> f(a) -> b` | The Mappable families plus Set                                                                                     |
+| `Combinable(a)` | `combine :: a -> a -> a`, with associative behavior                                           | Text, lists, Queue, NonEmpty; Set with Comparable element evidence                                                 |
 
-`Empty` is the proposed name for the additional identity-bearing capability;
-it was not in the five-name approval. Its meaning is an identity for `combine`,
-not an arbitrary `Default` value. A nonempty collection can be combinable
-without having an empty value. Numeric sum/product choices require distinct
-wrapper types; this contract adds no arbitrary numeric combination instance.
+Mapping preserves element positions, optional absence, Result errors, and map
+keys, as applicable. Same-constructor mapping obeys identity and composition.
+Reduction visits list/nonempty order, Queue FIFO order, zero/one success values
+for Maybe/Result, map/set key order, and Dictionary's documented entry order.
+Set reduction does not construct a new Set and needs no ordering prerequisite.
+Text uses explicit character conversion for generic reduction.
 
-Add a library function
-`reduce :: @{Reducible(collection, a)}: (a -> a -> a) -> collection -> Maybe(a)` after `Maybe`
-is available, in a new explicit-import `Reduce` module. It has no initial value,
-returns `Nothing` for an empty structure, and uses the first element as the
-left-fold seed otherwise. Keep folds in the Prelude independent of `Maybe`.
+Retain the proposed safe, no-seed helper in an explicit-import `Reduce` module:
+`reduce :: @{Reducible(f)}: (a -> a -> a) -> f(a) -> Maybe(a)`. It returns
+Nothing for an empty input and otherwise left-folds from the first element.
+Keeping it outside the Prelude avoids a dependency on Maybe.
 
-The initial mapping pairs are explicit ordinary library implementations:
+Defer the additional `Empty` class. Existing collection-specific empty values
+and the separate `Default` class remain. NonEmpty can implement Combinable
+without having an empty value. Add no arbitrary numeric combination instance.
 
-| Input                                  | Supported requested outputs                | Element and structural behavior                                                                                 |
-| -------------------------------------- | ------------------------------------------ | --------------------------------------------------------------------------------------------------------------- |
-| `[a]`, `Queue(a)`, `Set(a)`, or `Text` | `[b]`, `Queue(b)`, `Set(b)`, or `Text`     | Text input fixes `a = Char`; Text output fixes `b = Char`; Set output requires `Comparable(b)` and deduplicates |
-| `NonEmpty(a)`                          | The four outputs above, plus `NonEmpty(b)` | Input guarantees at least one callback result; preserve that guarantee in NonEmpty output                       |
-| `Maybe(a)`                             | `Maybe(b)`                                 | Preserve absence                                                                                                |
-| `Result(e, a)`                         | `Result(e, b)`                             | Preserve the error type and error value                                                                         |
-| `Map(k, a)`                            | `Map(k, b)`                                | Preserve keys and transform values                                                                              |
-| `Dictionary(k, a)`                     | `Dictionary(k, b)`                         | Preserve keys and transform values                                                                              |
+## Separate Text and Set mapping
 
-The matrix defines supported conversions rather than promising every pair of
-types has an implementation. An empty List cannot be mapped totally into
-NonEmpty, and a Result is not implicitly converted into a container that would
-discard its error. New types can define additional mapping pairs with the same
-class mechanism. Share traversal/construction helpers where they remove
-repetition; do not generate a compiler-owned matrix.
+Neither Text nor Set implements the generic Mappable class in this release.
+Both have ordinary module functions. Text gains a function-first map:
 
-Expose this matrix through a new explicit-import `Mapping` module, which imports
-the participating library modules and declares the cross-module implementations.
-This avoids adding dependency cycles between List, Queue, Set, and Text. The
-Prelude supplies list-to-list mapping so ordinary list code keeps its existing
-import requirements; Mapping does not redeclare that instance. Library-owned
-same-family instances may be defined in their own module and arrive transitively
-through Mapping. Class definitions remain in the Prelude.
+```jazz
+map :: (Char -> Char) -> Text -> Text.
+```
 
-Each implementation visits input elements in its documented order and
-constructs the requested target from the callback results. The target's rules
-apply: a Set sorts/deduplicates; Text accepts only characters. Do not impose a
-universal structure-preservation or map-composition law across these conversions.
-For same-family List/Queue/Maybe/Result mappings, document and verify those
-stronger properties where they hold. For `Reducible`,
-document a deterministic element order: list/nonempty order, queue FIFO order,
-zero/one success value for Maybe/Result, map/set key order, and the dictionary's
-documented entry order. No iteration order is inferred from implementation
-incidents or runtime hash layout.
+Set's existing `setMap` is renamed, preserving its collection-first order:
 
-Both `Set` and `Text` implement generic `Mappable`. Retain the named,
-collection-specific `Set::map` returning a Set. A Text-to-integer mapping
-returns a requested collection of integers, never a malformed Text value.
-Map/dictionary mapping changes values, never keys. Failure values in `Result`
-pass through unchanged.
+```jazz
+map :: @{Comparable(b)}: Set(a) -> (a -> b) -> Set(b).
+```
 
-Generic mechanism support must also be exercised by user-defined classes for
-chaining and traversing parameterized values. This verifies that the compiler
-does not special-case the bundled five names. Adding every Haskell library
-class or convenience operator is not the criterion for this migration.
+`Text::map` visits Unicode scalars and returns Text. `Set::map` maps values and
+orders/deduplicates its result. Use qualified imports where these names collide
+with Prelude map. A Text-to-integer mapping converts through `Text::toChars`;
+a Set-to-List mapping converts through `Set::toList`. Destination construction
+is explicit when a different collection kind is wanted. Existing conversions
+keep their signatures.
+
+Illustrative module body, with `import Text as Text.` and
+`import Set as Set.`:
+
+```jazz
+convert = \(change, values) -> map change values.
+counts :: [Int].
+counts = convert (\(character) -> 1) (Text::toChars "abc").
+unchanged = Text::map (\(character) -> character) "abc".
+unique = Set::map (Set::fromList [1, 2, 3]) (\(value) -> 0).
+```
+
+Expect `[1, 1, 1]`, `"abc"`, and a singleton Set containing 0. There is no
+cross-collection `Mapping` module or automatically selected destination.
 
 ## Library migration
 
-Rename `Eq` to `Equatable` and `Ord` to `Comparable`, including inferred
-diagnostics, compiler-owned equality obligations, visible declarations,
-examples, and fixtures. Keep nominal identity authoritative. Existing primitive
-equality/numeric restrictions remain; a user-defined equality implementation
-must not silently change builtin structural equality or width conversion.
-`Num`, `Integral`, `Fractional`, `Showable`, and `Default` retain their current
-behavior and names in this migration.
+Rename Eq to Equatable and Ord to Comparable across declarations, compiler-owned
+obligations, diagnostics, examples, and fixtures. Preserve builtin structural
+equality and numeric semantics. Num, Integral, Fractional, Showable, and Default
+retain their behavior and names.
 
-Remove the redundant lower-camel module prefix from public values in `List`,
-`Queue`, `Maybe`, `Result`, `NonEmpty`, `Map`, `Set`, `Dictionary`, `Char`,
-`Text`, and `IOError`. For example, `listAppend` becomes `append`,
-`queueEnqueueAll` becomes `enqueueAll`, and `mapMapValues` becomes `mapValues`.
-Preserve type/constructor names and already-unprefixed I/O operations.
+Remove redundant lower-camel module prefixes from public values in List, Queue,
+Maybe, Result, NonEmpty, Map, Set, Dictionary, Char, Text, and IOError. The
+inventory under `.codex/plans/2026-09-13-stdlib-api-renames.csv` records the 183
+current prefixed exports. For example, `listAppend` becomes `append` and
+`mapMapValues` becomes `mapValues`. New Text map and generic class methods are
+additions outside that rename inventory.
 
-Ordinary renamed functions keep their argument order and return contract.
-An operation that already matches a class method may expose that same method
-identity through its owning class; a specialized module function is still a
-separate value and never joins an overload set by spelling. In particular,
-retain collection-specific signatures where Queue/Set/Map currently put the
-collection first. The generic Prelude `map` and folds put the function first.
-Use qualified imports in migrated code wherever ordinary names collide.
+Preserve existing specialized argument orders and return contracts. Generic
+Prelude map and folds are function-first. Specialized same-named functions are
+separate values, so migrate consumers with qualified imports where needed.
+Replace the public list-specific builtin map with the Mappable method; keep a
+private list primitive only where used. Ordinary list mapping keeps its List
+result without extra collection annotations. No-prelude mode has no implicit
+public method or instance fallback.
 
-Replace the public list-specific builtin `map` with the `Mappable` method.
-Retain a private list primitive only where the implementation actually uses
-it. Existing `map f list` programs with a result type fixed to a List retain
-their result; migrate previously unconstrained uses with the intended result
-type. Keep `filter`, `hd`,
-`tl`, and the current runtime host operations unchanged. No-prelude mode has
-no implicit public method or instance fallback.
-
-Update Jazz-authored consumers, Haskell-embedded source fixtures, programs,
-examples, docs, public API inventories, and formatting/highlighting support
-in the same completed migration. Remove obsolete public spellings without a
-duplicate compatibility API. Existing historical RFCs remain historical.
+Update all authored Jazz consumers, Haskell-embedded fixtures, programs,
+examples, API inventories, docs, and affected syntax highlighting. Remove old
+public spellings without duplicate compatibility aliases. Historical RFCs
+remain historical. Keep filter, hd, tl, host operations, and purity unchanged.
 
 ## Acceptance evidence
 
-The implementation must demonstrate these observable cases:
+1. One unannotated map helper runs on List, Queue, Maybe, Result, NonEmpty, Map,
+   Dictionary, and a user-defined collection, with changed element types and
+   preserved collection structure. No destination annotations are introduced.
+2. Generic constrained implementations recursively obtain element evidence.
+   Missing prerequisites, overlapping heads, escaping variables, bare-variable
+   targets, kind errors, and non-decreasing contexts produce diagnostics.
+3. Stored, partial, higher-order, exported, and result-constrained methods use
+   correct evidence, including on empty collections and in returned closures.
+4. Defaults, overrides, missing bodies, superclass evidence, and superclass
+   cycles have compile/run coverage. A user-defined chaining/traversal class
+   exercises nested constructor applications and method-local constraints.
+5. Class and value selectors, ordinary and qualified methods, aliases, private
+   names, repeated imports, and transitive instances retain the stated identity
+   and visibility rules. A Queue-owned Prelude-class instance works on import.
+6. Text map preserves Text and rejects a non-character callback result. Set map
+   orders/deduplicates and rejects unavailable output ordering. Explicit Text
+   and Set conversions permit element-type changes through generic List map.
+7. Reducible, safe reduce, and Combinable execute on representative values,
+   including empty inputs and NonEmpty. Preserve numeric, purity, and host rules.
+8. All 183 renamed exports and their consumers agree. Existing supported hosted
+   syntax/lowering comparisons are extended for the changed declaration/type
+   syntax; this does not resume the separate hosted semantic compiler project.
 
-1. One unannotated `map` helper executes with context-selected outputs for lists,
-   queues, sets, text, optional values, and results, including an element-type
-   change and preserved result error. Text-to-List(Int), List(Char)-to-Text,
-   Set-to-List, List-to-Set, and Text-to-Text receive explicit output contexts.
-2. A constrained generic list or wrapper implementation recursively obtains
-   its element evidence; unavailable evidence reports the unresolved constraint.
-3. Stored, partially applied, higher-order, exported, and result-constrained
-   methods retain the correct evidence, including on empty collections.
-4. A custom parameterized datatype and custom class use the same machinery
-   as bundled types. A custom chaining class and a custom traversal class
-   demonstrate nested constructor applications and method-local constraints.
-5. Class method values, class-qualified references, aliases, explicit selectors,
-   private names, repeated imports, and transitive instances follow one identity
-   and visibility contract. Overlap errors are independent of import order.
-6. Superclass prerequisites, supplied defaults, overrides, missing methods,
-   kind errors, all-variable heads, escaping instance variables, conflicting
-   type dependencies, uncovered dependent variables, and non-decreasing contexts
-   receive compile-time diagnostics.
-7. Mapping, reduction, combination, and empty-value behavior are checked on
-   representative values and nested types. A non-character Text output, a Set
-   output without ordering evidence, and an unconstrained concrete output are
-   rejected. Preserve existing numeric, purity, and host/runtime behavior.
-8. All renamed public exports have matching signatures and updated consumers.
-   Existing supported hosted lexer/parser/lowering comparisons stay valid;
-   extend their declaration/type encodings for this syntax. This does not
-   resume the separate hosted semantic compiler or native backend projects.
-
-Do not claim completion after parser acceptance, a name-only migration, or
-concrete per-element instances. Run the supported compiler/stdlib/module and
-hosted frontend suites, executable examples, quality gate, and repository
-checks named in the implementation plan. A previous batch's full-scale-test
-waiver is not automatically a waiver for these grammar changes.
-
-## Alternatives
-
-Keeping class-qualified concrete implementations would simplify the work but
-would not meet the approved generic-programming requirement. Selecting unrelated
-same-named functions by argument type would add a different name-resolution
-model and is rejected. A single oversized collection class would exclude
-optional/result values and impose operations that some structures cannot
-support. Mathematical public names would violate the approved naming goal.
+Run the compiler/stdlib/module suites, retained hosted frontend comparisons,
+examples, quality gates, and repository checks in the implementation plan.
+Previous run-specific full-scale-test waivers do not apply automatically.
 
 ## Consequences
 
-This is a substantial compiler and API migration, not a mechanical rename.
-The additional decisions requiring review are the `Empty` capability name,
-the exact constraint/default/dependency syntax, and Haskell-style instance
-propagation and method export selection. Set/Text participation and inference
-of a requested output collection are maintainer requirements. The approved naming and generic-programming
-direction is already recorded; it does not need to be selected again.
+The release gains reusable generic classes with ordinary inference. Separate
+Text/Set functions and explicit conversions keep collection restrictions in
+library signatures. Functional dependencies, associated types, multi-parameter
+classes, automatic cross-collection mapping, the Empty class, and new class
+export selectors are deferred. Generic library instance transport remains
+necessary and is retained in the compiler batch.
 
-Implementation work follows acceptance of this semantic contract under RFC 0001. Public documentation continues describing shipped behavior until each
-coherent implementation lands. The execution plan and the public-name inventory
-live under `.codex/plans/`; they do not define language behavior.
+Implementation follows acceptance of this revised contract under RFC 0001.
+The execution plan remains internal coordination state and defines no public
+behavior by itself.
 
 ## References
 
 - [Haskell 2010 declarations, classes, and kinds](https://www.haskell.org/onlinereport/haskell2010/haskellch4.html)
-- [Haskell 2010 method and instance visibility](https://www.haskell.org/onlinereport/haskell2010/haskellch5.html)
-- [Swift protocol naming](https://docs.swift.org/swift-book/documentation/the-swift-programming-language/protocols/)
-- [Kotlin text mapping into a result collection](https://kotlinlang.org/api/core/kotlin-stdlib/kotlin.text/map.html)
-- [GHC functional dependencies](https://ghc.gitlab.haskell.org/ghc/doc/users_guide/exts/functional_dependencies.html)
+- [Haskell Functor](https://hackage.haskell.org/package/base/docs/Data-Functor.html)
+- [Haskell Text mapping](https://hackage.haskell.org/package/text/docs/Data-Text.html)
+- [Haskell Set mapping](https://hackage.haskell.org/package/containers/docs/Data-Set.html)
 - [Current Jazz capability contract](../../docs/language/capabilities.md)
 - [RFC 0017](../accepted/0017-alias-qualified-classes.md)
 - [RFC 0018 analyzed runtime ownership](../accepted/0018-direct-analyzed-runtime-facts.md)

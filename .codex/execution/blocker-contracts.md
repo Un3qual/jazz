@@ -72,13 +72,14 @@ Each blocked item should answer these questions:
 
 - Approved direction: general class programming with behavior-based names,
   inferred constraints, generic implementations, higher-kinded support, and
-  ordinary method values. Both Set and Text support map, with the requested
-  output inferred from context.
+  ordinary method values. Generic map preserves its collection constructor;
+  Text and Set use separate mapping functions as approved by the maintainer.
 - Smallest unblocker: review the detailed semantic contract in
   [RFC 0019](../../rfcs/proposed/0019-generic-capabilities-and-library-names.md).
-- Decision needed: the new `determines` syntax, method export selectors,
-  transitive instance visibility, additional `Empty` name, and initial mapping
-  matrix. Naming direction and Set/Text participation are already approved.
+- Revised contract: one-parameter classes, constructor-preserving mapping, and
+  separate Text/Set operations. Defer functional dependencies, associated types,
+  multi-parameter classes, automatic destination selection, Empty, and new class
+  selectors. Generic library instance transport remains in scope.
 - Recommended default: execute the general core once that contract is accepted,
   then the dependent library capability and rename migration. Preserve nominal
   identities and the existing analyzed-core interpreter.
@@ -158,7 +159,9 @@ Each blocked item should answer these questions:
 - Smallest unblocker: the shared
   [generic-capability contract](../../rfcs/proposed/0019-generic-capabilities-and-library-names.md)
   review under `JN-ABSTRACTION-SEMANTICS-PLAN-001`.
-- Decision needed: the detailed kind/instance/type-dependency contract in RFC 0019. General functionality and behavior-based naming are already approved.
+- Revised contract: single-parameter classes, inferred constructor kinds, and
+  generic instance prerequisites in RFC 0019. Functional dependencies and
+  associated types are deferred; the simpler plan is being presented.
 - Recommended default: keep solver and evidence changes in the single
   abstraction-owned core child, followed by the library migration.
 - Candidate child: none independently; use `JN-GENERIC-CAPABILITIES-CORE-001`
