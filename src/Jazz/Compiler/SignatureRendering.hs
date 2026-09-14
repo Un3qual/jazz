@@ -8,6 +8,7 @@
 module Jazz.Compiler.SignatureRendering
   ( renderSignatureType,
     renderSemanticType,
+    renderSemanticTypeWith,
   )
 where
 
@@ -64,7 +65,10 @@ renderSignatureTypeAtom signatureType =
 
 -- | Render canonical semantic applications using the same source spellings.
 renderSemanticType :: (UserNameLike user) => SemanticType (Name user) (Name user) -> Text
-renderSemanticType = render
+renderSemanticType = renderSemanticTypeWith renderName
+
+renderSemanticTypeWith :: (UserNameLike user) => (variable -> Text) -> SemanticType (Name user) variable -> Text
+renderSemanticTypeWith renderVariable = render
   where
     render semanticType = case semanticType of
       SemanticInt -> "Int"
@@ -73,7 +77,7 @@ renderSemanticType = render
       SemanticBool -> "Bool"
       SemanticChar -> "Char"
       SemanticText -> "Text"
-      SemanticVariable variable -> renderName variable
+      SemanticVariable variable -> renderVariable variable
       SemanticListConstructor -> "List"
       SemanticNamedConstructor name -> renderName name
       SemanticList element -> "[" <> atom element <> "]"

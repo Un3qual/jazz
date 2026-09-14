@@ -12,6 +12,7 @@ import Control.Exception
     try,
   )
 import qualified Data.List.NonEmpty as NonEmpty
+import qualified Data.Map.Strict as Map
 import qualified Data.Text as Text
 import Jazz.Compiler.AST
   ( CaseArm (..),
@@ -22,7 +23,7 @@ import Jazz.Compiler.AST
     Literal (..),
     Statement (..),
   )
-import Jazz.Compiler.CoreIdentity (CapabilityId (..), ImplId (..), MethodId (..))
+import Jazz.Compiler.CoreIdentity (CapabilityId (..), ImplId (..), MethodId (..), ResolvedReference (..))
 import Jazz.Compiler.Diagnostics
   ( SourceSpan (..),
     isErrorDiagnostic,
@@ -44,10 +45,13 @@ import Jazz.Compiler.ModuleAnalysis
 import Jazz.Compiler.ModuleExports (exportInventory)
 import Jazz.Compiler.ModuleIdentity (SourceUnitOwner (..), mkModulePath, standaloneModulePath)
 import Jazz.Compiler.ModuleResolver (resolveStandaloneExprNames)
-import Jazz.Compiler.Name (NameNamespace (ConstructorNamespace, TypeNamespace), ResolvedName, mkIdentifier, qualifiedName, resolveDeclarationOwner, resolvedImportedName, resolvedLocalName)
+import Jazz.Compiler.Name (NameNamespace (ConstructorNamespace, TypeNamespace), ResolvedName, mkIdentifier, resolveDeclarationOwner, resolvedImportedName, resolvedLocalName)
 import Jazz.Compiler.Runtime
-  ( RuntimeAnnotation (..),
+  ( ModuleEvaluationMode (..),
+    RuntimeAnnotation (..),
     RuntimeValue (..),
+    ScopeResult (..),
+    evaluateModuleScopePure,
     evaluateRuntimeExpr,
     renderRuntimeValue,
     runtimeValueExactlyMatchesConstraint,
@@ -95,7 +99,12 @@ import System.Timeout
 
 capabilityTests :: [NamedTest]
 capabilityTests =
-  [ ("runtime fallback rejects structural equality over qualified methods", testRuntimeFallbackRejectsQualifiedMethodStructuralEquality),
+  [ ("method-local constructor constraints support nested traversal", testMethodLocalTraversal),
+    ("recursive constrained helpers forward dictionaries through their group", testRecursiveHelperEvidence),
+    ("superclass evidence and generic method aliases retain their parameters", testSuperclassAndAliasEvidence),
+    ("generic methods carry recursive evidence, defaults, and ordinary aliases", testGenericDefaultsAndAliases),
+    ("generic mapping preserves constructors and instantiates method locals independently", testGenericConstructorMapping),
+    ("runtime rejects qualified methods without checked evidence", testRuntimeFallbackRejectsQualifiedMethodStructuralEquality),
     ("scope with only capability declarations has no runtime output", testCapabilityDeclarationOnlyScopeHasNoOutput),
     ("capability declarations are inert at runtime", testCapabilityDeclarationsRuntimeInert),
     ("qualified method candidates carry compiler-owned runtime evidence", testQualifiedMethodCandidateCarriesRuntimeEvidence),
@@ -140,14 +149,14 @@ capabilityTests =
     ("raw list prepend re-hints the head to the concrete tail element type", testRawListPrependRehintsHeadToConcreteTailElementType),
     ("qualified method dispatch preserves bound nested list runtime hints", testQualifiedMethodDispatchPreservesBoundNestedListRuntimeHint),
     ("qualified method dispatch instantiates explicit empty list type application hints", testQualifiedMethodDispatchInstantiatesExplicitEmptyListTypeApplicationHint),
-    ("qualified method dispatch rejects unhinted nested list helper exact selection", testQualifiedMethodDispatchRejectsUnhintedNestedListHelperExactSelection),
+    ("qualified method dispatch infers nested list helper targets", testQualifiedMethodDispatchInfersNestedListHelperExactSelection),
     ("qualified method dispatch does not exact-match untyped empty list literals", testQualifiedMethodDispatchDoesNotExactMatchUntypedEmptyListLiteral),
     ("qualified method dispatch prefers constructor alias body for direct constructor literals", testQualifiedMethodDispatchPrefersConstructorAliasBodyForDirectLiteral),
     ("qualified method dispatch uses structured constructor payloads for exact selection", testQualifiedMethodDispatchUsesStructuredConstructorPayloadForExactSelection),
-    ("qualified method dispatch treats non-literal integer results as Int64", testQualifiedMethodDispatchTreatsNonLiteralIntegerResultsAsInt64),
+    ("qualified method dispatch preserves the inferred Int type through applications", testQualifiedMethodDispatchPreservesInferredIntegerType),
     ("qualified method dispatch preserves higher-order binding signatures", testQualifiedMethodDispatchPreservesHigherOrderBindingSignature),
     ("qualified method dispatch preserves higher-order exact signatures", testQualifiedMethodDispatchPreservesHigherOrderExactSignature),
-    ("qualified method dispatch rejects unhinted function argument exact selection", testQualifiedMethodDispatchRejectsUnhintedFunctionArgumentExactSelection),
+    ("qualified method dispatch infers function argument targets", testQualifiedMethodDispatchInfersFunctionArgumentExactSelection),
     ("qualified method dispatch defers exact filtering until target argument", testQualifiedMethodDispatchDefersExactFilteringUntilTargetArgument),
     ("qualified method dispatch preserves selected method signatures", testQualifiedMethodDispatchPreservesSelectedMethodSignature),
     ("qualified method dispatch applies typed callable argument hints", testQualifiedMethodDispatchAppliesTypedCallableArgumentHint),
@@ -183,7 +192,7 @@ capabilityTests =
     ("qualified method dispatch rejects block-local self alias", testQualifiedMethodDispatchRejectsBlockLocalSelfAlias),
     ("qualified method dispatch follows block-local alias branches with local bindings", testQualifiedMethodDispatchFollowsBlockLocalAliasBranchesWithLocalBindings),
     ("qualified method dispatch follows block-local alias branches with local signature hints", testQualifiedMethodDispatchFollowsBlockLocalAliasBranchesWithLocalSignatureHints),
-    ("qualified method dispatch rejects full-arity runtime ambiguity", testQualifiedMethodDispatchRejectsFullArityRuntimeAmbiguity),
+    ("qualified method dispatch requires checked full-arity evidence", testQualifiedMethodDispatchRejectsFullArityRuntimeAmbiguity),
     ("qualified method dispatch executes local ADT impl body", testQualifiedMethodDispatchExecutesLocalAdtImplBody),
     ("method-bearing capability declarations are inert at runtime", testMethodBearingCapabilityDeclarationsRuntimeInert)
   ]
@@ -191,10 +200,10 @@ capabilityTests =
 testRuntimeFallbackRejectsQualifiedMethodStructuralEquality :: IO ()
 testRuntimeFallbackRejectsQualifiedMethodStructuralEquality = do
   let result = evaluateFixture qualifiedMethodStructuralEqualityExpr
-  assertRuntimeErrorContains "runtime fallback qualified method structural equality" "E3007" result
+  assertRuntimeErrorContains "runtime fallback qualified method structural equality" "E3026" result
   assertRuntimeErrorContains
     "runtime fallback qualified method structural equality callable text"
-    "callable values are not equality-supported"
+    "missing or inconsistent checked capability evidence"
     result
 
 testCapabilityDeclarationOnlyScopeHasNoOutput :: IO ()
@@ -304,7 +313,7 @@ testSelectedMethodRejectsMismatchedEvidence = do
 
 testQualifiedMethodCandidateCarriesRuntimeEvidence :: IO ()
 testQualifiedMethodCandidateCarriesRuntimeEvidence =
-  case evaluateFixture qualifiedMethodEvidenceExpr of
+  case candidateValue of
     Right (Just methodValue@(VQualifiedMethodApplication _ _ _ candidateSet _)) -> do
       let candidates = runtimeMethodCandidatesInOrder candidateSet
       assertEqual
@@ -325,17 +334,17 @@ testQualifiedMethodCandidateCarriesRuntimeEvidence =
         (Text.pack (show methodValue))
       assertEqual "runtime evidence stays non-user-visible" "<function>" (renderRuntimeValue methodValue)
       case candidates of
-        RuntimeMethodCandidate EvidenceReference {evidenceMethod = method} _ : additional : _ ->
+        RuntimeMethodCandidate EvidenceReference {evidenceMethod = Just method} _ : additional : _ ->
           case selectRuntimeMethodCandidate method candidateSet of
             Just selected -> do
               let retained = filterRuntimeMethodCandidates (const True) selected
                   removed = filterRuntimeMethodCandidates (const False) selected
               assertEqual "filtering retains the checked selection" True (runtimeMethodIsSelected retained)
-              assertEqual "filtering retains exactly the selected method" [method] [evidenceMethod evidence | RuntimeMethodCandidate evidence _ <- runtimeMethodCandidatesInOrder retained]
+              assertEqual "filtering retains exactly the selected method" [Just method] [selectedMethod | RuntimeMethodCandidate EvidenceReference {evidenceMethod = selectedMethod} _ <- runtimeMethodCandidatesInOrder retained]
               assertEqual "filtering can reject the selected method" 0 (length (runtimeMethodCandidatesInOrder removed))
               let extended = appendRuntimeMethodCandidate additional selected
               assertEqual "adding an implementation retains the checked selection" True (runtimeMethodIsSelected extended)
-              assertEqual "adding an implementation retains exactly the selected method" [method] [evidenceMethod evidence | RuntimeMethodCandidate evidence _ <- runtimeMethodCandidatesInOrder extended]
+              assertEqual "adding an implementation retains exactly the selected method" [Just method] [selectedMethod | RuntimeMethodCandidate EvidenceReference {evidenceMethod = selectedMethod} _ <- runtimeMethodCandidatesInOrder extended]
             Nothing -> failTest "expected evidence to select its candidate"
         _ -> failTest "expected a candidate with method evidence"
     Right otherValue ->
@@ -343,6 +352,11 @@ testQualifiedMethodCandidateCarriesRuntimeEvidence =
     Left runtimeError ->
       failTest ("expected qualified method runtime itemValue, got " <> renderDiagnostic runtimeError)
   where
+    candidateValue = do
+      scope <- evaluateModuleScopePure EvaluateDependencyModule Map.empty (resolveRuntimeFixture qualifiedMethodEvidenceExpr)
+      case [cell | (CapabilityMethodReference {}, cell) <- Map.toList (scopeResultEnvironment scope)] of
+        [cell] -> Just <$> cell
+        _ -> error "expected one declared method"
     qualifiedMethodEvidenceExpr =
       expressionBlock
         [ statementClass
@@ -377,8 +391,7 @@ testQualifiedMethodCandidateCarriesRuntimeEvidence =
                 "equals"
                 (SourceSpan 6 1)
                 (expressionLambda "left" (expressionLambda "right" (expressionLiteral (LBool True))))
-            ],
-          statementExpression (SourceSpan 7 1) (expressionVariable (qualifiedName "Eq" "equals"))
+            ]
         ]
 
 testQualifiedMethodApplicationPreservesArgumentOrder :: IO ()
@@ -596,35 +609,27 @@ testNullaryMethodSelectionRecordsCanonicalAnalyzedEvidence = do
       impl RuntimeDefault(Bool) {
       defaultValue = True.
       }.
-      class UniqueDefault(a) {
-      defaultValue :: a.
-      }.
-      impl UniqueDefault(Int) {
-      defaultValue = 42.
-      }.
       expected :: Int.
       expected = RuntimeDefault::defaultValue.
-      (expected, RuntimeDefault::defaultValue @Bool, UniqueDefault::defaultValue).
+      (expected, RuntimeDefault::defaultValue @Bool).
       """
   assertEqual "nullary evidence inference errors" [] (filter isErrorDiagnostic (inferredDiagnostics inference))
   case implementationIdentities analyzedExpression of
-    [(runtimeCapability, runtimeIntImpl), (_, runtimeBoolImpl), (uniqueCapability, uniqueIntImpl)] -> do
+    [(runtimeCapability, runtimeIntImpl), (_, runtimeBoolImpl)] -> do
       let expectedResultEvidence = evidenceReference runtimeCapability runtimeIntImpl SemanticInt
           explicitTargetEvidence = evidenceReference runtimeCapability runtimeBoolImpl SemanticBool
-          uniqueBareEvidence = evidenceReference uniqueCapability uniqueIntImpl SemanticInt
       assertEqual
         "all nullary selection modes retain their exact selected evidence"
-        [expectedResultEvidence, explicitTargetEvidence, uniqueBareEvidence]
+        [expectedResultEvidence, explicitTargetEvidence]
         (expressionEvidenceInventory analyzedExpression)
       assertEqual
         "nullary selection retains instantiation and result facts"
         [ ([expectedResultEvidence], [], Just SemanticInt),
-          ([explicitTargetEvidence], [SemanticBool NonEmpty.:| []], Just SemanticBool),
-          ([uniqueBareEvidence], [], Just SemanticInt)
+          ([explicitTargetEvidence], [SemanticBool NonEmpty.:| []], Just SemanticBool)
         ]
         (expressionEvidenceFactsInventory analyzedExpression)
     implementations ->
-      failTest ("expected three nullary implementation identities, got " <> Text.pack (show implementations))
+      failTest ("expected two nullary implementation identities, got " <> Text.pack (show implementations))
   where
     implementationIdentities expression =
       [ (capabilityName, ImplId (StandaloneSourceUnit standaloneModulePath, coreNodeId implementationNode))
@@ -634,7 +639,9 @@ testNullaryMethodSelectionRecordsCanonicalAnalyzedEvidence = do
       EvidenceReference
         { evidenceCapability = CapabilityId capabilityName,
           evidenceImplementation = implementationId,
-          evidenceMethod = MethodId (implementationId, mkIdentifier "defaultValue"),
+          evidenceMethod = Just (MethodId (implementationId, mkIdentifier "defaultValue")),
+          evidenceSubstitution = Map.empty,
+          evidencePrerequisites = [],
           evidenceType = targetType
         }
 
@@ -1251,8 +1258,8 @@ testQualifiedMethodDispatchInstantiatesExplicitEmptyListTypeApplicationHint = do
   assertEqual "runtime errors" [] (runRuntimeErrors result)
   assertEqual "runtime output" (Just "True") (runOutput result)
 
-testQualifiedMethodDispatchRejectsUnhintedNestedListHelperExactSelection :: IO ()
-testQualifiedMethodDispatchRejectsUnhintedNestedListHelperExactSelection = do
+testQualifiedMethodDispatchInfersNestedListHelperExactSelection :: IO ()
+testQualifiedMethodDispatchInfersNestedListHelperExactSelection = do
   result <-
     runSource
       defaultWarningSettings
@@ -1271,12 +1278,9 @@ testQualifiedMethodDispatchRejectsUnhintedNestedListHelperExactSelection = do
         result.
         """
       )
-  assertSingleDiagnosticContains
-    "unhinted nested list helper exact selection"
-    "ambiguous qualified method body 'RuntimeFlag::flag'"
-    (runCompileErrors result)
+  assertEqual "compile errors" [] (runCompileErrors result)
   assertEqual "runtime errors" [] (runRuntimeErrors result)
-  assertEqual "runtime output" Nothing (runOutput result)
+  assertEqual "runtime output" (Just "True") (runOutput result)
 
 testQualifiedMethodDispatchDoesNotExactMatchUntypedEmptyListLiteral :: IO ()
 testQualifiedMethodDispatchDoesNotExactMatchUntypedEmptyListLiteral =
@@ -1333,8 +1337,8 @@ testQualifiedMethodDispatchUsesStructuredConstructorPayloadForExactSelection = d
   assertEqual "runtime errors" [] (runRuntimeErrors result)
   assertEqual "runtime output" (Just "True") (runOutput result)
 
-testQualifiedMethodDispatchTreatsNonLiteralIntegerResultsAsInt64 :: IO ()
-testQualifiedMethodDispatchTreatsNonLiteralIntegerResultsAsInt64 = do
+testQualifiedMethodDispatchPreservesInferredIntegerType :: IO ()
+testQualifiedMethodDispatchPreservesInferredIntegerType = do
   result <-
     runSource
       defaultWarningSettings
@@ -1353,7 +1357,7 @@ testQualifiedMethodDispatchTreatsNonLiteralIntegerResultsAsInt64 = do
       )
   assertEqual "compile errors" [] (runCompileErrors result)
   assertEqual "runtime errors" [] (runRuntimeErrors result)
-  assertEqual "runtime output" (Just "False") (runOutput result)
+  assertEqual "runtime output" (Just "True") (runOutput result)
 
 testQualifiedMethodDispatchPreservesHigherOrderBindingSignature :: IO ()
 testQualifiedMethodDispatchPreservesHigherOrderBindingSignature = do
@@ -1403,8 +1407,8 @@ testQualifiedMethodDispatchPreservesHigherOrderExactSignature = do
   assertEqual "runtime errors" [] (runRuntimeErrors result)
   assertEqual "runtime output" (Just "False") (runOutput result)
 
-testQualifiedMethodDispatchRejectsUnhintedFunctionArgumentExactSelection :: IO ()
-testQualifiedMethodDispatchRejectsUnhintedFunctionArgumentExactSelection = do
+testQualifiedMethodDispatchInfersFunctionArgumentExactSelection :: IO ()
+testQualifiedMethodDispatchInfersFunctionArgumentExactSelection = do
   result <-
     runSource
       defaultWarningSettings
@@ -1421,12 +1425,9 @@ testQualifiedMethodDispatchRejectsUnhintedFunctionArgumentExactSelection = do
         (RuntimeApply::apply) (\\(itemValue) -> itemValue + 1).
         """
       )
-  assertSingleDiagnosticContains
-    "unhinted function argument exact selection"
-    "ambiguous qualified method body 'RuntimeApply::apply'"
-    (runCompileErrors result)
+  assertEqual "compile errors" [] (runCompileErrors result)
   assertEqual "runtime errors" [] (runRuntimeErrors result)
-  assertEqual "runtime output" Nothing (runOutput result)
+  assertEqual "runtime output" (Just "True") (runOutput result)
 
 testQualifiedMethodDispatchDefersExactFilteringUntilTargetArgument :: IO ()
 testQualifiedMethodDispatchDefersExactFilteringUntilTargetArgument = do
@@ -1474,7 +1475,7 @@ testQualifiedMethodDispatchPreservesSelectedMethodSignature = do
         impl RuntimeApply(Bool) {
         apply = \\(fn) -> False.
         }.
-        RuntimeApply::apply Id::id.
+        (RuntimeApply::apply) (Id::id @Int).
         """
       )
   assertEqual "compile errors" [] (runCompileErrors result)
@@ -2054,7 +2055,7 @@ testAuthoredModuleTransitionOwnsFactsAndEvidence = do
   assertEqual
     "qualified method evidence uses the authored module implementation id"
     implementationIds
-    (map evidenceImplementation selectedEvidence)
+    ([identity | EvidenceReference {evidenceImplementation = identity} <- selectedEvidence])
 
 sourceUnitStatements :: Expr 'Analyzed -> [Statement 'Analyzed]
 sourceUnitStatements expression =
@@ -2176,7 +2177,7 @@ testQualifiedZeroArgumentMethodDispatchReturnsValue = do
         impl RuntimeFlag(Int) {
         enabled = True.
         }.
-        RuntimeFlag::enabled.
+        (RuntimeFlag::enabled @Int).
         """
       )
   assertEqual "compile errors" [] (runCompileErrors result)
@@ -2217,7 +2218,7 @@ testQualifiedMethodDispatchRejectsDirectSelfAlias = do
         (runRuntimeErrors result)
       assertSingleDiagnosticContains
         "direct qualified method self alias runtime text"
-        "recursive qualified method alias cycle"
+        "recursive dictionary binding"
         (runRuntimeErrors result)
       assertEqual "runtime output is suppressed on runtime failure" Nothing (runOutput result)
 
@@ -2255,7 +2256,7 @@ testQualifiedMethodDispatchRejectsWrappedSelfAlias = do
         (runRuntimeErrors result)
       assertSingleDiagnosticContains
         "wrapped qualified method self alias runtime text"
-        "recursive qualified method alias cycle"
+        "recursive dictionary binding"
         (runRuntimeErrors result)
       assertEqual "runtime output is suppressed on runtime failure" Nothing (runOutput result)
 
@@ -2272,10 +2273,10 @@ testQualifiedMethodDispatchRejectsBlockLocalSelfAlias = do
                 enabled :: Bool.
                 }.
                 impl RuntimeFlag(Int) {
-                enabled = { helper = RuntimeFlag::enabled.
+                enabled = { helper = (RuntimeFlag::enabled @Int).
                 helper. }.
                 }.
-                RuntimeFlag::enabled.
+                (RuntimeFlag::enabled @Int).
                 """
               )
           ) ::
@@ -2294,7 +2295,7 @@ testQualifiedMethodDispatchRejectsBlockLocalSelfAlias = do
         (runRuntimeErrors result)
       assertSingleDiagnosticContains
         "block-local qualified method self alias runtime text"
-        "recursive qualified method alias cycle"
+        "recursive dictionary binding"
         (runRuntimeErrors result)
       assertEqual "runtime output is suppressed on runtime failure" Nothing (runOutput result)
 
@@ -2311,13 +2312,13 @@ testQualifiedMethodDispatchFollowsBlockLocalAliasBranchesWithLocalBindings = do
         }.
         impl RuntimeFlag(Int) {
         enabled = { flag = True.
-        target = if flag then RuntimeFlag::on else RuntimeFlag::off.
+        target = if flag then (RuntimeFlag::on @Int) else (RuntimeFlag::off @Int).
         target.
         }.
         on = True.
         off = False.
         }.
-        RuntimeFlag::enabled.
+        (RuntimeFlag::enabled @Int).
         """
       )
   assertEqual "compile errors" [] (runCompileErrors result)
@@ -2347,13 +2348,13 @@ testQualifiedMethodDispatchFollowsBlockLocalAliasBranchesWithLocalSignatureHints
         impl RuntimeChoice(Int) {
         enabled = { itemValue :: [[Int64]].
         itemValue = [[1], []].
-        target = if ((RuntimeFlag::flag) itemValue) then RuntimeChoice::on else RuntimeChoice::off.
+        target = if ((RuntimeFlag::flag) itemValue) then (RuntimeChoice::on @Int) else (RuntimeChoice::off @Int).
         target.
         }.
         on = True.
         off = False.
         }.
-        RuntimeChoice::enabled.
+        (RuntimeChoice::enabled @Int).
         """
       )
   assertEqual "compile errors" [] (runCompileErrors result)
@@ -2364,7 +2365,7 @@ testQualifiedMethodDispatchRejectsFullArityRuntimeAmbiguity :: IO ()
 testQualifiedMethodDispatchRejectsFullArityRuntimeAmbiguity =
   assertRuntimeErrorContains
     "fully applied ambiguous qualified method"
-    "ambiguous qualified method body 'RuntimePick::choose'"
+    "missing or inconsistent checked capability evidence"
     (evaluateFixture ambiguousQualifiedMethodRuntimeExpr)
 
 testQualifiedMethodDispatchExecutesLocalAdtImplBody :: IO ()
@@ -2404,3 +2405,136 @@ testMethodBearingCapabilityDeclarationsRuntimeInert = do
   assertEqual "compile errors" [] (runCompileErrors result)
   assertEqual "runtime errors" [] (runRuntimeErrors result)
   assertEqual "method-bearing capability declarations do not affect runtime output" (Just "1") (runOutput result)
+
+testGenericDefaultsAndAliases :: IO ()
+testGenericDefaultsAndAliases = do
+  result <-
+    runSource
+      defaultWarningSettings
+      """
+      privateHelper = \\(x) -> if x then False else True.
+      class Same(a) {
+        same :: a -> a -> Bool.
+        different :: a -> a -> Bool.
+        different = \\(left, right) -> privateHelper (same left right).
+      }.
+      impl Same(Int) { same = \\(x,y) -> x == y. }.
+      impl Same(Bool) {
+        same = \\(x,y) -> x == y.
+        different = \\(x,y) -> False.
+      }.
+      impl @{Same(a)}: Same([a]) {
+        same = \\(left,right) -> case (left,right) {
+          | ([],[]) -> True
+          | ([x | xs], [y | ys]) -> if same x y then same xs ys else False
+          | _ -> False
+        }.
+      }.
+      check = \\(x,y) -> same x y.
+      saved = different.
+      shadow = { same = \\(x,y) -> 42. same 1 2. }.
+      (check [[1]] [[1]], check [[1]] [[2]], saved 1 2, saved True False, different [1] [2], shadow).
+      """
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "(True, False, True, False, True, 42)") (runOutput result)
+
+testGenericConstructorMapping :: IO ()
+testGenericConstructorMapping = do
+  result <-
+    runSource
+      defaultWarningSettings
+      """
+      class Transforming(f) { transform :: (a -> b) -> f(a) -> f(b). }.
+      impl Transforming(List) {
+        transform = \\(change, xs) -> case xs {
+          | [] -> []
+          | [x | rest] -> __kernel_listPrependRaw (change x) (Transforming::transform change rest)
+        }.
+      }.
+      data Result error a = Error error | Success a.
+      impl Transforming(Result(error)) {
+        transform = \\(change, result) -> case result {
+          | Error problem -> Error problem
+          | Success x -> Success (change x)
+        }.
+      }.
+      success :: Result(Text, Int).
+      success = Success 1.
+      (Transforming::transform (\\(x) -> x == 1) [1, 2], Transforming::transform (\\(x) -> x == 1) (Error "bad"), Transforming::transform (\\(x) -> x == 1) success).
+      """
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "([True, False], Error(\"bad\"), Success(True))") (runOutput result)
+
+testSuperclassAndAliasEvidence :: IO ()
+testSuperclassAndAliasEvidence = do
+  result <-
+    runSourceWithPrelude
+      defaultWarningSettings
+      Nothing
+      """
+      data Box a = Box a.
+      class Parent(a) { parentSame :: a -> a -> Bool. }.
+      impl Parent(Int) { parentSame = \\(x, y) -> x == y. }.
+      impl @{Parent(a)}: Parent(Box(a)) { parentSame = \\(Box x, Box y) -> parentSame x y. }.
+      class @{Parent(a)}: Child(a) {
+        childSame :: a -> a -> Bool.
+        childSame = \\(x, y) -> parentSame x y.
+      }.
+      impl Child(Int) { }.
+      impl @{Child(a)}: Child(Box(a)) { }.
+      check :: @{Child(a)}: a -> a -> Bool.
+      check = \\(x, y) -> if childSame x y then parentSame x y else False.
+      class Transforming(f) { transform :: (a -> b) -> f(a) -> f(b). }.
+      impl Transforming(Box) { transform = \\(change, Box x) -> Box (change x). }.
+      saved = transform.
+      (check (Box 1) (Box 1), check (Box 1) (Box 2), saved @Box (\\(x) -> x == 1) (Box 1)).
+      """
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "(True, False, Box(True))") (runOutput result)
+
+testRecursiveHelperEvidence :: IO ()
+testRecursiveHelperEvidence = do
+  result <-
+    runSourceWithPrelude
+      defaultWarningSettings
+      Nothing
+      """
+      class Same(a) { same :: a -> Bool. }.
+      impl Same(Int) { same = \\(x) -> True. }.
+      impl Same(Bool) { same = \\(x) -> False. }.
+      signed :: @{Same(a)}: [a] -> Bool.
+      signed = \\(xs) -> case xs { | [] -> True | [x | rest] -> if same x then signed rest else False }.
+      first = \\(xs) -> case xs { | [] -> True | [x | rest] -> if same x then second rest else False }.
+      second = \\(xs) -> case xs { | [] -> True | [x | rest] -> if same x then first rest else False }.
+      (signed [1,2,3], signed [True], first [1,2,3,4], second [False]).
+      """
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "(True, False, True, False)") (runOutput result)
+
+testMethodLocalTraversal :: IO ()
+testMethodLocalTraversal = do
+  result <-
+    runSourceWithPrelude
+      defaultWarningSettings
+      Nothing
+      """
+      data Box a = Box a.
+      data Wrap a = Wrap a.
+      class Transforming(f) { transform :: (a -> b) -> f(a) -> f(b). }.
+      impl Transforming(Wrap) { transform = \\(change, Wrap x) -> Wrap (change x). }.
+      class Traversing(f) {
+        traverse :: @{Transforming(g)}: (a -> g(b)) -> f(a) -> g(f(b)).
+      }.
+      impl Traversing(Box) {
+        traverse = \\(change, Box x) -> transform Box (change x).
+      }.
+      (traverse (\\(x) -> Wrap (x == 1)) (Box 1),
+       traverse (\\(x) -> Wrap [x]) (Box True)).
+      """
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "(Wrap(Box(True)), Wrap(Box([True])))") (runOutput result)

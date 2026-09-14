@@ -34,7 +34,9 @@ import Jazz.TestHarness
 
 capabilitiesTests :: [NamedTest]
 capabilitiesTests =
-  [ ("compile module graph default helper exposes bundled capability facts in modules", testCompileModuleGraphDefaultExposesBundledCapabilityFactsInModules),
+  [ ("generic instance overlap is rejected independently of import order", testGenericInstanceOverlap),
+    ("empty and aliased imports transport generic instances and lexical defaults", testGenericInstanceImports),
+    ("compile module graph default helper exposes bundled capability facts in modules", testCompileModuleGraphDefaultExposesBundledCapabilityFactsInModules),
     ("compile module graph hides capability facts excluded by explicit import list", testCompileModuleGraphExplicitImportListHidesCapabilityFacts),
     ("compile module graph keeps alias-qualified ADT equality distinct from local ADT", testCompileModuleGraphKeepsAliasQualifiedAdtEqualityDistinct),
     ("compile module graph resolves alias-qualified impl method references", testCompileModuleGraphResolvesAliasQualifiedImplMethodReferences),
@@ -1049,7 +1051,7 @@ testRunModuleGraphRetainsLocalCapabilitiesNeededByImportedCapabilityBodies = do
             pick :: a -> Bool.
             }.
             impl Choice(Int) {
-            pick = \\(candidate) -> Flag::enabled.
+            pick = \\(candidate) -> Flag::enabled @Int.
             }.
             }
             """
@@ -1082,7 +1084,7 @@ testRunModuleGraphNamespacesCapabilitiesNeededByDirectlyImportedCapabilityBodies
             impl Flag(Int) {
             enabled = False.
             }.
-            (Choice::pick 1, Flag::enabled).
+            (Choice::pick 1, Flag::enabled @Int).
             }
             """
           ),
@@ -1099,7 +1101,7 @@ testRunModuleGraphNamespacesCapabilitiesNeededByDirectlyImportedCapabilityBodies
             pick :: a -> Bool.
             }.
             impl Choice(Int) {
-            pick = \\(candidate) -> Flag::enabled.
+            pick = \\(candidate) -> Flag::enabled @Int.
             }.
             }
             """
@@ -1629,7 +1631,7 @@ testRunModuleGraphExposesDataReferencedByImportedClassMethods = do
             """
             module App::Main {
             import Lib::Api (Make).
-            Make::make.
+            (Make::make @Int).
             }
             """
           ),
@@ -2050,3 +2052,62 @@ testCompileModuleGraphAllowsLocalClassMatchingPrivateDependencyClass = do
           )
         ]
     lookupSource path = pure (Map.lookup path sourceMap)
+
+testGenericInstanceImports :: IO ()
+testGenericInstanceImports = mapM_ check ["import Lib::Instances.", "import Lib::Instances as Instances.", "import Lib::Instances as First. import Lib::Instances as Second."]
+  where
+    check instanceImport = do
+      let sources =
+            Map.fromList
+              [ ("src/App/Main.jz", "module App::Main { import Lib::Class (different). " <> instanceImport <> " different [1] [2]. }"),
+                ( "src/Lib/Class.jz",
+                  """
+                  module Lib::Class (class Same) {
+                    helper = \\(answer) -> if answer then False else True.
+                    class Same(a) {
+                      same :: a -> a -> Bool.
+                      different :: a -> a -> Bool.
+                      different = \\(left, right) -> helper (same left right).
+                    }.
+                  }
+                  """
+                ),
+                ( "src/Lib/Instances.jz",
+                  """
+                  module Lib::Instances () {
+                    import Lib::Class.
+                    helper = \\(answer) -> False.
+                    impl Same(Int) { same = \\(left, right) -> left == right. }.
+                    impl @{Same(a)}: Same([a]) {
+                      same = \\(left, right) -> case (left, right) {
+                        | ([], []) -> True
+                        | ([x | xs], [y | ys]) -> if same x y then same xs ys else False
+                        | _ -> False
+                      }.
+                    }.
+                  }
+                  """
+                )
+              ]
+      result <- runModuleGraphWithPrelude defaultWarningSettings Nothing resolverConfig ["App", "Main"] (lookupSourceIn sources)
+      assertEqual "compile errors" [] (runCompileErrors result)
+      assertEqual "runtime errors" [] (runRuntimeErrors result)
+      assertEqual "runtime output" (Just "True") (runOutput result)
+
+testGenericInstanceOverlap :: IO ()
+testGenericInstanceOverlap =
+  mapM_
+    check
+    ["import Lib::Generic. import Lib::Concrete.", "import Lib::Concrete as Concrete. import Lib::Generic as Generic."]
+  where
+    check imports = do
+      let sources =
+            Map.fromList
+              [ ("src/App/Main.jz", "module App::Main { " <> imports <> " 1. }"),
+                ("src/Lib/Class.jz", "module Lib::Class { class Same(a) { same :: a -> Bool. }. }"),
+                ("src/Lib/Generic.jz", "module Lib::Generic () { import Lib::Class. impl Same([a]) { same = \\(xs) -> True. }. }"),
+                ("src/Lib/Concrete.jz", "module Lib::Concrete () { import Lib::Class. impl Same([Int]) { same = \\(xs) -> False. }. }")
+              ]
+      result <- compileModuleGraphWithPrelude defaultWarningSettings Nothing resolverConfig ["App", "Main"] (lookupSourceIn sources)
+      assertEqual "one overlap diagnostic" 1 (length (compileErrors result))
+      assertContains "overlap does not depend on source-visible names" "overlapping impl declarations" (Text.unlines (map renderDiagnostic (compileErrors result)))

@@ -26,7 +26,7 @@ import Data.Set (Set)
 import qualified Data.Set as Set
 import Data.Text (Text)
 import GHC.Generics (Generic)
-import Jazz.Compiler.CoreIdentity (CapabilityId (..), CapabilityMethodKey, CoreBinderId, renderCapabilityId)
+import Jazz.Compiler.CoreIdentity (CapabilityId (..), CapabilityMethodKey, CoreBinderId, ResolvedReference, renderCapabilityId)
 import Jazz.Compiler.ModuleExports
   ( ModuleExport (..),
     ModuleExportInventory,
@@ -34,22 +34,22 @@ import Jazz.Compiler.ModuleExports
     exportInventoryEntries,
     inventoryHasExport,
     restrictExportInventory,
+    withClassMethods,
   )
 import Jazz.Compiler.ModuleIdentity (SourceUnitOwner (..))
-import Jazz.Compiler.Name (Name (..), NameNamespace (..), ResolvedName, ResolvedNameOrigin (..), ResolvedUserName (..), renderName)
+import Jazz.Compiler.Name (Name (..), NameNamespace (..), ResolvedName, ResolvedNameOrigin (..), ResolvedUserName (..), identifierText, renderName)
 import Jazz.Compiler.SemanticDeclarations
   ( ClassDefinition (..),
     ClassMethodType (..),
-    ConcreteImplFact (..),
     ConstructorArgumentType (..),
     DataTypeBinding (..),
     DeclarationVariable,
-    ImplMethodType (..),
+    ImplementationTemplate (..),
     SchemeConstraint (..),
     ScopeCapabilityFacts (..),
     SemanticBinding (..),
     SemanticScheme (..),
-    filterScopeCapabilities,
+    implementationTarget,
   )
 import Jazz.Compiler.WarningConfig (WarningSettings)
 
@@ -66,7 +66,7 @@ moduleExportForBinding exportName binding =
 -- | An exported type and the declaration whose value supplies it. Import
 -- aliases change the visible name, never this defining identity.
 data ModuleValueBinding = ModuleValueBinding
-  { interfaceBindingId :: CoreBinderId,
+  { interfaceBindingReference :: ResolvedReference,
     interfaceBindingType :: SemanticBinding DeclarationVariable
   }
   deriving stock (Eq, Generic, Show)
@@ -104,15 +104,13 @@ publishModuleInterface requested typeDefinitions declarations =
           interfaceCapabilities = publicCapabilities
         }
     capabilities = interfaceCapabilities declarations
-    publicCapabilities = filterScopeCapabilities publicCapability capabilities
-    publicCapability capability = inventoryHasExport (ModuleExport CapabilityNamespace (renderCapabilityId capability)) exports
+    publicCapabilities = capabilities
     roots =
       Set.unions
         [ Map.keysSet (Map.filterWithKey (\name _ -> inventoryHasExport (ModuleExport TypeNamespace (renderName name)) exports) (interfaceDataTypes declarations)),
           foldMap (bindingNames . interfaceBindingType) (interfaceValueBindings public),
-          foldMap (\(ClassMethodType _ value) -> typeNames value) (scopeClassMethodSignatures publicCapabilities),
-          foldMap (\(ConcreteImplFact _ value) -> typeNames value) (scopeConcreteImplFacts publicCapabilities),
-          foldMap (foldMap (typeNames . implMethodTarget)) (scopeConcreteImplMethods publicCapabilities)
+          foldMap (schemeNames . classMethodScheme) (scopeClassMethodSignatures publicCapabilities),
+          foldMap (schemeNames . implementationScheme) (scopeImplementations publicCapabilities)
         ]
     reachableTypes = visitTypes Set.empty
     visitTypes seen pending = case Set.minView pending of
@@ -137,22 +135,22 @@ publishModuleInterface requested typeDefinitions declarations =
           foldMap (foldMap typeNames) (schemeClassConstraints scheme),
           foldMap (foldMap typeNames) (schemePrimitiveConstraints scheme),
           let facts = schemeDefiningCapabilities scheme
-           in foldMap (\(ConcreteImplFact _ value) -> typeNames value) (scopeConcreteImplFacts facts)
+           in foldMap (typeNames . implementationTarget) (scopeImplementations facts)
                 <> foldMap (\(ClassMethodType _ value) -> typeNames value) (scopeClassMethodSignatures facts)
-                <> foldMap (foldMap (typeNames . implMethodTarget)) (scopeConcreteImplMethods facts)
         ]
 
 declaredInterfaceInventory :: ModuleInterface -> ModuleExportInventory
 declaredInterfaceInventory interface =
-  exportInventory
-    ( Map.keys (interfaceValueBindings interface)
-        <> [ ModuleExport TypeNamespace (renderName name)
-           | name <- Map.keys (interfaceDataTypes interface)
-           ]
-        <> [ ModuleExport CapabilityNamespace (renderCapabilityId name)
-           | name <- Map.keys (scopeClassFacts (interfaceCapabilities interface))
-           ]
-    )
+  withClassMethods (Map.fromListWith Set.union [(renderCapabilityId capability, Set.singleton (identifierText member)) | (capability, member) <- Map.keys (scopeClassMethodSignatures (interfaceCapabilities interface))]) $
+    exportInventory
+      ( Map.keys (interfaceValueBindings interface)
+          <> [ ModuleExport TypeNamespace (renderName name)
+             | name <- Map.keys (interfaceDataTypes interface)
+             ]
+          <> [ ModuleExport CapabilityNamespace (renderCapabilityId name)
+             | name <- Map.keys (scopeClassFacts (interfaceCapabilities interface))
+             ]
+      )
 
 emptyModuleInterface :: ModuleInterface
 emptyModuleInterface =
@@ -204,25 +202,26 @@ publishCapabilityNames facts =
   ScopeCapabilityFacts
     { scopeClassFacts = Map.mapKeys publishedCapability (Map.map (\definition -> definition {classSuperclasses = map publishedCapability (classSuperclasses definition)}) (scopeClassFacts facts)),
       scopeGeneratedEqualityClassFacts = Set.map publishedCapability (scopeGeneratedEqualityClassFacts facts),
-      scopeConcreteImplFacts = Set.map publishImplFact (scopeConcreteImplFacts facts),
       scopeClassMethodSignatures = Map.mapKeys publishedMethod (Map.map publishMethodType (scopeClassMethodSignatures facts)),
-      scopeConcreteImplMethods = Map.mapKeys publishedMethod (Map.map (map publishImplType) (scopeConcreteImplMethods facts))
+      scopeImplementations = Map.map publishImplementation (scopeImplementations facts)
     }
 
-publishImplFact :: ConcreteImplFact -> ConcreteImplFact
-publishImplFact (ConcreteImplFact capability value) = ConcreteImplFact (publishedCapability capability) (first publishedName value)
-
-publishImplType :: ImplMethodType -> ImplMethodType
-publishImplType method = method {implMethodTarget = first publishedName (implMethodTarget method), implMethodCapability = publishedCapability (implMethodCapability method)}
+publishImplementation :: ImplementationTemplate -> ImplementationTemplate
+publishImplementation template =
+  template
+    { implementationCapability = publishedCapability (implementationCapability template),
+      implementationScheme = publishDeclarationScheme (implementationScheme template)
+    }
 
 publishMethodType :: ClassMethodType -> ClassMethodType
-publishMethodType (ClassMethodScheme parameter scheme) =
-  ClassMethodScheme
-    parameter
-    scheme
-      { schemeResultType = first publishedName (schemeResultType scheme),
-        schemeClassConstraints = map publishConstraint (schemeClassConstraints scheme)
-      }
+publishMethodType (ClassMethodScheme parameter scheme) = ClassMethodScheme parameter (publishDeclarationScheme scheme)
+
+publishDeclarationScheme :: SemanticScheme variable -> SemanticScheme variable
+publishDeclarationScheme scheme =
+  scheme
+    { schemeResultType = first publishedName (schemeResultType scheme),
+      schemeClassConstraints = map publishConstraint (schemeClassConstraints scheme)
+    }
   where
     publishConstraint constraint = case constraint of
       TypeSchemeConstraint capability target -> TypeSchemeConstraint (publishedCapability capability) (first publishedName target)

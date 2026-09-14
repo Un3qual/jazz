@@ -15,6 +15,7 @@ module Jazz.Compiler.ModuleExports
     ModuleExport (..),
     ModuleExportInventory,
     exportInventory,
+    withClassMethods,
     exportInventoryEntries,
     exportedConstructorOwners,
     exportNamesInNamespace,
@@ -33,6 +34,7 @@ module Jazz.Compiler.ModuleExports
 where
 
 import Control.DeepSeq (NFData (..))
+import Data.Foldable (fold)
 import Data.List (find)
 import Data.List.NonEmpty (NonEmpty)
 import qualified Data.List.NonEmpty as NonEmpty
@@ -111,13 +113,14 @@ data ModuleExport = ModuleExport
 
 data ModuleExportInventory = ModuleExportInventory
   { inventoryEntries :: Set ModuleExport,
-    inventoryConstructorOwners :: Map Text (Set Text)
+    inventoryConstructorOwners :: Map Text (Set Text),
+    inventoryClassMethods :: Map Text (Set Text)
   }
   deriving stock (Eq, Show)
 
 instance NFData ModuleExportInventory where
-  rnf (ModuleExportInventory entries constructorOwners) =
-    rnf entries `seq` rnf constructorOwners
+  rnf (ModuleExportInventory entries constructorOwners classMethods) =
+    rnf entries `seq` rnf constructorOwners `seq` rnf classMethods
 
 instance Semigroup ModuleExportInventory where
   left <> right =
@@ -127,14 +130,18 @@ instance Semigroup ModuleExportInventory where
           Map.unionWith
             Set.union
             (inventoryConstructorOwners left)
-            (inventoryConstructorOwners right)
+            (inventoryConstructorOwners right),
+        inventoryClassMethods = Map.unionWith Set.union (inventoryClassMethods left) (inventoryClassMethods right)
       }
 
 instance Monoid ModuleExportInventory where
-  mempty = ModuleExportInventory Set.empty Map.empty
+  mempty = ModuleExportInventory Set.empty Map.empty Map.empty
 
 exportInventory :: [ModuleExport] -> ModuleExportInventory
-exportInventory entries = ModuleExportInventory (Set.fromList entries) Map.empty
+exportInventory entries = ModuleExportInventory (Set.fromList entries) Map.empty Map.empty
+
+withClassMethods :: Map Text (Set Text) -> ModuleExportInventory -> ModuleExportInventory
+withClassMethods methods inventory = inventory {inventoryClassMethods = methods}
 
 exportInventoryEntries :: ModuleExportInventory -> Set ModuleExport
 exportInventoryEntries = inventoryEntries
@@ -245,6 +252,7 @@ selectValidatedModuleExportSelectors constructorOwners selectors inventory =
     constructorInventory typeName entries =
       ModuleExportInventory
         { inventoryEntries = entries,
+          inventoryClassMethods = Map.empty,
           inventoryConstructorOwners =
             Map.fromList
               [ (moduleExportName entry, Set.singleton typeName)
@@ -260,9 +268,10 @@ moduleExportSelectorMatches selector export =
       Just namespace -> namespace == moduleExportNamespace export
 
 restrictExportInventory :: Set ModuleExport -> ModuleExportInventory -> ModuleExportInventory
-restrictExportInventory selectedEntries inventory =
+restrictExportInventory requestedEntries inventory =
   ModuleExportInventory
     { inventoryEntries = selectedEntries,
+      inventoryClassMethods = Map.restrictKeys (inventoryClassMethods inventory) selectedClassNames,
       inventoryConstructorOwners =
         Map.mapMaybe
           retainSelectedOwners
@@ -272,6 +281,9 @@ restrictExportInventory selectedEntries inventory =
           )
     }
   where
+    selectedClassNames = namesInNamespace CapabilityNamespace requestedEntries
+    methodEntries = Set.map (ModuleExport ValueNamespace) (fold (Map.restrictKeys (inventoryClassMethods inventory) selectedClassNames))
+    selectedEntries = requestedEntries <> Set.intersection methodEntries (inventoryEntries inventory)
     selectedConstructorNames =
       namesInNamespace ConstructorNamespace selectedEntries
     selectedTypeNames =

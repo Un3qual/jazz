@@ -145,8 +145,10 @@ module ParserTypes (
     = LetStatement Text CanonicalSpan SurfaceExpr
     | SignatureStatement Text CanonicalSpan SurfaceSignaturePayload
     | DataStatement CanonicalSpan Text [Text] [SurfaceDataConstructor]
-    | ClassStatement CanonicalSpan Text [Text] [SurfaceClassMethodSignature] [SurfaceSignatureConstraint] [SurfaceImplMethod]
-    | ImplStatement CanonicalSpan Text [SurfaceSignatureType] [SurfaceImplMethod] [SurfaceSignatureConstraint]
+    | ClassStatement CanonicalSpan Text [Text]
+      [SurfaceClassMethodSignature] [SurfaceSignatureConstraint] [SurfaceImplMethod]
+    | ImplStatement CanonicalSpan Text [SurfaceSignatureType]
+      [SurfaceImplMethod] [SurfaceSignatureConstraint]
     | ModuleStatement CanonicalSpan [Text] Maybe([SurfaceModuleExportSelector])
     | ImportStatement CanonicalSpan [Text] Maybe(Text) Maybe([Text])
     | ExpressionStatement CanonicalSpan SurfaceExpr.

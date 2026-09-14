@@ -46,7 +46,9 @@ Expected output:
 An import can expose all public names, select particular names, or introduce a
 qualifier. Export lists distinguish values, types, constructors, and
 capabilities. A module can export declarations it owns, but cannot re-export an
-imported declaration.
+imported declaration. Selecting a class also selects its ordinary method values.
+Every import supplies the dependency's transitive implementations, even if its
+export list exposes no names; aliases and selections do not hide instances.
 
 Module names map to paths beneath ordered module roots. Resolution rejects an
 ambiguous match or dependency cycle rather than choosing one implicitly. See

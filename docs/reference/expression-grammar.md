@@ -11,6 +11,12 @@ statement   := signature | binding | data | class | impl
              | module | import | expression
 signature   := identifier "::" signature-type "."
 binding     := identifier "=" expression "."
+context     := "@{" constraint ("," constraint)* "}:"
+constraint  := class-name "(" type ")"
+class       := "class" context? identifier "(" identifier ")" "{"
+               (signature | binding)* "}" "."
+impl        := "impl" context? class-name "(" type ")" "{"
+               binding* "}" "."
 expression  := literal | identifier | qualified-name | list | tuple | block
              | lambda | pattern-lambda | if | case | application
              | type-application | operator-value | section | infix
@@ -50,7 +56,11 @@ parameters do not accept guards. The optional `if` guard belongs only to a
 complete case-arm pattern.
 
 Function types associate to the right. Constraints apply to the complete type
-that follows them.
+that follows them. Class bodies contain method signatures and optional default
+bindings. Implementation contexts apply prerequisite classes to variables bound
+by the head; superclass contexts apply classes to the class parameter. Ordinary
+method and value signatures may constrain compound types. See
+[capabilities](../language/capabilities.md) for kind, head, and overlap rules.
 
 Built-in precedence and source-local operator declarations are documented in
 [operators](../language/operators.md). Declaration scope restrictions are in

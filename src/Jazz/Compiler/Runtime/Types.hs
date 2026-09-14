@@ -11,6 +11,7 @@ module Jazz.Compiler.Runtime.Types
   ( RuntimeFloatMetadata (..),
     RuntimeIntMetadata (..),
     RuntimeMethodCandidate (..),
+    RuntimeDictionary (..),
     DeferredHostScopeId (..),
     DeferredHostBindingKey (..),
     DeferredHostBindingState (..),
@@ -36,7 +37,9 @@ module Jazz.Compiler.Runtime.Types
         VConstructor,
         VConstructorApplication,
         VAnnotated,
-        VDeferredHostBinding
+        VDeferredHostBinding,
+        VConstrained,
+        VEvidence
       ),
     pattern VQualifiedMethodApplication,
     prependRuntimeExplicitResultHint,
@@ -87,7 +90,7 @@ import Jazz.Compiler.AST
     NumericType,
   )
 import Jazz.Compiler.BuiltinCatalog (BuiltinSymbol)
-import Jazz.Compiler.CoreIdentity (CoreNodeId, MethodId, ResolvedReference)
+import Jazz.Compiler.CoreIdentity (CoreBinderId, CoreNodeId, MethodId, ResolvedReference)
 import Jazz.Compiler.Diagnostics (Diagnostic)
 import Jazz.Compiler.FractionalLiteral (FractionalLiteralSource)
 import Jazz.Compiler.Name (ResolvedName)
@@ -96,7 +99,7 @@ import Jazz.Compiler.Runtime.Observation
     RuntimeObservationState,
   )
 import Jazz.Compiler.Runtime.Outcome (RuntimeControl (..))
-import Jazz.Compiler.SemanticFacts (AnalyzedType, EvidenceReference (..))
+import Jazz.Compiler.SemanticFacts (AnalyzedScheme, AnalyzedType, EvidenceReference (..))
 import Jazz.Compiler.SourceUnitOwnership (SourceUnitOwner)
 import Jazz.Compiler.TypeRepresentation (InferenceVariable)
 
@@ -113,6 +116,14 @@ newtype RuntimeIntMetadata = RuntimeIntMetadata
 
 data RuntimeMethodCandidate = RuntimeMethodCandidate EvidenceReference (Either Diagnostic RuntimeValue)
 
+-- A dictionary closes over its selected method cells and prerequisite
+-- dictionaries, so a caller's instances remain available in imported closures.
+data RuntimeDictionary = RuntimeDictionary
+  { runtimeDictionaryEvidence :: EvidenceReference,
+    runtimeDictionaryMethods :: Map MethodId RuntimeCell,
+    runtimeDictionaryPrerequisites :: [RuntimeDictionary]
+  }
+
 -- | Ordered explicit result obligations attached to one runtime value. The
 -- constructor stays private so callers cannot reintroduce nested hint wrappers.
 -- Hints are stored outermost-to-innermost, matching source evaluation order.
@@ -123,7 +134,9 @@ newtype RuntimeExplicitResultHints = RuntimeExplicitResultHints (Seq AnalyzedTyp
 newtype DeferredHostScopeId = DeferredHostScopeId Int
   deriving (Eq, Ord, Show)
 
-data DeferredHostBindingKey = DeferredHostBindingKey DeferredHostScopeId CoreNodeId ResolvedName
+data DeferredHostBindingKey
+  = DeferredHostBindingKey DeferredHostScopeId CoreNodeId ResolvedName
+  | DictionaryBindingKey DeferredHostScopeId CoreBinderId ResolvedName [EvidenceReference]
   deriving (Eq, Ord, Show)
 
 data DeferredHostBindingState
@@ -174,6 +187,7 @@ data RuntimeAnnotation
   = RuntimeTypeHint AnalyzedType
   | RuntimeTypeApplication AnalyzedType
   | RuntimeResultHints RuntimeExplicitResultHints
+  | RuntimeMethodCall Text
 
 data RuntimeValue
   = VInt Integer RuntimeIntMetadata
@@ -191,6 +205,8 @@ data RuntimeValue
   | VConstructorState RuntimeConstructorShape RuntimeAppliedArguments
   | VQualifiedMethodState Text InferenceVariable AnalyzedType RuntimeMethodCandidates RuntimeAppliedArguments
   | VAnnotatedState RuntimeAnnotation RuntimeValue
+  | VConstrained DeferredHostScopeId CoreBinderId AnalyzedScheme ResolvedName (Maybe SourceUnitOwner) (Expr 'Analyzed) RuntimeEnv
+  | VEvidence RuntimeDictionary
   | VDeferredHostBinding
       DeferredHostBindingKey
       Diagnostic
@@ -253,9 +269,13 @@ instance Show RuntimeValue where
         "VTyped " <> show typeHint <> " " <> show innerValue
       VAnnotatedState (RuntimeTypeApplication typeHint) innerValue ->
         "VExplicitTypeApplication " <> show typeHint <> " " <> show innerValue
+      VAnnotatedState (RuntimeMethodCall name) innerValue ->
+        "VMethodCall " <> show name <> " " <> show innerValue
       VAnnotatedState (RuntimeResultHints hints) innerValue ->
         "VExplicitResultHints " <> show hints <> " " <> show innerValue
       VDeferredHostBinding {} -> "VDeferredHostBinding <thunk>"
+      VConstrained {} -> "VConstrained <function>"
+      VEvidence {} -> "VEvidence <dictionary>"
 
 -- | Historical ordered-list constructor view used by runtime semantics and
 -- tests. Construction establishes the shape and argument invariants once.
@@ -298,7 +318,9 @@ pattern VQualifiedMethodApplication methodKey classParameter methodSignature can
   VConstructorApplication,
   VQualifiedMethodApplication,
   VAnnotated,
-  VDeferredHostBinding
+  VDeferredHostBinding,
+  VConstrained,
+  VEvidence
   #-}
 
 prependRuntimeExplicitResultHint :: AnalyzedType -> RuntimeValue -> RuntimeValue
@@ -402,7 +424,9 @@ emptyRuntimeMethodCandidates = RuntimeMethodCandidates Seq.empty Map.empty
 
 appendRuntimeMethodCandidate :: RuntimeMethodCandidate -> RuntimeMethodCandidates -> RuntimeMethodCandidates
 appendRuntimeMethodCandidate candidate@(RuntimeMethodCandidate evidence _) (RuntimeMethodCandidates candidates index) =
-  RuntimeMethodCandidates (candidates Seq.|> candidate) (Map.insertWith (\_ existing -> existing) (evidenceMethod evidence) candidate index)
+  RuntimeMethodCandidates (candidates Seq.|> candidate) $ case evidence of
+    EvidenceReference {evidenceMethod = Just method} -> Map.insertWith (\_ existing -> existing) method candidate index
+    _ -> index
 appendRuntimeMethodCandidate _ selected@SelectedRuntimeMethod {} = selected
 
 filterRuntimeMethodCandidates :: (RuntimeMethodCandidate -> Bool) -> RuntimeMethodCandidates -> RuntimeMethodCandidates
@@ -414,9 +438,10 @@ filterRuntimeMethodCandidates predicate candidates =
 
 selectRuntimeMethodCandidate :: MethodId -> RuntimeMethodCandidates -> Maybe RuntimeMethodCandidates
 selectRuntimeMethodCandidate method (RuntimeMethodCandidates _ index) = SelectedRuntimeMethod <$> Map.lookup method index
-selectRuntimeMethodCandidate method selected@(SelectedRuntimeMethod (RuntimeMethodCandidate evidence _))
-  | evidenceMethod evidence == method = Just selected
+selectRuntimeMethodCandidate method selected@(SelectedRuntimeMethod (RuntimeMethodCandidate EvidenceReference {evidenceMethod = Just identity} _))
+  | identity == method = Just selected
   | otherwise = Nothing
+selectRuntimeMethodCandidate _ SelectedRuntimeMethod {} = Nothing
 
 runtimeMethodIsSelected :: RuntimeMethodCandidates -> Bool
 runtimeMethodIsSelected SelectedRuntimeMethod {} = True

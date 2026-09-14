@@ -107,6 +107,7 @@ import Jazz.Compiler.ModuleExports
     moduleExportSelectorNamespace,
     renderModuleExportSelector,
     selectValidatedModuleExportSelectors,
+    withClassMethods,
   )
 import qualified Jazz.Compiler.ModuleGraph as ModuleGraph
 import Jazz.Compiler.ModuleIdentity
@@ -612,7 +613,10 @@ discoverModuleFacts surfaceExpr =
             rest
 
     finalize exportsRev operatorBindings constructorOwners referenceFacts =
-      let localInventory = exportInventory (reverse exportsRev)
+      let localInventory =
+            withClassMethods
+              (Map.fromList [(identifierText name, Set.fromList [identifierText method | SurfaceClassMethodSignature method _ _ <- methods]) | SSClass _ name _ methods _ _ <- case surfaceExprForm surfaceExpr of SEBlock body -> body; _ -> []])
+              (exportInventory (reverse exportsRev))
           topLevelBindings =
             Set.unions
               [ operatorBindings,
@@ -645,8 +649,9 @@ discoverModuleFacts surfaceExpr =
             )
             (ModuleExport TypeNamespace (identifierText typeName) : exportsRev)
             constructors
-        SSClass _ className _ _ _ _ ->
-          ModuleExport CapabilityNamespace (identifierText className) : exportsRev
+        SSClass _ className _ methods _ _ ->
+          [ModuleExport ValueNamespace (identifierText method) | SurfaceClassMethodSignature method _ _ <- methods]
+            <> (ModuleExport CapabilityNamespace (identifierText className) : exportsRev)
         _ -> exportsRev
 
     collectConstructorOwners statement owners =

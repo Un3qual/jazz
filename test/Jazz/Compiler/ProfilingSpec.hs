@@ -12,6 +12,7 @@ import Data.IORef
   )
 import Data.List (nub)
 import qualified Data.Map.Strict as Map
+import qualified Data.Set as Set
 import Data.Text (Text)
 import qualified Data.Text as Text
 import Jazz.Compiler.AST
@@ -21,7 +22,7 @@ import Jazz.Compiler.AST
     Expr (ELit),
     Literal (LInt),
   )
-import Jazz.Compiler.CoreIdentity (CapabilityId (..), CoreBinderId (..), ImplId (..), MethodId (..), emptyResolvedNodeFacts)
+import Jazz.Compiler.CoreIdentity (CapabilityId (..), CoreBinderId (..), ImplId (..), MethodId (..), ResolvedReference (LexicalReference), emptyResolvedNodeFacts)
 import Jazz.Compiler.DiagnosticCatalog (ErrorCode (E1001))
 import Jazz.Compiler.Diagnostics
   ( DiagnosticOrigin (CompilationOrigin),
@@ -70,10 +71,12 @@ import Jazz.Compiler.TypeInference.Types
   ( ClassMethodType (ClassMethodType),
     ConstructorArgumentType (ConstructorArgumentType),
     DataTypeBinding (DataTypeBinding),
-    ImplMethodType (ImplMethodType),
+    ImplementationTemplate (..),
     ScopeCapabilityFacts (..),
     SemanticBinding (PlainTypeBinding),
+    SemanticScheme (..),
     SemanticType (..),
+    quantifiedVariablesFromPreferred,
   )
 import Jazz.TestHarness
   ( NamedTest,
@@ -190,7 +193,7 @@ testDeepModuleInterfaceForcing =
           { interfaceValueBindings =
               Map.singleton
                 (ModuleExport ValueNamespace "value")
-                (ModuleValueBinding (CoreBinderId (StandaloneSourceUnit standaloneModulePath, CoreNodeId 1)) (PlainTypeBinding (SemanticList deferredExpressionType)))
+                (ModuleValueBinding (LexicalReference (CoreBinderId (StandaloneSourceUnit standaloneModulePath, CoreNodeId 1))) (PlainTypeBinding (SemanticList deferredExpressionType)))
           }
       ),
       ( "data type",
@@ -219,10 +222,18 @@ testDeepModuleInterfaceForcing =
         emptyModuleInterface
           { interfaceCapabilities =
               mempty
-                { scopeConcreteImplMethods =
-                    Map.singleton
-                      (CapabilityId (resolvedLocalName CapabilityNamespace (mkIdentifier "Capability")), mkIdentifier "method")
-                      [ImplMethodType (SemanticList (throw (userError "nested signature type was forced"))) (CapabilityId (resolvedLocalName CapabilityNamespace (mkIdentifier "Capability"))) (MethodId (ImplId (StandaloneSourceUnit standaloneModulePath, CoreNodeId 0), mkIdentifier "method"))]
+                { scopeImplementations =
+                    let identity = ImplId (StandaloneSourceUnit standaloneModulePath, CoreNodeId 0)
+                        capability = CapabilityId (resolvedLocalName CapabilityNamespace (mkIdentifier "Capability"))
+                     in Map.singleton
+                          identity
+                          ( ImplementationTemplate
+                              identity
+                              capability
+                              (SemanticScheme (quantifiedVariablesFromPreferred [] Set.empty) [] [] mempty (SemanticList (throw (userError "nested signature type was forced"))))
+                              Map.empty
+                              (Map.singleton (mkIdentifier "method") (MethodId (identity, mkIdentifier "method")))
+                          )
                 }
           }
       )

@@ -414,7 +414,7 @@ collectScopeDiagnosticsWithPreparedScope (PreparedAnalysisScope statements rawRe
                       (\target -> visibleImportedClassNames target maybeAlias maybeSymbolNames)
                       (resolvedNodeImportTarget (coreNodeFacts node))
               }
-          SClass classNode capabilityName _parameters methods _ _ ->
+          SClass classNode capabilityName _parameters methods _ defaults ->
             let classSpan = coreNodeSpan classNode
                 classNameText = identifierText capabilityName
                 (nextClassDeclarations, classErrors) =
@@ -430,10 +430,13 @@ collectScopeDiagnosticsWithPreparedScope (PreparedAnalysisScope statements rawRe
                           )
                     Nothing ->
                       (Map.insert classNameText classSpan classDeclarations, [])
-                methodErrors = duplicateClassMethodErrors classNameText methods
+                methodBindings = foldl' (\bindings (ClassMethodSignature node name _) -> Map.insert (resolvedValueScopeName name) (VisibleBinding (coreNodeSpan node) hideRootBindings) bindings) scopeBindings methods
+                methodErrors = duplicateClassMethodErrors classNameText methods <> methodCollisions statementIndex methods
+                defaultDiagnostics = collectImplMethodDiagnostics settings (currentVisibleBindings methodBindings) (Set.insert classNameText visibleClasses) defaults
              in next
                   { classDeclarations = nextClassDeclarations,
-                    scopeDiagnostics = scopeDiagnostics next <> errorDiagnostics (classErrors ++ methodErrors)
+                    scopeBindings = methodBindings,
+                    scopeDiagnostics = scopeDiagnostics next <> errorDiagnostics (classErrors ++ methodErrors) <> defaultDiagnostics
                   }
           SImpl implNode capabilityName arguments methods _ ->
             let implSpan = coreNodeSpan implNode
@@ -526,6 +529,23 @@ collectScopeDiagnosticsWithPreparedScope (PreparedAnalysisScope statements rawRe
           visibleClasses = currentVisibleClassNames classDeclarations importedClassNames
           -- Every non-binding ends signature adjacency, including a new signature.
           next = current {pendingSignature = Nothing, scopeDiagnostics = flushPendingSignature pendingSignature diagnostics}
+
+    methodCollisions index methods =
+      [ setDiagnosticRelatedSpan
+          previousSpan
+          ( setDiagnosticPrimarySpan
+              (coreNodeSpan node)
+              (mkErrorDiagnostic E1007 CompilationOrigin ("duplicate value declaration '" <> identifierText name <> "'"))
+          )
+      | ClassMethodSignature node name _ <- methods,
+        (otherIndex, other) <- indexedStatements,
+        (otherName, previousSpan) <- case other of
+          SLet otherNode otherName _ -> [(otherName, coreNodeSpan otherNode)]
+          SClass _ _ _ otherMethods _ _ | otherIndex < index -> [(otherName, coreNodeSpan otherNode) | ClassMethodSignature otherNode otherName _ <- otherMethods]
+          SData _ _ _ constructors -> [(otherName, coreNodeSpan otherNode) | DataConstructor otherNode otherName _ <- constructors]
+          _ -> [],
+        identifierText otherName == identifierText name
+      ]
 
     currentVisibleBindings :: Map ResolvedName VisibleBinding -> Map ResolvedName VisibleBinding
     -- Local scope is left-biased so inner declarations shadow outer bindings.

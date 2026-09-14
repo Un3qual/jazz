@@ -20,7 +20,8 @@ import Data.Set (Set)
 import qualified Data.Set as Set
 import Data.Text (Text)
 import Jazz.Compiler.AST
-  ( CorePhase (..),
+  ( ClassMethodSignature (..),
+    CorePhase (..),
     DataConstructor (..),
     Expr (..),
     Literal (..),
@@ -39,14 +40,14 @@ import Jazz.Compiler.BuiltinCatalog
     numericTypeIntegerBounds,
     numericTypeLiteralIntegerBounds,
   )
-import Jazz.Compiler.CoreIdentity (CapabilityMethodKey, CoreBinderId, ResolvedNodeFacts (..), ResolvedReference (..), capabilityMethodKeyFromReference, resolvedValueReference)
+import Jazz.Compiler.CoreIdentity (CapabilityId (..), CapabilityMethodKey, CoreBinderId, ResolvedNodeFacts (..), ResolvedReference (..), capabilityMethodKeyFromReference, resolvedValueReference)
 import Jazz.Compiler.Diagnostics (Diagnostic, SourceSpan)
 import Jazz.Compiler.FractionalLiteral
   ( FractionalLiteralSource,
     fractionalLiteralExceedsMagnitude,
     fractionalLiteralIntegralValue,
   )
-import Jazz.Compiler.ModuleExports (ModuleExportInventory)
+import Jazz.Compiler.ModuleExports (ModuleExport (..), ModuleExportInventory, exportInventory, withClassMethods)
 import Jazz.Compiler.ModuleIdentity (ModulePath)
 import Jazz.Compiler.ModuleInterface
   ( ModuleInterface (..),
@@ -56,9 +57,11 @@ import Jazz.Compiler.ModuleInterface
   )
 import Jazz.Compiler.Name
   ( Name (..),
+    NameNamespace (..),
     ResolvedName,
     UnresolvedName,
     identifierText,
+    mkIdentifier,
     renderName,
   )
 import Jazz.Compiler.PatternCoverage
@@ -80,6 +83,7 @@ import Jazz.Compiler.TypeInference.Capabilities
 import Jazz.Compiler.TypeInference.Diagnostics
 import Jazz.Compiler.TypeInference.Draft (CheckedExpr (..), CheckedScope (..), Draft, rejectedDraft)
 import Jazz.Compiler.TypeInference.Environment (insertResolvedTypeBinding)
+import Jazz.Compiler.TypeInference.Instantiation (instantiateTypeScheme)
 import Jazz.Compiler.TypeInference.Interface (closeModuleBindings, importBindingTypes)
 import Jazz.Compiler.TypeInference.Operator
   ( applyOperatorAliasSchemeConstraints,
@@ -193,47 +197,56 @@ inferExpressionWork inputs expr =
 
 initialStateForInference :: InferenceInputs -> InferState
 initialStateForInference inputs =
-  applyCapabilityFacts
-    (inferenceImportedCapabilities inputs)
-    initialInferState
-      { inferDeclarations =
-          (inferDeclarations initialInferState)
-            { declarationDataTypes = inferenceImportedDataTypes inputs
-            },
-        inferModule =
-          (inferModule initialInferState)
-            { inferenceModulePath = inferenceCurrentModulePath inputs,
-              inferenceConstructorWitnessNames =
-                inferenceImportedConstructorWitnessNames inputs
-            }
-      }
+  validateImplementationCoherence $
+    applyCapabilityFacts
+      (inferenceImportedCapabilities inputs)
+      initialInferState
+        { inferDeclarations =
+            (inferDeclarations initialInferState)
+              { declarationDataTypes = inferenceImportedDataTypes inputs
+              },
+          inferModule =
+            (inferModule initialInferState)
+              { inferenceModulePath = inferenceCurrentModulePath inputs,
+                inferenceConstructorWitnessNames =
+                  inferenceImportedConstructorWitnessNames inputs
+              }
+        }
 
 moduleInterfaceFromState :: InferenceInputs -> Expr 'Resolved -> InferState -> ModuleInterface
 moduleInterfaceFromState inputs expr state =
-  publishModuleInterface (inferencePublicExports inputs) (inferDataTypes state) $
+  publishModuleInterface (Just (fromMaybe declaredInventory (inferencePublicExports inputs))) (inferDataTypes state) $
     emptyModuleInterface
       { interfaceValueBindings =
           closeModuleBindings
             state
             [ (moduleExportForBinding (renderName name) binding, binder, binding)
             | (name, binder) <- Map.toList declaredValues,
-              Just binding <- [Map.lookup (TypeEnvKey (LexicalReference binder) name) (inferVisibleTypes state)]
+              Just binding <- [Map.lookup (TypeEnvKey binder name) (inferVisibleTypes state)]
             ],
         interfaceDataTypes = Map.restrictKeys (inferDataTypes state) declaredDataTypes,
         interfaceCapabilities = localCapabilities
       }
   where
     (declaredValues, declaredDataTypes) = declaredModuleBindings expr
-    localCapabilities =
-      Map.findWithDefault emptyScopeCapabilityFacts (inferenceCurrentModulePath inputs) (inferModuleCapabilityFacts state)
+    localCapabilities = Map.findWithDefault emptyScopeCapabilityFacts (inferenceCurrentModulePath inputs) (inferModuleCapabilityFacts state) <> inferenceImportedCapabilities inputs
+    declaredClasses = [(capability, methods) | SClass _ capability _ methods _ _ <- case expr of EBlock _ statements -> statements; _ -> []]
+    declaredInventory =
+      withClassMethods
+        (Map.fromList [(identifierText capability, Set.fromList [identifierText name | ClassMethodSignature _ name _ <- methods]) | (capability, methods) <- declaredClasses])
+        $ exportInventory
+          ( [moduleExportForBinding (renderName name) binding | (name, reference) <- Map.toList declaredValues, Just binding <- [Map.lookup (TypeEnvKey reference name) (inferVisibleTypes state)]]
+              <> [ModuleExport TypeNamespace (renderName name) | name <- Set.toList declaredDataTypes]
+              <> [ModuleExport CapabilityNamespace (renderName capability) | (capability, _) <- declaredClasses]
+          )
 
-declaredModuleBindings :: Expr 'Resolved -> (Map ResolvedName CoreBinderId, Set ResolvedName)
+declaredModuleBindings :: Expr 'Resolved -> (Map ResolvedName ResolvedReference, Set ResolvedName)
 declaredModuleBindings expression =
   case expression of
     EBlock _ statements -> foldl' collect (Map.empty, Set.empty) statements
     _ -> (Map.empty, Set.empty)
   where
-    collect :: (Map ResolvedName CoreBinderId, Set ResolvedName) -> Statement 'Resolved -> (Map ResolvedName CoreBinderId, Set ResolvedName)
+    collect :: (Map ResolvedName ResolvedReference, Set ResolvedName) -> Statement 'Resolved -> (Map ResolvedName ResolvedReference, Set ResolvedName)
     collect (valueNames, dataTypeNames) statement =
       case statement of
         SLet node name _
@@ -246,9 +259,11 @@ declaredModuleBindings expression =
               constructors,
             Set.insert typeName dataTypeNames
           )
+        SClass _ capability _ methods _ _ ->
+          (foldl' (\names (ClassMethodSignature _ name _) -> Map.insert name (CapabilityMethodReference (CapabilityId capability) (mkIdentifier (identifierText name))) names) valueNames methods, dataTypeNames)
         _ -> (valueNames, dataTypeNames)
 
-    insertBinder node name bindings = maybe bindings (\binder -> Map.insert name binder bindings) (resolvedNodeBinder (coreNodeFacts node))
+    insertBinder node name bindings = maybe bindings (\binder -> Map.insert name (LexicalReference binder) bindings) (resolvedNodeBinder (coreNodeFacts node))
 
     publicModuleValue name =
       case name of
@@ -294,7 +309,7 @@ inferExprTypeDetailed env state expr = case expr of
      in finish result finalState (\node -> EIf <$> node <*> checkedExprTree conditionCheck <*> checkedExprTree thenCheck <*> checkedExprTree elseCheck)
   EList _ elements ->
     let (result, children, finalState) = inferListElements env state elements
-     in finish result finalState (\node -> EList <$> node <*> traverse checkedExprTree children)
+     in finish result (annotateNewErrorsWithPrimarySpan (coreNodeSpan (expressionNode expr)) state finalState) (\node -> EList <$> node <*> traverse checkedExprTree children)
   ETuple _ elements ->
     let (result, children, finalState) = inferTupleElements env state elements
      in finish result finalState (\node -> ETuple <$> node <*> traverse checkedExprTree children)
@@ -326,7 +341,7 @@ inferExprTypeDetailed env state expr = case expr of
         if sectionFallback then inferSectionApplicationWithFallback function argument symbol left right else inferBuiltinOperatorApplication symbol aliasScheme left right
     | Just (methodName, methodSpan, methodKey, arguments) <- qualifiedMethodApplicationSpine expr state,
       Map.notMember methodName env ->
-        let (selection, afterArguments, argumentChecks) = inferQualifiedMethodApplicationWithResults inferLocatedMethodArgument env state methodKey arguments
+        let (selection, afterArguments, argumentChecks) = inferQualifiedMethodApplicationWithResults instantiateTypeScheme inferLocatedMethodArgument env state methodKey arguments
             result = selectedMethodType selection
             tree = case (result, traverse checkedExprType argumentChecks) of
               (Just resultType, Just argumentTypes) -> draftQualifiedMethodSpine (selectedMethodEvidence selection) expr (foldr (SemanticFunction . resolveType afterArguments) (resolveType afterArguments resultType) argumentTypes) argumentChecks
@@ -409,31 +424,31 @@ inferExprTypeDetailed env state expr = case expr of
       let (checked, nextState) = inferExprTypeDetailed argumentEnv priorState argumentExpr
        in (checked, annotateNewErrorsWithPrimarySpan (coreNodeSpan (expressionNode argumentExpr)) priorState nextState)
 
-inferLeafExpression :: TypeEnv -> InferState -> Expr 'Resolved -> (Maybe ExpressionType, Maybe EvidenceReference, InferState)
+inferLeafExpression :: TypeEnv -> InferState -> Expr 'Resolved -> (Maybe ExpressionType, [EvidenceReference], InferState)
 inferLeafExpression env state expr = case expr of
   ELit _ literal ->
     let (literalType, afterLiteral) = literalExpressionType literal state
-     in (Just literalType, Nothing, checkLiteralType afterLiteral literal)
-  ETuple _ [] -> (Just (SemanticTuple []), Nothing, state)
+     in (Just literalType, [], checkLiteralType afterLiteral literal)
+  ETuple _ [] -> (Just (SemanticTuple []), [], state)
   EVar node _
     | Just (BuiltinOperatorReference symbol) <- resolvedNodeReference (coreNodeFacts node) ->
         let (result, finalState) = case instantiateOperatorType symbol state of
               Just (operatorType, next) -> (Just operatorType, next)
               Nothing -> (Nothing, addTypeError state (mkUnsupportedOperatorValueError symbol))
-         in (result, Nothing, annotateNewErrorsWithPrimarySpan (coreNodeSpan node) state finalState)
+         in (result, [], annotateNewErrorsWithPrimarySpan (coreNodeSpan node) state finalState)
   EVar node name ->
     let (result, evidence, finalState) = case Map.lookup (typeEnvReferenceKey (coreNodeFacts node) name) env of
           Just binding -> ordinary (instantiateEnvBinding binding state)
-          Nothing | Just symbol <- resolvedOperatorSpelling (coreNodeFacts node) -> (Nothing, Nothing, addTypeError state (mkMissingOperatorBindingError symbol))
+          Nothing | Just symbol <- resolvedOperatorSpelling (coreNodeFacts node) -> (Nothing, [], addTypeError state (mkMissingOperatorBindingError symbol))
           Nothing -> case instantiateBuiltinType (resolvedValueReference (coreNodeFacts node) name) state of
-            Just (builtinType, next) -> (Just builtinType, Nothing, next)
-            Nothing -> case instantiateQualifiedMethodType (resolvedValueReference (coreNodeFacts node) name) state of
+            Just (builtinType, next) -> (Just builtinType, [], next)
+            Nothing -> case instantiateQualifiedMethodType instantiateTypeScheme (resolvedValueReference (coreNodeFacts node) name) state of
               Just (selection, next) -> (selectedMethodType selection, selectedMethodEvidence selection, next)
-              Nothing -> (Nothing, Nothing, state)
+              Nothing -> (Nothing, [], state)
      in (result, evidence, annotateNewErrorsWithPrimarySpan (coreNodeSpan node) state finalState)
-  _ -> (Nothing, Nothing, state)
+  _ -> (Nothing, [], state)
   where
-    ordinary (result, next) = (result, Nothing, next)
+    ordinary (result, next) = (result, newConstraintEvidence state next, next)
 
 -- The raw prepend primitive deliberately adopts the concrete element type
 -- carried by its list argument and coerces the prepended value to match.
@@ -595,13 +610,13 @@ applicationSpine expr =
 
 -- Specialized checks construct skipped callable wrappers from their selected
 -- types and owned argument trees. These builders do not mutate solver output.
-draftQualifiedMethodSpine :: Maybe EvidenceReference -> Expr 'Resolved -> ExpressionType -> [CheckedExpr] -> Draft (Expr 'Analyzed)
+draftQualifiedMethodSpine :: [EvidenceReference] -> Expr 'Resolved -> ExpressionType -> [CheckedExpr] -> Draft (Expr 'Analyzed)
 draftQualifiedMethodSpine evidence root methodType arguments =
   let (_, tree, remaining) = walk root arguments
    in if null remaining then tree else rejected root
   where
     facts expression result =
-      let decision = noExpressionDecision {decisionEvidence = if coreNodeId (expressionNode expression) == coreNodeId (expressionNode root) then evidence else Nothing}
+      let decision = noExpressionDecision {decisionEvidence = case expression of EVar {} -> evidence; _ -> []}
        in draftDecidedExpressionNode decision (Just result) expression
     rejected expression = rejectedDraft (MissingExpressionFacts (coreNodeId (expressionNode expression)))
     walk expression remaining = case expression of

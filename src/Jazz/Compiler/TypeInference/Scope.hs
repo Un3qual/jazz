@@ -7,7 +7,8 @@
 -- | Scope, binding, signature, and constructor inference. The resulting
 -- semantic facts feed the analyzed nodes used by execution.
 module Jazz.Compiler.TypeInference.Scope
-  ( inferExplicitTypeApplication,
+  ( instantiateTypeScheme,
+    inferExplicitTypeApplication,
     inferNestedScopeTypeWithMode,
     inferScopeType,
     inferScopeTypeWithMode,
@@ -17,6 +18,7 @@ where
 
 import Control.Monad (zipWithM)
 import Data.Bifunctor (first)
+import Data.Either (fromRight)
 import qualified Data.Foldable as Foldable
 import Data.List
   ( uncons,
@@ -28,6 +30,7 @@ import Data.Map.Strict
 import qualified Data.Map.Strict as Map
 import Data.Maybe
   ( fromMaybe,
+    isJust,
     isNothing,
   )
 import Data.Set
@@ -37,7 +40,6 @@ import qualified Data.Set as Set
 import Data.Text
   ( Text,
   )
-import Data.Void (Void, absurd)
 import Jazz.Compiler.AST
   ( ClassMethodSignature (..),
     CoreNode (coreNodeFacts, coreNodeId, coreNodeSpan),
@@ -60,7 +62,7 @@ import Jazz.Compiler.BuiltinCatalog
 import Jazz.Compiler.CapabilityFacts
   ( constraintSignatureTypeVariableNamesInOrder,
   )
-import Jazz.Compiler.CoreIdentity (CapabilityId (..), CoreBinderId, ResolvedNodeFacts (..), ResolvedReference (..), ResolvedScopeFacts (..), renderCapabilityId, resolvedNodeImportTarget, resolvedValueReference)
+import Jazz.Compiler.CoreIdentity (CapabilityId (..), CoreBinderId, ImplId (..), MethodId (..), ResolvedNodeFacts (..), ResolvedReference (..), ResolvedScopeFacts (..), renderCapabilityId, resolvedNodeImportTarget, resolvedValueReference)
 import Jazz.Compiler.Diagnostics
   ( Diagnostic,
     DiagnosticContext (CheckingBinding),
@@ -69,9 +71,11 @@ import Jazz.Compiler.Diagnostics
   )
 import Jazz.Compiler.ModuleIdentity (sourceUnitOwnerModulePath)
 import Jazz.Compiler.Name
-  ( ResolvedName,
+  ( NameNamespace (ValueNamespace),
+    ResolvedName,
     identifierText,
     mkIdentifier,
+    resolvedLocalName,
   )
 import Jazz.Compiler.Parser.Operator
   ( isBuiltinOperatorSymbol,
@@ -84,12 +88,12 @@ import Jazz.Compiler.RecursiveBindings
     preparedRecursiveScopeStatements,
     resolvedExpressionReferences,
   )
-import Jazz.Compiler.SemanticDeclarations (normalizeSignatureStructure, normalizeSignatureType, prepareDataTypeKinds, signatureVariableKindsAt)
+import Jazz.Compiler.SemanticDeclarations (concreteImplementationType, mapBindingTypes, normalizeSignatureStructure, normalizeSignatureType, normalizeSignatureTypeAt, prepareDataTypeKinds, quantifiedVariablesOrderedList, signatureVariableKindsAt)
 import Jazz.Compiler.SemanticFacts
   ( SemanticFactInvariantFailure (..),
     StatementDeclarationFact (..),
   )
-import Jazz.Compiler.TypeInference.Analyzed (ExpressionDecision (..), constrainBindingRuntimeResult, draftDecidedExpressionNode, draftExpressionNode, draftStatementNode, noExpressionDecision, projectAnalyzedMethodSignature)
+import Jazz.Compiler.TypeInference.Analyzed (ExpressionDecision (..), constrainBindingRuntimeResult, draftDecidedExpressionNode, draftExpressionNode, draftStatementNode, noExpressionDecision, projectAnalyzedMethodSignature, retainCheckedEvidence, withEvidenceParameters, withRecursiveBindingEvidence)
 import Jazz.Compiler.TypeInference.Capabilities
   ( MethodSelection (..),
     TypeEnvFreeVariables,
@@ -97,23 +101,28 @@ import Jazz.Compiler.TypeInference.Capabilities
     capabilityFactsFromState,
     defaultBindingLiteralTypes,
     defaultLiteralTypes,
+    deferExplicitConstraintsWithFacts,
     deleteTypeEnvFreeVariables,
     enterModuleCapabilityScope,
     finalizeDeferredExplicitConstraintsAt,
     finalizeDeferredExplicitConstraintsAtWithEntailments,
     flushCurrentModuleCapabilityFacts,
     freeTypeVariablesInEnv,
+    implementationsOverlap,
     importModuleCapabilityFacts,
     insertTypeEnvFreeVariables,
     instantiateQualifiedMethodTypeWithExpected,
     newInferredClassConstraints,
+    ordinaryMethodScheme,
     registerClassCapabilityFacts,
     registerImplementation,
     resolveTypeEnvFreeVariables,
     resolveTypeSchemeConstraint,
     restoreCapabilityFacts,
+    superclassPath,
     typeEnvFreeVariables,
     typeSchemeDefiningFactsFromState,
+    typeSchemePrimitiveConstraints,
     updateRootModuleBaselineFacts,
   )
 import Jazz.Compiler.TypeInference.Diagnostics
@@ -126,6 +135,7 @@ import Jazz.Compiler.TypeInference.Diagnostics
     mkInvalidConstructorPayloadTypeError,
     mkInvalidImplTargetError,
     mkInvalidSignatureTypeError,
+    mkMissingImplMethodBodyError,
     mkSignatureTypeMismatchError,
     mkUndeclaredSignatureConstraintError,
     mkUnknownConstructorPayloadTypeError,
@@ -133,10 +143,11 @@ import Jazz.Compiler.TypeInference.Diagnostics
   )
 import Jazz.Compiler.TypeInference.Draft (CheckedExpr (..), CheckedScope (..), Draft, rejectedDraft)
 import Jazz.Compiler.TypeInference.Environment (insertResolvedTypeBinding, insertResolvedTypeEnvFreeVariables)
-import Jazz.Compiler.TypeInference.ImplChecking (checkImplMethodBodies)
+import Jazz.Compiler.TypeInference.ImplChecking (checkImplMethodBodies, checkImplementationSuperclasses)
 import Jazz.Compiler.TypeInference.Instantiation
   ( inferExplicitTypeApplication,
     instantiateNonBuiltinTypeBinding,
+    instantiateTypeScheme,
     typeBindingScheme,
   )
 import Jazz.Compiler.TypeInference.Operator (builtinOperatorSymbolExpr)
@@ -155,6 +166,7 @@ import Jazz.Compiler.TypeInference.State
     ModuleInferenceState (..),
     SolverState (..),
     inferClassFacts,
+    inferClassMethodSignatures,
     inferDataTypes,
     inferErrorCount,
     inferInferredClassConstraintCount,
@@ -182,11 +194,12 @@ import Jazz.Compiler.TypeInference.Types
     ConstructorArgumentType (..),
     DataTypeBinding (..),
     ExpressionType,
+    ImplementationTemplate (..),
     InferenceVariable (..),
     NumericConstraint,
     SchemeConstraint (..),
     SchemePrimitiveConstraint (..),
-    ScopeCapabilityFacts,
+    ScopeCapabilityFacts (..),
     SemanticBinding (..),
     SemanticScheme (..),
     SemanticType (..),
@@ -195,7 +208,7 @@ import Jazz.Compiler.TypeInference.Types
     TypeEnvKey (..),
     TypeScheme,
     TypeSchemeConstraint,
-    TypeSchemePrimitiveConstraint,
+    implementationTarget,
     quantifiedVariablesFromPreferred,
     quantifiedVariablesMembershipSet,
     typeEnvBindingKey,
@@ -222,7 +235,7 @@ inferExprTypeWithExpectedMode inferExpression mode env state expectedType expr =
   case (resolveType state expectedType, expr) of
     (_, EVar node name)
       | Map.notMember (typeEnvReferenceKey (coreNodeFacts node) name) env,
-        Just (selection, checkedState) <- instantiateQualifiedMethodTypeWithExpected (resolvedValueReference (coreNodeFacts node) name) expectedType state ->
+        Just (selection, checkedState) <- instantiateQualifiedMethodTypeWithExpected instantiateTypeScheme (resolvedValueReference (coreNodeFacts node) name) expectedType state ->
           let result = selectedMethodType selection
               decision = noExpressionDecision {decisionEvidence = selectedMethodEvidence selection}
            in (CheckedExpr result (EVar <$> draftDecidedExpressionNode decision result expr <*> pure name), checkedState)
@@ -260,9 +273,59 @@ inferExprTypeWithExpectedMode inferExpression mode env state expectedType expr =
         checkedState
       )
 
-checkImplementationTargets :: InferState -> SourceSpan -> [SignatureType 'Resolved] -> Either Diagnostic [SemanticType ResolvedName Void]
-checkImplementationTargets state implSpan =
-  traverse (first (mkInvalidImplTargetError implSpan) . normalizeSignatureType (inferDataTypes state) Map.empty)
+checkImplementationTemplate :: InferState -> CoreNode 'Resolved 'StatementSort -> ResolvedName -> [SignatureType 'Resolved] -> [SignatureConstraint 'Resolved] -> [ImplMethod 'Resolved] -> Either Diagnostic ImplementationTemplate
+checkImplementationTemplate state node capabilityName arguments prerequisites methods = do
+  definition <- maybe (Left (invalid ("missing class declaration '" <> identifierText capabilityName <> "'"))) Right (Map.lookup capability (inferClassFacts state))
+  signature <- case arguments of [argument] -> Right argument; _ -> Left (invalid "impl declarations require exactly one target")
+  let parameterNames = constraintSignatureTypeVariableNamesInOrder signature
+      variables = Map.fromList [(name, SemanticVariable name) | name <- parameterNames]
+  target <- first (mkInvalidImplTargetError spanValue) (normalizeSignatureTypeAt (inferDataTypes state) variables (classParameterKind definition) signature)
+  if supportedHead target then Right () else Left (invalid "impl declarations require a constructor-headed target with distinct variables")
+  constraints <- traverse (checkPrerequisite variables) prerequisites
+  kinds <- first (mkInvalidImplTargetError spanValue) (signatureVariableKindsAt (inferDataTypes state) Map.empty ((target, classParameterKind definition) : [(argument, classParameterKind owner) | TypeSchemeConstraint name argument <- constraints, Just owner <- [Map.lookup name (inferClassFacts state)]]))
+  let declaredMethods = Map.keysSet (Map.filterWithKey (\(name, _) _ -> name == capability) (scopeClassMethodSignatures (capabilityFactsFromState state)))
+      members = Set.map snd declaredMethods
+      provided = Set.fromList [mkIdentifier (identifierText name) | ImplMethod _ name _ <- methods]
+      missingMethods = members Set.\\ (provided <> classDefaultMethods definition)
+      template =
+        ImplementationTemplate
+          identity
+          capability
+          (SemanticScheme (quantifiedVariablesFromPreferred parameterNames (Map.keysSet variables)) constraints [] mempty target)
+          kinds
+          (Map.fromSet (\member -> MethodId (identity, member)) (members <> provided))
+  case Set.lookupMin missingMethods of
+    Just method -> Left (setDiagnosticPrimarySpan spanValue (mkMissingImplMethodBodyError (capability, method)))
+    Nothing -> Right ()
+  case [other | other <- Map.elems (scopeImplementations (capabilityFactsFromState state)), implementationIdentity other /= identity, implementationsOverlap state template other, not (alreadyDiagnosedDuplicate target other)] of
+    _ : _ -> Left (invalid ("overlapping impl declarations for '" <> identifierText capabilityName <> "'"))
+    [] -> Right template
+  where
+    spanValue = coreNodeSpan node
+    invalid = mkInvalidCapabilityDeclarationError spanValue
+    capability = CapabilityId capabilityName
+    identity = ImplId (resolvedNodeOwner (coreNodeFacts node), coreNodeId node)
+    alreadyDiagnosedDuplicate target other =
+      null target
+        && implementationTarget other == target
+        && let ImplId (owner, _) = implementationIdentity other in owner == resolvedNodeOwner (coreNodeFacts node)
+    checkPrerequisite variables (SignatureConstraint name [TypeVariable parameter])
+      | Just target <- Map.lookup (identifierText parameter) variables,
+        Map.member (CapabilityId name) (inferClassFacts state) =
+          Right (TypeSchemeConstraint (CapabilityId name) target)
+    checkPrerequisite _ _ = Left (invalid "impl prerequisites must apply a known class to one head-bound variable")
+    supportedHead target
+      | null target = concreteImplementationType target
+      | otherwise = case target of
+          SemanticList argument -> distinctVariables [argument]
+          SemanticTuple fields -> distinctVariables fields
+          SemanticData _ fields -> distinctVariables fields
+          _ -> False
+    distinctVariables fields = case traverse variable fields of
+      Just names -> length names == Set.size (Set.fromList names)
+      Nothing -> False
+    variable (SemanticVariable name) = Just name
+    variable _ = Nothing
 
 type CheckedClassMethod = (CoreNode 'Resolved 'StatementSort, ResolvedName, ClassMethodType)
 
@@ -424,7 +487,7 @@ inferScopeTypeInternal
         (scopeType, finalState) =
           go initialWalkState indexedStatements
         stateWithPublishedModuleFacts = flushCurrentModuleCapabilityFacts finalState
-     in ( scopeType,
+     in ( scopeType {checkedScopeTree = retainCheckedEvidence finalState (checkedScopeTree scopeType)},
           restoreCapabilityFacts initialState stateWithPublishedModuleFacts
         )
     where
@@ -462,7 +525,15 @@ inferScopeTypeInternal
                  in SchemeTypeBinding
                       (bindingTypeScheme state (expressionTypeVariableOrder resolvedType) schemeVariables inferredClassConstraints resolvedType)
 
-      buildStatement :: Int -> TypeEnv -> Maybe CheckedExpr -> [(Int, CheckedExpr)] -> Statement 'Resolved -> Draft (Statement 'Analyzed)
+      declarationFacts =
+        capabilityFactsFromState initialState
+          <> mconcat
+            [ mempty {scopeClassFacts = Map.singleton (CapabilityId name) definition}
+            | (index, SClass _ name _ _ _ _) <- indexedStatements,
+              Just (Right (PreparedClassMethods (definition, _))) <- [Map.lookup index (preparedDeclarations scopePreparation)]
+            ]
+
+      buildStatement :: Int -> TypeEnv -> Maybe CheckedExpr -> [(Int, (TypeScheme, CheckedExpr))] -> Statement 'Resolved -> Draft (Statement 'Analyzed)
       buildStatement index visibleTypes body methods statement = case statement of
         SLet node name value -> makeLet name <$> facts node (bindingFor node name) (ValueDeclaration name) <*> valueDraft value body
         SSignature node name signature -> SSignature <$> facts node (bindingAt (resolvedNodeReference (coreNodeFacts node)) name) (SignatureDeclaration name) <*> pure name <*> pure signature
@@ -482,17 +553,37 @@ inferScopeTypeInternal
           facts = draftStatementNode
           bindingFor node name = bindingAt (LexicalReference <$> resolvedNodeBinder (coreNodeFacts node)) name
           bindingAt reference name = reference >>= (\target -> Map.lookup (TypeEnvKey target name) visibleTypes)
-          valueDraft _ (Just value) = checkedExprTree value
+          valueDraft _ (Just value) = case statement of
+            SLet node name _
+              | Just owner <- resolvedNodeBinder (coreNodeFacts node),
+                Just (SchemeTypeBinding scheme) <- bindingFor node name ->
+                  withEvidenceParameters owner declarationFacts scheme $
+                    withRecursiveBindingEvidence recursiveBindings (checkedExprTree value)
+            _ -> checkedExprTree value
           valueDraft value Nothing = rejectedDraft (MissingExpressionFacts (coreNodeId (expressionNode value)))
+          recursiveBindings =
+            [ (binder, scheme)
+            | memberIndex <- Map.findWithDefault [index] index recursiveGroupsByStatement,
+              Just memberKey@(TypeEnvKey (LexicalReference binder) _) <- [Map.lookup memberIndex bindingKeysByStatement],
+              Just binding <- [Map.lookup memberKey visibleTypes],
+              Just scheme <- [typeBindingScheme binding]
+            ]
           makeLet name node value = SLet node name (constrainBindingRuntimeResult (coreNodeFacts node) value)
           constructor (DataConstructor node name arguments) = DataConstructor <$> facts node (bindingFor node name) (ValueDeclaration name) <*> pure name <*> pure arguments
           classMethod (ClassMethodSignature node name signature) (_, _, methodType) = case projectAnalyzedMethodSignature (identifierText name) methodType of
             Right analyzed -> ClassMethodSignature <$> facts node Nothing (MethodDeclaration name analyzed) <*> pure name <*> pure signature
             Left failure -> rejectedDraft failure
           implementationNode node name = case Map.lookup index (preparedDeclarations scopePreparation) of
-            Just (Right (PreparedImplementationTargets targets)) -> facts node Nothing (ImplementationDeclaration name (map (fmap absurd) targets))
+            Just (Right (PreparedImplementationTemplate template)) ->
+              case ordinaryMethodScheme (ClassMethodScheme "" (implementationScheme template)) of
+                Just scheme -> facts node Nothing (ImplementationDeclaration name [schemeResultType scheme])
+                Nothing -> rejectedDraft (MissingStatementFacts (coreNodeId node))
             _ -> rejectedDraft (MissingStatementFacts (coreNodeId node))
-          implMethod (methodIndex, ImplMethod node name value) = ImplMethod <$> facts node (bindingFor node name) (ValueDeclaration name) <*> pure name <*> valueDraft value (lookup methodIndex methods)
+          implMethod (methodIndex, ImplMethod node name value) =
+            let checked = case (resolvedNodeBinder (coreNodeFacts node), lookup methodIndex methods) of
+                  (Just owner, Just (scheme, result)) -> withEvidenceParameters owner declarationFacts scheme (checkedExprTree result)
+                  _ -> valueDraft value Nothing
+             in ImplMethod <$> facts node (SchemeTypeBinding . fst <$> lookup methodIndex methods) (ValueDeclaration name) <*> pure name <*> checked
 
       commitLetDrafts pendingSignatures checkedValues statementIndex visibleTypes state drafts =
         (foldl' retainDefinition drafts committedStatementIndices, committedStatementIndices)
@@ -643,11 +734,42 @@ inferScopeTypeInternal
                   SImport importNode _ maybeAlias maybeSymbolNames ->
                     let next = maybe state (\target -> importModuleCapabilityFacts target maybeAlias maybeSymbolNames state) (resolvedNodeImportTarget (coreNodeFacts importNode))
                      in go (retainStatement statementIndex statement env next Nothing [] walkState {scopeWalkRecursiveGroupPreviewCache = Map.empty}) rest
-                  SClass _ capabilityName _ _ _ _ ->
-                    let nextState = case Map.lookup statementIndex (preparedDeclarations scopePreparation) of
+                  SClass classNode capabilityName parameters _ _ defaults ->
+                    let registeredState = case Map.lookup statementIndex (preparedDeclarations scopePreparation) of
                           Just (Left diagnostic) -> addTypeError stateForSource diagnostic
                           Just (Right (PreparedClassMethods methods)) -> registerClassDeclaration stateForSource capabilityName methods
                           _ -> stateForSource -- The owned declaration draft rejects missing preparation.
+                        (methodEnv, methodState) =
+                          foldl'
+                            publishMethod
+                            (env, registeredState)
+                            [ (capability, member, scheme)
+                            | ((capability, member), method) <- Map.toList (inferClassMethodSignatures registeredState),
+                              capability == CapabilityId capabilityName,
+                              Just scheme <- [ordinaryMethodScheme method]
+                            ]
+                        publishMethod (currentEnv, currentState) (capability, member, scheme) =
+                          let allocate (allocatedNames, current) variable =
+                                let (fresh, next) = freshTypeVar current
+                                 in (Map.insert variable fresh allocatedNames, next)
+                              (renaming, allocated) = foldl' allocate (Map.empty, currentState) (quantifiedVariablesOrderedList (schemeQuantifiedVariables scheme))
+                              rename variable = case Map.lookup variable renaming of
+                                Just (SemanticVariable fresh) -> fresh
+                                _ -> variable
+                              binding = mapBindingTypes rename (fmap rename) (SchemeTypeBinding scheme)
+                           in (Map.insert (TypeEnvKey (CapabilityMethodReference capability member) (resolvedLocalName ValueNamespace member)) binding currentEnv, allocated)
+                        (nextState, defaultChecks) = case parameters of
+                          [parameter] ->
+                            let parameterName = identifierText parameter
+                                template =
+                                  ImplementationTemplate
+                                    (ImplId (resolvedNodeOwner (coreNodeFacts classNode), coreNodeId classNode))
+                                    (CapabilityId capabilityName)
+                                    (SemanticScheme (quantifiedVariablesFromPreferred [parameterName] (Set.singleton parameterName)) [] [] mempty (SemanticVariable parameterName))
+                                    Map.empty
+                                    Map.empty
+                             in checkImplMethodBodies (inferExprTypeWithExpectedMode inferExpression mode) checkedExprType methodEnv methodState template defaults
+                          _ -> (methodState, [])
                         nextModuleBaselineFacts =
                           updateRootModuleBaselineFacts moduleBaselineFacts state nextState
                         (scopeResultType, resultState) =
@@ -655,35 +777,35 @@ inferScopeTypeInternal
                             ( retainStatement
                                 statementIndex
                                 statement
-                                env
+                                methodEnv
                                 nextState
                                 Nothing
-                                []
+                                defaultChecks
                                 walkState
-                                  { scopeWalkPendingSignature = Nothing,
+                                  { scopeWalkEnv = methodEnv,
+                                    scopeWalkPendingSignature = Nothing,
                                     scopeWalkRecursiveGroupPreviewCache = Map.empty,
                                     scopeWalkModuleBaselineFacts = nextModuleBaselineFacts
                                   }
                             )
                             rest
                      in (scopeResultType, resultState)
-                  SImpl implNode capabilityName _ methods _ ->
+                  SImpl _ _ _ methods _ ->
                     let checkedTargets = case Map.lookup statementIndex (preparedDeclarations scopePreparation) of
                           Just (Left diagnostic) -> Just (Left diagnostic)
-                          Just (Right (PreparedImplementationTargets targets)) -> Just (Right targets)
+                          Just (Right (PreparedImplementationTemplate targets)) -> Just (Right targets)
                           _ -> Nothing
                         (nextState, methodChecks) =
                           case checkedTargets of
                             Nothing -> (stateForSource, []) -- Rejected by the declaration draft.
                             Just (Left diagnostic) -> (addTypeError stateForSource diagnostic, [])
                             Just (Right targets) ->
-                              let implSeededState = registerImplementation implNode capabilityName targets methods stateForSource
+                              let implSeededState = checkImplementationSuperclasses targets (registerImplementation targets stateForSource)
                                in checkImplMethodBodies
                                     (inferExprTypeWithExpectedMode inferExpression mode)
                                     checkedExprType
                                     env
                                     implSeededState
-                                    capabilityName
                                     targets
                                     methods
                         nextModuleBaselineFacts =
@@ -743,7 +865,17 @@ inferScopeTypeInternal
                     let (nextPendingSignature, nextState) =
                           case Map.lookup statementIndex preparedSignaturesByStatement of
                             Just (PreparedSignature (Just pendingSignature) _) ->
-                              (Just pendingSignature, state)
+                              ( Just pendingSignature,
+                                finalizeDeferredExplicitConstraintsAt
+                                  (coreNodeSpan signatureNode)
+                                  state
+                                  ( deferExplicitConstraintsWithFacts
+                                      (capabilityFactsFromState state)
+                                      (capabilityFactsFromState state)
+                                      [constraint | constraint <- pendingSignatureExplicitConstraints pendingSignature, all (Set.null . freeTypeVariables) constraint]
+                                      state
+                                  )
+                              )
                             _ ->
                               ( Nothing,
                                 addTypeError
@@ -882,22 +1014,24 @@ inferScopeTypeInternal
                                         (defaultLiteralTypes stateAfterBindingSeedCheck (resolveType stateAfterBindingSeedCheck inferredType))
                                     )
                             _ -> stateAfterBindingSeedCheck
-                        stateAfterExplicitConstraintCheck =
+                        inferredEntailments =
+                          let environmentVariables = freeTypeVariablesInEnv stateAfterSignatureCheck generalizationEnv
+                              schemeVariables = case valueType of
+                                Just inferredType
+                                  | shouldGeneralizeOrdinaryBinding statementIndex generalizationEnv valueExpr matchingPendingSignature ->
+                                      ordinaryBindingSchemeVariables environmentVariables stateAfterSignatureCheck valueExpr inferredType
+                                _ -> Set.empty
+                           in typeSchemeInferredClassConstraints stateAfterSignatureCheck (environmentVariables <> schemeVariables)
+                        stateAfterContractValidation = case matchingPendingSignature of
+                          Just pendingSignature -> addUndeclaredSignatureConstraintErrors nameText stateForStatement pendingSignature stateAfterSignatureCheck
+                          Nothing -> stateAfterSignatureCheck
+                        stateAfterSignatureContractCheck =
                           restoreRigidTypeVariables stateForStatement $
                             finalizeDeferredExplicitConstraintsAtWithEntailments
                               bindingSpan
-                              (maybe [] pendingSignatureExplicitConstraints matchingPendingSignature)
+                              (maybe inferredEntailments (\pending -> pendingSignatureExplicitConstraints pending <> inferredEntailments) matchingPendingSignature)
                               stateForStatement
-                              stateAfterSignatureCheck
-                        stateAfterSignatureContractCheck =
-                          case matchingPendingSignature of
-                            Just pendingSignature ->
-                              addUndeclaredSignatureConstraintErrors
-                                nameText
-                                stateForStatement
-                                pendingSignature
-                                stateAfterExplicitConstraintCheck
-                            Nothing -> stateAfterExplicitConstraintCheck
+                              stateAfterContractValidation
                         nextBindingType =
                           case matchingPendingSignature of
                             Just pendingSignature ->
@@ -1526,7 +1660,7 @@ data PreparedSignature
 
 data PreparedDeclaration
   = PreparedClassMethods (ClassDefinition, [CheckedClassMethod])
-  | PreparedImplementationTargets [SemanticType ResolvedName Void]
+  | PreparedImplementationTemplate ImplementationTemplate
   | PreparedDataType DataTypeBinding
 
 data ScopePreparation = ScopePreparation
@@ -1573,7 +1707,7 @@ prepareScope forwardSignedFunctionsPolicy mode indexedStatements initialState =
         }
   where
     preparedKinds = predeclareScopeDataTypes indexedStatements initialState
-    scopeDataTypes = either (const fallbackDataTypes) id preparedKinds
+    scopeDataTypes = fromRight fallbackDataTypes preparedKinds
     fallbackDataTypes = Map.fromList [(name, DataTypeBinding parameters []) | (_, SData _ name parameters _) <- indexedStatements]
     checkedDataType node name binding = case preparedKinds of
       Left (failedName, failure@Signature.SignatureKindMismatch {})
@@ -1613,13 +1747,13 @@ prepareScope forwardSignedFunctionsPolicy mode indexedStatements initialState =
                   updateRootModuleBaselineFacts moduleBaselineFacts state nextState,
                   nextState
                 )
-          SImpl implNode capabilityName arguments methods _ ->
-            let checked = checkImplementationTargets state (coreNodeSpan implNode) arguments
-                nextState = either (const state) (\targets -> registerImplementation implNode capabilityName targets methods state) checked
+          SImpl implNode capabilityName arguments methods prerequisites ->
+            let checked = checkImplementationTemplate state implNode capabilityName arguments prerequisites methods
+                nextState = either (const state) (\template -> registerImplementation template state) checked
              in ( bindingSeeds,
                   signatures,
                   forwardFunctions,
-                  Map.insert statementIndex (PreparedImplementationTargets <$> checked) declarations,
+                  Map.insert statementIndex (PreparedImplementationTemplate <$> checked) declarations,
                   Nothing,
                   updateRootModuleBaselineFacts moduleBaselineFacts state nextState,
                   nextState
@@ -1786,8 +1920,11 @@ generalizedOrdinaryBinding environmentVariables state valueExpr expressionType =
   let resolvedType = bindingTypeForValue state valueExpr expressionType
       schemeVariables = ordinaryBindingSchemeVariables environmentVariables state valueExpr expressionType
       inferredClassConstraints = typeSchemeInferredClassConstraints state schemeVariables
+      methodParameters = case valueExpr of
+        EVar {} -> concat [expressionTypeVariableOrder target | TypeSchemeMethodConstraint _ _ target <- inferredClassConstraints]
+        _ -> []
    in generalizedTypeBinding
-        (bindingTypeScheme state (expressionTypeVariableOrder resolvedType) schemeVariables inferredClassConstraints resolvedType)
+        (bindingTypeScheme state (methodParameters <> expressionTypeVariableOrder resolvedType) schemeVariables inferredClassConstraints resolvedType)
 
 ordinaryBindingSchemeVariables :: Set InferenceVariable -> InferState -> Expr 'Resolved -> ExpressionType -> Set InferenceVariable
 ordinaryBindingSchemeVariables environmentVariables state valueExpr expressionType =
@@ -1883,7 +2020,10 @@ addUndeclaredSignatureConstraintErrors bindingName statementStartState pendingSi
         matches declaredConstraint =
           case constraintIdentity declaredConstraint of
             Just (declaredName, declaredTarget) ->
-              sameConstraintName (Right declaredName) requiredName
+              ( sameConstraintName (Right declaredName) requiredName || case requiredName of
+                  Right required -> isJust (superclassPath (capabilityFactsFromState state) declaredName required)
+                  Left label -> any (\capability@(CapabilityId name) -> identifierText name == label && isJust (superclassPath (capabilityFactsFromState state) declaredName capability)) (Map.keys (inferClassFacts state))
+              )
                 && resolveType state declaredTarget == resolveType state requiredTarget
             Nothing -> False
 
@@ -1979,29 +2119,6 @@ explicitBindingSchemeVariables environmentVariables state pendingSignature =
 
 expressionTypeVariableOrder :: ExpressionType -> [InferenceVariable]
 expressionTypeVariableOrder = Foldable.toList
-
-typeSchemePrimitiveConstraints :: InferState -> Set InferenceVariable -> [TypeSchemePrimitiveConstraint]
-typeSchemePrimitiveConstraints state schemeVariables =
-  numericConstraints ++ equalityConstraints
-  where
-    targetTypeFor typeVar =
-      let targetType = resolveType state (SemanticVariable typeVar)
-          targetVariables = freeTypeVariables targetType
-       in if not (Set.null targetVariables) && targetVariables `Set.isSubsetOf` schemeVariables
-            then Just targetType
-            else Nothing
-
-    numericConstraints =
-      [ TypeSchemeNumericConstraint numericConstraint targetType
-      | (typeVar, numericConstraint) <- Map.toList (inferNumericVars state),
-        Just targetType <- [targetTypeFor typeVar]
-      ]
-
-    equalityConstraints =
-      [ TypeSchemeStrictEqualityConstraint targetType
-      | typeVar <- Set.toList (inferStrictEqualityVars state),
-        Just targetType <- [targetTypeFor typeVar]
-      ]
 
 numericConstrainedTypeVariables :: InferState -> Set InferenceVariable
 numericConstrainedTypeVariables =

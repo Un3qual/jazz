@@ -386,6 +386,8 @@ filterElements injectDiagnostic applyRuntimeValue predicate values = do
 runtimeFunctionResultType :: RuntimeValue -> Maybe AnalyzedType
 runtimeFunctionResultType runtimeValue =
   case runtimeValue of
+    VAnnotated (RuntimeMethodCall _) innerValue ->
+      runtimeFunctionResultType innerValue
     VAnnotated (RuntimeTypeApplication _) innerValue ->
       runtimeFunctionResultType innerValue
     VAnnotated (RuntimeResultHints _) innerValue ->

@@ -89,24 +89,14 @@ testPureBindingCannotCallImpureBuiltinThroughDollarApplication = do
     (compileErrors result)
 
 testPureBindingCannotCallImpureQualifiedMethod :: IO ()
-testPureBindingCannotCallImpureQualifiedMethod = do
-  result <-
-    compileSource
-      defaultWarningSettings
-      """
-      class Effect(a) {
-      run! :: a -> a.
-      }.
-      impl Effect(Int) {
-      run! = \\(candidate) -> candidate.
-      }.
-      x = Effect::run! 1.
-      x.
-      """
-  assertSingleErrorContains
-    "pure binding calling impure qualified method"
-    "E1010"
-    (compileErrors result)
+testPureBindingCannotCallImpureQualifiedMethod = mapM_ check ["Effect::run! 1", "run! 1", "stored! 1"]
+  where
+    check invocation = do
+      result <-
+        compileSource
+          defaultWarningSettings
+          ("class Effect(a) { run! :: a -> a. }. impl Effect(Int) { run! = \\(candidate) -> candidate. }. stored! = run!. x = " <> invocation <> ". x.")
+      assertSingleErrorContains "pure binding calling an impure method or alias" "E1010" (compileErrors result)
 
 testPureBindingCannotCallImpureCalleeThroughExplicitTypeApplication :: IO ()
 testPureBindingCannotCallImpureCalleeThroughExplicitTypeApplication = do

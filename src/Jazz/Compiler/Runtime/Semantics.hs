@@ -171,6 +171,8 @@ renderRuntimeValue value =
     VQualifiedMethodApplication {} -> "<function>"
     VAnnotated _ innerValue -> renderRuntimeValue innerValue
     VDeferredHostBinding {} -> "<deferred-host-binding>"
+    VConstrained {} -> "<function>"
+    VEvidence {} -> "<dictionary>"
 
 renderQuotedScalar :: Char -> Text
 renderQuotedScalar value =
@@ -255,6 +257,9 @@ applyRuntimeTypeHint :: AnalyzedType -> RuntimeValue -> Either Diagnostic Runtim
 applyRuntimeTypeHint typeHint runtimeValue =
   case runtimeValue of
     VDeferredHostBinding {} -> Right (VAnnotated (RuntimeTypeHint typeHint) runtimeValue)
+    VConstrained {} -> Right (VAnnotated (RuntimeTypeHint typeHint) runtimeValue)
+    VAnnotated annotation@(RuntimeMethodCall _) innerValue ->
+      VAnnotated annotation <$> applyRuntimeTypeHint typeHint innerValue
     VAnnotated (RuntimeTypeHint existingTypeHint) _
       | runtimeTypeHintAtLeastAsSpecific existingTypeHint typeHint ->
           Right runtimeValue
@@ -568,6 +573,8 @@ runtimeValueTypeHint runtimeValue =
   case runtimeValue of
     VAnnotated (RuntimeTypeHint typeHint) _ ->
       Just typeHint
+    VAnnotated (RuntimeMethodCall _) innerValue ->
+      runtimeValueTypeHint innerValue
     VAnnotated (RuntimeTypeApplication _) innerValue ->
       runtimeValueTypeHint innerValue
     VAnnotated (RuntimeResultHints _) innerValue ->
@@ -652,6 +659,8 @@ runtimeExactCandidateArgumentMatches targetArgumentPosition signatureType runtim
 runtimeValueExactlyMatchesConstraint :: AnalyzedType -> RuntimeValue -> Bool
 runtimeValueExactlyMatchesConstraint signatureType runtimeValue =
   case runtimeValue of
+    VAnnotated (RuntimeMethodCall _) innerValue ->
+      runtimeValueExactlyMatchesConstraint signatureType innerValue
     VAnnotated (RuntimeTypeApplication _) innerValue ->
       runtimeValueExactlyMatchesConstraint signatureType innerValue
     VAnnotated (RuntimeResultHints _) innerValue ->
@@ -717,6 +726,8 @@ runtimeMethodCandidateMatches classParameter methodSignature arguments (RuntimeM
 runtimeValueMatchesConstraint :: AnalyzedType -> RuntimeValue -> Bool
 runtimeValueMatchesConstraint signatureType runtimeValue =
   case runtimeValue of
+    VAnnotated (RuntimeMethodCall _) innerValue ->
+      runtimeValueMatchesConstraint signatureType innerValue
     VAnnotated (RuntimeTypeApplication _) innerValue ->
       runtimeValueMatchesConstraint signatureType innerValue
     VAnnotated (RuntimeResultHints _) innerValue ->
@@ -1129,6 +1140,7 @@ isFunctionValue value =
     VConstructorApplication shape capturedArgs ->
       not (constructorApplicationIsSaturated shape capturedArgs)
     VQualifiedMethodApplication {} -> True
+    VConstrained {} -> True
     _ -> False
 
 preferredRuntimeMethodCandidates ::
@@ -1221,3 +1233,5 @@ renderRuntimeType value =
     VQualifiedMethodApplication {} -> "Function"
     VAnnotated _ innerValue -> renderRuntimeType innerValue
     VDeferredHostBinding {} -> "Deferred"
+    VConstrained {} -> "Function"
+    VEvidence {} -> "Dictionary"

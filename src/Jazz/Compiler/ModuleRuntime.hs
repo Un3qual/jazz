@@ -32,7 +32,7 @@ import Jazz.Compiler.AST
   ( CorePhase (..),
     Expr,
   )
-import Jazz.Compiler.CoreIdentity (CapabilityId, ResolvedReference (..), capabilityExportName)
+import Jazz.Compiler.CoreIdentity (CapabilityId, MethodId (..), ResolvedReference (..), capabilityExportName)
 import Jazz.Compiler.Diagnostics
   ( Diagnostic,
   )
@@ -103,6 +103,8 @@ import Jazz.Compiler.SemanticDeclarations (ScopeCapabilityFacts (scopeClassMetho
 -- ordinary values instead of encoding their owner in a value-name string.
 data RuntimeExport
   = RuntimeBindingExport ModuleExport
+  | RuntimeImplementationMethodExport MethodId
+  | RuntimeDefaultMethodExport CapabilityId Identifier
   | RuntimeCapabilityMethodExport
       { runtimeExportCapability :: CapabilityId,
         runtimeExportMethod :: Identifier
@@ -345,38 +347,44 @@ modulePathTexts = NonEmpty.toList . modulePathTextSegments
 
 publishEnvironment :: ModuleInterface -> RuntimeEnv -> RuntimeEnv
 publishEnvironment interface env =
-  Map.fromList
-    [ (reference, cell)
-    | runtimeExport <- interfaceExports interface,
-      Just reference <- [exportReference interface runtimeExport],
-      Just cell <- [Map.lookup reference env]
-    ]
+  Map.filterWithKey (\reference _ -> case reference of ImplementationMethodReference {} -> True; DefaultMethodReference {} -> True; _ -> False) env
+    <> Map.fromList
+      [ (reference, cell)
+      | runtimeExport <- interfaceExports interface,
+        Just reference <- [exportReference interface runtimeExport],
+        Just cell <- [Map.lookup reference env]
+      ]
 
 publishExports :: ModuleInterface -> RuntimeEnv -> Map RuntimeExport RuntimeCell
 publishExports interface env =
   Map.fromList
-    [ (runtimeExport, cell)
-    | runtimeExport <- interfaceExports interface,
-      Just reference <- [exportReference interface runtimeExport],
-      Just cell <- [Map.lookup reference env]
-    ]
+    ( [(RuntimeImplementationMethodExport identity, cell) | (ImplementationMethodReference identity, cell) <- Map.toList env]
+        <> [(RuntimeDefaultMethodExport capability member, cell) | (DefaultMethodReference capability member, cell) <- Map.toList env]
+    )
+    <> Map.fromList
+      [ (runtimeExport, cell)
+      | runtimeExport <- interfaceExports interface,
+        Just reference <- [exportReference interface runtimeExport],
+        Just cell <- [Map.lookup reference env]
+      ]
 
 exportReference :: ModuleInterface -> RuntimeExport -> Maybe ResolvedReference
 exportReference interface runtimeExport = case runtimeExport of
   RuntimeBindingExport export ->
-    LexicalReference . interfaceBindingId <$> Map.lookup export (interfaceValueBindings interface)
+    interfaceBindingReference <$> Map.lookup export (interfaceValueBindings interface)
   RuntimeCapabilityMethodExport capability method ->
     Just (CapabilityMethodReference capability method)
+  RuntimeImplementationMethodExport identity -> Just (ImplementationMethodReference identity)
+  RuntimeDefaultMethodExport capability member -> Just (DefaultMethodReference capability member)
 
 interfaceExports :: ModuleInterface -> [RuntimeExport]
 interfaceExports interface =
   map RuntimeBindingExport (Map.keys (interfaceValueBindings interface))
-    <> map (uncurry RuntimeCapabilityMethodExport) (Map.keys (scopeClassMethodSignatures (interfaceCapabilities interface)))
+    <> [RuntimeCapabilityMethodExport capability member | (capability, member) <- Map.keys (scopeClassMethodSignatures (interfaceCapabilities interface)), Set.member (ModuleExport CapabilityNamespace (capabilityExportName capability)) (exportInventoryEntries (interfacePublicExports interface))]
 
 runtimeExportSelected :: Set ModuleExport -> RuntimeExport -> Bool
-runtimeExportSelected visibleExports runtimeExport =
-  Set.member export visibleExports
-  where
-    export = case runtimeExport of
-      RuntimeBindingExport binding -> binding
-      RuntimeCapabilityMethodExport capability _ -> ModuleExport CapabilityNamespace (capabilityExportName capability)
+runtimeExportSelected visibleExports runtimeExport = case runtimeExport of
+  RuntimeImplementationMethodExport {} -> True
+  RuntimeDefaultMethodExport {} -> True
+  RuntimeBindingExport binding -> Set.member binding visibleExports
+  RuntimeCapabilityMethodExport capability _ -> Set.member (ModuleExport CapabilityNamespace (capabilityExportName capability)) visibleExports

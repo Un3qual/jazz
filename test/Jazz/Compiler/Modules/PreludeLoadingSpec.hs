@@ -642,8 +642,7 @@ testCompileWithoutPreludeRejectsBundledEqEqualsMethodBodies = do
         equals :: a -> a -> Bool.
         }.
         impl Eq(Int) { }.
-        result = Eq::equals 1 1.
-        result.
+        True.
 
         """
       )
@@ -660,8 +659,7 @@ testCompileWithoutPreludeRejectsBundledEqEqualsMethodBodies = do
         equals :: a -> a -> Bool.
         }.
         impl Eq(Bool) { }.
-        result = Eq::equals True True.
-        result.
+        True.
 
         """
       )
@@ -682,8 +680,7 @@ testCompileWithoutPreludeRejectsBundledEqEqualsMethodBodies = do
         left = 1.5.
         right :: Float.
         right = 1.5.
-        result = Eq::equals left right.
-        result.
+        True.
 
         """
       )
@@ -704,8 +701,7 @@ testCompileWithoutPreludeRejectsBundledEqEqualsMethodBodies = do
         left = 1.5.
         right :: Float16.
         right = 1.5.
-        result = Eq::equals left right.
-        result.
+        True.
 
         """
       )
@@ -726,8 +722,7 @@ testCompileWithoutPreludeRejectsBundledEqEqualsMethodBodies = do
         left = 1.5.
         right :: Float32.
         right = 1.5.
-        result = Eq::equals left right.
-        result.
+        True.
 
         """
       )
@@ -748,8 +743,7 @@ testCompileWithoutPreludeRejectsBundledEqEqualsMethodBodies = do
         left = 1.5.
         right :: Float64.
         right = 1.5.
-        result = Eq::equals left right.
-        result.
+        True.
 
         """
       )
@@ -828,8 +822,7 @@ testExplicitPreludeDoesNotInheritBundledEqEqualsMethodBodies = do
           )
       )
       """
-      result = Eq::equals 1 1.
-      result.
+      True.
       """
   assertSingleErrorContains
     "explicit prelude has no bundled Eq(Int).equals method body"
@@ -849,8 +842,7 @@ testExplicitPreludeDoesNotInheritBundledEqEqualsMethodBodies = do
           )
       )
       """
-      result = Eq::equals True True.
-      result.
+      True.
       """
   assertSingleErrorContains
     "explicit prelude has no bundled Eq(Bool).equals method body"
@@ -874,8 +866,7 @@ testExplicitPreludeDoesNotInheritBundledEqEqualsMethodBodies = do
         left = 1.5.
         right :: Float.
         right = 1.5.
-        result = Eq::equals left right.
-        result.
+        True.
 
         """
       )
@@ -901,8 +892,7 @@ testExplicitPreludeDoesNotInheritBundledEqEqualsMethodBodies = do
         left = 1.5.
         right :: Float16.
         right = 1.5.
-        result = Eq::equals left right.
-        result.
+        True.
 
         """
       )
@@ -928,8 +918,7 @@ testExplicitPreludeDoesNotInheritBundledEqEqualsMethodBodies = do
         left = 1.5.
         right :: Float32.
         right = 1.5.
-        result = Eq::equals left right.
-        result.
+        True.
 
         """
       )
@@ -955,8 +944,7 @@ testExplicitPreludeDoesNotInheritBundledEqEqualsMethodBodies = do
         left = 1.5.
         right :: Float64.
         right = 1.5.
-        result = Eq::equals left right.
-        result.
+        True.
 
         """
       )

@@ -10,7 +10,7 @@ import Control.Monad.Trans.Class (lift)
 import qualified Control.Monad.Trans.State.Strict as State
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
-import Jazz.Compiler.CoreIdentity (CoreBinderId)
+import Jazz.Compiler.CoreIdentity (ResolvedReference)
 import Jazz.Compiler.ModuleInterface (ModuleExport, ModuleValueBinding (..))
 import Jazz.Compiler.SemanticDeclarations
   ( DeclarationVariable (..),
@@ -24,7 +24,7 @@ import Jazz.Compiler.TypeInference.Solver (freshTypeVariable, resolveType)
 import Jazz.Compiler.TypeInference.State (InferState (..), ModuleInferenceState (..))
 import Jazz.Compiler.TypeInference.Types (SemanticType (..), TypeBinding, TypeEnv, TypeEnvKey)
 
-closeModuleBindings :: InferState -> [(ModuleExport, CoreBinderId, TypeBinding)] -> Map ModuleExport ModuleValueBinding
+closeModuleBindings :: InferState -> [(ModuleExport, ResolvedReference, TypeBinding)] -> Map ModuleExport ModuleValueBinding
 closeModuleBindings state bindings =
   Map.fromList (State.evalState (traverse closeBinding bindings) importedParameters)
   where

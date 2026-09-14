@@ -14,6 +14,7 @@ module Jazz.Compiler.SemanticFacts
     BinaryOperation (..),
     BinaryOperandTyping (..),
     EvidenceReference (..),
+    mapEvidenceTypes,
     ExpressionFacts (..),
     PatternConstructorFact (..),
     PatternFacts (..),
@@ -33,7 +34,7 @@ import Data.Text (Text)
 import GHC.Generics (Generic)
 import Jazz.Compiler.CoreIdentity (CapabilityId, CapabilityMethodKey, CoreBinderId, CoreNodeId, ImplId, MethodId, ResolvedNodeFacts)
 import Jazz.Compiler.ModuleIdentity (ModulePath)
-import Jazz.Compiler.Name (ResolvedName)
+import Jazz.Compiler.Name (Identifier, ResolvedName)
 import Jazz.Compiler.TypeRepresentation
   ( InferenceVariable,
     SemanticType,
@@ -54,14 +55,40 @@ data SemanticInstantiation = SemanticInstantiation
   deriving stock (Eq, Generic, Ord, Show)
   deriving anyclass (NFData)
 
-data EvidenceReference = EvidenceReference
-  { evidenceCapability :: CapabilityId,
-    evidenceImplementation :: ImplId,
-    evidenceMethod :: MethodId,
-    evidenceType :: AnalyzedType
-  }
+data EvidenceReference
+  = EvidenceReference
+      { evidenceCapability :: CapabilityId,
+        evidenceImplementation :: ImplId,
+        evidenceMethod :: Maybe MethodId,
+        evidenceType :: AnalyzedType,
+        evidenceSubstitution :: Map Text AnalyzedType,
+        evidencePrerequisites :: [EvidenceReference]
+      }
+  | PendingEvidence
+      { evidenceCapability :: CapabilityId,
+        evidenceMember :: Maybe Identifier,
+        evidenceType :: AnalyzedType
+      }
+  | ParameterEvidence
+      { evidenceParameterOwner :: CoreBinderId,
+        evidenceParameterIndex :: Int,
+        evidenceProjection :: [CapabilityId],
+        evidenceCapability :: CapabilityId,
+        evidenceMember :: Maybe Identifier,
+        evidenceType :: AnalyzedType
+      }
   deriving stock (Eq, Generic, Ord, Show)
   deriving anyclass (NFData)
+
+mapEvidenceTypes :: (AnalyzedType -> AnalyzedType) -> EvidenceReference -> EvidenceReference
+mapEvidenceTypes transform reference = case reference of
+  EvidenceReference {} ->
+    reference
+      { evidenceType = transform (evidenceType reference),
+        evidenceSubstitution = fmap transform (evidenceSubstitution reference),
+        evidencePrerequisites = map (mapEvidenceTypes transform) (evidencePrerequisites reference)
+      }
+  _ -> reference {evidenceType = transform (evidenceType reference)}
 
 -- | The primitive operation selected by inference, including the original
 -- operand identities when application syntax or an alias selected the operator.

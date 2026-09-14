@@ -19,7 +19,9 @@ module Jazz.Compiler.SemanticDeclarations
     signatureVariableKindsAt,
     normalizeSignatureTypeAt,
     normalizeSignatureStructure,
-    ImplMethodType (..),
+    ImplementationTemplate (..),
+    implementationTarget,
+    scopeConcreteImplFacts,
     SignatureTypeFailure (..),
     DeclarationVariable (..),
     IntegerLiteralRange (..),
@@ -59,7 +61,7 @@ import Data.Text (Text)
 import Data.Void (Void)
 import GHC.Generics (Generic)
 import Jazz.Compiler.BuiltinCatalog (BuiltinSymbol, numericTypeFromName)
-import Jazz.Compiler.CoreIdentity (CapabilityId, CapabilityMethodKey, CoreBinderId, MethodId)
+import Jazz.Compiler.CoreIdentity (CapabilityId, CapabilityMethodKey, ImplId, MethodId, ResolvedReference)
 import Jazz.Compiler.KindInference (inferDataKinds, inferSignatureKinds, inferSignatureKindsAt)
 import Jazz.Compiler.Name (Identifier, ResolvedName, identifierLooksLikeTypeVariable, identifierText)
 import Jazz.Compiler.StableSet (StableSet, stableSetFromPreferred, stableSetMembershipSet, stableSetOrderedList)
@@ -96,14 +98,19 @@ data ConcreteImplFact = ConcreteImplFact CapabilityId (SemanticType ResolvedName
   deriving stock (Eq, Generic, Ord, Show)
   deriving anyclass (NFData)
 
--- | The declaration selected by method checking also owns its evidence identity.
-data ImplMethodType = ImplMethodType
-  { implMethodTarget :: SemanticType ResolvedName Void,
-    implMethodCapability :: CapabilityId,
-    implMethodIdentity :: MethodId
+-- | One checked instance declaration, shared by all of its methods.
+data ImplementationTemplate = ImplementationTemplate
+  { implementationIdentity :: ImplId,
+    implementationCapability :: CapabilityId,
+    implementationScheme :: SemanticScheme Text,
+    implementationParameterKinds :: Map Text (Kind Void),
+    implementationMethods :: Map Identifier MethodId
   }
   deriving stock (Eq, Generic, Show)
   deriving anyclass (NFData)
+
+implementationTarget :: ImplementationTemplate -> SemanticType ResolvedName Text
+implementationTarget = schemeResultType . implementationScheme
 
 -- | Parameters are bound by the enclosing data declaration. Invalid fields
 -- remain only during diagnostic recovery and cannot reach successful analysis.
@@ -270,7 +277,7 @@ concreteImplementationType target = case target of
 -- to a declaration, so aliases preserve sharing without exposing solver IDs.
 data DeclarationVariable
   = SchemeParameter Int
-  | DeclarationParameter CoreBinderId Int
+  | DeclarationParameter ResolvedReference Int
   deriving stock (Eq, Generic, Ord, Show)
   deriving anyclass (NFData)
 
@@ -339,9 +346,8 @@ data SchemeConstraint typeValue
 data ScopeCapabilityFacts = ScopeCapabilityFacts
   { scopeClassFacts :: Map CapabilityId ClassDefinition,
     scopeGeneratedEqualityClassFacts :: Set CapabilityId,
-    scopeConcreteImplFacts :: Set ConcreteImplFact,
     scopeClassMethodSignatures :: Map CapabilityMethodKey ClassMethodType,
-    scopeConcreteImplMethods :: Map CapabilityMethodKey [ImplMethodType]
+    scopeImplementations :: Map ImplId ImplementationTemplate
   }
   deriving stock (Eq, Generic, Show)
   deriving anyclass (NFData)
@@ -350,48 +356,32 @@ instance Semigroup ScopeCapabilityFacts where
   leftFacts <> rightFacts =
     ScopeCapabilityFacts
       { scopeClassFacts = Map.union (scopeClassFacts leftFacts) (scopeClassFacts rightFacts),
-        scopeGeneratedEqualityClassFacts =
-          Set.union
-            (scopeGeneratedEqualityClassFacts leftFacts)
-            (scopeGeneratedEqualityClassFacts rightFacts),
-        scopeConcreteImplFacts =
-          Set.union
-            (scopeConcreteImplFacts leftFacts)
-            (scopeConcreteImplFacts rightFacts),
-        scopeClassMethodSignatures =
-          Map.union
-            (scopeClassMethodSignatures leftFacts)
-            (scopeClassMethodSignatures rightFacts),
-        scopeConcreteImplMethods =
-          Map.unionWith
-            (<>)
-            (scopeConcreteImplMethods leftFacts)
-            (scopeConcreteImplMethods rightFacts)
+        scopeGeneratedEqualityClassFacts = Set.union (scopeGeneratedEqualityClassFacts leftFacts) (scopeGeneratedEqualityClassFacts rightFacts),
+        scopeClassMethodSignatures = Map.union (scopeClassMethodSignatures leftFacts) (scopeClassMethodSignatures rightFacts),
+        scopeImplementations = Map.union (scopeImplementations leftFacts) (scopeImplementations rightFacts)
       }
 
 instance Monoid ScopeCapabilityFacts where
-  mempty =
-    ScopeCapabilityFacts
-      { scopeClassFacts = Map.empty,
-        scopeGeneratedEqualityClassFacts = Set.empty,
-        scopeConcreteImplFacts = Set.empty,
-        scopeClassMethodSignatures = Map.empty,
-        scopeConcreteImplMethods = Map.empty
-      }
+  mempty = ScopeCapabilityFacts Map.empty Set.empty Map.empty Map.empty
 
--- | Keep every fact belonging to a selected class together when publishing
--- module interfaces or selecting imports.
+-- Instance transport is independent of source name selection.
 filterScopeCapabilities :: (CapabilityId -> Bool) -> ScopeCapabilityFacts -> ScopeCapabilityFacts
 filterScopeCapabilities selected facts =
-  ScopeCapabilityFacts
+  facts
     { scopeClassFacts = Map.filterWithKey (\capability _ -> selected capability) (scopeClassFacts facts),
       scopeGeneratedEqualityClassFacts = Set.filter selected (scopeGeneratedEqualityClassFacts facts),
-      scopeConcreteImplFacts = Set.filter (\(ConcreteImplFact capability _) -> selected capability) (scopeConcreteImplFacts facts),
-      scopeClassMethodSignatures = Map.filterWithKey selectedMethod (scopeClassMethodSignatures facts),
-      scopeConcreteImplMethods = Map.filterWithKey selectedMethod (scopeConcreteImplMethods facts)
+      scopeClassMethodSignatures = Map.filterWithKey (\(capability, _) _ -> selected capability) (scopeClassMethodSignatures facts)
     }
-  where
-    selectedMethod (capability, _) _ = selected capability
+
+-- Concrete views serve the existing structural-equality diagnostics during
+-- inference. Instance declarations themselves have only one stored catalog.
+scopeConcreteImplFacts :: ScopeCapabilityFacts -> Set ConcreteImplFact
+scopeConcreteImplFacts facts =
+  Set.fromList
+    [ ConcreteImplFact (implementationCapability template) target
+    | template <- Map.elems (scopeImplementations facts),
+      Just target <- [traverse (const Nothing) (implementationTarget template)]
+    ]
 
 emptyScopeCapabilityFacts :: ScopeCapabilityFacts
 emptyScopeCapabilityFacts = mempty

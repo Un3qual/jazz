@@ -76,6 +76,9 @@ data ResolvedReference
   | BuiltinReference Identifier
   | BuiltinOperatorReference Text
   | CapabilityMethodReference CapabilityId Identifier
+  | DefaultMethodReference CapabilityId Identifier
+  | ImplementationMethodReference MethodId
+  | EvidenceParameterReference CoreBinderId Int
   | UnresolvedReference ResolvedName
   deriving stock (Eq, Generic, Ord, Show)
   deriving anyclass (NFData)

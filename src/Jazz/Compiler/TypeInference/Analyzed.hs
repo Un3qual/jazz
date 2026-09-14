@@ -15,6 +15,9 @@ module Jazz.Compiler.TypeInference.Analyzed
     refineListPrependDraft,
     finalizeCheckedExpression,
     projectAnalyzedMethodSignature,
+    withEvidenceParameters,
+    withRecursiveBindingEvidence,
+    retainCheckedEvidence,
   )
 where
 
@@ -49,13 +52,17 @@ import Jazz.Compiler.SemanticFacts
     SemanticInstantiation (..),
     StatementDeclarationFact (..),
     StatementFacts (..),
+    mapEvidenceTypes,
   )
+import Jazz.Compiler.TypeInference.Capabilities (superclassPath)
 import Jazz.Compiler.TypeInference.Draft (Attachment (..), CheckedExpr (..), Draft (..), finalizeDraft, rejectedDraft)
 import Jazz.Compiler.TypeInference.Solver (resolveType)
 import Jazz.Compiler.TypeInference.State
   ( ExplicitInstantiationSeed (..),
     ExplicitInstantiationTarget (..),
-    InferState,
+    InferState (..),
+    InferenceOutput (..),
+    ModuleInferenceState (..),
     inferNumericVars,
   )
 import Jazz.Compiler.TypeInference.TypeOps (freeTypeVariables)
@@ -67,6 +74,7 @@ import Jazz.Compiler.TypeInference.Types
     NumericConstraint (..),
     SchemeConstraint (..),
     SchemePrimitiveConstraint (..),
+    ScopeCapabilityFacts (..),
     SemanticBinding (..),
     SemanticScheme (..),
     SemanticType (..),
@@ -86,18 +94,18 @@ finalizeCheckedExpression solved checked = finalizeDraft solved (checkedExprTree
 data ExpressionNodeDraft = ExpressionNodeDraft
   { draftNodeType :: !(Maybe ExpressionType),
     draftNodeOperation :: !(Maybe BinaryOperation),
-    draftNodeEvidence :: !(Maybe EvidenceReference),
+    draftNodeEvidence :: !([EvidenceReference]),
     draftNodeInstantiation :: !(Attachment [SemanticInstantiation])
   }
 
 data ExpressionDecision = ExpressionDecision
   { decisionOperation :: Maybe BinaryOperation,
-    decisionEvidence :: Maybe EvidenceReference,
+    decisionEvidence :: [EvidenceReference],
     decisionInstantiation :: Maybe ExplicitInstantiationSeed
   }
 
 noExpressionDecision :: ExpressionDecision
-noExpressionDecision = ExpressionDecision Nothing Nothing Nothing
+noExpressionDecision = ExpressionDecision Nothing [] Nothing
 
 draftExpressionNode :: Maybe ExpressionType -> Expr 'Resolved -> Draft (CoreNode 'Analyzed 'ExpressionSort)
 draftExpressionNode = draftDecidedExpressionNode noExpressionDecision
@@ -155,8 +163,10 @@ finalizeExpressionNode state payload (CoreNode nodeId spanValue resolution) =
     Nothing -> missing (MissingExpressionFacts nodeId)
     Just inferredType ->
       let semanticType = resolveType state inferredType
-          evidence = expressionEvidenceFacts state (draftNodeEvidence payload)
-       in makeNode semanticType evidence <$> draftNodeInstantiation payload
+          evidence = expressionEvidenceFacts nodeId state $ case (draftNodeEvidence payload, resolvedNodeReference resolution) of
+            ([], Just (LexicalReference binder)) -> Map.findWithDefault [] binder (inferenceRecursiveEvidence (inferModule state))
+            (selected, _) -> selected
+       in makeNode semanticType <$> evidence <*> draftNodeInstantiation payload
   where
     operation = resolveOperation <$> draftNodeOperation payload
     resolveOperation selected =
@@ -182,7 +192,7 @@ finalizeExpressionNode state payload (CoreNode nodeId spanValue resolution) =
             expressionResultRepresentation = resultRepresentation semanticType
           }
 
-explicitInstantiationFacts :: CoreNodeId -> Maybe (Expr 'Resolved) -> Maybe ExplicitInstantiationSeed -> Maybe EvidenceReference -> Attachment [SemanticInstantiation]
+explicitInstantiationFacts :: CoreNodeId -> Maybe (Expr 'Resolved) -> Maybe ExplicitInstantiationSeed -> [EvidenceReference] -> Attachment [SemanticInstantiation]
 explicitInstantiationFacts nodeId expression instantiation evidence =
   case (expression, instantiation) of
     (Just ETypeApplication {}, Nothing) ->
@@ -207,10 +217,10 @@ explicitInstantiationFacts nodeId expression instantiation evidence =
                       pure [SemanticInstantiation (LexicalInstantiation binder) resolvedArguments]
                 ExplicitQualifiedMethodInstantiation _ ->
                   case (resolvedReference function, evidence) of
-                    (Just (CapabilityMethodReference capability method), Just _) ->
+                    (Just (CapabilityMethodReference capability method), _ : _) ->
                       pure [SemanticInstantiation (MethodInstantiation (capability, method)) resolvedArguments]
-                    (_, Nothing) -> missing (MissingExpressionEvidence nodeId)
-                    (_, Just _) -> missing (UnexpectedExplicitInstantiationSeed nodeId)
+                    (_, []) -> missing (MissingExpressionEvidence nodeId)
+                    (_, _ : _) -> missing (UnexpectedExplicitInstantiationSeed nodeId)
       where
         resolvedArguments = explicitInstantiationSeedArguments seed
         seededTarget = explicitInstantiationTargetName (explicitInstantiationSeedTarget seed)
@@ -221,11 +231,57 @@ explicitInstantiationTargetName target =
     ExplicitBinderInstantiation name -> name
     ExplicitQualifiedMethodInstantiation name -> name
 
-expressionEvidenceFacts :: InferState -> Maybe EvidenceReference -> [EvidenceReference]
-expressionEvidenceFacts state evidence =
-  case evidence of
-    Nothing -> []
-    Just reference -> [reference {evidenceType = resolveType state (evidenceType reference)}]
+-- Keep the queue's checked choices in the owned draft. Later finalization
+-- substitutes types, and does not depend on mutable diagnostic/output storage.
+retainCheckedEvidence :: InferState -> Draft value -> Draft value
+retainCheckedEvidence checked (Draft build) =
+  let selected = Map.filter isSelected (outputEvidence (inferOutput checked))
+      isSelected EvidenceReference {} = True
+      isSelected _ = False
+   in Draft $ \solved -> build solved {inferOutput = (inferOutput solved) {outputEvidence = selected <> outputEvidence (inferOutput solved)}}
+
+-- Recursive occurrences are checked against monomorphic seeds. Once their
+-- group is generalized, retain its dictionary forwarding in the owned draft.
+-- These references reuse the caller's parameters; they do not select instances.
+withRecursiveBindingEvidence :: [(CoreBinderId, TypeScheme)] -> Draft value -> Draft value
+withRecursiveBindingEvidence bindings (Draft build) = Draft $ \solved ->
+  let recursiveEvidence =
+        Map.fromList
+          [(binder, concatMap evidence (schemeClassConstraints scheme)) | (binder, scheme) <- bindings, not (null (quantifiedVariablesOrderedList (schemeQuantifiedVariables scheme)))]
+      evidence constraint = case constraint of
+        TypeSchemeConstraint capability target -> [PendingEvidence capability Nothing target]
+        TypeSchemeMethodConstraint capability (_, member) target -> [PendingEvidence capability (Just member) target]
+        TypeSchemeInferredConstraint {} -> []
+   in build solved {inferModule = (inferModule solved) {inferenceRecursiveEvidence = recursiveEvidence <> inferenceRecursiveEvidence (inferModule solved)}}
+
+withEvidenceParameters :: CoreBinderId -> ScopeCapabilityFacts -> TypeScheme -> Draft value -> Draft value
+withEvidenceParameters owner facts scheme (Draft build) = Draft $ \solved ->
+  let parameters =
+        Map.fromList
+          [ ((capability, resolveType solved target), (owner, index, path))
+          | (index, constraint) <- zip [0 ..] (schemeClassConstraints scheme),
+            (source, target) <- case constraint of TypeSchemeConstraint name argument -> [(name, argument)]; TypeSchemeMethodConstraint name _ argument -> [(name, argument)]; _ -> [],
+            capability <- source : Map.keys (scopeClassFacts facts),
+            Just path <- [superclassPath facts source capability]
+          ]
+      contextual = solved {inferModule = (inferModule solved) {inferenceEvidenceParameters = parameters <> inferenceEvidenceParameters (inferModule solved)}}
+   in build contextual
+
+expressionEvidenceFacts :: CoreNodeId -> InferState -> [EvidenceReference] -> Attachment [EvidenceReference]
+expressionEvidenceFacts nodeId state = traverse finalize
+  where
+    finalize request@PendingEvidence {} = case Map.lookup request (outputEvidence (inferOutput state)) of
+      Just selected@EvidenceReference {} -> finalize selected
+      Just pending -> parameter pending
+      Nothing -> parameter request
+    finalize (EvidenceReference capability implementation method target substitution prerequisites) =
+      EvidenceReference capability implementation method (resolveType state target) (fmap (resolveType state) substitution) <$> traverse finalize prerequisites
+    finalize parameterReference@ParameterEvidence {} = pure (mapEvidenceTypes (resolveType state) parameterReference)
+    parameter PendingEvidence {evidenceCapability = capability, evidenceMember = member, evidenceType = target} =
+      case Map.lookup (capability, resolveType state target) (inferenceEvidenceParameters (inferModule state)) of
+        Just (owner, index, path) -> pure (ParameterEvidence owner index path capability member (resolveType state target))
+        Nothing -> missing (MissingExpressionEvidence nodeId)
+    parameter _ = missing (MissingExpressionEvidence nodeId)
 
 -- Only a closed representation needs enforcement at the return boundary.
 resultRepresentation :: ExpressionType -> Maybe ExpressionType

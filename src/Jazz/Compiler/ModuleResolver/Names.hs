@@ -58,6 +58,7 @@ import Jazz.Compiler.ModuleExports
     firstExportNamespace,
     inventoryHasExport,
     selectExportNames,
+    withClassMethods,
   )
 import Jazz.Compiler.ModuleIdentity (SourceUnitOwner (..), mkModulePath, standaloneModulePath)
 import Jazz.Compiler.ModuleResolver.Imports
@@ -421,6 +422,7 @@ resolveExprNames context rootExpression = publishResolvedCaptures (resolveLexica
 
         publish statement bindings = case statement of
           SLet _ name _ -> insertVisibleName ValueNamespace name bindings
+          SClass _ _ _ methods _ _ -> foldl' (\acc (ClassMethodSignature _ name _) -> insertVisibleName ValueNamespace name acc) bindings methods
           SData _ _ _ constructors ->
             foldl' (\acc (DataConstructor _ name _) -> insertVisibleName ConstructorNamespace name acc) bindings constructors
           _ -> bindings
@@ -488,15 +490,14 @@ resolveExprNames context rootExpression = publishResolvedCaptures (resolveLexica
                 (map (resolveBinder TypeNamespace) parameters)
                 (map (resolveClassMethod owner capability) methods)
                 (map (resolveSignatureConstraint owner) prerequisites)
-                (map (resolveImplMethod owner boundValues capability) defaults)
+                (map (resolveImplMethod owner (foldl' (\acc (ClassMethodSignature _ method _) -> insertVisibleName ValueNamespace method acc) boundValues methods) capability) defaults)
         SImpl node name arguments methods prerequisites ->
           let capability = resolveDeclarationReference owner (resolveName Map.empty CapabilityNamespace name)
-              methodBindings = foldl' (\acc (ImplMethod _ methodName _) -> insertVisibleName ValueNamespace methodName acc) boundValues methods
            in SImpl
                 (resolveNode owner node)
                 capability
                 (map (resolveSignatureType owner) arguments)
-                (map (resolveImplMethod owner methodBindings capability) methods)
+                (map (resolveImplMethod owner boundValues capability) methods)
                 (map (resolveSignatureConstraint owner) prerequisites)
         SModule node path -> SModule (resolveNode owner node) path
         SImport node path alias symbols ->
@@ -590,7 +591,10 @@ standaloneLocalInventory expression =
   statementInventory (case expression of EBlock _ statements -> statements; _ -> [])
 
 statementInventory :: [Statement 'Lowered] -> ModuleExportInventory
-statementInventory = exportInventory . concatMap statementExports
+statementInventory statements =
+  withClassMethods
+    (Map.fromList [(identifierText name, Set.fromList [identifierText method | ClassMethodSignature _ method _ <- methods]) | SClass _ name _ methods _ _ <- statements])
+    (exportInventory (concatMap statementExports statements))
   where
     statementExports statement =
       case statement of
@@ -598,8 +602,8 @@ statementInventory = exportInventory . concatMap statementExports
         SData _ typeName _ constructors ->
           maybeExport TypeNamespace typeName
             <> concatMap constructorExports constructors
-        SClass _ className _ _ _ _ ->
-          maybeExport CapabilityNamespace className
+        SClass _ className _ methods _ _ ->
+          maybeExport CapabilityNamespace className <> concat [maybeExport ValueNamespace name | ClassMethodSignature _ name _ <- methods]
         _ -> []
 
     constructorExports (DataConstructor _ name _) =
@@ -623,7 +627,11 @@ resolvedPublicReferences origin inventory = Map.fromList . concatMap statementRe
     statementReferences statement = case statement of
       SLet node name _ -> binding ValueNamespace name node
       SData _ _ _ constructors -> concat [binding ConstructorNamespace name node | DataConstructor node name _ <- constructors]
-      SClass _ name _ methods _ _
-        | Set.member (identifierText name) (exportNamesInNamespace CapabilityNamespace inventory) ->
-            [(UserName (ResolvedUserName origin ValueNamespace (mkIdentifier (identifierText name <> "::" <> identifierText method))), CapabilityMethodReference (CapabilityId name) (mkIdentifier (identifierText method))) | ClassMethodSignature _ method _ <- methods]
+      SClass _ name _ methods _ _ ->
+        concat
+          [ [(key ValueNamespace method, target) | Set.member (identifierText method) (exportNamesInNamespace ValueNamespace inventory)]
+              <> [(UserName (ResolvedUserName origin ValueNamespace (mkIdentifier (identifierText name <> "::" <> identifierText method))), target) | Set.member (identifierText name) (exportNamesInNamespace CapabilityNamespace inventory)]
+          | ClassMethodSignature _ method _ <- methods,
+            let target = CapabilityMethodReference (CapabilityId name) (mkIdentifier (identifierText method))
+          ]
       _ -> []

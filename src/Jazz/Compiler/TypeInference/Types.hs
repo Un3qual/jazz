@@ -1,5 +1,4 @@
 {-# LANGUAGE DerivingStrategies #-}
-{-# LANGUAGE PatternSynonyms #-}
 
 -- | Internal type model shared by inference subsystems.
 module Jazz.Compiler.TypeInference.Types
@@ -8,7 +7,9 @@ module Jazz.Compiler.TypeInference.Types
     ConstructorArgumentType (..),
     DataTypeBinding (..),
     ExpressionType,
-    ImplMethodType (..),
+    ImplementationTemplate (..),
+    implementationTarget,
+    scopeConcreteImplFacts,
     InferenceVariable (..),
     IntegerLiteralRange (..),
     NumericConstraint (..),
@@ -45,7 +46,7 @@ import Jazz.Compiler.SemanticDeclarations
     ClassMethodType (..),
     ConstructorArgumentType (..),
     DataTypeBinding (..),
-    ImplMethodType (..),
+    ImplementationTemplate (..),
     IntegerLiteralRange (..),
     NumericConstraint (..),
     QuantifiedVariables,
@@ -55,10 +56,12 @@ import Jazz.Compiler.SemanticDeclarations
     SemanticBinding (..),
     SemanticScheme (..),
     emptyScopeCapabilityFacts,
+    implementationTarget,
     instantiateDeclarationType,
     quantifiedVariablesFromPreferred,
     quantifiedVariablesMembershipSet,
     quantifiedVariablesOrderedList,
+    scopeConcreteImplFacts,
   )
 import Jazz.Compiler.TypeRepresentation (InferenceVariable (..), SemanticType (..))
 

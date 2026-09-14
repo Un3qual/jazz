@@ -60,8 +60,8 @@ diagnosticTests =
     ("source pipeline rejects unsupported signature surface", testSourceRejectsUnsupportedSignatureSurface),
     ("source pipeline rejects missing use-site facts for variable constrained signatures", testSourceRejectsMissingUseSiteFactsForVariableConstrainedSignatures),
     ("source pipeline rejects ambiguous variable constrained signature use", testSourceRejectsAmbiguousVariableConstrainedSignatureUse),
-    ("source pipeline rejects unsupported variable constrained signature contract", testSourceRejectsUnsupportedVariableConstrainedSignatureContract),
-    ("source pipeline rejects constrained signature surface with E2009", testSourceRejectsConstrainedSignatureSurface),
+    ("source pipeline rejects ambiguous constraint-only type parameter use", testSourceRejectsAmbiguousConstraintOnlyParameter),
+    ("source pipeline rejects constrained signature variable collapse with E2005", testSourceRejectsConstrainedSignatureSurface),
     ("signature mismatch keeps declared type for downstream checks", testSignatureMismatchKeepsDeclaredTypeDownstream),
     ("mismatched pending signature does not monomorphize following binding", testMismatchedPendingSignatureDoesNotMonomorphizeFollowingBinding)
   ]
@@ -457,11 +457,6 @@ testSourceRejectsUnsupportedConstrainedSignatureSpans = do
     f :: @{Eq(a), Eq(a)}: a -> a.
     f = \\(x) -> x.
     """
-  assertSignatureSpan
-    """
-    f :: @{Eq(a)}: Int -> Int.
-    f = \\(x) -> x.
-    """
 
 testSourceRejectsListSignatureMismatch :: IO ()
 testSourceRejectsListSignatureMismatch = do
@@ -508,30 +503,21 @@ testSourceRejectsAmbiguousVariableConstrainedSignatureUse =
     id :: @{Eq(a)}: a -> a.
     id = \\(x) -> x.
     ambiguous = id [].
+    ambiguous.
     """
     "ambiguous/defaulting explicit constraint"
 
-testSourceRejectsUnsupportedVariableConstrainedSignatureContract :: IO ()
-testSourceRejectsUnsupportedVariableConstrainedSignatureContract = do
-  result <-
-    compileSource
-      defaultWarningSettings
-      """
-      f :: @{Eq(a)}: b -> b.
-      f = \\(x) -> x.
-      """
-  assertSingleDiagnosticCode
-    "source unsupported variable constrained signature code"
-    "E2009"
-    (compileErrors result)
-  assertSingleDiagnosticContains
-    "source unsupported variable constrained signature contract"
-    "type-variable constrained signatures require every constrained variable to appear in the signature body"
-    (compileErrors result)
-  assertSingleDiagnosticContains
-    "source unsupported variable constrained signature payload"
-    "@{Eq(a)}: b -> b"
-    (compileErrors result)
+testSourceRejectsAmbiguousConstraintOnlyParameter :: IO ()
+testSourceRejectsAmbiguousConstraintOnlyParameter =
+  assertSourceSingleErrorContainsWithoutPrelude
+    """
+    class C(a) { }.
+    impl C(Int) { }.
+    f :: @{C(a)}: b -> b.
+    f = \\(x) -> x.
+    f 1.
+    """
+    "ambiguous/defaulting explicit constraint"
 
 testSourceRejectsConstrainedSignatureSurface :: IO ()
 testSourceRejectsConstrainedSignatureSurface = do
@@ -544,11 +530,7 @@ testSourceRejectsConstrainedSignatureSurface = do
       """
   assertSingleDiagnosticCode
     "source constrained signature code"
-    "E2009"
-    (compileErrors result)
-  assertSingleDiagnosticContains
-    "source constrained signature payload"
-    "@{Eq(a), Ord(b)}: a -> c"
+    "E2005"
     (compileErrors result)
 
 testSignatureMismatchKeepsDeclaredTypeDownstream :: IO ()

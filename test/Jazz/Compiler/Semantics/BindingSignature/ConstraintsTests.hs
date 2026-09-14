@@ -35,7 +35,10 @@ import Jazz.TestHarness
 
 constraintTests :: [NamedTest]
 constraintTests =
-  [ ("constructor parameters accept List and variable application", testConstructorParameters),
+  [ ("generic declarations reject invalid superclass, head, and primitive promises", testGenericDeclarationPromises),
+    ("generic method definitions preserve independently quantified variables", testGenericMethodRigidity),
+    ("generic instances check recursive element and container method calls", testGenericInstances),
+    ("constructor parameters accept List and variable application", testConstructorParameters),
     ("constructor kinds reject invalid applications", testInvalidConstructorKinds),
     ("source pipeline accepts inert class and impl declarations", testSourceAcceptsCapabilityDeclarations),
     ("source pipeline accepts class method signature metadata", testSourceAcceptsClassMethodSignatureMetadata),
@@ -59,7 +62,7 @@ constraintTests =
     ("source pipeline rejects ambiguous inferred equality binding use", testSourceRejectsAmbiguousInferredEqualityBindingUse),
     ("source pipeline infers qualified method class constraints for ordinary binding schemes", testSourceInfersQualifiedMethodClassConstraintsForOrdinaryBindingSchemes),
     ("source pipeline resolves inferred method facts through aliases", testSourceResolvesInferredMethodFactsThroughAliases),
-    ("source pipeline rejects result-only qualified method inference", testSourceRejectsResultOnlyQualifiedMethodInference),
+    ("source pipeline accepts expected-result method inference", testSourceAcceptsExpectedResultMethodInference),
     ("source pipeline rejects unpreserved higher-order qualified method inference", testSourceRejectsUnpreservedHigherOrderQualifiedMethodInference),
     ("source pipeline preserves inferred method constraints on signed bindings", testSourcePreservesInferredMethodConstraintsOnSignedBindings),
     ("source pipeline rejects undeclared equality constraints on signed bindings", testSourceRejectsUndeclaredEqualityConstraintsOnSignedBindings),
@@ -81,12 +84,12 @@ constraintTests =
     ("source pipeline rejects non-binding impl body items", testSourceRejectsNonBindingImplBodyItem),
     ("source pipeline accepts single-target qualified method dispatch", testSourceAcceptsSingleTargetQualifiedMethodDispatch),
     ("source pipeline selects qualified method body by argument types", testSourceSelectsQualifiedMethodBodyByArgumentTypes),
-    ("source pipeline rejects nested empty-list exact qualified method selection", testSourceRejectsNestedEmptyListExactQualifiedMethodSelection),
-    ("source pipeline rejects constructor-wrapped nested empty-list exact qualified method selection", testSourceRejectsConstructorWrappedNestedEmptyListExactQualifiedMethodSelection),
-    ("source pipeline rejects opaque nested empty-list exact qualified method selection", testSourceRejectsOpaqueNestedEmptyListExactQualifiedMethodSelection),
-    ("source pipeline rejects opaque list application exact qualified method selection", testSourceRejectsOpaqueListApplicationExactQualifiedMethodSelection),
-    ("source pipeline rejects block-produced nested empty-list exact qualified method selection", testSourceRejectsBlockProducedNestedEmptyListExactQualifiedMethodSelection),
-    ("source pipeline rejects control-flow nested empty-list exact qualified method selection", testSourceRejectsControlFlowNestedEmptyListExactQualifiedMethodSelection),
+    ("source pipeline uses static types for nested empty-list method selection", testSourceAcceptsNestedEmptyListExactQualifiedMethodSelection),
+    ("source pipeline uses static types for constructor-wrapped nested empty-list method selection", testSourceAcceptsConstructorWrappedNestedEmptyListExactQualifiedMethodSelection),
+    ("source pipeline uses static types for opaque nested empty-list method selection", testSourceAcceptsOpaqueNestedEmptyListExactQualifiedMethodSelection),
+    ("source pipeline uses static types for opaque list application method selection", testSourceAcceptsOpaqueListApplicationExactQualifiedMethodSelection),
+    ("source pipeline uses static types for block-produced nested empty-list method selection", testSourceAcceptsBlockProducedNestedEmptyListExactQualifiedMethodSelection),
+    ("source pipeline uses static types for control-flow nested empty-list method selection", testSourceAcceptsControlFlowNestedEmptyListExactQualifiedMethodSelection),
     ("source pipeline selects qualified Float method body by argument types", testSourceSelectsQualifiedFloatMethodBodyByArgumentTypes),
     ("source pipeline selects qualified Float16 method body by argument types", testSourceSelectsQualifiedFloat16MethodBodyByArgumentTypes),
     ("source pipeline selects qualified Float32 method body by argument types", testSourceSelectsQualifiedFloat32MethodBodyByArgumentTypes),
@@ -124,7 +127,7 @@ constraintTests =
     ("source pipeline resolves deferred constraints in impl method bodies", testSourceResolvesDeferredConstraintsInImplMethodBodies),
     ("source pipeline discards failed application argument constraints", testSourceDiscardsFailedApplicationArgumentConstraints),
     ("source pipeline discards failed application function constraints", testSourceDiscardsFailedApplicationFunctionConstraints),
-    ("source pipeline rejects unused variable constraint with bidirectional contract", testSourceRejectsUnusedVariableConstraintWithBidirectionalContract)
+    ("source pipeline accepts explicit constraint-only type parameters", testSourceAcceptsConstraintOnlyTypeParameter)
   ]
 
 testConstructorParameters :: IO ()
@@ -167,7 +170,7 @@ testSourceAcceptsClassMethodSignatureMetadata =
     equals :: a -> a -> Bool.
     notEquals :: a -> a -> Bool.
     }.
-    impl Eq(Int) { }.
+    impl Eq(Int) { equals = \\(left, right) -> left == right. notEquals = \\(left, right) -> if left == right then False else True. }.
     x :: Int.
     x = 1.
     x.
@@ -418,9 +421,9 @@ testSourceResolvesInferredMethodFactsThroughAliases =
       """
     )
 
-testSourceRejectsResultOnlyQualifiedMethodInference :: IO ()
-testSourceRejectsResultOnlyQualifiedMethodInference =
-  assertSourceSingleErrorContainsWithoutPrelude
+testSourceAcceptsExpectedResultMethodInference :: IO ()
+testSourceAcceptsExpectedResultMethodInference =
+  assertSourceOkWithoutPrelude
     ( """
       class Make(a) {
       make :: Int -> a.
@@ -435,7 +438,6 @@ testSourceRejectsResultOnlyQualifiedMethodInference =
       x = Make::make 0.
       """
     )
-    "ambiguous qualified method body"
 
 testSourceRejectsUnpreservedHigherOrderQualifiedMethodInference :: IO ()
 testSourceRejectsUnpreservedHigherOrderQualifiedMethodInference =
@@ -463,13 +465,12 @@ testSourcePreservesInferredMethodConstraintsOnSignedBindings =
       class C(a) {
       m :: a -> Bool.
       }.
-      impl C(Int) { }.
       f :: @{C(a)}: a -> Bool.
       f = \\(x) -> C::m x.
       result = f 1.
       """
     )
-    "missing impl method body 'C::m'"
+    "missing impl fact 'C(Int)'"
 
 testSourceRejectsUndeclaredEqualityConstraintsOnSignedBindings :: IO ()
 testSourceRejectsUndeclaredEqualityConstraintsOnSignedBindings =
@@ -611,11 +612,10 @@ testSourceChecksInferredMethodObligationsOnExpressionStatements =
       class C(a) {
       m :: a -> Bool.
       }.
-      impl C(Int) { }.
       (\\(x) -> C::m x) 1.
       """
     )
-    "missing impl method body 'C::m'"
+    "missing impl fact 'C(Int)'"
 
 testSourceChecksInferredEqualityObligationsOnExpressionStatements :: IO ()
 testSourceChecksInferredEqualityObligationsOnExpressionStatements =
@@ -645,12 +645,11 @@ testSourceChecksInferredMethodObligationsOnMonomorphicSignedBindings =
       class C(a) {
       m :: a -> Bool.
       }.
-      impl C(Int) { }.
       result :: Bool.
       result = (\\(x) -> C::m x) 1.
       """
     )
-    "missing impl method body 'C::m'"
+    "missing impl fact 'C(Int)'"
 
 testSourceRejectsNonTargetQualifiedMethodExactMatch :: IO ()
 testSourceRejectsNonTargetQualifiedMethodExactMatch =
@@ -726,9 +725,9 @@ testSourceSelectsQualifiedMethodBodyByArgumentTypes =
            """
     )
 
-testSourceRejectsNestedEmptyListExactQualifiedMethodSelection :: IO ()
-testSourceRejectsNestedEmptyListExactQualifiedMethodSelection =
-  assertSourceSingleErrorContainsWithoutPrelude
+testSourceAcceptsNestedEmptyListExactQualifiedMethodSelection :: IO ()
+testSourceAcceptsNestedEmptyListExactQualifiedMethodSelection =
+  assertSourceOkWithoutPrelude
     ( """
       class RuntimeFlag(a) {
       flag :: a -> Bool.
@@ -742,11 +741,10 @@ testSourceRejectsNestedEmptyListExactQualifiedMethodSelection =
       (RuntimeFlag::flag) [[1], []].
       """
     )
-    "ambiguous qualified method body 'RuntimeFlag::flag'"
 
-testSourceRejectsConstructorWrappedNestedEmptyListExactQualifiedMethodSelection :: IO ()
-testSourceRejectsConstructorWrappedNestedEmptyListExactQualifiedMethodSelection =
-  assertSourceSingleErrorContainsWithoutPrelude
+testSourceAcceptsConstructorWrappedNestedEmptyListExactQualifiedMethodSelection :: IO ()
+testSourceAcceptsConstructorWrappedNestedEmptyListExactQualifiedMethodSelection =
+  assertSourceOkWithoutPrelude
     ( """
       data Box a = Box a.
       class RuntimeFlag(a) {
@@ -761,11 +759,10 @@ testSourceRejectsConstructorWrappedNestedEmptyListExactQualifiedMethodSelection 
       (RuntimeFlag::flag) (Box [[1], []]).
       """
     )
-    "ambiguous qualified method body 'RuntimeFlag::flag'"
 
-testSourceRejectsOpaqueNestedEmptyListExactQualifiedMethodSelection :: IO ()
-testSourceRejectsOpaqueNestedEmptyListExactQualifiedMethodSelection =
-  assertSourceSingleErrorContainsWithoutPrelude
+testSourceAcceptsOpaqueNestedEmptyListExactQualifiedMethodSelection :: IO ()
+testSourceAcceptsOpaqueNestedEmptyListExactQualifiedMethodSelection =
+  assertSourceOkWithoutPrelude
     ( """
       data Box a = Box a.
       class RuntimeFlag(a) {
@@ -781,11 +778,10 @@ testSourceRejectsOpaqueNestedEmptyListExactQualifiedMethodSelection =
       (RuntimeFlag::flag) (make [[1], []]).
       """
     )
-    "ambiguous qualified method body 'RuntimeFlag::flag'"
 
-testSourceRejectsOpaqueListApplicationExactQualifiedMethodSelection :: IO ()
-testSourceRejectsOpaqueListApplicationExactQualifiedMethodSelection =
-  assertSourceSingleErrorContainsWithoutPrelude
+testSourceAcceptsOpaqueListApplicationExactQualifiedMethodSelection :: IO ()
+testSourceAcceptsOpaqueListApplicationExactQualifiedMethodSelection =
+  assertSourceOkWithoutPrelude
     ( """
       class RuntimeFlag(a) {
       flag :: a -> Bool.
@@ -800,11 +796,10 @@ testSourceRejectsOpaqueListApplicationExactQualifiedMethodSelection =
       (RuntimeFlag::flag) (make [[1], []]).
       """
     )
-    "ambiguous qualified method body 'RuntimeFlag::flag'"
 
-testSourceRejectsBlockProducedNestedEmptyListExactQualifiedMethodSelection :: IO ()
-testSourceRejectsBlockProducedNestedEmptyListExactQualifiedMethodSelection =
-  assertSourceSingleErrorContainsWithoutPrelude
+testSourceAcceptsBlockProducedNestedEmptyListExactQualifiedMethodSelection :: IO ()
+testSourceAcceptsBlockProducedNestedEmptyListExactQualifiedMethodSelection =
+  assertSourceOkWithoutPrelude
     ( """
       class RuntimeFlag(a) {
       flag :: a -> Bool.
@@ -819,11 +814,10 @@ testSourceRejectsBlockProducedNestedEmptyListExactQualifiedMethodSelection =
       values. }.
       """
     )
-    "ambiguous qualified method body 'RuntimeFlag::flag'"
 
-testSourceRejectsControlFlowNestedEmptyListExactQualifiedMethodSelection :: IO ()
-testSourceRejectsControlFlowNestedEmptyListExactQualifiedMethodSelection =
-  assertSourceSingleErrorContainsWithoutPrelude
+testSourceAcceptsControlFlowNestedEmptyListExactQualifiedMethodSelection :: IO ()
+testSourceAcceptsControlFlowNestedEmptyListExactQualifiedMethodSelection =
+  assertSourceOkWithoutPrelude
     ( """
       class RuntimeFlag(a) {
       flag :: a -> Bool.
@@ -837,7 +831,6 @@ testSourceRejectsControlFlowNestedEmptyListExactQualifiedMethodSelection =
       (RuntimeFlag::flag) (if True then [[1], []] else [[1], []]).
       """
     )
-    "ambiguous qualified method body 'RuntimeFlag::flag'"
 
 testSourceSelectsQualifiedFloatMethodBodyByArgumentTypes :: IO ()
 testSourceSelectsQualifiedFloatMethodBodyByArgumentTypes =
@@ -1014,7 +1007,7 @@ testSourceAcceptsHigherOrderQualifiedMethodSignature =
       apply = \\(f) -> f 1.
       }.
       result :: Int.
-      result = Apply::apply (+ 1).
+      result = Apply::apply @Int (+ 1).
       result.
       """
     )
@@ -1062,7 +1055,7 @@ testSourceRejectsQualifiedMethodDispatchWithNoTypedCandidate =
            result.
            """
     )
-    "no matching qualified method body 'Eq::equals' for argument types Int, Bool"
+    "cannot apply function of type Int -> Bool to argument of type Bool"
 
 testSourceRejectsQualifiedImplMethodBodyMismatch :: IO ()
 testSourceRejectsQualifiedImplMethodBodyMismatch =
@@ -1092,16 +1085,14 @@ testSourceRejectsImplMethodBeforeClassMethodMetadata = do
       class Eq(a) {
       equals :: a -> a -> Bool.
       }.
-      result = Eq::equals 1 1.
-      result.
       """
   assertSingleDiagnosticContains
     "impl-before-class method metadata"
-    "class method metadata for 'Eq::equals' must be declared before impl method body"
+    "missing class declaration 'Eq'"
     (compileErrors result)
   assertSingleDiagnosticPrimaryStart
     "impl-before-class method metadata span"
-    (SourceSpan 2 1)
+    (SourceSpan 1 1)
     (compileErrors result)
 
 testSourceRejectsQualifiedMethodMissingClassMethod :: IO ()
@@ -1112,8 +1103,6 @@ testSourceRejectsQualifiedMethodMissingClassMethod =
     impl Eq(Int) {
     equals = \\(left, right) -> left == right.
     }.
-    result = Eq::equals 1 1.
-    result.
     """
     "class method metadata for 'Eq::equals' must be declared before impl method body"
 
@@ -1125,8 +1114,6 @@ testSourceRejectsQualifiedMethodMissingImplBody =
     equals :: a -> a -> Bool.
     }.
     impl Eq(Int) { }.
-    result = Eq::equals 1 1.
-    result.
     """
     "missing impl method body 'Eq::equals'"
 
@@ -1137,11 +1124,10 @@ testSourceRejectsDeferredQualifiedMethodRequirementMissingImplBody =
     class Eq(a) {
     equals :: a -> a -> Bool.
     }.
-    impl Eq(Int) { }.
     same = \\(x) -> Eq::equals x x.
     result = same 1.
     """
-    "missing impl method body 'Eq::equals'"
+    "missing impl fact 'Eq(Int)'"
 
 testSourceRejectsAmbiguousQualifiedMethodBodies :: IO ()
 testSourceRejectsAmbiguousQualifiedMethodBodies =
@@ -1159,7 +1145,7 @@ testSourceRejectsAmbiguousQualifiedMethodBodies =
     result = Classify::classify 1.
     result.
     """
-    "ambiguous qualified method body 'Classify::classify' for argument types Int"
+    "ambiguous qualified method body 'Classify::classify'"
 
 testSourceRejectsDuplicateClassDeclarations :: IO ()
 testSourceRejectsDuplicateClassDeclarations =
@@ -1401,20 +1387,77 @@ testSourceDiscardsFailedApplicationFunctionConstraints = do
     "E2006"
     (compileErrors result)
 
-testSourceRejectsUnusedVariableConstraintWithBidirectionalContract :: IO ()
-testSourceRejectsUnusedVariableConstraintWithBidirectionalContract = do
-  result <-
-    compileSource
-      defaultWarningSettings
-      """
-      f :: @{Eq(a)}: Int -> Int.
-      f = \\(x) -> x.
-      """
-  assertSingleDiagnosticCode
-    "source unused variable constraint code"
-    "E2009"
-    (compileErrors result)
-  assertSingleDiagnosticContains
-    "source unused variable constraint contract"
-    "type-variable constrained signatures require every constrained variable to appear in the signature body"
-    (compileErrors result)
+testSourceAcceptsConstraintOnlyTypeParameter :: IO ()
+testSourceAcceptsConstraintOnlyTypeParameter =
+  assertSourceOkWithoutPrelude
+    """
+    class C(a) { }.
+    impl C(Int) { }.
+    f :: @{C(a)}: Int -> Int.
+    f = \\(x) -> x.
+    f @Int 1.
+    """
+
+testGenericInstances :: IO ()
+testGenericInstances =
+  assertSourceOkWithoutPrelude
+    """
+    class Same(a) { same :: a -> a -> Bool. }.
+    impl Same(Int) { same = \\(x, y) -> x == y. }.
+    impl @{Same(a)}: Same([a]) {
+      same = \\(left, right) -> case (left, right) {
+        | ([], []) -> True
+        | ([x | xs], [y | ys]) -> if Same::same x y then Same::same xs ys else False
+        | _ -> False
+      }.
+    }.
+    check = \\(x, y) -> Same::same x y.
+    (check [[1]] [[1]], check [[1]] [[2]]).
+    """
+
+testGenericMethodRigidity :: IO ()
+testGenericMethodRigidity = do
+  assertSourceSingleErrorContainsWithoutPrelude
+    """
+    class Transforming(f) { transform :: (a -> b) -> f(a) -> f(b). }.
+    impl Transforming(List) { transform = \\(change, xs) -> xs. }.
+    """
+    "impl method"
+  assertSourceSingleErrorContainsWithoutPrelude
+    """
+    class Keeping(t) { keep :: t -> t. }.
+    impl Keeping([a]) { keep = \\(xs) -> [True]. }.
+    """
+    "impl method"
+
+testGenericDeclarationPromises :: IO ()
+testGenericDeclarationPromises = do
+  assertSourceSingleErrorContainsWithoutPrelude
+    """
+    class Parent(a) { parent :: a -> Bool. }.
+    class @{Parent(a)}: Child(a) { child :: a -> Bool. }.
+    impl Child(Int) { child = \\(x) -> True. }.
+    """
+    "missing impl fact 'Parent(Int)'"
+  assertSourceSingleErrorContainsWithoutPrelude
+    """
+    class @{Loop(a)}: Loop(a) { loop :: a -> Bool. }.
+    """
+    "cyclic superclass"
+  assertSourceSingleErrorContainsWithoutPrelude
+    """
+    class Keeping(a) { keep :: a -> a. keep = \\(x) -> True. }.
+    """
+    "impl method"
+  assertSourceSingleErrorContainsWithoutPrelude
+    """
+    data Box a = Box a.
+    class Adding(a) { add :: a -> a. }.
+    impl Adding(Box(a)) { add = \\(Box x) -> Box (x + x). }.
+    """
+    "does not declare required primitive constraint"
+  assertSourceSingleErrorContainsWithoutPrelude
+    """
+    class Testing(a) { test :: a -> Bool. test = \\(x) -> x == x. }.
+    """
+    "does not declare required primitive constraint"

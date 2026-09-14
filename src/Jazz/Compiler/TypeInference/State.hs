@@ -12,7 +12,6 @@ module Jazz.Compiler.TypeInference.State
     inferClassFacts,
     inferClassMethodSignatures,
     inferConcreteImplFacts,
-    inferConcreteImplMethods,
     inferConstructorWitnessNames,
     inferCurrentModuleLocalCapabilityFacts,
     inferCurrentModulePath,
@@ -50,7 +49,7 @@ import Data.Sequence (Seq)
 import qualified Data.Sequence as Seq
 import Data.Set (Set)
 import qualified Data.Set as Set
-import Jazz.Compiler.CoreIdentity (CapabilityId, CapabilityMethodKey)
+import Jazz.Compiler.CoreIdentity (CapabilityId, CapabilityMethodKey, CoreBinderId)
 import Jazz.Compiler.Diagnostics (Diagnostic)
 import Jazz.Compiler.ModuleIdentity (ModulePath)
 import Jazz.Compiler.Name (ResolvedName, UnresolvedName)
@@ -61,13 +60,13 @@ import Jazz.Compiler.TypeInference.Types
   ( ClassMethodType,
     DataTypeBinding,
     ExpressionType,
-    ImplMethodType,
     InferenceVariable,
     NumericConstraint,
     ScopeCapabilityFacts (..),
     TypeEnv,
     TypeSchemeConstraint,
     emptyScopeCapabilityFacts,
+    scopeConcreteImplFacts,
   )
 
 data SolverState = SolverState
@@ -91,6 +90,8 @@ data ModuleInferenceState = ModuleInferenceState
     inferenceModuleCapabilities :: Map (Maybe ModulePath) ScopeCapabilityFacts,
     inferenceDeclarationParameters :: Map InferenceVariable DeclarationVariable,
     inferenceConstructorWitnessNames :: Map ResolvedName UnresolvedName,
+    inferenceEvidenceParameters :: Map (CapabilityId, ExpressionType) (CoreBinderId, Int, [CapabilityId]),
+    inferenceRecursiveEvidence :: Map CoreBinderId [EvidenceReference],
     inferenceVisibleTypes :: TypeEnv
   }
   deriving (Eq, Show)
@@ -102,7 +103,8 @@ data InferenceOutput = InferenceOutput
     outputErrorsRev :: [Diagnostic],
     outputErrorCount :: Int,
     outputPatternCoverageSites :: Seq PatternCoverageSite,
-    outputNextPatternCoverageOrdinal :: Int
+    outputNextPatternCoverageOrdinal :: Int,
+    outputEvidence :: Map EvidenceReference EvidenceReference
   }
   deriving (Eq, Show)
 
@@ -168,6 +170,8 @@ initialInferState =
             inferenceModuleCapabilities = Map.empty,
             inferenceDeclarationParameters = Map.empty,
             inferenceConstructorWitnessNames = Map.empty,
+            inferenceEvidenceParameters = Map.empty,
+            inferenceRecursiveEvidence = Map.empty,
             inferenceVisibleTypes = Map.empty
           },
       inferOutput =
@@ -178,7 +182,8 @@ initialInferState =
             outputErrorsRev = [],
             outputErrorCount = 0,
             outputPatternCoverageSites = Seq.empty,
-            outputNextPatternCoverageOrdinal = 0
+            outputNextPatternCoverageOrdinal = 0,
+            outputEvidence = Map.empty
           }
     }
 
@@ -208,9 +213,6 @@ inferConcreteImplFacts = scopeConcreteImplFacts . declarationCapabilities . infe
 
 inferClassMethodSignatures :: InferState -> Map CapabilityMethodKey ClassMethodType
 inferClassMethodSignatures = scopeClassMethodSignatures . declarationCapabilities . inferDeclarations
-
-inferConcreteImplMethods :: InferState -> Map CapabilityMethodKey [ImplMethodType]
-inferConcreteImplMethods = scopeConcreteImplMethods . declarationCapabilities . inferDeclarations
 
 inferCurrentModulePath :: InferState -> Maybe ModulePath
 inferCurrentModulePath = inferenceModulePath . inferModule

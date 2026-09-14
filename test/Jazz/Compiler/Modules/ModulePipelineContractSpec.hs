@@ -298,7 +298,7 @@ testSingleModuleAnalysis = do
   let factsInterface = interfaces Map.! nominalModulePath ("Lib" :| ["Facts"])
   assertEqual
     "dependency interface excludes private and transitive values"
-    (Set.fromList [ModuleExport ValueNamespace "identity", ModuleExport ConstructorNamespace "Box"])
+    (Set.fromList [ModuleExport ValueNamespace "equals", ModuleExport ValueNamespace "identity", ModuleExport ConstructorNamespace "Box"])
     (Map.keysSet (interfaceValueBindings factsInterface))
   assertEqual
     "unreachable private type metadata remains module-owned"
@@ -499,12 +499,12 @@ assertAnalyzedProgramFacts :: CoreProgram 'Resolved -> CoreProgram 'Analyzed -> 
 assertAnalyzedProgramFacts resolvedProgram analyzedProgram = do
   mapM_ assertModule (NonEmpty.toList (coreProgramModules resolvedProgram))
   case foldMap (expressionEvidenceInventory . coreModuleExpr) (coreProgramModules analyzedProgram) of
-    [evidence] -> do
+    [evidence@EvidenceReference {evidenceMethod = Just selectedMethod}] -> do
       assertEqual "capability evidence target" SemanticInt (evidenceType evidence)
       assertEqual
         "capability evidence preserves the selected canonical identities"
         (expectedEvidenceIdentities resolvedProgram)
-        [(evidenceCapability evidence, evidenceImplementation evidence, evidenceMethod evidence)]
+        [(evidenceCapability evidence, evidenceImplementation evidence, selectedMethod)]
     evidence -> fail ("expected exactly one selected capability evidence fact, got " <> show evidence)
   let analyzedBinders = foldMap moduleBinderIds (coreProgramModules analyzedProgram)
       instantiations = foldMap (expressionInstantiationInventory . coreModuleExpr) (coreProgramModules analyzedProgram)
@@ -1372,11 +1372,19 @@ testRuntimeModulePublishesPublicClassMethodsOnly = do
     Right runtime ->
       case lookupRuntimeModule ["Lib", "Facts"] runtime of
         Nothing -> fail "missing runtime Lib::Facts module"
-        Just runtimeModule ->
+        Just runtimeModule -> do
+          let exports = Map.keysSet (runtimeModuleExports runtimeModule)
+              publicExport RuntimeImplementationMethodExport {} = False
+              publicExport RuntimeDefaultMethodExport {} = False
+              publicExport _ = True
           assertEqual
-            "public class method runtime exports"
-            (Set.singleton (RuntimeCapabilityMethodExport (CapabilityId (resolvedImportedName (nominalModulePath ("Lib" :| ["Facts"])) CapabilityNamespace (mkIdentifier "Eq"))) (mkIdentifier "equals")))
-            (Map.keysSet (runtimeModuleExports runtimeModule))
+            "public class includes its ordinary method, without private method names"
+            (Set.fromList [RuntimeBindingExport (ModuleExport ValueNamespace "equals"), RuntimeCapabilityMethodExport (CapabilityId (resolvedImportedName (nominalModulePath ("Lib" :| ["Facts"])) CapabilityNamespace (mkIdentifier "Eq"))) (mkIdentifier "equals")])
+            (Set.filter publicExport exports)
+          assertEqual
+            "both implementation cells survive name selection"
+            2
+            (length [() | RuntimeImplementationMethodExport {} <- Set.toList exports])
 
 explicitExportSources :: Map.Map FilePath Text
 explicitExportSources =
@@ -1437,17 +1445,17 @@ testModuleExportIdentityPreservesNamespaces = do
     Nothing -> fail "missing analyzed Lib::Maybe module"
     Just maybeModule -> do
       let bindings = Map.filterWithKey (\moduleExport _ -> moduleExportName moduleExport == "Just") (interfaceValueBindings (analyzedInterface maybeModule))
-          binder namespace = interfaceBindingId <$> Map.lookup (ModuleExport namespace "Just") bindings
+          binder namespace = interfaceBindingReference <$> Map.lookup (ModuleExport namespace "Just") bindings
       assertEqual "analyzed shadowed export identities" expectedExports (Map.keysSet bindings)
       case coreModuleStatements maybeModule of
         [SData _ _ _ [DataConstructor constructorNode _ _], SLet valueNode _ _] -> do
           assertEqual
             "constructor interface retains its declaration ID"
-            (resolvedNodeBinder (statementResolution (coreNodeFacts constructorNode)))
+            (LexicalReference <$> resolvedNodeBinder (statementResolution (coreNodeFacts constructorNode)))
             (binder ConstructorNamespace)
           assertEqual
             "value interface retains its distinct declaration ID"
-            (resolvedNodeBinder (statementResolution (coreNodeFacts valueNode)))
+            (LexicalReference <$> resolvedNodeBinder (statementResolution (coreNodeFacts valueNode)))
             (binder ValueNamespace)
         _ -> fail "unexpected constructor/value declaration fixture"
       case lookupCoreModule (nominalModulePath ("App" :| ["Main"])) analyzed of
@@ -1455,7 +1463,7 @@ testModuleExportIdentityPreservesNamespaces = do
           | [SExpr _ (EVar node _)] <- coreModuleStatements entry ->
               assertEqual
                 "imported use retains the interface declaration ID"
-                (LexicalReference <$> binder ValueNamespace)
+                (binder ValueNamespace)
                 (resolvedNodeReference (expressionResolution (coreNodeFacts node)))
         _ -> fail "unexpected imported value fixture"
   case evaluateAnalyzedProgram analyzed of
@@ -1473,6 +1481,8 @@ testModuleExportIdentityPreservesNamespaces = do
                         case runtimeExport of
                           RuntimeBindingExport moduleExport -> moduleExportName moduleExport == "Just"
                           RuntimeCapabilityMethodExport {} -> False
+                          RuntimeImplementationMethodExport {} -> False
+                          RuntimeDefaultMethodExport {} -> False
                     )
                     (runtimeModuleExports runtimeModule)
                 )

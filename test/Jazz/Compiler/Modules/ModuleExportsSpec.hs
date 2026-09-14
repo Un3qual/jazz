@@ -6,7 +6,7 @@ import Data.List.NonEmpty (NonEmpty (..))
 import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
 import Data.Text (Text)
-import Jazz.Compiler.CoreIdentity (CapabilityId (..), CoreBinderId (..), CoreNodeId (..))
+import Jazz.Compiler.CoreIdentity (CapabilityId (..), CoreBinderId (..), CoreNodeId (..), ResolvedReference (LexicalReference))
 import Jazz.Compiler.Diagnostics (SourceSpan (..))
 import Jazz.Compiler.ModuleExports
   ( LocatedModuleExportName (..),
@@ -284,7 +284,7 @@ testInterfaceInventory =
           interfaceValueBindings =
             Map.singleton
               (ModuleExport ValueNamespace "answer")
-              (ModuleValueBinding (CoreBinderId (StandaloneSourceUnit standaloneModulePath, CoreNodeId 1)) (PlainTypeBinding SemanticInt)),
+              (ModuleValueBinding (LexicalReference (CoreBinderId (StandaloneSourceUnit standaloneModulePath, CoreNodeId 1))) (PlainTypeBinding SemanticInt)),
           interfaceCapabilities = mempty {scopeClassFacts = Map.singleton (CapabilityId (resolvedLocalName CapabilityNamespace (mkIdentifier "Eq"))) (ClassDefinition TypeKind [] Set.empty)}
         }
 

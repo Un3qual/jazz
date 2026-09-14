@@ -26,8 +26,10 @@ import Jazz.Compiler.Diagnostics (SourceSpan (..))
 import Jazz.Compiler.Driver
   ( ResolvedPrelude (PreludeAbsent),
     RunResult,
+    runCompileErrors,
     runModuleGraphWithResolvedPreludeAndHostObserved,
     runRuntimeObservation,
+    runSourceWithResolvedPreludeAndHostObserved,
   )
 import Jazz.Compiler.ModuleResolver (ModuleResolutionConfig (..))
 import Jazz.Compiler.Name
@@ -53,8 +55,7 @@ import Jazz.Compiler.Runtime.Observation.Profile
   )
 import Jazz.Compiler.RuntimeHost (disabledRuntimeHost)
 import Jazz.Compiler.Semantics.Runtime.Fixtures
-  ( classMethodSignature,
-    dataConstructor,
+  ( dataConstructor,
     expressionApply,
     expressionBinary,
     expressionBlock,
@@ -62,24 +63,15 @@ import Jazz.Compiler.Semantics.Runtime.Fixtures
     expressionLambda,
     expressionList,
     expressionLiteral,
-    expressionQualifiedMethod,
     expressionSectionRight,
     expressionTuple,
     expressionVariable,
-    fixtureTypeVariable,
-    implMethod,
-    statementClass,
     statementData,
     statementExpression,
-    statementImpl,
     statementLet,
   )
 import Jazz.Compiler.Semantics.Runtime.ResolvedFixture
-import Jazz.Compiler.TypeRepresentation
-  ( NumericType (..),
-    SignaturePayload (..),
-    SignatureType (..),
-  )
+import Jazz.Compiler.TypeRepresentation (SignatureType (..))
 import Jazz.Compiler.WarningConfig (defaultWarningSettings)
 import Jazz.TestHarness
   ( NamedTest,
@@ -141,7 +133,15 @@ testCallableIdentities = do
             statementExpression (SourceSpan 2 1) (expressionApply (expressionConstructor "Box") (expressionLiteral (LInt 1)))
           ]
       )
-  methodProfile <- profileFor qualifiedMethodExpression
+  methodResult <-
+    runSourceWithResolvedPreludeAndHostObserved
+      RuntimeObservationProfile
+      disabledRuntimeHost
+      defaultWarningSettings
+      PreludeAbsent
+      "class Probe(a) { identity :: a -> Bool. }. impl Probe(Int) { identity = \\(item) -> True. }. impl Probe(UInt8) { identity = \\(item) -> False. }. (Probe::identity 1)."
+  assertEqual "method compile errors" [] (runCompileErrors methodResult)
+  methodProfile <- requireRunReport methodResult >>= requireProfile
   generatedProfile <- profileFor generatedSectionExpression
   hostProfile <- profileFor (expressionApply (kernelBuiltin BuiltinArguments) (expressionTuple []))
   assertHasIdentity "closure identity" isClosure closureProfile
@@ -290,44 +290,6 @@ assertBytesContain label expected actual =
 
 kernelBuiltin :: BuiltinSymbol -> Expr 'Analyzed
 kernelBuiltin = expressionVariable . BuiltinName . mkIdentifier . builtinSymbolKernelName
-
-qualifiedMethodExpression :: Expr 'Analyzed
-qualifiedMethodExpression =
-  expressionBlock
-    [ statementClass
-        (SourceSpan 1 1)
-        "Probe"
-        ["a"]
-        [ classMethodSignature
-            "identity"
-            (SourceSpan 2 1)
-            ( ConstrainedSignature
-                []
-                (TypeFunction (fixtureTypeVariable "a") TypeBool)
-            )
-        ],
-      statementImpl
-        (SourceSpan 3 1)
-        "Probe"
-        [TypeInt]
-        [ implMethod
-            "identity"
-            (SourceSpan 4 1)
-            (expressionLambda "value" (expressionLiteral (LBool True)))
-        ],
-      statementImpl
-        (SourceSpan 5 1)
-        "Probe"
-        [TypeNumeric NumericUInt8]
-        [ implMethod
-            "identity"
-            (SourceSpan 6 1)
-            (expressionLambda "value" (expressionLiteral (LBool False)))
-        ],
-      statementExpression
-        (SourceSpan 7 1)
-        (expressionApply (expressionQualifiedMethod "Probe" "identity") (expressionLiteral (LInt 1)))
-    ]
 
 generatedSectionExpression :: Expr 'Analyzed
 generatedSectionExpression =

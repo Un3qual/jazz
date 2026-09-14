@@ -804,10 +804,10 @@ testQualifiedMethodDispatchRejectsMutualMethodAliasCycle = do
                 other :: Bool.
                 }.
                 impl RuntimeFlag(Int) {
-                enabled = RuntimeFlag::other.
-                other = RuntimeFlag::enabled.
+                enabled = (RuntimeFlag::other @Int).
+                other = (RuntimeFlag::enabled @Int).
                 }.
-                RuntimeFlag::enabled.
+                (RuntimeFlag::enabled @Int).
                 """
               )
           ) ::
@@ -826,6 +826,6 @@ testQualifiedMethodDispatchRejectsMutualMethodAliasCycle = do
         (runRuntimeErrors result)
       assertSingleDiagnosticContains
         "mutual qualified method alias runtime text"
-        "recursive qualified method alias cycle"
+        "recursive dictionary binding"
         (runRuntimeErrors result)
       assertEqual "runtime output is suppressed on runtime failure" Nothing (runOutput result)

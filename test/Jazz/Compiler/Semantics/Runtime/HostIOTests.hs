@@ -44,7 +44,7 @@ import Jazz.Compiler.Driver
     runSourceWithPreludeAndHost,
   )
 import Jazz.Compiler.ModuleIdentity (mkModulePath)
-import Jazz.Compiler.Name (UnresolvedName, qualifiedName)
+import Jazz.Compiler.Name (UnresolvedName)
 import Jazz.Compiler.Runtime
   ( ModuleEvaluationMode (..),
     RuntimeAnnotation (..),
@@ -390,73 +390,45 @@ testHostScopePreservesHostfulRecursivePeers = do
 
 testHostImplMethodSelector :: IO ()
 testHostImplMethodSelector = do
-  let selector =
-        expressionBinary
-          "=="
-          (hostCall "__kernel_arguments!" [expressionTuple []])
-          (expressionList [expressionLiteral (LText "one"), expressionLiteral (LText "two")])
-      expression =
-        expressionBlock
-          [ statementClass
-              (SourceSpan 1 1)
-              "RuntimePick"
-              ["a"]
-              [ classMethodSignature
-                  "pick"
-                  (SourceSpan 2 1)
-                  (ConstrainedSignature [] (TypeFunction (fixtureTypeVariable "a") TypeBool))
-              ],
-            statementImpl
-              (SourceSpan 3 1)
-              "RuntimePick"
-              [TypeInt]
-              [ implMethod
-                  "pick"
-                  (SourceSpan 4 1)
-                  ( expressionIf
-                      selector
-                      (expressionLambda "ignored" (expressionLiteral (LBool True)))
-                      (expressionLambda "ignored" (expressionLiteral (LBool False)))
-                  )
-              ],
-            statementExpression
-              (SourceSpan 5 1)
-              (expressionApply (expressionVariable (qualifiedName "RuntimePick" "pick")) (expressionLiteral (LInt 1)))
-          ]
-      (result, calls) = runState (evaluateFixtureWithHost statefulHost expression) []
-  assertRuntimeBool "host-selected impl method result" True result
-  assertEqual "host-selected impl method call" [ArgumentsCall] calls
+  callsRef <- newIORef []
+  result <-
+    runSourceWithPreludeAndHost
+      (recordingIOHost callsRef)
+      defaultWarningSettings
+      Nothing
+      """
+      class RuntimePick(a) { pick! :: a -> Bool. }.
+      impl RuntimePick(Int) {
+        pick! = if __kernel_arguments! () == ["one", "two"] then \\(ignored) -> True else \\(ignored) -> False.
+      }.
+      RuntimePick::pick! 1.
+      """
+  assertEqual "host selector compile errors" [] (runCompileErrors result)
+  assertEqual "host selector runtime errors" [] (runRuntimeErrors result)
+  assertEqual "host selector result" (Just "True") (runOutput result)
+  calls <- readIORef callsRef
+  assertEqual "host selector runs once" [ArgumentsCall] calls
 
 testHostImplMethodNumericSignature :: IO ()
-testHostImplMethodNumericSignature = do
-  let method = expressionVariable (qualifiedName "RuntimePick" "pick")
-      argument = expressionLiteral (LInt 1)
-      parameter = fixtureTypeVariable "a"
-  check (TypeFunction parameter parameter) (expressionLambda "value" (expressionVariable "value")) (expressionApply method argument)
-  check parameter argument method
+testHostImplMethodNumericSignature =
+  mapM_
+    check
+    [ ("a -> a", "\\(item) -> item", "RuntimePick::pick! 1.0"),
+      ("a", "1.0", "(RuntimePick::pick! @Float)")
+    ]
   where
-    check signature body invocation = do
-      let selector =
-            expressionBinary
-              "=="
-              (hostCall "__kernel_arguments!" [expressionTuple []])
-              (expressionList [expressionLiteral (LText "one"), expressionLiteral (LText "two")])
-          expression =
-            expressionBlock
-              [ statementClass
-                  (SourceSpan 1 1)
-                  "RuntimePick"
-                  ["a"]
-                  [classMethodSignature "pick" (SourceSpan 2 1) (ConstrainedSignature [] signature)],
-                statementImpl
-                  (SourceSpan 3 1)
-                  "RuntimePick"
-                  [TypeFloat]
-                  [implMethod "pick" (SourceSpan 4 1) (expressionIf selector body body)],
-                statementExpression (SourceSpan 5 1) invocation
-              ]
-          (result, calls) = runState (evaluateFixtureWithHost statefulHost expression) []
-      assertEqual "host method numeric conversion" (Right (Just "1.0")) (fmap (fmap renderRuntimeValue) result)
+    check (signature, body, invocation) = do
+      callsRef <- newIORef []
+      result <-
+        runSourceWithPreludeAndHost
+          (recordingIOHost callsRef)
+          defaultWarningSettings
+          Nothing
+          ("class RuntimePick(a) { pick! :: " <> signature <> ". }. impl RuntimePick(Float) { pick! = if __kernel_arguments! () == [\"one\", \"two\"] then " <> body <> " else " <> body <> ". }. " <> invocation <> ".")
+      assertEqual "numeric method compile errors" [] (runCompileErrors result)
+      assertEqual "numeric method runtime errors" [] (runRuntimeErrors result)
+      assertEqual "numeric method result" (Just "1.0") (runOutput result)
+      calls <- readIORef callsRef
       assertEqual "host selector runs once" [ArgumentsCall] calls
 
 testHostScopePreservesBindingSignatureHints :: IO ()
@@ -852,39 +824,22 @@ testHostBindingCacheSeparatesDynamicScopeInvocations = do
 
 testHostZeroArgumentImplMethod :: IO ()
 testHostZeroArgumentImplMethod = do
-  let expression =
-        expressionBlock
-          [ statementClass
-              (SourceSpan 1 1)
-              "RuntimeFlag"
-              ["a"]
-              [ classMethodSignature
-                  "enabled!"
-                  (SourceSpan 2 1)
-                  (ConstrainedSignature [] TypeBool)
-              ],
-            statementImpl
-              (SourceSpan 3 1)
-              "RuntimeFlag"
-              [TypeInt]
-              [ implMethod
-                  "enabled!"
-                  (SourceSpan 4 1)
-                  ( expressionBlock
-                      [ statementExpression
-                          (SourceSpan 5 1)
-                          (hostCall "__kernel_writeStdoutRaw!" [expressionLiteral (LText "enabled")]),
-                        statementExpression (SourceSpan 6 1) (expressionLiteral (LBool True))
-                      ]
-                  )
-              ],
-            statementExpression
-              (SourceSpan 7 1)
-              (expressionVariable (qualifiedName "RuntimeFlag" "enabled!"))
-          ]
-      (result, calls) = runState (evaluateFixtureWithHost statefulHost expression) []
-  assertRuntimeBool "zero-argument host method result" True result
-  assertEqual "zero-argument host method call" [WriteStdoutCall "enabled"] calls
+  callsRef <- newIORef []
+  result <-
+    runSourceWithPreludeAndHost
+      (recordingIOHost callsRef)
+      defaultWarningSettings
+      Nothing
+      """
+      class RuntimeFlag(a) { enabled! :: Bool. }.
+      impl RuntimeFlag(Int) { enabled! = { __kernel_writeStdoutRaw! "enabled". True. }. }.
+      (RuntimeFlag::enabled! @Int).
+      """
+  assertEqual "nullary method compile errors" [] (runCompileErrors result)
+  assertEqual "nullary method runtime errors" [] (runRuntimeErrors result)
+  assertEqual "nullary method result" (Just "True") (runOutput result)
+  calls <- readIORef callsRef
+  assertEqual "nullary host call" [WriteStdoutCall "enabled"] calls
 
 testNullaryEvidencePreservesHostMethodCaching :: IO ()
 testNullaryEvidencePreservesHostMethodCaching = do

@@ -38,7 +38,10 @@ Module header lists are allowlists. Typed selectors include `value name`,
 `constructor Name`, and `class Name`. Bare selectors are compatibility
 shorthand for all owned same-text entries. Omitted lists export all owned
 declarations and `()` exports none. Imported declarations are not eligible for
-re-export.
+re-export. Selecting `class Name` includes the class's ordinary method values;
+`value method` can select one method without exposing its class name. Supporting
+class and type metadata remains available to check those values and instances.
+A module exporting `()` still supplies its implementations when imported.
 
 Each module is checked against explicit dependency interfaces. During
 execution, dependencies establish their exported bindings without evaluating
@@ -56,10 +59,11 @@ names owned by the declaring module.
 Qualification preserves the original class identity. Two aliases for one
 module, or aliased and unqualified imports together, share its implementation
 evidence. Same-spelled classes from different modules remain distinct. Existing
-concrete-impl and method-ambiguity rules apply. An alias exposes neither the
-class nor its methods unqualified, and a private class cannot be reached through
-an alias or a same-spelled value or type. Importing a class does not re-export it
-or introduce transitive impl publication.
+generic-head overlap and method-ambiguity rules apply. An alias exposes neither
+the class nor its methods unqualified, and a private class cannot be reached
+through an alias or a same-spelled value or type. Importing does not re-export
+names. Each dependency supplies its transitive implementations independently of
+name selection, including implementations of classes declared elsewhere.
 
 Qualified methods support direct calls, stored values, partial application and
 explicit type application. The [module guide](../language/modules.md) contains a
