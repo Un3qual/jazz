@@ -15,17 +15,6 @@ module GenericLibrary {
   change = \(x) -> x == 1.
   result :: Result::Result(Text, Int).
   result = Result::Ok 1.
-  changed = (
-    convert change [1, 2],
-    Queue::toList (convert change (Queue::fromList [1, 2])),
-    convert change (Maybe::Just 1),
-    convert change result,
-    convert change (Result::Err "bad"),
-    NonEmpty::toList (convert change (NonEmpty::NonEmpty 1 [2])),
-    Map::toList (convert change (Map::fromList [("a", 1), ("b", 2)])),
-    Dictionary::toList (convert change (Dictionary::fromList [("b", 2), ("a", 1)])),
-    convert change (Crate 1)).
-
   data Token = Token Int.
   impl Equatable(Token) { equals = \(left, right) -> True. }.
   tokenResult :: Result::Result(Token, Token).
@@ -34,30 +23,42 @@ module GenericLibrary {
   tokenError = Result::Err (Token 1).
   tokenSuccess :: Result::Result(Token, Int).
   tokenSuccess = Result::Ok 1.
-  equalContents = (
-    equals [Token 1] [Token 9],
-    equals (Token 1, Token 2) (Token 8, Token 9),
-    equals (Token 1, Token 2, Token 3) (Token 7, Token 8, Token 9),
-    equals (Maybe::Just (Token 1)) (Maybe::Just (Token 9)),
-    equals tokenResult (Result::Ok (Token 9)),
-    equals (NonEmpty::NonEmpty (Token 1) []) (NonEmpty::NonEmpty (Token 9) []),
-    equals (Queue::fromList [Token 1, Token 2]) (Queue::enqueue (Queue::fromList [Token 8]) (Token 9)),
-    equals (Token 1, 1) (Token 9, 2),
-    equals (Token 1, 1, Token 2) (Token 9, 2, Token 8),
-    equals tokenError (Result::Err (Token 9)),
-    equals tokenSuccess (Result::Ok 2)).
   empty :: [Int].
   empty = [].
   reduceAll = \(values) -> Reduce::reduce (\(left, right) -> left - right) values.
-  reductions = (reduceAll empty, reduceAll [9], reduceAll [9, 3, 1],
-    reduceAll (Queue::fromList [9, 3, 1]),
-    foldLeft (\(count, item) -> count + 1) 0 (Set::singleton (Token 1))).
-  (changed, equalContents, reductions,
-   Text::map (\(character) -> character) "a😀é",
-   map (\(character) -> 1) (Text::toChars "a😀é"),
-   Set::toList (Set::map (Set::fromList [1, 2]) (\(x) -> 0)),
-   combine [1, 2] [3], combine "a" "😀",
-   Queue::toList (combine (Queue::fromList [1]) (Queue::fromList [2])),
-   NonEmpty::toList (combine (NonEmpty::singleton 1) (NonEmpty::singleton 2)),
-   Set::toList (combine (Set::fromList [2, 1]) (Set::fromList [1, 3]))).
+  checks = [
+    ("List mapping changes element type", convert change [1, 2] == [True, False]),
+    ("Queue mapping changes element type", Queue::toList (convert change (Queue::fromList [1, 2])) == [True, False]),
+    ("Maybe mapping changes element type", convert change (Maybe::Just 1) == Maybe::Just True),
+    ("Result success mapping changes element type", convert change result == Result::Ok True),
+    ("Result error mapping preserves the error", convert change (Result::Err "bad") == Result::Err "bad"),
+    ("NonEmpty mapping changes element type", NonEmpty::toList (convert change (NonEmpty::NonEmpty 1 [2])) == [True, False]),
+    ("Map mapping preserves key order", Map::toList (convert change (Map::fromList [("a", 1), ("b", 2)])) == [("a", True), ("b", False)]),
+    ("Dictionary mapping preserves insertion order", Dictionary::toList (convert change (Dictionary::fromList [("b", 2), ("a", 1)])) == [("b", False), ("a", True)]),
+    ("User constructor mapping changes element type", convert change (Crate 1) == Crate True),
+    ("List equality uses element evidence", equals [Token 1] [Token 9]),
+    ("Pair equality uses element evidence", equals (Token 1, Token 2) (Token 8, Token 9)),
+    ("Triple equality uses element evidence", equals (Token 1, Token 2, Token 3) (Token 7, Token 8, Token 9)),
+    ("Maybe equality uses element evidence", equals (Maybe::Just (Token 1)) (Maybe::Just (Token 9))),
+    ("Result success equality uses element evidence", equals tokenResult (Result::Ok (Token 9))),
+    ("NonEmpty equality uses element evidence", equals (NonEmpty::NonEmpty (Token 1) []) (NonEmpty::NonEmpty (Token 9) [])),
+    ("Queue equality uses element evidence", equals (Queue::fromList [Token 1, Token 2]) (Queue::enqueue (Queue::fromList [Token 8]) (Token 9))),
+    ("Pair equality checks every element", equals (Token 1, 1) (Token 9, 2) == False),
+    ("Triple equality checks every element", equals (Token 1, 1, Token 2) (Token 9, 2, Token 8) == False),
+    ("Result error equality uses element evidence", equals tokenError (Result::Err (Token 9))),
+    ("Result success equality rejects different values", equals tokenSuccess (Result::Ok 2) == False),
+    ("Empty reduction", reduceAll empty == Maybe::Nothing),
+    ("Singleton reduction", reduceAll [9] == Maybe::Just 9),
+    ("List reduction order", reduceAll [9, 3, 1] == Maybe::Just 5),
+    ("Queue reduction order", reduceAll (Queue::fromList [9, 3, 1]) == Maybe::Just 5),
+    ("Set folding needs no element ordering", foldLeft (\(count, item) -> count + 1) 0 (Set::singleton (Token 1)) == 1),
+    ("Text mapping preserves Unicode", Text::map (\(character) -> character) "a😀é" == "a😀é"),
+    ("Character list mapping can change element type", map (\(character) -> 1) (Text::toChars "a😀é") == [1, 1, 1]),
+    ("Set mapping deduplicates outputs", Set::toList (Set::map (Set::fromList [1, 2]) (\(x) -> 0)) == [0]),
+    ("List combination", combine [1, 2] [3] == [1, 2, 3]),
+    ("Text combination", combine "a" "😀" == "a😀"),
+    ("Queue combination", Queue::toList (combine (Queue::fromList [1]) (Queue::fromList [2])) == [1, 2]),
+    ("NonEmpty combination", NonEmpty::toList (combine (NonEmpty::singleton 1) (NonEmpty::singleton 2)) == [1, 2]),
+    ("Set combination deduplicates and orders", Set::toList (combine (Set::fromList [2, 1]) (Set::fromList [1, 3])) == [1, 2, 3])].
+  filter (\((_, passed)) -> if passed then False else True) checks.
 }

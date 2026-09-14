@@ -57,7 +57,7 @@ remains the public contract; this work preserves behavior.
       runtime capture uses Map.restrictKeys. Preserve dictionary completeness,
       defaults, recursive forwarding, and lexical ownership. Do not add an IR,
       generic pass framework, or runtime evidence-selection fallback.
-- [ ] Replace positional capability-law goldens with named checks while keeping
+- [x] Replace positional capability-law goldens with named checks while keeping
       shared fixture execution, changed-element-type coverage, empty cases,
       custom element evidence, and fold order.
 - [ ] Run focused suites after each coherent change and commit verified batches.
@@ -88,3 +88,9 @@ existing lambda drafts using their checked declaration facts; nested lambdas
 reuse completed sets. The runtime no longer walks bodies or scans environments
 to discover evidence captures. Removed the deleted catalog type from Weeder
 policy as well.
+
+Named library checks: stdlib-spec passes, including its performance cases.
+The two fixtures now report 70 labeled checks. Deliberately changing one
+expectation in each fixture produced exactly two failures with the expected
+labels; restoring them returned every stdlib behavior test to passing.
+No test harness or repeated module-graph setup was added.

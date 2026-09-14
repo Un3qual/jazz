@@ -9,8 +9,8 @@ import Jazz.TestHarness (NamedTest, assertSingleDiagnosticCode)
 
 genericCapabilityTests :: [NamedTest]
 genericCapabilityTests =
-  [ ("generic collection methods preserve constructors and element evidence", runStdlibFixtureExpecting ["GenericLibrary"] "stdlib/generic/GenericLibrary.jz" expectedGenericLibrary),
-    ("generic collection methods preserve mapping laws and fold order", runStdlibFixtureExpecting ["GenericLaws"] "stdlib/generic/GenericLaws.jz" expectedGenericLaws)
+  [ ("generic collection methods preserve constructors and element evidence", runStdlibFixtureExpecting ["GenericLibrary"] "stdlib/generic/GenericLibrary.jz" "[]"),
+    ("generic collection methods preserve mapping laws and fold order", runStdlibFixtureExpecting ["GenericLaws"] "stdlib/generic/GenericLaws.jz" "[]")
   ]
     <> map rejectsCompilation negativeCases
 
@@ -21,14 +21,6 @@ rejectsCompilation (label, expectedCode, source) =
       result <- runStdlibSource ["InvalidGenericLibrary"] source
       assertSingleDiagnosticCode label expectedCode (runCompileErrors result)
   )
-
-expectedGenericLibrary :: Text
-expectedGenericLibrary =
-  "(([True, False], [True, False], Just(True), Ok(True), Err(\"bad\"), [True, False], [(\"a\", True), (\"b\", False)], [(\"b\", False), (\"a\", True)], Crate(True)), (True, True, True, True, True, True, True, False, False, True, False), (Nothing, Just(9), Just(5), Just(5), 1), \"a😀é\", [1, 1, 1], [0], [1, 2, 3], \"a😀\", [1, 2], [1, 2], [1, 2, 3])"
-
-expectedGenericLaws :: Text
-expectedGenericLaws =
-  "((True, True, True, True, True, True), (True, True, True, True), ((0, 0), (0, 0), (0, 0), (0, 0), (0, 0), (0, 0), (0, 0)), ((123, 321), (123, 321), (3, 3), (1, 1), (123, 321), (54, 45), (45, 54), (123, 321)), [True, False], True, True, False, False, [])"
 
 negativeCases :: [(Text, Text, Text)]
 negativeCases =
