@@ -140,7 +140,7 @@ testCharTextLiteralRendering = do
 
 testCharTextStrictEquality :: IO ()
 testCharTextStrictEquality = do
-  result <- runSource defaultWarningSettings "('a' == 'a', 'a' != 'b', \"Jazz\" == \"Jazz\", \"Jazz\" != \"jazz\", Eq::equals 'a' 'a', Eq::equals \"Jazz\" \"Jazz\")."
+  result <- runSource defaultWarningSettings "('a' == 'a', 'a' != 'b', \"Jazz\" == \"Jazz\", \"Jazz\" != \"jazz\", Equatable::equals 'a' 'a', Equatable::equals \"Jazz\" \"Jazz\")."
   assertEqual "compile errors" [] (runCompileErrors result)
   assertEqual "runtime errors" [] (runRuntimeErrors result)
   assertEqual "runtime output" (Just "(True, True, True, True, True, True)") (runOutput result)
@@ -609,7 +609,7 @@ testTlEmptyListRuntimeError = do
 
 testRuntimeHelperRejectsCanonicalAlias :: IO ()
 testRuntimeHelperRejectsCanonicalAlias = do
-  let result = evaluateFixture (runtimeExpr (expressionVariable "map"))
+  let result = evaluateFixture (runtimeExpr (expressionVariable "filter"))
   assertRuntimeErrorContains "runtime helper canonical alias rejected" "E3002" result
 
 testRuntimeFallbackRejectsHdNonList :: IO ()

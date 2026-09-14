@@ -197,12 +197,12 @@ testSourceKeepsNestedCapabilityFactsScoped = do
   result <- compileExpr defaultWarningSettings program
   assertSingleDiagnosticContains
     "nested capability fact isolation"
-    "missing class declaration 'Eq'"
+    "missing class declaration 'Equatable'"
     (compileErrors result)
   where
     program =
-      case ( loweredProgram "seed = 0. x :: @{Eq(Int)}: Int. x = 1.",
-             loweredProgram "class Eq(a) { }. impl Eq(Int) { }. 0."
+      case ( loweredProgram "seed = 0. x :: @{Equatable(Int)}: Int. x = 1.",
+             loweredProgram "class Equatable(a) { }. impl Equatable(Int) { }. 0."
            ) of
         (EBlock blockNode (SLet bindingNode name _ : statements), nestedProgram) ->
           EBlock blockNode (SLet bindingNode name nestedProgram : statements)
@@ -396,9 +396,9 @@ testSourceAcceptsConcreteConstrainedSignature :: IO ()
 testSourceAcceptsConcreteConstrainedSignature =
   assertSourceOkWithoutPrelude
     """
-    class Eq(a) { }.
-    impl Eq(Int) { }.
-    x :: @{Eq(Int)}: Int.
+    class Equatable(a) { }.
+    impl Equatable(Int) { }.
+    x :: @{Equatable(Int)}: Int.
     x = 1.
     """
 
@@ -406,7 +406,7 @@ testSourceAcceptsBundledConcreteConstrainedSignatureFacts :: IO ()
 testSourceAcceptsBundledConcreteConstrainedSignatureFacts =
   assertSourceOk
     """
-    x :: @{Eq(Int)}: Int.
+    x :: @{Equatable(Int)}: Int.
     x = 1.
     """
 
@@ -465,9 +465,9 @@ testSourceAcceptsAdditionalConcreteConstrainedSignatures = do
     """
   assertSourceOkWithoutPrelude
     """
-    class Ord(a) { }.
-    impl Ord(Int) { }.
-    x :: @{Ord(Int)}: Int.
+    class Comparable(a) { }.
+    impl Comparable(Int) { }.
+    x :: @{Comparable(Int)}: Int.
     x = 1.
     """
   assertSourceOkWithoutPrelude
@@ -482,9 +482,9 @@ testSourceAcceptsConcreteTupleConstrainedSignatureArgument :: IO ()
 testSourceAcceptsConcreteTupleConstrainedSignatureArgument =
   assertSourceOkWithoutPrelude
     """
-    class Eq(a) { }.
-    impl Eq((Int, Bool)) { }.
-    pair :: @{Eq((Int, Bool))}: (Int, Bool).
+    class Equatable(a) { }.
+    impl Equatable((Int, Bool)) { }.
+    pair :: @{Equatable((Int, Bool))}: (Int, Bool).
     pair = (1, True).
     """
 
@@ -493,9 +493,9 @@ testSourceAcceptsAdtApplicationConstrainedSignatureArgument =
   assertSourceOkWithoutPrelude
     """
     data Box a = Box a.
-    class Eq(a) { }.
-    impl Eq(Box(Int)) { }.
-    x :: @{Eq(Box(Int))}: Int.
+    class Equatable(a) { }.
+    impl Equatable(Box(Int)) { }.
+    x :: @{Equatable(Box(Int))}: Int.
     x = 1.
     """
 
@@ -503,7 +503,7 @@ testSourceAcceptsVariableConstrainedSignatureAsMonomorphic :: IO ()
 testSourceAcceptsVariableConstrainedSignatureAsMonomorphic =
   assertSourceOk
     """
-    id :: @{Eq(a)}: a -> a.
+    id :: @{Equatable(a)}: a -> a.
     id = \\(x) -> x.
     id 1.
     """
@@ -512,10 +512,10 @@ testSourceHonorsVisibleFactsForVariableConstrainedSignatures :: IO ()
 testSourceHonorsVisibleFactsForVariableConstrainedSignatures =
   assertSourceOkWithoutPrelude
     """
-    class Eq(a) { }.
-    impl Eq(Int) { }.
-    impl Eq(Bool) { }.
-    id :: @{Eq(a)}: a -> a.
+    class Equatable(a) { }.
+    impl Equatable(Int) { }.
+    impl Equatable(Bool) { }.
+    id :: @{Equatable(a)}: a -> a.
     id = \\(x) -> x.
     x = id 1.
     y = id True.

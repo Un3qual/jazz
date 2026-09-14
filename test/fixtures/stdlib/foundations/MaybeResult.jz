@@ -1,21 +1,23 @@
 module Stdlib::Foundations::MaybeResult {
-  import Maybe.
-  import Result.
-  import Text.
-  (maybeMap (\(item) -> item + 1) (Just 1),
-   maybeAndThen (\(item) -> Just (item + 1)) (Just 2),
-   maybeWithDefault 9 Nothing,
-   maybeOrElse (Just 4) Nothing,
-   maybeFilter (\(item) -> item > 1) (Just 2),
-   maybeFilter (\(item) -> item > 2) (Just 2),
-   maybeIsJust (Just 1), maybeIsNothing Nothing,
-   maybeToList (Just 2), maybeFromList [4, 5],
-   resultMap (\(item) -> item + 1) (Ok 1),
-   resultMapError (\(error) -> textAppend error "!") (Err "bad"),
-   resultAndThen (\(item) -> Ok (item + 1)) (Ok 2),
-   resultRecover (\(error) -> Ok 4) (Err "bad"),
-   resultWithDefault 9 (Err "bad"),
-   resultIsOk (Ok 1), resultIsErr (Err "bad"),
-   resultToMaybe (Ok 2), resultErrorToMaybe (Err "bad"),
-   resultFromMaybe "missing" Nothing, resultFromMaybe "missing" (Just 5)).
+  import Maybe as Maybe.
+  import Maybe (Nothing, Just).
+  import Result as Result.
+  import Result (Err, Ok).
+  import Text as Text.
+  (Maybe::map (\(item) -> item + 1) (Just 1),
+   Maybe::andThen (\(item) -> Just (item + 1)) (Just 2),
+   Maybe::withDefault 9 Nothing,
+   Maybe::orElse (Just 4) Nothing,
+   Maybe::filter (\(item) -> item > 1) (Just 2),
+   Maybe::filter (\(item) -> item > 2) (Just 2),
+   Maybe::isJust (Just 1), Maybe::isNothing Nothing,
+   Maybe::toList (Just 2), Maybe::fromList [4, 5],
+   Result::map (\(item) -> item + 1) (Ok 1),
+   Result::mapError (\(error) -> Text::append error "!") (Err "bad"),
+   Result::andThen (\(item) -> Ok (item + 1)) (Ok 2),
+   Result::recover (\(error) -> Ok 4) (Err "bad"),
+   Result::withDefault 9 (Err "bad"),
+   Result::isOk (Ok 1), Result::isErr (Err "bad"),
+   Result::toMaybe (Ok 2), Result::errorToMaybe (Err "bad"),
+   Result::fromMaybe "missing" Nothing, Result::fromMaybe "missing" (Just 5)).
 }

@@ -1,0 +1,63 @@
+module GenericLibrary {
+  import Queue as Queue.
+  import Maybe as Maybe.
+  import Result as Result.
+  import NonEmpty as NonEmpty.
+  import Map as Map.
+  import Dictionary as Dictionary.
+  import Text as Text.
+  import Set as Set.
+  import Reduce as Reduce.
+
+  data Crate a = Crate a.
+  impl Mappable(Crate) { map = \(change, Crate x) -> Crate (change x). }.
+  convert = \(change, values) -> map change values.
+  change = \(x) -> x == 1.
+  result :: Result::Result(Text, Int).
+  result = Result::Ok 1.
+  changed = (
+    convert change [1, 2],
+    Queue::toList (convert change (Queue::fromList [1, 2])),
+    convert change (Maybe::Just 1),
+    convert change result,
+    convert change (Result::Err "bad"),
+    NonEmpty::toList (convert change (NonEmpty::NonEmpty 1 [2])),
+    Map::toList (convert change (Map::fromList [("a", 1), ("b", 2)])),
+    Dictionary::toList (convert change (Dictionary::fromList [("b", 2), ("a", 1)])),
+    convert change (Crate 1)).
+
+  data Token = Token Int.
+  impl Equatable(Token) { equals = \(left, right) -> True. }.
+  tokenResult :: Result::Result(Token, Token).
+  tokenResult = Result::Ok (Token 1).
+  tokenError :: Result::Result(Token, Int).
+  tokenError = Result::Err (Token 1).
+  tokenSuccess :: Result::Result(Token, Int).
+  tokenSuccess = Result::Ok 1.
+  equalContents = (
+    equals [Token 1] [Token 9],
+    equals (Token 1, Token 2) (Token 8, Token 9),
+    equals (Token 1, Token 2, Token 3) (Token 7, Token 8, Token 9),
+    equals (Maybe::Just (Token 1)) (Maybe::Just (Token 9)),
+    equals tokenResult (Result::Ok (Token 9)),
+    equals (NonEmpty::NonEmpty (Token 1) []) (NonEmpty::NonEmpty (Token 9) []),
+    equals (Queue::fromList [Token 1, Token 2]) (Queue::enqueue (Queue::fromList [Token 8]) (Token 9)),
+    equals (Token 1, 1) (Token 9, 2),
+    equals (Token 1, 1, Token 2) (Token 9, 2, Token 8),
+    equals tokenError (Result::Err (Token 9)),
+    equals tokenSuccess (Result::Ok 2)).
+  empty :: [Int].
+  empty = [].
+  reduceAll = \(values) -> Reduce::reduce (\(left, right) -> left - right) values.
+  reductions = (reduceAll empty, reduceAll [9], reduceAll [9, 3, 1],
+    reduceAll (Queue::fromList [9, 3, 1]),
+    foldLeft (\(count, item) -> count + 1) 0 (Set::singleton (Token 1))).
+  (changed, equalContents, reductions,
+   Text::map (\(character) -> character) "a😀é",
+   map (\(character) -> 1) (Text::toChars "a😀é"),
+   Set::toList (Set::map (Set::fromList [1, 2]) (\(x) -> 0)),
+   combine [1, 2] [3], combine "a" "😀",
+   Queue::toList (combine (Queue::fromList [1]) (Queue::fromList [2])),
+   NonEmpty::toList (combine (NonEmpty::singleton 1) (NonEmpty::singleton 2)),
+   Set::toList (combine (Set::fromList [2, 1]) (Set::fromList [1, 3]))).
+}

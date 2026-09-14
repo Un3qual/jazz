@@ -804,9 +804,9 @@ activeEqualityClassName state =
     classes = Map.toList (inferClassFacts state)
     unqualifiedEqualityClass (CapabilityId name) = case name of
       UserName (ResolvedUserName ImportedModule {} _ _) -> False
-      _ -> identifierText name == "Eq"
+      _ -> identifierText name == "Equatable"
     importedEqualityClass (CapabilityId (UserName (ResolvedUserName ImportedModule {} _ member)), _) =
-      identifierText member == "Eq"
+      identifierText member == "Equatable"
     importedEqualityClass _ = False
 
 typeSchemePrimitiveConstraints :: InferState -> Set InferenceVariable -> [TypeSchemePrimitiveConstraint]
@@ -843,7 +843,7 @@ checkMethodPrimitiveConstraints method spanValue variables assumptions before af
     check current requirement =
       let (label, target) = case requirement of
             TypeSchemeNumericConstraint _ argument -> ("Num", argument)
-            TypeSchemeStrictEqualityConstraint argument -> ("Eq", argument)
+            TypeSchemeStrictEqualityConstraint argument -> ("Equatable", argument)
           owners = [capability | capability@(CapabilityId name) <- Map.keys (scopeClassFacts facts), identifierText name == label]
           entailed capability = case resolveCapabilityEvidence assumptions facts capability Nothing target current of
             Right _ -> True

@@ -910,7 +910,7 @@ testCliExplicitPreludeMatchingBundledSourceEmitsWarnings = do
       ["-Werror=same-scope-rebinding", "--prelude", "tmp/Prelude.jz"]
       envLookup
       configLookup
-      (pure "map = (+ 1). map 2.")
+      (pure "filter = (+ 1). filter 2.")
   assertEqual "exit code" 1 (cliExitCode output)
   assertContains "stderr includes warning code" "W0001" (cliStderr output)
   assertEqual "stdout is suppressed" "" (cliStdout output)
@@ -1589,7 +1589,7 @@ preludeSource :: Text
 preludeSource = "inc = (+ 1)."
 
 bundledPreludeConsumerSource :: Text
-bundledPreludeConsumerSource = "map."
+bundledPreludeConsumerSource = "map @List."
 
 bundledPreludeKernelConsumerSource :: Text
 bundledPreludeKernelConsumerSource = "__kernel_map."

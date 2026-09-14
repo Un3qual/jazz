@@ -5,7 +5,7 @@ module ParserSignature (
   value parseSignatureType,
   value parseSignatureTypes
 ) {
-  import Char (charIsLower).
+  import Char as Char.
   import LexerTypes (
     CanonicalToken,
     IdentifierKind,
@@ -25,8 +25,9 @@ module ParserSignature (
     RightBracketPunctuation,
     CommaPunctuation
   ).
-  import List (listMap, listPrepend, listReverse).
-  import Maybe.
+  import List as List.
+  import Maybe as Maybe.
+  import Maybe (Nothing, Just).
   import ParserToken (
     TokenParser,
     TokenParseSucceeded,
@@ -49,7 +50,7 @@ module ParserSignature (
     tokenRunComplete
   ).
   import ParserTypes.
-  import Text (textAppend, textUncons).
+  import Text as Text.
 
   typeName :: Text -> Text -> SurfaceSignatureType.
   typeName = \(name, memberName) ->
@@ -69,8 +70,8 @@ module ParserSignature (
     else if name == "Float16" then NumericType Float16Type
     else if name == "Float32" then NumericType Float32Type
     else if name == "Float64" then NumericType Float64Type
-    else case textUncons memberName {
-      | Just (first, rest) -> if charIsLower first then TypeVariable name else NamedType name
+    else case Text::uncons memberName {
+      | Just (first, rest) -> if Char::isLower first then TypeVariable name else NamedType name
       | Nothing -> NamedType name
     }.
 
@@ -88,7 +89,7 @@ module ParserSignature (
                     adjacent = if tokensAreAdjacent firstToken separatorToken then
                       tokensAreAdjacent separatorToken memberToken else False.
                     if adjacent then tokenSucceed
-                      (memberToken, textAppend (textAppend qualifier "::") member)
+                      (memberToken, Text::append (Text::append qualifier "::") member)
                       else tokenFailAt
                         (Just (canonicalTokenSpan separatorToken))
                         (ExpectedSyntax
@@ -142,15 +143,15 @@ module ParserSignature (
         | PunctuationKind CommaPunctuation -> tokenKeepRight
           (tokenPunctuation CommaPunctuation)
           (tokenAndThen
-            (\(argument) -> parseAppliedTypeArguments parseType name (listPrepend argument reversed))
+            (\(argument) -> parseAppliedTypeArguments parseType name (List::prepend argument reversed))
             (parseType ()))
         | other -> tokenKeepRight
           (tokenPunctuation RightParenPunctuation)
-          (tokenSucceed (finishAppliedType name (listReverse reversed)))
+          (tokenSucceed (finishAppliedType name (List::reverse reversed)))
       }
       | Nothing -> tokenKeepRight
         (tokenPunctuation RightParenPunctuation)
-        (tokenSucceed (finishAppliedType name (listReverse reversed)))
+        (tokenSucceed (finishAppliedType name (List::reverse reversed)))
     })
     tokenPeek.
 
@@ -181,14 +182,14 @@ module ParserSignature (
         | Just token -> case canonicalTokenKind token {
           | PunctuationKind CommaPunctuation -> tokenKeepRight
             (tokenPunctuation CommaPunctuation)
-            (parseTupleTail parseType (listPrepend next reversed))
+            (parseTupleTail parseType (List::prepend next reversed))
           | other -> tokenKeepRight
             (tokenPunctuation RightParenPunctuation)
-            (tokenSucceed (TupleType (listReverse (listPrepend next reversed))))
+            (tokenSucceed (TupleType (List::reverse (List::prepend next reversed))))
         }
         | Nothing -> tokenKeepRight
           (tokenPunctuation RightParenPunctuation)
-          (tokenSucceed (TupleType (listReverse (listPrepend next reversed))))
+          (tokenSucceed (TupleType (List::reverse (List::prepend next reversed))))
       })
       tokenPeek)
     (parseType ()).
@@ -252,7 +253,7 @@ module ParserSignature (
   parseSignatureType :: TokenParser(SurfaceSignatureType).
   parseSignatureType = parseSignatureTypeFor ().
 
-  splitSignatureTypeTokens :: Int -> Int -> [CanonicalToken] -> [CanonicalToken] -> [[CanonicalToken]] -> Maybe([[CanonicalToken]]).
+  splitSignatureTypeTokens :: Int -> Int -> [CanonicalToken] -> [CanonicalToken] -> [[CanonicalToken]] -> Maybe::Maybe([[CanonicalToken]]).
   splitSignatureTypeTokens = \(parenDepth, bracketDepth, tokens, reversedCurrent, reversedGroups) -> case tokens {
     | [] -> if parenDepth == 0 then if bracketDepth == 0 then case reversedCurrent {
       | [] -> case reversedGroups {
@@ -260,34 +261,34 @@ module ParserSignature (
         | [first | rest] -> Nothing
       }
       | [first | rest] -> Just
-        (listReverse (listPrepend (listReverse reversedCurrent) reversedGroups))
+        (List::reverse (List::prepend (List::reverse reversedCurrent) reversedGroups))
     } else Nothing else Nothing
     | [first | rest] -> case canonicalTokenKind first {
       | PunctuationKind LeftParenPunctuation -> splitSignatureTypeTokens
         (parenDepth + 1)
         bracketDepth
         rest
-        (listPrepend first reversedCurrent)
+        (List::prepend first reversedCurrent)
         reversedGroups
       | PunctuationKind RightParenPunctuation -> if parenDepth == 0 then Nothing else
         splitSignatureTypeTokens
           (parenDepth - 1)
           bracketDepth
           rest
-          (listPrepend first reversedCurrent)
+          (List::prepend first reversedCurrent)
           reversedGroups
       | PunctuationKind LeftBracketPunctuation -> splitSignatureTypeTokens
         parenDepth
         (bracketDepth + 1)
         rest
-        (listPrepend first reversedCurrent)
+        (List::prepend first reversedCurrent)
         reversedGroups
       | PunctuationKind RightBracketPunctuation -> if bracketDepth == 0 then Nothing else
         splitSignatureTypeTokens
           parenDepth
           (bracketDepth - 1)
           rest
-          (listPrepend first reversedCurrent)
+          (List::prepend first reversedCurrent)
           reversedGroups
       | PunctuationKind CommaPunctuation -> if parenDepth == 0 then if bracketDepth == 0 then case reversedCurrent {
         | [] -> Nothing
@@ -296,40 +297,40 @@ module ParserSignature (
           bracketDepth
           rest
           []
-          (listPrepend (listReverse reversedCurrent) reversedGroups)
+          (List::prepend (List::reverse reversedCurrent) reversedGroups)
       } else splitSignatureTypeTokens
         parenDepth
         bracketDepth
         rest
-        (listPrepend first reversedCurrent)
+        (List::prepend first reversedCurrent)
         reversedGroups
         else splitSignatureTypeTokens
           parenDepth
           bracketDepth
           rest
-          (listPrepend first reversedCurrent)
+          (List::prepend first reversedCurrent)
           reversedGroups
       | other -> splitSignatureTypeTokens
         parenDepth
         bracketDepth
         rest
-        (listPrepend first reversedCurrent)
+        (List::prepend first reversedCurrent)
         reversedGroups
     }
   }.
 
-  parseSignatureTypeGroups :: [[CanonicalToken]] -> [SurfaceSignatureType] -> Maybe([SurfaceSignatureType]).
+  parseSignatureTypeGroups :: [[CanonicalToken]] -> [SurfaceSignatureType] -> Maybe::Maybe([SurfaceSignatureType]).
   parseSignatureTypeGroups = \(groups, reversed) -> case groups {
-    | [] -> Just (listReverse reversed)
+    | [] -> Just (List::reverse reversed)
     | [first | rest] -> case tokenRunComplete parseSignatureType first {
       | TokenParseSucceeded signatureType -> parseSignatureTypeGroups
         rest
-        (listPrepend signatureType reversed)
+        (List::prepend signatureType reversed)
       | other -> Nothing
     }
   }.
 
-  parseSignatureTypes :: [CanonicalToken] -> Maybe([SurfaceSignatureType]).
+  parseSignatureTypes :: [CanonicalToken] -> Maybe::Maybe([SurfaceSignatureType]).
   parseSignatureTypes = \(tokens) -> case splitSignatureTypeTokens 0 0 tokens [] [] {
     | Just groups -> parseSignatureTypeGroups groups []
     | Nothing -> Nothing
@@ -351,11 +352,11 @@ module ParserSignature (
         | PunctuationKind CommaPunctuation -> tokenKeepRight
           (tokenPunctuation CommaPunctuation)
           (tokenAndThen
-            (\(constraint) -> parseConstraintTail (listPrepend constraint reversed))
+            (\(constraint) -> parseConstraintTail (List::prepend constraint reversed))
             parseConstraint)
-        | other -> tokenSucceed (listReverse reversed)
+        | other -> tokenSucceed (List::reverse reversed)
       }
-      | Nothing -> tokenSucceed (listReverse reversed)
+      | Nothing -> tokenSucceed (List::reverse reversed)
     })
     tokenPeek.
 
@@ -413,7 +414,7 @@ module ParserSignature (
   parseSignaturePayload :: [CanonicalToken] -> SurfaceSignaturePayload.
   parseSignaturePayload = \(tokens) -> case tokenRunComplete parseSupportedPayload tokens {
     | TokenParseSucceeded payload -> payload
-    | other -> UnsupportedSignature (listMap signatureToken tokens)
+    | other -> UnsupportedSignature (List::map signatureToken tokens)
   }.
 
   invalidConstraintHead :: CanonicalToken -> Text -> TokenParser(()).

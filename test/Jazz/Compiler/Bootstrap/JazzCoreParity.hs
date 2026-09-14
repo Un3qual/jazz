@@ -183,8 +183,8 @@ runJazzModuleBatch inputs =
     """
     import CoreLower (lowerModule).
     import LexerTypes (CanonicalSourcePath, CanonicalSpan).
-    import Maybe.
-    import NonEmpty.
+    import Maybe as Maybe. import Maybe (Nothing, Just).
+    import NonEmpty as NonEmpty. import NonEmpty (NonEmpty).
     import ParserTypes.
     """
     (map renderModuleCall inputs)
@@ -216,8 +216,8 @@ runJazzLoweringBatch loweringFunction expressions =
         """
         import CoreLower (__LOWER__).
         import LexerTypes (CanonicalSpan).
-        import Maybe.
-        import NonEmpty.
+        import Maybe as Maybe. import Maybe (Nothing, Just).
+        import NonEmpty as NonEmpty. import NonEmpty (NonEmpty).
         import ParserTypes.
         """
     )
@@ -242,7 +242,7 @@ runJazzLoweringSourceBatch loweringFunction sources =
         """
         import CoreLower (__LOWER__).
         import LexerTypes (CanonicalSourcePath).
-        import Maybe.
+        import Maybe as Maybe. import Maybe (Nothing, Just).
         import Parser (parseSource).
         import ParserTypes (
           CanonicalSourceSuccess,

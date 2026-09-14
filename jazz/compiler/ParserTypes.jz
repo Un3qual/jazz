@@ -34,12 +34,14 @@ module ParserTypes (
   type CanonicalSourceResult(..)
 ) {
   import LexerTypes.
-  import Maybe.
-  import NonEmpty.
+  import Maybe as Maybe.
+  import Maybe (Nothing, Just).
+  import NonEmpty as NonEmpty.
+  import NonEmpty (NonEmpty).
 
   data SurfaceLiteral
     = IntegerLiteral Text
-    | FractionalLiteral Text Text Maybe(SurfaceNumericType)
+    | FractionalLiteral Text Text Maybe::Maybe(SurfaceNumericType)
     | BooleanLiteral Bool
     | CharacterLiteral Char
     | TextLiteral Text.
@@ -55,7 +57,7 @@ module ParserTypes (
     | AsPattern Text SurfacePattern
     | OrPattern [SurfacePattern].
 
-  data SurfaceCaseArm = SurfaceCaseArm SurfacePattern Maybe(SurfaceExpr) SurfaceExpr.
+  data SurfaceCaseArm = SurfaceCaseArm SurfacePattern Maybe::Maybe(SurfaceExpr) SurfaceExpr.
 
   data SurfaceLambdaParameter = IdentifierParameter Text | PatternParameter SurfacePattern.
 
@@ -149,8 +151,8 @@ module ParserTypes (
       [SurfaceClassMethodSignature] [SurfaceSignatureConstraint] [SurfaceImplMethod]
     | ImplStatement CanonicalSpan Text [SurfaceSignatureType]
       [SurfaceImplMethod] [SurfaceSignatureConstraint]
-    | ModuleStatement CanonicalSpan [Text] Maybe([SurfaceModuleExportSelector])
-    | ImportStatement CanonicalSpan [Text] Maybe(Text) Maybe([Text])
+    | ModuleStatement CanonicalSpan [Text] Maybe::Maybe([SurfaceModuleExportSelector])
+    | ImportStatement CanonicalSpan [Text] Maybe::Maybe(Text) Maybe::Maybe([Text])
     | ExpressionStatement CanonicalSpan SurfaceExpr.
 
   data SurfaceNameNamespace = ValueName | ConstructorName | TypeName | CapabilityName.
@@ -163,7 +165,7 @@ module ParserTypes (
     | SelectedConstructorsSelector NonEmpty(SurfaceLocatedExportName).
 
   data SurfaceModuleExportSelector
-    = NamedExportSelector Maybe(SurfaceNameNamespace) Text
+    = NamedExportSelector Maybe::Maybe(SurfaceNameNamespace) Text
     | TypeExportSelector Text CanonicalSpan SurfaceTypeConstructorSelector.
 
   data ParserEncountered
@@ -172,7 +174,7 @@ module ParserTypes (
     | EndOfInputIn Text
     | FoundToken CanonicalTokenKind Text
     | AtToken CanonicalTokenKind Text
-    | BeforeToken CanonicalTokenKind Text Maybe(Text)
+    | BeforeToken CanonicalTokenKind Text Maybe::Maybe(Text)
     | BeforeBoundary Text
     | ImplicitBoundary.
 
@@ -253,7 +255,7 @@ module ParserTypes (
     | PatternFailure ParserPatternFailure
     | InternalParserFailure ParserInternalInvariant.
 
-  data ParserFailure = ParserFailure Text Maybe(CanonicalSpan) ParserFailureReason.
+  data ParserFailure = ParserFailure Text Maybe::Maybe(CanonicalSpan) ParserFailureReason.
 
   data CanonicalParserResult
     = CanonicalParserSuccess CanonicalSourcePath SurfaceExpr

@@ -1,21 +1,23 @@
 module Stdlib::Foundations::MaybeResultBranches {
-  import Maybe.
-  import Result.
-  import Text.
-  failed :: Result(Text, Int).
+  import Maybe as Maybe.
+  import Maybe (Nothing, Just).
+  import Result as Result.
+  import Result (Err, Ok).
+  import Text as Text.
+  failed :: Result::Result(Text, Int).
   failed = Err "bad".
-  succeeded :: Result(Text, Int).
+  succeeded :: Result::Result(Text, Int).
   succeeded = Ok 2.
-  (maybeMap (\(item) -> item + 1) Nothing,
-   maybeAndThen (\(item) -> Just (item + 1)) Nothing,
-   maybeWithDefault 9 (Just 2), maybeOrElse (Just 4) (Just 2),
-   maybeFilter (\(item) -> item > 1) Nothing,
-   maybeIsJust Nothing, maybeIsNothing (Just 1), maybeToList Nothing, maybeFromList [],
-   resultMap (\(item) -> item + 1) failed,
-   resultMapError (\(error) -> textAppend error "!") succeeded,
-   resultAndThen (\(item) -> Ok (item + 1)) failed,
-   resultRecover (\(error) -> Ok 4) succeeded,
-   resultWithDefault 9 succeeded,
-   resultIsOk failed, resultIsErr succeeded,
-   resultToMaybe failed, resultErrorToMaybe succeeded).
+  (Maybe::map (\(item) -> item + 1) Nothing,
+   Maybe::andThen (\(item) -> Just (item + 1)) Nothing,
+   Maybe::withDefault 9 (Just 2), Maybe::orElse (Just 4) (Just 2),
+   Maybe::filter (\(item) -> item > 1) Nothing,
+   Maybe::isJust Nothing, Maybe::isNothing (Just 1), Maybe::toList Nothing, Maybe::fromList [],
+   Result::map (\(item) -> item + 1) failed,
+   Result::mapError (\(error) -> Text::append error "!") succeeded,
+   Result::andThen (\(item) -> Ok (item + 1)) failed,
+   Result::recover (\(error) -> Ok 4) succeeded,
+   Result::withDefault 9 succeeded,
+   Result::isOk failed, Result::isErr succeeded,
+   Result::toMaybe failed, Result::errorToMaybe succeeded).
 }

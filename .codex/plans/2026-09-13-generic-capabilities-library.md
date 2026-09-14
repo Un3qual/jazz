@@ -22,6 +22,7 @@ target_paths:
   - docs/standard-library/overview.md
   - docs/standard-library/prelude.md
   - docs/standard-library/queue.md
+  - docs/standard-library/reduce.md
   - docs/standard-library/result.md
   - docs/standard-library/set.md
   - docs/standard-library/text.md
@@ -50,6 +51,7 @@ target_paths:
   - jazz/stdlib/Prelude.jz
   - jazz/stdlib/Queue.jz
   - jazz/stdlib/README.md
+  - jazz/stdlib/Reduce.jz
   - jazz/stdlib/Result.jz
   - jazz/stdlib/Set.jz
   - jazz/stdlib/Text.jz
@@ -86,6 +88,7 @@ target_paths:
   - src/Jazz/Compiler/TypeInference.hs
   - src/Jazz/Compiler/TypeInference/Capabilities.hs
   - src/Jazz/Compiler/TypeInference/Scope.hs
+  - test/Jazz/CLI/CLISpec.hs
   - test/Jazz/Compiler/Bootstrap/CanonicalCoreComparisonSpec.hs
   - test/Jazz/Compiler/Bootstrap/JazzCoreModulesCorpusClosureSpec.hs
   - test/Jazz/Compiler/Bootstrap/JazzCoreParity.hs
@@ -125,6 +128,7 @@ target_paths:
   - test/Jazz/Compiler/Semantics/Runtime/CapabilitiesTests.hs
   - test/Jazz/Compiler/Semantics/Runtime/RenderingTests.hs
   - test/Jazz/Compiler/Stdlib/FoundationsTests.hs
+  - test/Jazz/Compiler/Stdlib/GenericCapabilitiesTests.hs
   - test/Jazz/Compiler/Stdlib/LinearCollectionsTests.hs
   - test/Jazz/Compiler/Stdlib/OrderedCollectionsTests.hs
   - test/Jazz/Compiler/Stdlib/StdlibSpec.hs
@@ -137,6 +141,8 @@ target_paths:
   - test/fixtures/stdlib/foundations/MaybeResult.jz
   - test/fixtures/stdlib/foundations/MaybeResultBranches.jz
   - test/fixtures/stdlib/foundations/NonEmpty.jz
+  - test/fixtures/stdlib/generic/GenericLaws.jz
+  - test/fixtures/stdlib/generic/GenericLibrary.jz
   - test/fixtures/stdlib/linear-collections/Dictionary.jz
   - test/fixtures/stdlib/linear-collections/Queue.jz
   - test/fixtures/stdlib/ordered-collections/Map.jz

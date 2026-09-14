@@ -23,20 +23,21 @@ cross-collection mapping implementations.
 The maintainer approved the revised contract, the initial simplifications,
 the compiler-reuse requirements, and the final correctness refinements on
 2026-09-13, explicitly retaining the Reduce module and its safe seedless helper.
-This is an accepted, unimplemented contract delta. Public documentation continues
-to describe shipped behavior until implementation lands. Keep Jazz's evaluation strategy, numeric
-widths and promotion rules, purity boundary, and analyzed-core interpreter.
+This contract is implemented in the Haskell compiler, analyzed-core interpreter,
+and bundled library. Public language and library documentation describe the
+shipped behavior. Jazz retains its evaluation strategy, numeric widths and
+promotion rules, and purity boundary.
 Automatic deriving, overlapping instances, explicit higher-rank
 types, re-exports, new operator transport, and broader self-hosting/native work
 remain outside this change.
 
 ## Context
 
-The current compiler infers and transports some class constraints, but
-`ConcreteImplFact` has a variable-free target, declaration parsing rejects
-variable targets, signature normalization rejects type-variable application,
-and methods use explicit class-qualified references. Class bodies contain
-signatures only. The Prelude exposes a list-specific builtin `map`.
+Before this change, the compiler inferred and transported some class constraints,
+but `ConcreteImplFact` had a variable-free target, declaration parsing rejected
+variable targets, signature normalization rejected type-variable application,
+and methods required explicit class-qualified references. Class bodies contained
+signatures only. The Prelude exposed a list-specific builtin `map`.
 
 The library already has polymorphic functions for collections, optional values,
 and results. Renaming `listMap` to `map` preserves element polymorphism but
@@ -284,7 +285,7 @@ convert = \(change, values) -> map change values.
 counts :: [Int].
 counts = convert (\(character) -> 1) (Text::toChars "abc").
 unchanged = Text::map (\(character) -> character) "abc".
-unique = Set::map (Set::fromList [1, 2, 3]) (\(value) -> 0).
+unique = Set::map (Set::fromList [1, 2, 3]) (\(item) -> 0).
 ```
 
 Expect `[1, 1, 1]`, `"abc"`, and a singleton Set containing 0. There is no

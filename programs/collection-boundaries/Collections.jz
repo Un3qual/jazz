@@ -1,18 +1,18 @@
 module Collections (value wordCounts, value orderedValues, value selectedValues, value pendingValues) {
-  import Dictionary.
-  import Map.
-  import Queue.
-  import Set.
+  import Dictionary as Dictionary.
+  import Map as Map.
+  import Queue as Queue.
+  import Set as Set.
 
-  wordCounts :: Dictionary(Text, Int).
-  wordCounts = dictionaryFromList [("parse", 2), ("run", 1), ("parse", 3)].
+  wordCounts :: Dictionary::Dictionary(Text, Int).
+  wordCounts = Dictionary::fromList [("parse", 2), ("run", 1), ("parse", 3)].
 
-  orderedValues :: Map(Int, Text).
-  orderedValues = mapFromList [(3, "three"), (1, "one"), (2, "two")].
+  orderedValues :: Map::Map(Int, Text).
+  orderedValues = Map::fromList [(3, "three"), (1, "one"), (2, "two")].
 
-  selectedValues :: Set(Int).
-  selectedValues = setFromList [3, 1, 2, 3].
+  selectedValues :: Set::Set(Int).
+  selectedValues = Set::fromList [3, 1, 2, 3].
 
-  pendingValues :: Queue(Text).
-  pendingValues = queueEnqueueAll queueEmpty ["parse", "analyze", "run"].
+  pendingValues :: Queue::Queue(Text).
+  pendingValues = Queue::enqueueAll Queue::empty ["parse", "analyze", "run"].
 }

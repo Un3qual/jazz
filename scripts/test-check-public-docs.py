@@ -136,7 +136,7 @@ class PublicDocsCheckerTests(unittest.TestCase):
         page.write_text(
             page.read_text(encoding="utf-8")
             + '\n```jazz title="API \\"quoted jazz-signature\\" sample" jazz-signature\n'
-            + "maybeMap :: (a -> b) -> Maybe(a) -> Maybe(b).\n```\n",
+            + "map :: (a -> b) -> Maybe(a) -> Maybe(b).\n```\n",
             encoding="utf-8",
         )
         result = self.run_checker()
@@ -159,7 +159,7 @@ class PublicDocsCheckerTests(unittest.TestCase):
         page.write_text(
             page.read_text(encoding="utf-8")
             + "\n```jazz not-jazz-signature\n"
-            + "maybeMap :: (a -> b) -> Maybe(a) -> Maybe(b).\n```\n",
+            + "map :: (a -> b) -> Maybe(a) -> Maybe(b).\n```\n",
             encoding="utf-8",
         )
         self.assert_violation(
@@ -171,7 +171,7 @@ class PublicDocsCheckerTests(unittest.TestCase):
         page.write_text(
             page.read_text(encoding="utf-8")
             + '\n```jazz title="ordinary jazz-signature sample"\n'
-            + "maybeMap :: (a -> b) -> Maybe(a) -> Maybe(b).\n```\n",
+            + "map :: (a -> b) -> Maybe(a) -> Maybe(b).\n```\n",
             encoding="utf-8",
         )
         self.assert_violation(
@@ -183,7 +183,7 @@ class PublicDocsCheckerTests(unittest.TestCase):
         page.write_text(
             page.read_text(encoding="utf-8")
             + "\n```jazz JAZZ-SIGNATURE\n"
-            + "maybeMap :: (a -> b) -> Maybe(a) -> Maybe(b).\n```\n",
+            + "map :: (a -> b) -> Maybe(a) -> Maybe(b).\n```\n",
             encoding="utf-8",
         )
         self.assert_violation(
@@ -195,7 +195,7 @@ class PublicDocsCheckerTests(unittest.TestCase):
         page.write_text(
             page.read_text(encoding="utf-8")
             + "\n```jazz jazz-signature\n"
-            + "maybeMap :: (a -> b) -> Maybe(a) -> Maybe(b).\n~~~\n",
+            + "map :: (a -> b) -> Maybe(a) -> Maybe(b).\n~~~\n",
             encoding="utf-8",
         )
         self.assert_violation(
@@ -207,7 +207,7 @@ class PublicDocsCheckerTests(unittest.TestCase):
         page.write_text(
             page.read_text(encoding="utf-8")
             + "\n````jazz jazz-signature\n"
-            + "maybeMap :: (a -> b) -> Maybe(a) -> Maybe(b).\n```\n",
+            + "map :: (a -> b) -> Maybe(a) -> Maybe(b).\n```\n",
             encoding="utf-8",
         )
         self.assert_violation(

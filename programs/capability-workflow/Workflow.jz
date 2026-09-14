@@ -1,6 +1,6 @@
 module Workflow {
-  import List.
-  import Text.
+  import List as List.
+  import Text as Text.
 
   data Priority = Critical | Normal | Deferred.
 
@@ -12,9 +12,9 @@ module Workflow {
 
   impl Describable(WorkItem) {
     describe = \(item) -> case item {
-      | WorkItem name Critical -> textAppend "critical:" name
-      | WorkItem name Normal -> textAppend "normal:" name
-      | WorkItem name Deferred -> textAppend "deferred:" name
+      | WorkItem name Critical -> Text::append "critical:" name
+      | WorkItem name Normal -> Text::append "normal:" name
+      | WorkItem name Deferred -> Text::append "deferred:" name
     }.
   }.
 
@@ -24,9 +24,9 @@ module Workflow {
   describeAllReversed :: [WorkItem] -> [Text] -> [Text].
   describeAllReversed = \(items, reversed) -> case items {
     | [] -> reversed
-    | [item | rest] -> describeAllReversed rest (listPrepend (describeAny item) reversed)
+    | [item | rest] -> describeAllReversed rest (List::prepend (describeAny item) reversed)
   }.
 
   describeAll :: [WorkItem] -> [Text].
-  describeAll = \(items) -> listReverse (describeAllReversed items []).
+  describeAll = \(items) -> List::reverse (describeAllReversed items []).
 }

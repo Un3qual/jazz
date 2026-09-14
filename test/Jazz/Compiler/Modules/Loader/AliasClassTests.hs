@@ -22,50 +22,50 @@ aliasClassTests =
   [ (label, assertProgram body expected)
   | (label, body, expected) <-
       [ ( "aliased classes dispatch through the original implementation",
-          "Facts::Eq::equals 1 1.",
+          "Facts::Equatable::equals 1 1.",
           "True"
         ),
         ( "aliased class methods remain first-class values",
-          "equal = Facts::Eq::equals. equal 1 2.",
+          "equal = Facts::Equatable::equals. equal 1 2.",
           "False"
         ),
         ( "aliased class methods retain partial application evidence",
-          "equalOne = Facts::Eq::equals 1. equalOne 1.",
+          "equalOne = Facts::Equatable::equals 1. equalOne 1.",
           "True"
         ),
         ( "aliased class methods support explicit instantiation",
-          "Facts::Eq::equals @Int 1 1.",
+          "Facts::Equatable::equals @Int 1 1.",
           "True"
         ),
         ( "qualified class constraints select the aliased class",
-          "same :: @{Facts::Eq(a)}: a -> a -> Bool. same = \\(left, right) -> Facts::Eq::equals left right. same 1 1.",
+          "same :: @{Facts::Equatable(a)}: a -> a -> Bool. same = \\(left, right) -> Facts::Equatable::equals left right. same 1 1.",
           "True"
         ),
         ( "qualified impl heads connect a local type to the imported class",
-          "data Local = Local. impl Facts::Eq(Local) { equals = \\(left, right) -> True. }. Facts::Eq::equals Local Local.",
+          "data Local = Local. impl Facts::Equatable(Local) { equals = \\(left, right) -> True. }. Facts::Equatable::equals Local Local.",
           "True"
         ),
         ( "two aliases share one implementation identity",
-          "import Lib::Facts as Other. (Facts::Eq::equals 1 1, Other::Eq::equals 1 2).",
+          "import Lib::Facts as Other. (Facts::Equatable::equals 1 1, Other::Equatable::equals 1 2).",
           "(True, False)"
         ),
         ( "aliased and unqualified imports share implementation identity",
-          "import Lib::Facts. (Facts::Eq::equals 1 1, Eq::equals 1 2).",
+          "import Lib::Facts. (Facts::Equatable::equals 1 1, Equatable::equals 1 2).",
           "(True, False)"
         ),
         ( "a local same-spelled class remains distinct from an aliased class",
-          "class Eq(a) { equals :: a -> a -> Bool. }. impl Eq(Int) { equals = \\(x, y) -> False. }. (Facts::Eq::equals 1 1, Eq::equals 1 1).",
+          "class Equatable(a) { equals :: a -> a -> Bool. }. impl Equatable(Int) { equals = \\(x, y) -> False. }. (Facts::Equatable::equals 1 1, Equatable::equals 1 1).",
           "(True, False)"
         )
       ]
   ]
     ++ [ (label, assertRejected body code)
        | (label, body, code) <-
-           [ ("qualified class lookup rejects unknown aliases", "Missing::Eq::equals 1 1.", "E4013"),
+           [ ("qualified class lookup rejects unknown aliases", "Missing::Equatable::equals 1 1.", "E4013"),
              ("qualified class lookup rejects missing public classes", "Facts::Missing::equals 1 1.", "E4014"),
              ("qualified class lookup rejects private classes", "Facts::Hidden::hidden 1.", "E4014"),
              ("a same-spelled exported type cannot satisfy class lookup", "Facts::OnlyType::equals 1 1.", "E4014"),
-             ("aliased imports do not expose unqualified classes", "Eq::equals 1 1.", "E4013"),
+             ("aliased imports do not expose unqualified classes", "Equatable::equals 1 1.", "E4013"),
              ("qualified constraint lookup rejects private classes", "same :: @{Facts::Hidden(Int)}: Int. same = 1.", "E4014"),
              ("qualified impl lookup rejects private classes", "impl Facts::Hidden(Int) { hidden = \\(x) -> x. }.", "E4014")
            ]
@@ -73,22 +73,22 @@ aliasClassTests =
     ++ [ ("imported type constructors preserve inferred parameter kinds", testImportedConstructorKinds),
          ("qualified class diagnostics identify the failing source component", testDiagnosticComponents),
          ("qualified method argument errors retain the argument location", testArgumentDiagnostic),
-         ("qualified class constraints reject spaced qualification", assertRejected "same :: @{Facts :: Eq(Int)}: Int. same = 1." "E4004"),
+         ("qualified class constraints reject spaced qualification", assertRejected "same :: @{Facts :: Equatable(Int)}: Int. same = 1." "E4004"),
          ("qualified result types reject spacing before the separator", assertRejected "same :: Int -> Facts :: OnlyType. same = \\(x) -> x." "E4004"),
          ("qualified result types reject spacing after the separator", assertRejected "same :: Int -> Facts:: OnlyType. same = \\(x) -> x." "E4004"),
          ("bare qualified types reject internal spacing", assertRejected "same :: Facts :: OnlyType. same = 1." "E2009"),
-         ("unfinished signatures reject their terminator", assertRejected "broken :: @{Eq(Int. missing = Facts::Hidden::hidden 1." "E4004"),
-         ("parenthesized class constraints reject spaced qualification", assertRejected "same :: @{((Facts :: Eq(Int)))}: Int. same = 1." "E4004"),
-         ("parenthesized class constraints reject overlong qualification", assertRejected "same :: @{(Facts::Eq::Extra(Int))}: Int. same = 1." "E4004"),
-         ("later parenthesized constraints reject spaced qualification", assertRejected "same :: @{((Facts::Eq(Int))), (Facts :: Eq(Int))}: Int. same = 1." "E4004"),
-         ("parenthesized class constraints preserve valid qualification", assertProgram "same :: @{((Facts::Eq(Int)))}: Int. same = 1. same." "1"),
-         ("qualified class constraints reject overlong qualification", assertRejected "same :: @{Facts::Eq::Extra(Int)}: Int. same = 1." "E4004")
+         ("unfinished signatures reject their terminator", assertRejected "broken :: @{Equatable(Int. missing = Facts::Hidden::hidden 1." "E4004"),
+         ("parenthesized class constraints reject spaced qualification", assertRejected "same :: @{((Facts :: Equatable(Int)))}: Int. same = 1." "E4004"),
+         ("parenthesized class constraints reject overlong qualification", assertRejected "same :: @{(Facts::Equatable::Extra(Int))}: Int. same = 1." "E4004"),
+         ("later parenthesized constraints reject spaced qualification", assertRejected "same :: @{((Facts::Equatable(Int))), (Facts :: Equatable(Int))}: Int. same = 1." "E4004"),
+         ("parenthesized class constraints preserve valid qualification", assertProgram "same :: @{((Facts::Equatable(Int)))}: Int. same = 1. same." "1"),
+         ("qualified class constraints reject overlong qualification", assertRejected "same :: @{Facts::Equatable::Extra(Int)}: Int. same = 1." "E4004")
        ]
     ++ [ ( "qualified method lookup diagnoses a missing method",
-           assertFailure "Facts::Eq::absent 1 1." "missing class method"
+           assertFailure "Facts::Equatable::absent 1 1." "missing class method"
          ),
          ( "qualified impl heads retain duplicate implementation rejection",
-           assertFailure "data Local = Local. impl Facts::Eq(Local) { equals = \\(x, y) -> True. }. impl Facts::Eq(Local) { equals = \\(x, y) -> True. }." "duplicate"
+           assertFailure "data Local = Local. impl Facts::Equatable(Local) { equals = \\(x, y) -> True. }. impl Facts::Equatable(Local) { equals = \\(x, y) -> True. }." "duplicate"
          ),
          ("imported constrained values retain private evidence under aliased import", testHiddenEvidence),
          ("same-spelled classes from different modules remain distinct", testDifferentOrigins)
@@ -107,9 +107,9 @@ runProgram body additional =
       [ ("src/App/Main.jz", "module App::Main { import Lib::Facts as Facts. " <> body <> " }"),
         ( "src/Lib/Facts.jz",
           """
-          module Lib::Facts (class Eq, type OnlyType) {
-            class Eq(a) { equals :: a -> a -> Bool. }.
-            impl Eq(Int) { equals = \\(left, right) -> left == right. }.
+          module Lib::Facts (class Equatable, type OnlyType) {
+            class Equatable(a) { equals :: a -> a -> Bool. }.
+            impl Equatable(Int) { equals = \\(left, right) -> left == right. }.
             class Hidden(a) { hidden :: a -> a. }.
             impl Hidden(Int) { hidden = \\(item) -> item. }.
             data OnlyType = OnlyType.
@@ -156,8 +156,8 @@ testDifferentOrigins :: IO ()
 testDifferentOrigins = do
   result <-
     runProgram
-      "import Lib::Other as Other. (Facts::Eq::equals 1 1, Other::Eq::equals 1 1)."
-      [("src/Lib/Other.jz", "class Eq(a) { equals :: a -> a -> Bool. }. impl Eq(Int) { equals = \\(x, y) -> False. }.")]
+      "import Lib::Other as Other. (Facts::Equatable::equals 1 1, Other::Equatable::equals 1 1)."
+      [("src/Lib/Other.jz", "class Equatable(a) { equals :: a -> a -> Bool. }. impl Equatable(Int) { equals = \\(x, y) -> False. }.")]
   assertOutput result "(True, False)"
 
 testHiddenEvidence :: IO ()
@@ -169,8 +169,8 @@ testHiddenEvidence = do
           """
           module Lib::Wrapped (value same) {
             import Lib::Facts as Facts.
-            same :: @{Facts::Eq(a)}: a -> a -> Bool.
-            same = \\(x, y) -> Facts::Eq::equals x y.
+            same :: @{Facts::Equatable(a)}: a -> a -> Bool.
+            same = \\(x, y) -> Facts::Equatable::equals x y.
           }
           """
         )
@@ -181,15 +181,15 @@ testDiagnosticComponents :: IO ()
 testDiagnosticComponents =
   mapM_
     check
-    [ ("Missing::Eq::equals 1 1.", 1),
+    [ ("Missing::Equatable::equals 1 1.", 1),
       ("Facts::Hidden::hidden 1.", 8),
-      ("Facts::Eq::absent 1 1.", 12),
-      ("stored = Facts::Eq::absent.", 21),
-      ("stored = Facts::Eq::absent @Int.", 21),
-      ("Facts::Eq::absent @Int 1 1.", 12),
+      ("Facts::Equatable::absent 1 1.", 19),
+      ("stored = Facts::Equatable::absent.", 28),
+      ("stored = Facts::Equatable::absent @Int.", 28),
+      ("Facts::Equatable::absent @Int 1 1.", 19),
       ("same :: @{Facts::Hidden(Int)}: Int. same = 1.", 18),
-      ("same :: @{Eq(Facts::OnlyType), Facts::OnlyType(Int)}: Int. same = 1.", 39),
-      ("same :: @{Eq(Facts::OnlyType), ((Facts::OnlyType(Int)))}: Int. same = 1.", 41),
+      ("same :: @{Equatable(Facts::OnlyType), Facts::OnlyType(Int)}: Int. same = 1.", 46),
+      ("same :: @{Equatable(Facts::OnlyType), ((Facts::OnlyType(Int)))}: Int. same = 1.", 48),
       ("impl Facts::Hidden(Int) { }.", 13)
     ]
   where
@@ -202,8 +202,8 @@ testDiagnosticComponents =
 
 testArgumentDiagnostic :: IO ()
 testArgumentDiagnostic = do
-  result <- runProgram "\nFacts::Eq::equals [1, \"a\"] 1." []
+  result <- runProgram "\nFacts::Equatable::equals [1, \"a\"] 1." []
   assertSingleDiagnosticPrimaryStart
     "list argument location"
-    (SourceSpanIn "src/App/Main.jz" 2 19)
+    (SourceSpanIn "src/App/Main.jz" 2 26)
     (filter ((== "E2007") . diagnosticCodeText . diagnosticCode) (runCompileErrors result))

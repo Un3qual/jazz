@@ -1998,7 +1998,7 @@ addUndeclaredSignatureConstraintErrors bindingName statementStartState pendingSi
     primitiveObligations =
       [ case primitiveConstraint of
           TypeSchemeNumericConstraint _ targetType -> (True, Left "Num", targetType)
-          TypeSchemeStrictEqualityConstraint targetType -> (True, Left "Eq", targetType)
+          TypeSchemeStrictEqualityConstraint targetType -> (True, Left "Equatable", targetType)
       | primitiveConstraint <- typeSchemePrimitiveConstraints state signatureVariables
       ]
 

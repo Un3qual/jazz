@@ -9,77 +9,77 @@ preserve input order and return new lists without modifying their inputs.
 
 ## Shape
 
-### `listPrepend`
+### `prepend`
 
 ```jazz jazz-signature
-listPrepend :: a -> [a] -> [a].
+prepend :: a -> [a] -> [a].
 ```
 
 Adds a value to the front of a list in `O(1)`.
 
-### `listReverse`
+### `reverse`
 
 ```jazz jazz-signature
-listReverse :: [a] -> [a].
+reverse :: [a] -> [a].
 ```
 
 Returns the values in reverse order in `O(n)`.
 
-### `listLength`
+### `length`
 
 ```jazz jazz-signature
-listLength :: [a] -> Int.
+length :: [a] -> Int.
 ```
 
 Counts the values in `O(n)`.
 
-### `listIsEmpty`
+### `isEmpty`
 
 ```jazz jazz-signature
-listIsEmpty :: [a] -> Bool.
+isEmpty :: [a] -> Bool.
 ```
 
 Returns `True` only for `[]`. This is `O(1)`.
 
 ## Safe access
 
-### `listHead`
+### `head`
 
 ```jazz jazz-signature
-listHead :: [a] -> Maybe(a).
+head :: [a] -> Maybe::Maybe(a).
 ```
 
 Returns `Just` containing the first value, or `Nothing` for `[]`. This is
 `O(1)`.
 
-### `listTail`
+### `tail`
 
 ```jazz jazz-signature
-listTail :: [a] -> Maybe([a]).
+tail :: [a] -> Maybe::Maybe([a]).
 ```
 
 Returns every value after the head, or `Nothing` for `[]`. This is `O(1)`.
 
-### `listLast`
+### `last`
 
 ```jazz jazz-signature
-listLast :: [a] -> Maybe(a).
+last :: [a] -> Maybe::Maybe(a).
 ```
 
 Returns the final value, or `Nothing` for `[]`, in `O(n)`.
 
-### `listInit`
+### `init`
 
 ```jazz jazz-signature
-listInit :: [a] -> Maybe([a]).
+init :: [a] -> Maybe::Maybe([a]).
 ```
 
 Returns every value except the last, or `Nothing` for `[]`, in `O(n)`.
 
-### `listAt`
+### `at`
 
 ```jazz jazz-signature
-listAt :: Int -> [a] -> Maybe(a).
+at :: Int -> [a] -> Maybe::Maybe(a).
 ```
 
 Returns the zero-based value at the index. Negative and out-of-range indices
@@ -87,75 +87,75 @@ return `Nothing`. The cost is `O(min(n, index))` for a non-negative index.
 
 ## Slicing
 
-### `listTake`
+### `take`
 
 ```jazz jazz-signature
-listTake :: Int -> [a] -> [a].
+take :: Int -> [a] -> [a].
 ```
 
 Returns at most the first `count` values. Counts below zero clamp to zero. The
 cost is linear in the returned prefix.
 
-### `listDrop`
+### `drop`
 
 ```jazz jazz-signature
-listDrop :: Int -> [a] -> [a].
+drop :: Int -> [a] -> [a].
 ```
 
 Skips at most the first `count` values. Counts below zero clamp to zero. The
 cost is linear in the skipped prefix.
 
-### `listSplitAt`
+### `splitAt`
 
 ```jazz jazz-signature
-listSplitAt :: Int -> [a] -> ([a], [a]).
+splitAt :: Int -> [a] -> ([a], [a]).
 ```
 
-Returns `(listTake count values, listDrop count values)`. Negative counts yield
+Returns `(take count values, drop count values)`. Negative counts yield
 an empty prefix and the original list as the suffix.
 
 ## Combining
 
-### `listAppend`
+### `append`
 
 ```jazz jazz-signature
-listAppend :: [a] -> [a] -> [a].
+append :: [a] -> [a] -> [a].
 ```
 
 Returns the left list followed by the right list. The cost is `O(n)` in the
 left list.
 
-### `listConcat`
+### `concat`
 
 ```jazz jazz-signature
-listConcat :: [[a]] -> [a].
+concat :: [[a]] -> [a].
 ```
 
 Flattens lists from left to right. The cost is linear in the fragment count and
 the total number of produced values.
 
-### `listRepeat`
+### `repeat`
 
 ```jazz jazz-signature
-listRepeat :: Int -> a -> [a].
+repeat :: Int -> a -> [a].
 ```
 
 Returns `count` copies of a value. Non-positive counts return `[]`. The cost is
 linear in the output length.
 
-### `listIntersperse`
+### `intersperse`
 
 ```jazz jazz-signature
-listIntersperse :: a -> [a] -> [a].
+intersperse :: a -> [a] -> [a].
 ```
 
 Places the separator between adjacent values, never before the first or after
 the last. This is linear in the output length.
 
-### `listIntercalate`
+### `intercalate`
 
 ```jazz jazz-signature
-listIntercalate :: [a] -> [[a]] -> [a].
+intercalate :: [a] -> [[a]] -> [a].
 ```
 
 Inserts the separator list between adjacent fragments and concatenates the
@@ -163,37 +163,37 @@ result. Work is linear in fragments plus produced values.
 
 ## Transforming
 
-### `listMap`
+### `map`
 
 ```jazz jazz-signature
-listMap :: (a -> b) -> [a] -> [b].
+map :: (a -> b) -> [a] -> [b].
 ```
 
 Transforms every value from left to right and preserves order. This is `O(n)`
 plus callback work.
 
-### `listFilter`
+### `filter`
 
 ```jazz jazz-signature
-listFilter :: (a -> Bool) -> [a] -> [a].
+filter :: (a -> Bool) -> [a] -> [a].
 ```
 
 Keeps values whose predicate returns `True`, preserving their order. This is
 `O(n)` plus callback work.
 
-### `listFilterMap`
+### `filterMap`
 
 ```jazz jazz-signature
-listFilterMap :: (a -> Maybe(b)) -> [a] -> [b].
+filterMap :: (a -> Maybe::Maybe(b)) -> [a] -> [b].
 ```
 
 Calls the transform for each value, keeping values inside `Just` and discarding
 `Nothing`. Output order matches input order.
 
-### `listPartition`
+### `partition`
 
 ```jazz jazz-signature
-listPartition :: (a -> Bool) -> [a] -> ([a], [a]).
+partition :: (a -> Bool) -> [a] -> ([a], [a]).
 ```
 
 Returns matching values first and rejected values second. Both lists preserve
@@ -201,78 +201,78 @@ input order. This is `O(n)` plus callback work.
 
 ## Folding
 
-### `listFoldLeft`
+### `foldLeft`
 
 ```jazz jazz-signature
-listFoldLeft :: (b -> a -> b) -> b -> [a] -> b.
+foldLeft :: (b -> a -> b) -> b -> [a] -> b.
 ```
 
 Combines values from left to right, starting with the supplied accumulator.
 This is `O(n)` plus callback work.
 
-### `listFoldRight`
+### `foldRight`
 
 ```jazz jazz-signature
-listFoldRight :: (a -> b -> b) -> b -> [a] -> b.
+foldRight :: (a -> b -> b) -> b -> [a] -> b.
 ```
 
 Combines values from right to left, starting with the supplied terminal value.
 This is `O(n)` plus callback work.
 
-### `listScanLeft`
+### `scanLeft`
 
 ```jazz jazz-signature
-listScanLeft :: (b -> a -> b) -> b -> [a] -> [b].
+scanLeft :: (b -> a -> b) -> b -> [a] -> [b].
 ```
 
 Returns the initial accumulator followed by every successive left-fold result,
 so the output has one more value than the input.
 
-Example: `listScanLeft (\(sum, value) -> sum + value) 0 [1, 2, 3]` produces
+Example: `scanLeft (\(sum, value) -> sum + value) 0 [1, 2, 3]` produces
 `[0, 1, 3, 6]`.
 
 ## Search
 
-### `listAny`
+### `any`
 
 ```jazz jazz-signature
-listAny :: (a -> Bool) -> [a] -> Bool.
+any :: (a -> Bool) -> [a] -> Bool.
 ```
 
 Returns `True` at the first matching value and short-circuits. It returns
 `False` for `[]` and is `O(n)` worst case.
 
-### `listAll`
+### `all`
 
 ```jazz jazz-signature
-listAll :: (a -> Bool) -> [a] -> Bool.
+all :: (a -> Bool) -> [a] -> Bool.
 ```
 
 Returns `False` at the first rejected value and short-circuits. It returns
 `True` for `[]` and is `O(n)` worst case.
 
-### `listContains`
+### `contains`
 
 ```jazz jazz-signature
-listContains :: @{Eq(a)}: a -> [a] -> Bool.
+contains :: @{Equatable(a)}: a -> [a] -> Bool.
 ```
 
 Tests equality against values from left to right and short-circuits at the
-first match. This is `O(n)` worst case and requires `Eq(a)`.
+first match. This is `O(n)` worst case and requires `Equatable(a)`.
 
-### `listFind`
+### `find`
 
 ```jazz jazz-signature
-listFind :: (a -> Bool) -> [a] -> Maybe(a).
+find :: (a -> Bool) -> [a] -> Maybe::Maybe(a).
 ```
 
 Returns the first matching value as `Just`, or `Nothing` when no value matches.
 The search short-circuits and is `O(n)` worst case.
 
-### `listFindIndex`
+### `findIndex`
 
 ```jazz jazz-signature
-listFindIndex :: (a -> Bool) -> [a] -> Maybe(Int).
+findIndex :: (a -> Bool) -> [a] -> Maybe::Maybe(Int).
 ```
 
 Returns the zero-based index of the first match, or `Nothing`. The search
@@ -280,56 +280,56 @@ short-circuits and is `O(n)` worst case.
 
 ## Pair views
 
-### `listZip`
+### `zip`
 
 ```jazz jazz-signature
-listZip :: [a] -> [b] -> [(a, b)].
+zip :: [a] -> [b] -> [(a, b)].
 ```
 
 Pairs corresponding values and stops when either input ends. Example:
-`listZip [1, 2] ["a"]` produces `[(1, "a")]`.
+`zip [1, 2] ["a"]` produces `[(1, "a")]`.
 
-### `listUnzip`
+### `unzip`
 
 ```jazz jazz-signature
-listUnzip :: [(a, b)] -> ([a], [b]).
+unzip :: [(a, b)] -> ([a], [b]).
 ```
 
 Separates pairs into left and right lists while preserving pair order. This is
 `O(n)`.
 
-### `listIndexed`
+### `indexed`
 
 ```jazz jazz-signature
-listIndexed :: [a] -> [(Int, a)].
+indexed :: [a] -> [(Int, a)].
 ```
 
 Pairs values with zero-based indices in input order. This is `O(n)`.
 
 ## Normalization
 
-### `listDistinct`
+### `distinct`
 
 ```jazz jazz-signature
-listDistinct :: @{Eq(a)}: [a] -> [a].
+distinct :: @{Equatable(a)}: [a] -> [a].
 ```
 
 Removes repeated values while preserving the first occurrence of each value.
-This requires `Eq(a)` and is `O(n²)` worst case.
+This requires `Equatable(a)` and is `O(n²)` worst case.
 
-### `listGroup`
+### `group`
 
 ```jazz jazz-signature
-listGroup :: @{Eq(a)}: [a] -> [[a]].
+group :: @{Equatable(a)}: [a] -> [[a]].
 ```
 
 Groups adjacent equal values. Equal values separated by another value remain
 in different groups. This is `O(n)` plus equality work.
 
-### `listGroupBy`
+### `groupBy`
 
 ```jazz jazz-signature
-listGroupBy :: (a -> a -> Bool) -> [a] -> [[a]].
+groupBy :: (a -> a -> Bool) -> [a] -> [[a]].
 ```
 
 Groups runs according to adjacent comparisons. A run continues while the
@@ -338,35 +338,35 @@ This is `O(n)` plus callback work.
 
 ## Ordering
 
-### `listMinimum`
+### `minimum`
 
 ```jazz jazz-signature
-listMinimum :: @{Ord(a)}: [a] -> Maybe(a).
+minimum :: @{Comparable(a)}: [a] -> Maybe::Maybe(a).
 ```
 
 Returns the least value, or `Nothing` for `[]`, in `O(n)`.
 
-### `listMaximum`
+### `maximum`
 
 ```jazz jazz-signature
-listMaximum :: @{Ord(a)}: [a] -> Maybe(a).
+maximum :: @{Comparable(a)}: [a] -> Maybe::Maybe(a).
 ```
 
 Returns the greatest value, or `Nothing` for `[]`, in `O(n)`.
 
-### `listSort`
+### `sort`
 
 ```jazz jazz-signature
-listSort :: @{Ord(a)}: [a] -> [a].
+sort :: @{Comparable(a)}: [a] -> [a].
 ```
 
-Returns a stable ascending merge sort using `Ord(a)`. The cost is
+Returns a stable ascending merge sort using `Comparable(a)`. The cost is
 `O(n log n)`.
 
-### `listSortBy`
+### `sortBy`
 
 ```jazz jazz-signature
-listSortBy :: (a -> a -> Ordering) -> [a] -> [a].
+sortBy :: (a -> a -> Ordering) -> [a] -> [a].
 ```
 
 Returns a stable merge sort ordered by the comparator. `LT` places the left
@@ -374,3 +374,7 @@ value first; `EQ` preserves the input order of equal values. The cost is
 `O(n log n)` plus comparator work.
 
 Functions that may not find a value return [Maybe](maybe.md).
+
+## Generic methods
+
+The Prelude supplies element-based Equatable, Mappable, Reducible, and Combinable instances for List. The specialized functions keep their documented argument order.

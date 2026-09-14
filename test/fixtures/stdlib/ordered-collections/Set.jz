@@ -1,16 +1,16 @@
 module Stdlib::OrderedCollections::Set {
-  import Set.
-  import Text.
-  start = setFromList [3, 1, 2, 2].
-  (setToList setEmpty, setSize setEmpty, setIsEmpty setEmpty,
-   setToList (setSingleton 9), setToList start, setSize start,
-   setContains start 2, setContains start 8,
-   setToList (setUnion start (setFromList [3, 4])),
-   setToList (setIntersection start (setFromList [2, 4])),
-   setToList (setDifference start (setFromList [2, 4])),
-   setIsSubset (setFromList [1, 2]) start, setIsSubset start (setFromList [1, 2]),
-   setToList (setFilter start (\(item) -> item > 1)),
-   setToList (setMap start (\(item) -> if item < 3 then 0 else 1)),
-   setFoldLeft start "" (\(result, item) -> textAppend result (Showable::show item)),
-   setFoldRight start "" (\(item, result) -> textAppend (Showable::show item) result)).
+  import Set as Set.
+  import Text as Text.
+  start = Set::fromList [3, 1, 2, 2].
+  (Set::toList Set::empty, Set::size Set::empty, Set::isEmpty Set::empty,
+   Set::toList (Set::singleton 9), Set::toList start, Set::size start,
+   Set::contains start 2, Set::contains start 8,
+   Set::toList (Set::union start (Set::fromList [3, 4])),
+   Set::toList (Set::intersection start (Set::fromList [2, 4])),
+   Set::toList (Set::difference start (Set::fromList [2, 4])),
+   Set::isSubset (Set::fromList [1, 2]) start, Set::isSubset start (Set::fromList [1, 2]),
+   Set::toList (Set::filter start (\(item) -> item > 1)),
+   Set::toList (Set::map start (\(item) -> if item < 3 then 0 else 1)),
+   Set::foldLeft start "" (\(result, item) -> Text::append result (Showable::show item)),
+   Set::foldRight start "" (\(item, result) -> Text::append (Showable::show item) result)).
 }

@@ -1,5 +1,5 @@
 module Token {
-  import List.
+  import List as List.
 
   data Token
     = LetToken
@@ -27,9 +27,9 @@ module Token {
   classifyTokensReversed :: [Text] -> [Token] -> [Token].
   classifyTokensReversed = \(texts, reversed) -> case texts {
     | [] -> reversed
-    | [text | rest] -> classifyTokensReversed rest (listPrepend (classifyToken text) reversed)
+    | [text | rest] -> classifyTokensReversed rest (List::prepend (classifyToken text) reversed)
   }.
 
   classifyTokens :: [Text] -> [Token].
-  classifyTokens = \(texts) -> listReverse (classifyTokensReversed texts []).
+  classifyTokens = \(texts) -> List::reverse (classifyTokensReversed texts []).
 }

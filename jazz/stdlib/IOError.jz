@@ -11,7 +11,8 @@ module IOError (
   type IOError,
   constructor IOError
 ) {
-  import Maybe.
+  import Maybe as Maybe.
+  import Maybe (Nothing, Just).
 
   data IOErrorCategory
     = NotFound
@@ -23,5 +24,5 @@ module IOError (
     | Unsupported
     | Other.
 
-  data IOError = IOError IOErrorCategory Maybe(Text) Text.
+  data IOError = IOError IOErrorCategory Maybe::Maybe(Text) Text.
 }

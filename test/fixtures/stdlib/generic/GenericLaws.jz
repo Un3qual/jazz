@@ -1,0 +1,48 @@
+module GenericLaws {
+  import Queue as Queue.
+  import Maybe as Maybe.
+  import Result as Result.
+  import NonEmpty as NonEmpty.
+  import Map as Map.
+  import Dictionary as Dictionary.
+  import Set as Set.
+  identity = \(item) -> item.
+  first = \(item) -> item + 1.
+  second = \(item) -> item * 2.
+  composed = \(item) -> second (first item).
+  obeys = \(items) -> if equals (map identity items) items then
+    equals (map composed items) (map second (map first items)) else False.
+  success :: Result::Result(Text, Int).
+  success = Result::Ok 1.
+  failure :: Result::Result(Text, Int).
+  failure = Result::Err "bad".
+  lists = (obeys [1, 2], obeys (Queue::fromList [1, 2]), obeys (Maybe::Just 1),
+    obeys success, obeys failure, obeys (NonEmpty::NonEmpty 1 [2])).
+  ordered = Map::fromList [(2, 4), (1, 5)].
+  inserted = Dictionary::fromList [(2, 4), (1, 5)].
+  mappings = (
+    Map::toList (map identity ordered) == Map::toList ordered,
+    Map::toList (map composed ordered) == Map::toList (map second (map first ordered)),
+    Dictionary::toList (map identity inserted) == Dictionary::toList inserted,
+    Dictionary::toList (map composed inserted) == Dictionary::toList (map second (map first inserted))).
+  digits = \(items) -> (foldLeft (\(acc, item) -> acc * 10 + item) 0 items,
+    foldRight (\(item, acc) -> acc * 10 + item) 0 items).
+  emptyMaybe :: Maybe::Maybe(Int).
+  emptyMaybe = Maybe::Nothing.
+  emptyMap :: Map::Map(Int, Int).
+  emptyMap = Map::empty.
+  emptyDictionary :: Dictionary::Dictionary(Int, Int).
+  emptyDictionary = Dictionary::empty.
+  empties = (
+    digits [], digits (Queue::empty @Int), digits emptyMaybe,
+    digits failure, digits emptyMap,
+    digits emptyDictionary, digits (Set::empty @Int)).
+  folds = (digits [1, 2, 3], digits (Queue::fromList [1, 2, 3]),
+    digits (Maybe::Just 3), digits success, digits (NonEmpty::NonEmpty 1 [2, 3]),
+    digits ordered, digits inserted, digits (Set::fromList [3, 1, 2])).
+  (lists, mappings, empties, folds,
+    map (\(item) -> item == 1) (Set::toList (Set::fromList [2, 1])),
+    equals (Queue::fromList [1, 2]) (Queue::enqueue (Queue::fromList [1]) 2),
+    differs [1] [2], equals emptyMaybe (Maybe::Just 1),
+    equals success failure, map @List (\(item) -> item == 1) []).
+}

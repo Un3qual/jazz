@@ -322,7 +322,7 @@ testQualifiedMethodCandidateCarriesRuntimeEvidence =
         (Text.pack (show methodValue))
       assertContains
         "runtime candidate evidence class"
-        "Eq"
+        "Equatable"
         (Text.pack (show methodValue))
       assertContains
         "runtime candidate evidence target"
@@ -343,7 +343,7 @@ testQualifiedMethodCandidateCarriesRuntimeEvidence =
       expressionBlock
         [ statementClass
             (SourceSpan 1 1)
-            "Eq"
+            "Equatable"
             ["a"]
             [ classMethodSignature
                 "equals"
@@ -358,7 +358,7 @@ testQualifiedMethodCandidateCarriesRuntimeEvidence =
             ],
           statementImpl
             (SourceSpan 3 1)
-            "Eq"
+            "Equatable"
             [TypeInt]
             [ implMethod
                 "equals"
@@ -367,7 +367,7 @@ testQualifiedMethodCandidateCarriesRuntimeEvidence =
             ],
           statementImpl
             (SourceSpan 5 1)
-            "Eq"
+            "Equatable"
             [TypeBool]
             [ implMethod
                 "equals"
@@ -2121,10 +2121,10 @@ testQualifiedMethodDispatchPrefersAliasBindingOverMethodSentinelAtRuntime = do
         evaluateFixture
           ( runtimeExpr
               ( expressionBlock
-                  [ statementLet "Eq::helper" (SourceSpan 1 1) (expressionLambda "itemValue" (expressionLiteral (LBool True))),
+                  [ statementLet "Equatable::helper" (SourceSpan 1 1) (expressionLambda "itemValue" (expressionLiteral (LBool True))),
                     statementClass
                       (SourceSpan 2 1)
-                      "Eq"
+                      "Equatable"
                       ["a"]
                       [ classMethodSignature
                           "helper"
@@ -2136,12 +2136,12 @@ testQualifiedMethodDispatchPrefersAliasBindingOverMethodSentinelAtRuntime = do
                       ],
                     statementImpl
                       (SourceSpan 4 1)
-                      "Eq"
+                      "Equatable"
                       [TypeInt]
                       [implMethod "helper" (SourceSpan 5 1) (expressionLambda "itemValue" (expressionLiteral (LBool False)))],
                     statementExpression
                       (SourceSpan 6 1)
-                      (expressionApply (expressionVariable "Eq::helper") (expressionLiteral (LInt 1)))
+                      (expressionApply (expressionVariable "Equatable::helper") (expressionLiteral (LInt 1)))
                   ]
               )
           )

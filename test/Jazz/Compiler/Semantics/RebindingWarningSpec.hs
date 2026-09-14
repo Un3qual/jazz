@@ -343,7 +343,7 @@ testPromotedUnusedBindingReportsCompileErrors = do
 testBundledPreludeAliasShadowingNoWarning :: IO ()
 testBundledPreludeAliasShadowingNoWarning = do
   settings <- promotedSettings
-  result <- compileSource settings "map = (+ 1). map 2."
+  result <- compileSource settings "filter = (+ 1). filter 2."
   assertEqual "compile errors" [] (compileErrors result)
   assertEqual "warning count" 0 (length (compileWarnings result))
 
@@ -374,7 +374,7 @@ testExplicitPreludeConstructorRebinding = do
 testExplicitPreludeMatchingBundledSourceEmitsWarning :: IO ()
 testExplicitPreludeMatchingBundledSourceEmitsWarning = do
   settings <- promotedSettings
-  result <- compileSourceWithPrelude settings (Just bundledPreludeSource) "map = (+ 1). map 2."
+  result <- compileSourceWithPrelude settings (Just bundledPreludeSource) "filter = (+ 1). filter 2."
   assertEqual "warning count" 0 (length (compileWarnings result))
   assertEqual "error count" 1 (length (compileErrors result))
 
@@ -538,7 +538,7 @@ implMethodUsesBindingProgram =
     [ loweredLet "helper" (SourceSpan 1 1) (loweredLiteral (LInt 1)),
       loweredImpl
         (SourceSpan 2 1)
-        "Eq"
+        "Equatable"
         []
         [loweredImplMethod "equals" (SourceSpan 2 10) (loweredVariable "helper")]
     ]

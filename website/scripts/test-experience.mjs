@@ -560,10 +560,10 @@ test('public docs retain non-obvious numeric, complexity, and module-root contra
 
   const queue = read('docs/standard-library/queue.md');
   const queueIntroduction = queue.split('## Type', 1)[0];
-  assert.match(queueIntroduction, /`queueEmpty` and `queueSingleton`[\s\S]+`O\(1\)`/);
+  assert.match(queueIntroduction, /`empty` and `singleton`[\s\S]+`O\(1\)`/);
 
   const text = read('docs/standard-library/text.md');
-  const repeatSection = text.split('### `textRepeat`', 2)[1].split('\n### ', 1)[0];
+  const repeatSection = text.split('### `repeat`', 2)[1].split('\n### ', 1)[0];
   assert.match(repeatSection, /non-positive[\s\S]+`O\(1\)`/i);
   assert.match(repeatSection, /positive[\s\S]+repetition count plus the output size/i);
 });
@@ -589,6 +589,7 @@ test('standard library navigation exposes one page per module', async () => {
     'standard-library/queue',
     'standard-library/map',
     'standard-library/set',
+    'standard-library/reduce',
     'standard-library/char',
     'standard-library/text',
     'standard-library/io',

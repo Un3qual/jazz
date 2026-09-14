@@ -338,10 +338,10 @@ testSourceInstantiatesRecursiveConstrainedSignaturePerUse :: IO ()
 testSourceInstantiatesRecursiveConstrainedSignaturePerUse =
   assertSourceOkWithoutPrelude
     """
-    class Eq(a) { }.
-    impl Eq(Int) { }.
-    impl Eq(Bool) { }.
-    choose :: @{Eq(a)}: a -> a.
+    class Equatable(a) { }.
+    impl Equatable(Int) { }.
+    impl Equatable(Bool) { }.
+    choose :: @{Equatable(a)}: a -> a.
     choose = if True then \\(x) -> x else choose.
     intValue = choose 1.
     boolValue = choose True.

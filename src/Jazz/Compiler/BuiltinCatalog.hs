@@ -112,9 +112,9 @@ kernelBuiltinNames =
 builtinSymbolOwnership :: BuiltinSymbol -> BuiltinOwnership
 builtinSymbolOwnership builtinSymbol =
   case builtinSymbol of
+    BuiltinMap -> KernelIntrinsic
     -- Compatibility window: these runtime helpers remain kernel-backed for now,
     -- but the ownership contract marks them as prelude-targeted APIs.
-    BuiltinMap -> PreludeTarget
     BuiltinFilter -> PreludeTarget
     BuiltinHd -> PreludeTarget
     BuiltinTl -> PreludeTarget

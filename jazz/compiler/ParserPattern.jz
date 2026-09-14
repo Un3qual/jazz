@@ -3,7 +3,7 @@ module ParserPattern (
   value parseCaseArmPattern,
   value parseLambdaParameter
 ) {
-  import Char (charIsUpper).
+  import Char as Char.
   import LexerTypes (
     CanonicalToken,
     IdentifierKind,
@@ -22,8 +22,9 @@ module ParserPattern (
     RightBracePunctuation,
     CommaPunctuation
   ).
-  import List (listPrepend, listReverse).
-  import Maybe.
+  import List as List.
+  import Maybe as Maybe.
+  import Maybe (Nothing, Just).
   import ParserToken (
     TokenParser,
     canonicalTokenKind,
@@ -47,11 +48,11 @@ module ParserPattern (
   ).
   # ParserTypes remains complete so recursive signatures can name its types.
   import ParserTypes.
-  import Text (textUncons).
+  import Text as Text.
 
   identifierStartsUpper :: Text -> Bool.
-  identifierStartsUpper = \(name) -> case textUncons name {
-    | Just (first, rest) -> charIsUpper first
+  identifierStartsUpper = \(name) -> case Text::uncons name {
+    | Just (first, rest) -> Char::isUpper first
     | Nothing -> False
   }.
 
@@ -117,10 +118,10 @@ module ParserPattern (
         | Just token -> case canonicalTokenKind token {
           | PunctuationKind CommaPunctuation -> tokenKeepRight
             (tokenPunctuation CommaPunctuation)
-            (parseTuplePatternElements (listPrepend next reversed))
-          | other -> tokenSucceed (listReverse (listPrepend next reversed))
+            (parseTuplePatternElements (List::prepend next reversed))
+          | other -> tokenSucceed (List::reverse (List::prepend next reversed))
         }
-        | Nothing -> tokenSucceed (listReverse (listPrepend next reversed))
+        | Nothing -> tokenSucceed (List::reverse (List::prepend next reversed))
       })
       tokenPeek)
     parseCasePattern.
@@ -168,21 +169,21 @@ module ParserPattern (
         | PunctuationKind CommaPunctuation -> tokenKeepRight
           (tokenPunctuation CommaPunctuation)
           (tokenAndThen
-            (\(next) -> collectListPatterns (listPrepend next reversed))
+            (\(next) -> collectListPatterns (List::prepend next reversed))
             parseCasePattern)
         | OperatorKind "|" -> tokenKeepRight
           tokenOperator
           (tokenAndThen
             (\(tailPattern) -> tokenKeepRight
               (tokenPunctuation RightBracketPunctuation)
-              (case listReverse reversed {
+              (case List::reverse reversed {
                 | [headPattern] -> tokenSucceed (ConsListPattern headPattern tailPattern)
                 | other -> tokenFailAt Nothing (PatternFailure ConsLikeListPatternHeadCount)
               }))
             parseCasePattern)
         | PunctuationKind RightBracketPunctuation -> tokenKeepRight
           (tokenPunctuation RightBracketPunctuation)
-          (tokenSucceed (ListPattern (listReverse reversed)))
+          (tokenSucceed (ListPattern (List::reverse reversed)))
         | other -> tokenFailAtSpan
           (canonicalTokenSpan token)
           (ExpectedSyntax "',' or ']'" (FoundToken (canonicalTokenKind token) (canonicalTokenLexeme token)))
@@ -241,12 +242,12 @@ module ParserPattern (
   parseConstructorPatternFrom = \(constructorName, reversed) -> tokenAndThen
     (\(current) -> case current {
       | Just token -> if patternArgumentBoundary token then
-        tokenSucceed (ConstructorPattern constructorName (listReverse reversed))
+        tokenSucceed (ConstructorPattern constructorName (List::reverse reversed))
         else if startsCasePattern token then tokenAndThen
-          (\(next) -> parseConstructorPatternFrom constructorName (listPrepend next reversed))
+          (\(next) -> parseConstructorPatternFrom constructorName (List::prepend next reversed))
           parseConstructorArgumentPattern
-        else tokenSucceed (ConstructorPattern constructorName (listReverse reversed))
-      | Nothing -> tokenSucceed (ConstructorPattern constructorName (listReverse reversed))
+        else tokenSucceed (ConstructorPattern constructorName (List::reverse reversed))
+      | Nothing -> tokenSucceed (ConstructorPattern constructorName (List::reverse reversed))
     })
     tokenPeek.
 
@@ -289,14 +290,14 @@ module ParserPattern (
         | OperatorKind "|" -> tokenKeepRight
           tokenOperator
           (tokenAndThen
-            (\(next) -> collectCasePatternAlternatives (listPrepend next reversed))
+            (\(next) -> collectCasePatternAlternatives (List::prepend next reversed))
             parseCasePattern)
-        | other -> case listReverse reversed {
+        | other -> case List::reverse reversed {
           | [single] -> tokenSucceed single
           | alternatives -> tokenSucceed (OrPattern alternatives)
         }
       }
-      | Nothing -> case listReverse reversed {
+      | Nothing -> case List::reverse reversed {
         | [single] -> tokenSucceed single
         | alternatives -> tokenSucceed (OrPattern alternatives)
       }

@@ -247,12 +247,12 @@ runJazzLexerCount source =
       "module App::Main {\n"
         <> "  import Lexer.\n"
         <> "  import LexerTypes.\n"
-        <> "  import List.\n"
+        <> "  import List as List.\n"
         <> "  case lexSource (CanonicalSourcePath \"fixtures/lexer/large.jz\") "
         <> renderRuntimeValue (VText source)
         <> " {\n"
         <> "    | CanonicalLexFailure _ _ -> 999999\n"
-        <> "    | CanonicalLexSuccess _ tokens -> listLength tokens\n"
+        <> "    | CanonicalLexSuccess _ tokens -> List::length tokens\n"
         <> "  }.\n"
         <> "}"
     lookupSource path =

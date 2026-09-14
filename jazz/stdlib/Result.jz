@@ -1,77 +1,97 @@
 module Result (
   type Result(..),
-  value resultMap,
-  value resultMapError,
-  value resultAndThen,
-  value resultRecover,
-  value resultWithDefault,
-  value resultIsOk,
-  value resultIsErr,
-  value resultToMaybe,
-  value resultErrorToMaybe,
-  value resultFromMaybe
+  value map,
+  value mapError,
+  value andThen,
+  value recover,
+  value withDefault,
+  value isOk,
+  value isErr,
+  value toMaybe,
+  value errorToMaybe,
+  value fromMaybe
 ) {
-  import Maybe.
+  import Maybe as Maybe.
+  import Maybe (Nothing, Just).
 
   data Result e a = Err e | Ok a.
 
-  resultMap :: (a -> b) -> Result(e, a) -> Result(e, b).
-  resultMap = \(transform, result) -> case result {
+  map :: (a -> b) -> Result(e, a) -> Result(e, b).
+  map = \(transform, result) -> case result {
     | Err error -> Err error
     | Ok item -> Ok (transform item)
   }.
 
-  resultMapError :: (e -> f) -> Result(e, a) -> Result(f, a).
-  resultMapError = \(transform, result) -> case result {
+  mapError :: (e -> f) -> Result(e, a) -> Result(f, a).
+  mapError = \(transform, result) -> case result {
     | Err error -> Err (transform error)
     | Ok item -> Ok item
   }.
 
-  resultAndThen :: (a -> Result(e, b)) -> Result(e, a) -> Result(e, b).
-  resultAndThen = \(transform, result) -> case result {
+  andThen :: (a -> Result(e, b)) -> Result(e, a) -> Result(e, b).
+  andThen = \(transform, result) -> case result {
     | Err error -> Err error
     | Ok item -> transform item
   }.
 
-  resultRecover :: (e -> Result(f, a)) -> Result(e, a) -> Result(f, a).
-  resultRecover = \(recover, result) -> case result {
+  recover :: (e -> Result(f, a)) -> Result(e, a) -> Result(f, a).
+  recover = \(recover, result) -> case result {
     | Err error -> recover error
     | Ok item -> Ok item
   }.
 
-  resultWithDefault :: a -> Result(e, a) -> a.
-  resultWithDefault = \(defaultValue, result) -> case result {
+  withDefault :: a -> Result(e, a) -> a.
+  withDefault = \(defaultValue, result) -> case result {
     | Err error -> defaultValue
     | Ok item -> item
   }.
 
-  resultIsOk :: Result(e, a) -> Bool.
-  resultIsOk = \(result) -> case result {
+  isOk :: Result(e, a) -> Bool.
+  isOk = \(result) -> case result {
     | Err error -> False
     | Ok item -> True
   }.
 
-  resultIsErr :: Result(e, a) -> Bool.
-  resultIsErr = \(result) -> case result {
+  isErr :: Result(e, a) -> Bool.
+  isErr = \(result) -> case result {
     | Err error -> True
     | Ok item -> False
   }.
 
-  resultToMaybe :: Result(e, a) -> Maybe(a).
-  resultToMaybe = \(result) -> case result {
+  toMaybe :: Result(e, a) -> Maybe::Maybe(a).
+  toMaybe = \(result) -> case result {
     | Err error -> Nothing
     | Ok item -> Just item
   }.
 
-  resultErrorToMaybe :: Result(e, a) -> Maybe(e).
-  resultErrorToMaybe = \(result) -> case result {
+  errorToMaybe :: Result(e, a) -> Maybe::Maybe(e).
+  errorToMaybe = \(result) -> case result {
     | Err error -> Just error
     | Ok item -> Nothing
   }.
 
-  resultFromMaybe :: e -> Maybe(a) -> Result(e, a).
-  resultFromMaybe = \(error, maybeValue) -> case maybeValue {
+  fromMaybe :: e -> Maybe::Maybe(a) -> Result(e, a).
+  fromMaybe = \(error, maybeValue) -> case maybeValue {
     | Nothing -> Err error
     | Just item -> Ok item
+  }.
+
+  impl @{Equatable(e), Equatable(a)}: Equatable(Result(e, a)) {
+    equals = \(left, right) -> case (left, right) {
+      | (Err x, Err y) -> equals x y
+      | (Ok x, Ok y) -> equals x y
+      | _ -> False
+    }.
+  }.
+  impl Mappable(Result(e)) { map = map. }.
+  impl Reducible(Result(e)) {
+    foldLeft = \(step, initial, item) -> case item {
+      | Err error -> initial
+      | Ok x -> step initial x
+    }.
+    foldRight = \(step, initial, item) -> case item {
+      | Err error -> initial
+      | Ok x -> step x initial
+    }.
   }.
 }

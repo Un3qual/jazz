@@ -1,51 +1,52 @@
 module List (
-  value listPrepend,
-  value listReverse,
-  value listLength,
-  value listIsEmpty,
-  value listHead,
-  value listTail,
-  value listLast,
-  value listInit,
-  value listAt,
-  value listTake,
-  value listDrop,
-  value listSplitAt,
-  value listAppend,
-  value listConcat,
-  value listRepeat,
-  value listIntersperse,
-  value listIntercalate,
-  value listMap,
-  value listFilter,
-  value listFilterMap,
-  value listPartition,
-  value listFoldLeft,
-  value listFoldRight,
-  value listScanLeft,
-  value listAny,
-  value listAll,
-  value listContains,
-  value listFind,
-  value listFindIndex,
-  value listZip,
-  value listUnzip,
-  value listIndexed,
-  value listDistinct,
-  value listGroup,
-  value listGroupBy,
-  value listMinimum,
-  value listMaximum,
-  value listSort,
-  value listSortBy
+  value prepend,
+  value reverse,
+  value length,
+  value isEmpty,
+  value head,
+  value tail,
+  value last,
+  value init,
+  value at,
+  value take,
+  value drop,
+  value splitAt,
+  value append,
+  value concat,
+  value repeat,
+  value intersperse,
+  value intercalate,
+  value map,
+  value filter,
+  value filterMap,
+  value partition,
+  value foldLeft,
+  value foldRight,
+  value scanLeft,
+  value any,
+  value all,
+  value contains,
+  value find,
+  value findIndex,
+  value zip,
+  value unzip,
+  value indexed,
+  value distinct,
+  value group,
+  value groupBy,
+  value minimum,
+  value maximum,
+  value sort,
+  value sortBy
 ) {
-  import Maybe.
+  import Maybe as Maybe.
+  import Maybe (Nothing, Just).
 
-  listPrepend :: a -> [a] -> [a].
-  listPrepend = __kernel_listPrependRaw.
+  prepend :: a -> [a] -> [a].
+  prepend = __kernel_listPrependRaw.
 
-  listReverse :: [a] -> [a].
-  listReverse = __kernel_listReverseRaw.
+  reverse :: [a] -> [a].
+  reverse = __kernel_listReverseRaw.
 
   listLengthFrom :: [a] -> Int -> Int.
   listLengthFrom = \(items, length) -> case items {
@@ -53,245 +54,245 @@ module List (
     | [first | rest] -> listLengthFrom rest (length + 1)
   }.
 
-  listLength :: [a] -> Int.
-  listLength = \(items) -> listLengthFrom items 0.
+  length :: [a] -> Int.
+  length = \(items) -> listLengthFrom items 0.
 
-  listIsEmpty :: [a] -> Bool.
-  listIsEmpty = \(items) -> case items {
+  isEmpty :: [a] -> Bool.
+  isEmpty = \(items) -> case items {
     | [] -> True
     | [first | rest] -> False
   }.
 
-  listHead :: [a] -> Maybe(a).
-  listHead = \(items) -> case items {
+  head :: [a] -> Maybe::Maybe(a).
+  head = \(items) -> case items {
     | [] -> Nothing
     | [first | rest] -> Just first
   }.
 
-  listTail :: [a] -> Maybe([a]).
-  listTail = \(items) -> case items {
+  tail :: [a] -> Maybe::Maybe([a]).
+  tail = \(items) -> case items {
     | [] -> Nothing
     | [first | rest] -> Just rest
   }.
 
-  listLast :: [a] -> Maybe(a).
-  listLast = \(items) -> listHead (listReverse items).
+  last :: [a] -> Maybe::Maybe(a).
+  last = \(items) -> head (reverse items).
 
-  listInit :: [a] -> Maybe([a]).
-  listInit = \(items) -> case listReverse items {
+  init :: [a] -> Maybe::Maybe([a]).
+  init = \(items) -> case reverse items {
     | [] -> Nothing
-    | [last | reversedInit] -> Just (listReverse reversedInit)
+    | [last | reversedInit] -> Just (reverse reversedInit)
   }.
 
-  listAtFrom :: Int -> [a] -> Maybe(a).
+  listAtFrom :: Int -> [a] -> Maybe::Maybe(a).
   listAtFrom = \(index, items) -> case items {
     | [] -> Nothing
     | [first | rest] -> if index == 0 then Just first else listAtFrom (index - 1) rest
   }.
 
-  listAt :: Int -> [a] -> Maybe(a).
-  listAt = \(index, items) -> if index < 0 then Nothing else listAtFrom index items.
+  at :: Int -> [a] -> Maybe::Maybe(a).
+  at = \(index, items) -> if index < 0 then Nothing else listAtFrom index items.
 
   listTakeFrom :: Int -> [a] -> [a] -> [a].
-  listTakeFrom = \(count, items, reversed) -> if count <= 0 then listReverse reversed else case items {
-    | [] -> listReverse reversed
-    | [first | rest] -> listTakeFrom (count - 1) rest (listPrepend first reversed)
+  listTakeFrom = \(count, items, reversed) -> if count <= 0 then reverse reversed else case items {
+    | [] -> reverse reversed
+    | [first | rest] -> listTakeFrom (count - 1) rest (prepend first reversed)
   }.
 
-  listTake :: Int -> [a] -> [a].
-  listTake = \(count, items) -> listTakeFrom count items [].
+  take :: Int -> [a] -> [a].
+  take = \(count, items) -> listTakeFrom count items [].
 
-  listDrop :: Int -> [a] -> [a].
-  listDrop = \(count, items) -> if count <= 0 then items else case items {
+  drop :: Int -> [a] -> [a].
+  drop = \(count, items) -> if count <= 0 then items else case items {
     | [] -> []
-    | [first | rest] -> listDrop (count - 1) rest
+    | [first | rest] -> drop (count - 1) rest
   }.
 
-  listSplitAt :: Int -> [a] -> ([a], [a]).
-  listSplitAt = \(count, items) -> (listTake count items, listDrop count items).
+  splitAt :: Int -> [a] -> ([a], [a]).
+  splitAt = \(count, items) -> (take count items, drop count items).
 
-  listFoldLeft :: (b -> a -> b) -> b -> [a] -> b.
-  listFoldLeft = \(combine, accumulator, items) -> case items {
+  foldLeft :: (b -> a -> b) -> b -> [a] -> b.
+  foldLeft = \(combine, accumulator, items) -> case items {
     | [] -> accumulator
-    | [first | rest] -> listFoldLeft combine (combine accumulator first) rest
+    | [first | rest] -> foldLeft combine (combine accumulator first) rest
   }.
 
-  listFoldRight :: (a -> b -> b) -> b -> [a] -> b.
-  listFoldRight = \(combine, initial, items) -> listFoldLeft (\(accumulator, item) -> combine item accumulator) initial (listReverse items).
+  foldRight :: (a -> b -> b) -> b -> [a] -> b.
+  foldRight = \(combine, initial, items) -> foldLeft (\(accumulator, item) -> combine item accumulator) initial (reverse items).
 
-  listAppend :: [a] -> [a] -> [a].
-  listAppend = \(left, right) -> listFoldLeft (\(result, item) -> listPrepend item result) right (listReverse left).
+  append :: [a] -> [a] -> [a].
+  append = \(left, right) -> foldLeft (\(result, item) -> prepend item result) right (reverse left).
 
-  listConcat :: [[a]] -> [a].
-  listConcat = \(lists) -> listFoldRight listAppend [] lists.
+  concat :: [[a]] -> [a].
+  concat = \(lists) -> foldRight append [] lists.
 
   listRepeatFrom :: Int -> a -> [a] -> [a].
-  listRepeatFrom = \(count, item, reversed) -> if count <= 0 then listReverse reversed else listRepeatFrom (count - 1) item (listPrepend item reversed).
+  listRepeatFrom = \(count, item, reversed) -> if count <= 0 then reverse reversed else listRepeatFrom (count - 1) item (prepend item reversed).
 
-  listRepeat :: Int -> a -> [a].
-  listRepeat = \(count, item) -> listRepeatFrom count item [].
+  repeat :: Int -> a -> [a].
+  repeat = \(count, item) -> listRepeatFrom count item [].
 
   listIntersperseFrom :: a -> [a] -> [a] -> [a].
   listIntersperseFrom = \(separator, items, reversed) -> case items {
-    | [] -> listReverse reversed
-    | [first | rest] -> listIntersperseFrom separator rest (listPrepend first (listPrepend separator reversed))
+    | [] -> reverse reversed
+    | [first | rest] -> listIntersperseFrom separator rest (prepend first (prepend separator reversed))
   }.
 
-  listIntersperse :: a -> [a] -> [a].
-  listIntersperse = \(separator, items) -> case items {
+  intersperse :: a -> [a] -> [a].
+  intersperse = \(separator, items) -> case items {
     | [] -> []
     | [first | rest] -> listIntersperseFrom separator rest [first]
   }.
 
-  listIntercalate :: [a] -> [[a]] -> [a].
-  listIntercalate = \(separator, lists) -> listConcat (listIntersperse separator lists).
+  intercalate :: [a] -> [[a]] -> [a].
+  intercalate = \(separator, lists) -> concat (intersperse separator lists).
 
   listMapFrom :: (a -> b) -> [a] -> [b] -> [b].
   listMapFrom = \(transform, items, reversed) -> case items {
-    | [] -> listReverse reversed
-    | [first | rest] -> listMapFrom transform rest (listPrepend (transform first) reversed)
+    | [] -> reverse reversed
+    | [first | rest] -> listMapFrom transform rest (prepend (transform first) reversed)
   }.
 
-  listMap :: (a -> b) -> [a] -> [b].
-  listMap = \(transform, items) -> listMapFrom transform items [].
+  map :: (a -> b) -> [a] -> [b].
+  map = \(transform, items) -> listMapFrom transform items [].
 
   listFilterFrom :: (a -> Bool) -> [a] -> [a] -> [a].
   listFilterFrom = \(predicate, items, reversed) -> case items {
-    | [] -> listReverse reversed
-    | [first | rest] -> if predicate first then listFilterFrom predicate rest (listPrepend first reversed) else listFilterFrom predicate rest reversed
+    | [] -> reverse reversed
+    | [first | rest] -> if predicate first then listFilterFrom predicate rest (prepend first reversed) else listFilterFrom predicate rest reversed
   }.
 
-  listFilter :: (a -> Bool) -> [a] -> [a].
-  listFilter = \(predicate, items) -> listFilterFrom predicate items [].
+  filter :: (a -> Bool) -> [a] -> [a].
+  filter = \(predicate, items) -> listFilterFrom predicate items [].
 
-  listFilterMapFrom :: (a -> Maybe(b)) -> [a] -> [b] -> [b].
+  listFilterMapFrom :: (a -> Maybe::Maybe(b)) -> [a] -> [b] -> [b].
   listFilterMapFrom = \(transform, items, reversed) -> case items {
-    | [] -> listReverse reversed
+    | [] -> reverse reversed
     | [first | rest] -> case transform first {
       | Nothing -> listFilterMapFrom transform rest reversed
-      | Just item -> listFilterMapFrom transform rest (listPrepend item reversed)
+      | Just item -> listFilterMapFrom transform rest (prepend item reversed)
     }
   }.
 
-  listFilterMap :: (a -> Maybe(b)) -> [a] -> [b].
-  listFilterMap = \(transform, items) -> listFilterMapFrom transform items [].
+  filterMap :: (a -> Maybe::Maybe(b)) -> [a] -> [b].
+  filterMap = \(transform, items) -> listFilterMapFrom transform items [].
 
   listPartitionFrom :: (a -> Bool) -> [a] -> [a] -> [a] -> ([a], [a]).
   listPartitionFrom = \(predicate, items, matching, rejected) -> case items {
-    | [] -> (listReverse matching, listReverse rejected)
-    | [first | rest] -> if predicate first then listPartitionFrom predicate rest (listPrepend first matching) rejected else listPartitionFrom predicate rest matching (listPrepend first rejected)
+    | [] -> (reverse matching, reverse rejected)
+    | [first | rest] -> if predicate first then listPartitionFrom predicate rest (prepend first matching) rejected else listPartitionFrom predicate rest matching (prepend first rejected)
   }.
 
-  listPartition :: (a -> Bool) -> [a] -> ([a], [a]).
-  listPartition = \(predicate, items) -> listPartitionFrom predicate items [] [].
+  partition :: (a -> Bool) -> [a] -> ([a], [a]).
+  partition = \(predicate, items) -> listPartitionFrom predicate items [] [].
 
   listScanLeftFrom :: (b -> a -> b) -> b -> [a] -> [b] -> [b].
   listScanLeftFrom = \(combine, accumulator, items, reversed) -> case items {
-    | [] -> listReverse reversed
+    | [] -> reverse reversed
     | [first | rest] -> { next = combine accumulator first.
-      listScanLeftFrom combine next rest (listPrepend next reversed).
+      listScanLeftFrom combine next rest (prepend next reversed).
     }
   }.
 
-  listScanLeft :: (b -> a -> b) -> b -> [a] -> [b].
-  listScanLeft = \(combine, initial, items) -> listScanLeftFrom combine initial items [initial].
+  scanLeft :: (b -> a -> b) -> b -> [a] -> [b].
+  scanLeft = \(combine, initial, items) -> listScanLeftFrom combine initial items [initial].
 
-  listAny :: (a -> Bool) -> [a] -> Bool.
-  listAny = \(predicate, items) -> case items {
+  any :: (a -> Bool) -> [a] -> Bool.
+  any = \(predicate, items) -> case items {
     | [] -> False
-    | [first | rest] -> if predicate first then True else listAny predicate rest
+    | [first | rest] -> if predicate first then True else any predicate rest
   }.
 
-  listAll :: (a -> Bool) -> [a] -> Bool.
-  listAll = \(predicate, items) -> case items {
+  all :: (a -> Bool) -> [a] -> Bool.
+  all = \(predicate, items) -> case items {
     | [] -> True
-    | [first | rest] -> if predicate first then listAll predicate rest else False
+    | [first | rest] -> if predicate first then all predicate rest else False
   }.
 
-  listContains :: @{Eq(a)}: a -> [a] -> Bool.
-  listContains = \(needle, items) -> listAny (\(item) -> Eq::equals needle item) items.
+  contains :: @{Equatable(a)}: a -> [a] -> Bool.
+  contains = \(needle, items) -> any (\(item) -> Equatable::equals needle item) items.
 
-  listFind :: (a -> Bool) -> [a] -> Maybe(a).
-  listFind = \(predicate, items) -> case items {
+  find :: (a -> Bool) -> [a] -> Maybe::Maybe(a).
+  find = \(predicate, items) -> case items {
     | [] -> Nothing
-    | [first | rest] -> if predicate first then Just first else listFind predicate rest
+    | [first | rest] -> if predicate first then Just first else find predicate rest
   }.
 
-  listFindIndexFrom :: (a -> Bool) -> Int -> [a] -> Maybe(Int).
+  listFindIndexFrom :: (a -> Bool) -> Int -> [a] -> Maybe::Maybe(Int).
   listFindIndexFrom = \(predicate, index, items) -> case items {
     | [] -> Nothing
     | [first | rest] -> if predicate first then Just index else listFindIndexFrom predicate (index + 1) rest
   }.
 
-  listFindIndex :: (a -> Bool) -> [a] -> Maybe(Int).
-  listFindIndex = \(predicate, items) -> listFindIndexFrom predicate 0 items.
+  findIndex :: (a -> Bool) -> [a] -> Maybe::Maybe(Int).
+  findIndex = \(predicate, items) -> listFindIndexFrom predicate 0 items.
 
   listZipFrom :: [a] -> [b] -> [(a, b)] -> [(a, b)].
   listZipFrom = \(left, right, reversed) -> case left {
-    | [] -> listReverse reversed
+    | [] -> reverse reversed
     | [leftFirst | leftRest] -> case right {
-      | [] -> listReverse reversed
-      | [rightFirst | rightRest] -> listZipFrom leftRest rightRest (listPrepend (leftFirst, rightFirst) reversed)
+      | [] -> reverse reversed
+      | [rightFirst | rightRest] -> listZipFrom leftRest rightRest (prepend (leftFirst, rightFirst) reversed)
     }
   }.
 
-  listZip :: [a] -> [b] -> [(a, b)].
-  listZip = \(left, right) -> listZipFrom left right [].
+  zip :: [a] -> [b] -> [(a, b)].
+  zip = \(left, right) -> listZipFrom left right [].
 
   listUnzipFrom :: [(a, b)] -> [a] -> [b] -> ([a], [b]).
   listUnzipFrom = \(pairs, left, right) -> case pairs {
-    | [] -> (listReverse left, listReverse right)
-    | [(leftValue, rightValue) | rest] -> listUnzipFrom rest (listPrepend leftValue left) (listPrepend rightValue right)
+    | [] -> (reverse left, reverse right)
+    | [(leftValue, rightValue) | rest] -> listUnzipFrom rest (prepend leftValue left) (prepend rightValue right)
   }.
 
-  listUnzip :: [(a, b)] -> ([a], [b]).
-  listUnzip = \(pairs) -> listUnzipFrom pairs [] [].
+  unzip :: [(a, b)] -> ([a], [b]).
+  unzip = \(pairs) -> listUnzipFrom pairs [] [].
 
   listIndexedFrom :: Int -> [a] -> [(Int, a)] -> [(Int, a)].
   listIndexedFrom = \(index, items, reversed) -> case items {
-    | [] -> listReverse reversed
-    | [first | rest] -> listIndexedFrom (index + 1) rest (listPrepend (index, first) reversed)
+    | [] -> reverse reversed
+    | [first | rest] -> listIndexedFrom (index + 1) rest (prepend (index, first) reversed)
   }.
 
-  listIndexed :: [a] -> [(Int, a)].
-  listIndexed = \(items) -> listIndexedFrom 0 items [].
+  indexed :: [a] -> [(Int, a)].
+  indexed = \(items) -> listIndexedFrom 0 items [].
 
-  listDistinct :: @{Eq(a)}: [a] -> [a].
-  listDistinct = \(items) -> listFoldLeft (\(result, item) -> if listContains item result then result else listAppend result [item]) [] items.
+  distinct :: @{Equatable(a)}: [a] -> [a].
+  distinct = \(items) -> foldLeft (\(result, item) -> if contains item result then result else append result [item]) [] items.
 
-  listGroupBy :: (a -> a -> Bool) -> [a] -> [[a]].
-  listGroupBy = \(related, items) -> listFoldRight (\(item, groups) -> case groups {
+  groupBy :: (a -> a -> Bool) -> [a] -> [[a]].
+  groupBy = \(related, items) -> foldRight (\(item, groups) -> case groups {
     | [] -> [[item]]
     | [group | restGroups] -> case group {
-      | [] -> listPrepend [item] groups
-      | [first | rest] -> if related item first then listPrepend (listPrepend item group) restGroups else listPrepend [item] groups
+      | [] -> prepend [item] groups
+      | [first | rest] -> if related item first then prepend (prepend item group) restGroups else prepend [item] groups
     }
   }) [] items.
 
-  listGroup :: @{Eq(a)}: [a] -> [[a]].
-  listGroup = \(items) -> listGroupBy (\(left, right) -> Eq::equals left right) items.
+  group :: @{Equatable(a)}: [a] -> [[a]].
+  group = \(items) -> groupBy (\(left, right) -> Equatable::equals left right) items.
 
-  listMinimum :: @{Ord(a)}: [a] -> Maybe(a).
-  listMinimum = \(items) -> case items {
+  minimum :: @{Comparable(a)}: [a] -> Maybe::Maybe(a).
+  minimum = \(items) -> case items {
     | [] -> Nothing
-    | [first | rest] -> Just (listFoldLeft (\(best, item) -> case Ord::compare item best { | LT -> item | EQ -> best | GT -> best }) first rest)
+    | [first | rest] -> Just (foldLeft (\(best, item) -> case Comparable::compare item best { | LT -> item | EQ -> best | GT -> best }) first rest)
   }.
 
-  listMaximum :: @{Ord(a)}: [a] -> Maybe(a).
-  listMaximum = \(items) -> case items {
+  maximum :: @{Comparable(a)}: [a] -> Maybe::Maybe(a).
+  maximum = \(items) -> case items {
     | [] -> Nothing
-    | [first | rest] -> Just (listFoldLeft (\(best, item) -> case Ord::compare item best { | LT -> best | EQ -> best | GT -> item }) first rest)
+    | [first | rest] -> Just (foldLeft (\(best, item) -> case Comparable::compare item best { | LT -> best | EQ -> best | GT -> item }) first rest)
   }.
 
   listMergeByFrom :: (a -> a -> Ordering) -> [a] -> [a] -> [a] -> [a].
   listMergeByFrom = \(compare, left, right, reversed) -> case left {
-    | [] -> listFoldLeft (\(result, item) -> listPrepend item result) right reversed
+    | [] -> foldLeft (\(result, item) -> prepend item result) right reversed
     | [leftFirst | leftRest] -> case right {
-      | [] -> listFoldLeft (\(result, item) -> listPrepend item result) left reversed
+      | [] -> foldLeft (\(result, item) -> prepend item result) left reversed
       | [rightFirst | rightRest] -> case compare leftFirst rightFirst {
-        | LT -> listMergeByFrom compare leftRest right (listPrepend leftFirst reversed)
-        | EQ -> listMergeByFrom compare leftRest right (listPrepend leftFirst reversed)
-        | GT -> listMergeByFrom compare left rightRest (listPrepend rightFirst reversed)
+        | LT -> listMergeByFrom compare leftRest right (prepend leftFirst reversed)
+        | EQ -> listMergeByFrom compare leftRest right (prepend leftFirst reversed)
+        | GT -> listMergeByFrom compare left rightRest (prepend rightFirst reversed)
       }
     }
   }.
@@ -301,10 +302,10 @@ module List (
 
   listMergePairsByFrom :: (a -> a -> Ordering) -> [[a]] -> [[a]] -> [[a]].
   listMergePairsByFrom = \(compare, runs, reversed) -> case runs {
-    | [] -> listReverse reversed
+    | [] -> reverse reversed
     | [first | remaining] -> case remaining {
-      | [] -> listReverse (listPrepend first reversed)
-      | [second | rest] -> listMergePairsByFrom compare rest (listPrepend (listMergeBy compare first second) reversed)
+      | [] -> reverse (prepend first reversed)
+      | [second | rest] -> listMergePairsByFrom compare rest (prepend (listMergeBy compare first second) reversed)
     }
   }.
 
@@ -320,9 +321,9 @@ module List (
     }
   }.
 
-  listSortBy :: (a -> a -> Ordering) -> [a] -> [a].
-  listSortBy = \(compare, items) -> listMergeRunsBy compare (listMap (\(item) -> [item]) items).
+  sortBy :: (a -> a -> Ordering) -> [a] -> [a].
+  sortBy = \(compare, items) -> listMergeRunsBy compare (map (\(item) -> [item]) items).
 
-  listSort :: @{Ord(a)}: [a] -> [a].
-  listSort = \(items) -> listSortBy (\(left, right) -> Ord::compare left right) items.
+  sort :: @{Comparable(a)}: [a] -> [a].
+  sort = \(items) -> sortBy (\(left, right) -> Comparable::compare left right) items.
 }

@@ -126,10 +126,10 @@ assertSourceSingleErrorCodeAndPrimarySpan src expectedCode expectedSpan = do
 qualifiedEqSource :: Text.Text
 qualifiedEqSource =
   """
-  class Eq(a) {
+  class Equatable(a) {
   equals :: a -> a -> Bool.
   }.
-  impl Eq(Int) {
+  impl Equatable(Int) {
   equals = \\(left, right) -> left == right.
   }.
 

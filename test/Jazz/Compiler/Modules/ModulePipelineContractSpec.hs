@@ -319,8 +319,8 @@ testSingleModuleAnalysis = do
   where
     sources =
       Map.fromList
-        [ ("src/App/Main.jz", "module App::Main (result) { import Lib::Facts as Facts. import Lib::Facts (Box). result = Facts::identity @Int (case Facts::Box 1 { | Box item -> if Facts::Eq::equals item 1 then item else 0 }). result. }"),
-          ("src/Lib/Facts.jz", "module Lib::Facts (identity, type Box(Box), Eq) { import Lib::Hidden. privateHelper = \\(item) -> item. identity :: a -> a. identity = \\(item) -> privateHelper item. data Box a = Box a. data Unused = Unused. class Eq(a) { equals :: a -> a -> Bool. }. impl Eq(Int) { equals = \\(left, right) -> left == right + hiddenZero. }. }"),
+        [ ("src/App/Main.jz", "module App::Main (result) { import Lib::Facts as Facts. import Lib::Facts (Box). result = Facts::identity @Int (case Facts::Box 1 { | Box item -> if Facts::Equatable::equals item 1 then item else 0 }). result. }"),
+          ("src/Lib/Facts.jz", "module Lib::Facts (identity, type Box(Box), Equatable) { import Lib::Hidden. privateHelper = \\(item) -> item. identity :: a -> a. identity = \\(item) -> privateHelper item. data Box a = Box a. data Unused = Unused. class Equatable(a) { equals :: a -> a -> Bool. }. impl Equatable(Int) { equals = \\(left, right) -> left == right + hiddenZero. }. }"),
           ("src/Lib/Hidden.jz", "module Lib::Hidden { hiddenZero = 0. }")
         ]
     dependencyInterface scope interfaces importDecl =
@@ -622,7 +622,7 @@ testCheckedSubtreeOwnership = do
   mapM_
     (assertOwnedBlock inputs)
     [ "identity :: a -> a. identity = \\(item) -> item. first = identity @Int 1. identity = True. (first, identity).",
-      "data Box a = Box a. class Eq(a) { equals :: a -> a -> Bool. }. impl Eq(Int) { equals = \\(left, right) -> left == right. }. result = case Box 1 { | Box item -> Eq::equals @Int item 1 }. result.",
+      "data Box a = Box a. class Equatable(a) { equals :: a -> a -> Bool. }. impl Equatable(Int) { equals = \\(left, right) -> left == right. }. result = case Box 1 { | Box item -> Equatable::equals @Int item 1 }. result.",
       "left = \\(item) -> if True then item else right item. between = left 1. right = \\(item) -> left item. (between, right True)."
     ]
   where
@@ -1030,22 +1030,22 @@ factCompletenessSources =
         """
         module App::Main (result) {
         import Lib::Facts.
-        result = identity @Int (case Box 1 { | Box item -> if Eq::equals item 1 then item else 0 }).
+        result = identity @Int (case Box 1 { | Box item -> if Equatable::equals item 1 then item else 0 }).
         result.
         }
         """
       ),
       ( "src/Lib/Facts.jz",
         """
-        module Lib::Facts (identity, countdown, increment, type Box(Box), Eq) {
+        module Lib::Facts (identity, countdown, increment, type Box(Box), Equatable) {
         identity :: a -> a.
         identity = \\(item) -> item.
         countdown :: Int -> Int.
         countdown = \\(number) -> if number == 0 then 0 else countdown (number - 1).
         increment = \\(number) -> number + 1.
         data Box a = Box a.
-        class Eq(a) { equals :: a -> a -> Bool. }.
-        impl Eq(Int) { equals = \\(left, right) -> left == right. }.
+        class Equatable(a) { equals :: a -> a -> Bool. }.
+        impl Equatable(Int) { equals = \\(left, right) -> left == right. }.
         }
         """
       )
@@ -1379,7 +1379,7 @@ testRuntimeModulePublishesPublicClassMethodsOnly = do
               publicExport _ = True
           assertEqual
             "public class includes its ordinary method, without private method names"
-            (Set.fromList [RuntimeBindingExport (ModuleExport ValueNamespace "equals"), RuntimeCapabilityMethodExport (CapabilityId (resolvedImportedName (nominalModulePath ("Lib" :| ["Facts"])) CapabilityNamespace (mkIdentifier "Eq"))) (mkIdentifier "equals")])
+            (Set.fromList [RuntimeBindingExport (ModuleExport ValueNamespace "equals"), RuntimeCapabilityMethodExport (CapabilityId (resolvedImportedName (nominalModulePath ("Lib" :| ["Facts"])) CapabilityNamespace (mkIdentifier "Equatable"))) (mkIdentifier "equals")])
             (Set.filter publicExport exports)
           assertEqual
             "both implementation cells survive name selection"
@@ -1413,21 +1413,21 @@ explicitCapabilitySources =
     [ ( "src/App/Main.jz",
         """
         module App::Main {
-        import Lib::Facts (Eq).
-        Eq::equals 1 1.
+        import Lib::Facts (Equatable).
+        Equatable::equals 1 1.
         }
         """
       ),
       ( "src/Lib/Facts.jz",
         """
-        module Lib::Facts (Eq) {
-        class Eq(a) {
+        module Lib::Facts (Equatable) {
+        class Equatable(a) {
         equals :: a -> a -> Bool.
         }.
         class Hidden(a) {
         secret :: a -> Bool.
         }.
-        impl Eq(Int) {
+        impl Equatable(Int) {
         equals = \\(left, right) -> True.
         }.
         impl Hidden(Int) {

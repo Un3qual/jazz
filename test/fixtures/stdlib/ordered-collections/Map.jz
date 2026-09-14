@@ -1,7 +1,7 @@
 module Stdlib::OrderedCollections::Map {
-  import Map.
-  start = mapFromList [(3, "three"), (1, "one"), (2, "two"), (2, "TWO")].
-  (mapToList mapEmpty, mapSize mapEmpty, mapIsEmpty mapEmpty,
-   mapToList (mapSingleton 9 "nine"), mapToList start, mapSize start,
-   mapLookup start 2, mapLookup start 8, mapGetOr start 8 "fallback", mapContainsKey start 3).
+  import Map as Map.
+  start = Map::fromList [(3, "three"), (1, "one"), (2, "two"), (2, "TWO")].
+  (Map::toList Map::empty, Map::size Map::empty, Map::isEmpty Map::empty,
+   Map::toList (Map::singleton 9 "nine"), Map::toList start, Map::size start,
+   Map::lookup start 2, Map::lookup start 8, Map::getOr start 8 "fallback", Map::containsKey start 3).
 }

@@ -1,12 +1,12 @@
 module Sieve (value primeSummary) {
-  import List.
+  import List as List.
 
   integerRangeFrom =
     \(current, upper) ->
       if current > upper then
         []
       else
-        listPrepend current $ integerRangeFrom (current + 1) upper.
+        List::prepend current $ integerRangeFrom (current + 1) upper.
 
   remainder =
     \(number, divisor) ->
@@ -15,18 +15,18 @@ module Sieve (value primeSummary) {
   sieve =
     \|([]) -> []
      |([prime | rest]) ->
-      listPrepend prime $
-        sieve $ listFilter (\(candidate) -> remainder candidate prime != 0) rest.
+      List::prepend prime $
+        sieve $ List::filter (\(candidate) -> remainder candidate prime != 0) rest.
 
   lastItem =
     \|([]) -> 0
      |([item]) -> item
      |([_ | rest]) -> lastItem rest.
 
-  sumItems = listFoldLeft (+) 0.
+  sumItems = List::foldLeft (+) 0.
 
   primeSummary =
     case sieve (integerRangeFrom 2 2000) {
-      | primes -> (listLength primes, lastItem primes, sumItems primes)
+      | primes -> (List::length primes, lastItem primes, sumItems primes)
     }.
 }

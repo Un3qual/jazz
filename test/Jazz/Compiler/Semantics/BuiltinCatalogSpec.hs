@@ -92,7 +92,7 @@ tests =
     ("bundled prelude comparison normalizes line endings", testBundledPreludeComparisonNormalizesLineEndings),
     ("bundled prelude keeps text traversal intrinsics private", testBundledPreludeKeepsTextTraversalIntrinsicsPrivate),
     ("bundled prelude keeps host IO intrinsics private", testBundledPreludeKeepsHostIOIntrinsicsPrivate),
-    ("bundled prelude includes Eq Float64 equals method body", testBundledPreludeIncludesEqFloat64EqualsMethodBody),
+    ("bundled prelude includes Equatable Float64 equals method body", testBundledPreludeIncludesEqFloat64EqualsMethodBody),
     ("direct compile helper stays kernel-only", testDirectCompileHelperStaysKernelOnly),
     ("compile pipeline treats catalog builtins as bound names", testCompilePipelineTreatsCatalogBuiltinsAsBound),
     ("runtime exposes catalog builtins as callable values", testRuntimeExposesCatalogBuiltinsAsFunctions),
@@ -103,7 +103,7 @@ tests =
 
 expectedBuiltins :: [(BuiltinSymbol, Text, Int, BuiltinOwnership)]
 expectedBuiltins =
-  [ (BuiltinMap, "map", 2, PreludeTarget),
+  [ (BuiltinMap, "map", 2, KernelIntrinsic),
     (BuiltinFilter, "filter", 2, PreludeTarget),
     (BuiltinHd, "hd", 1, PreludeTarget),
     (BuiltinTl, "tl", 1, PreludeTarget),
@@ -281,9 +281,9 @@ testBundledPreludeKeepsHostIOIntrinsicsPrivate =
 testBundledPreludeIncludesEqFloat64EqualsMethodBody :: IO ()
 testBundledPreludeIncludesEqFloat64EqualsMethodBody =
   assertContains
-    "bundled prelude renders Eq(Float64).equals body"
+    "bundled prelude renders Equatable(Float64).equals body"
     ( """
-      impl Eq(Float64) {
+      impl Equatable(Float64) {
       equals = \\(left, right) -> left == right.
       }.
 

@@ -38,21 +38,21 @@ testDictionaryModelTrace = do
       ["Stdlib", "LinearCollections", "DictionaryModelTrace"]
       """
       module Stdlib::LinearCollections::DictionaryModelTrace {
-        import Dictionary.
-        import Maybe.
+        import Dictionary as Dictionary.
+        import Maybe as Maybe. import Maybe (Nothing, Just).
         build = \\(remaining, dictionary) -> case remaining {
           | 0 -> dictionary
-          | _ -> build (remaining - 1) (dictionaryInsert dictionary remaining (remaining * 2))
+          | _ -> build (remaining - 1) (Dictionary::insert dictionary remaining (remaining * 2))
         }.
         remove = \\(remaining, dictionary) -> case remaining {
           | 0 -> dictionary
-          | _ -> remove (remaining - 1) (dictionaryRemove dictionary remaining)
+          | _ -> remove (remaining - 1) (Dictionary::remove dictionary remaining)
         }.
-        dictionary = remove 150 (build 300 dictionaryEmpty).
-        (dictionarySize dictionary,
-         dictionaryLookup dictionary 1, dictionaryLookup dictionary 150,
-         dictionaryLookup dictionary 151, dictionaryLookup dictionary 300,
-         dictionaryFoldLeft dictionary 0 (\\(total, key, entry) -> total + key + entry)).
+        dictionary = remove 150 (build 300 Dictionary::empty).
+        (Dictionary::size dictionary,
+         Dictionary::lookup dictionary 1, Dictionary::lookup dictionary 150,
+         Dictionary::lookup dictionary 151, Dictionary::lookup dictionary 300,
+         Dictionary::foldLeft dictionary 0 (\\(total, key, entry) -> total + key + entry)).
       }
       """
   assertSuccessfulStdlibOutput expectedDictionaryModel result
@@ -64,17 +64,17 @@ testQueueModelTrace = do
       ["Stdlib", "LinearCollections", "QueueModelTrace"]
       """
       module Stdlib::LinearCollections::QueueModelTrace {
-        import Queue.
-        import Maybe.
+        import Queue as Queue.
+        import Maybe as Maybe. import Maybe (Nothing, Just).
         build = \\(remaining, queue) -> case remaining {
           | 0 -> queue
-          | _ -> build (remaining - 1) (queueEnqueue queue remaining)
+          | _ -> build (remaining - 1) (Queue::enqueue queue remaining)
         }.
-        drain = \\(queue, count, total) -> case queueDequeue queue {
+        drain = \\(queue, count, total) -> case Queue::dequeue queue {
           | Nothing -> (count, total)
           | Just (item, remaining) -> drain remaining (count + 1) (total + item)
         }.
-        drain (build 50000 queueEmpty) 0 0.
+        drain (build 50000 Queue::empty) 0 0.
       }
       """
   assertSuccessfulStdlibOutput expectedQueueModel result
@@ -86,7 +86,7 @@ testPrivateConstructors = do
     "Dictionary"
     """
     module Stdlib::LinearCollections::PrivateDictionary {
-      import Dictionary.
+      import Dictionary as Dictionary.
       Dictionary.
     }
     """
@@ -95,7 +95,7 @@ testPrivateConstructors = do
     "Queue"
     """
     module Stdlib::LinearCollections::PrivateQueue {
-      import Queue.
+      import Queue as Queue.
       Queue.
     }
     """

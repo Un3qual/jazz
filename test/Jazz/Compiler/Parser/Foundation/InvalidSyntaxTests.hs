@@ -161,7 +161,7 @@ testRejectsMissingSignatureDotBeforeClass =
     ( parseSurfaceProgram
         """
         x :: Int
-        class Eq { }.
+        class Equatable { }.
         """
     )
 
@@ -177,77 +177,77 @@ testRejectsClassCapabilityDeclarationWithoutParameters =
   assertLeftDiagnosticContains
     "class capability declaration without parameters"
     "explicit parameter list"
-    (parseSurfaceProgram "class Eq { }.")
+    (parseSurfaceProgram "class Equatable { }.")
 
 testRejectsClassCapabilityDeclarationWithMultipleParameters :: IO ()
 testRejectsClassCapabilityDeclarationWithMultipleParameters =
   assertLeftDiagnosticContains
     "class capability declaration with multiple parameters"
     "exactly one parameter"
-    (parseSurfaceProgram "class Eq(a, b) { }.")
+    (parseSurfaceProgram "class Equatable(a, b) { }.")
 
 testRejectsDuplicateClassDefaults :: IO ()
 testRejectsDuplicateClassDefaults =
   assertLeftDiagnosticContains
     "duplicate class defaults"
     "duplicate method signature 'equals'"
-    (parseSurfaceProgram "class Eq(a) { equals = \\(item) -> item. equals = \\(item) -> item. }.")
+    (parseSurfaceProgram "class Equatable(a) { equals = \\(item) -> item. equals = \\(item) -> item. }.")
 
 testRejectsDuplicateClassMethodSignatures :: IO ()
 testRejectsDuplicateClassMethodSignatures =
   assertLeftDiagnosticContains
     "duplicate class method signature"
     "duplicate method signature 'equals'"
-    (parseSurfaceProgram "class Eq(a) { equals :: Int. equals :: Bool. }.")
+    (parseSurfaceProgram "class Equatable(a) { equals :: Int. equals :: Bool. }.")
 
 testRejectsNonSignatureClassBodyItem :: IO ()
 testRejectsNonSignatureClassBodyItem =
   assertLeftDiagnosticContains
     "non-signature class body item"
     "method signature, default binding"
-    (parseSurfaceProgram "class Eq(a) { 1. }.")
+    (parseSurfaceProgram "class Equatable(a) { 1. }.")
 
 testRejectsVariableTargetImplMethodBindings :: IO ()
 testRejectsVariableTargetImplMethodBindings =
   assertLeftDiagnosticContains
     "variable-target impl method binding"
     "constructor-headed impl target"
-    (parseSurfaceProgram "impl Eq(a) { equals = 1. }.")
+    (parseSurfaceProgram "impl Equatable(a) { equals = 1. }.")
 
 testRejectsVariableTargetEmptyImplDeclarations :: IO ()
 testRejectsVariableTargetEmptyImplDeclarations =
   assertLeftDiagnosticContains
     "variable-target empty impl declaration"
     "constructor-headed impl target"
-    (parseSurfaceProgram "impl Eq(a) { }.")
+    (parseSurfaceProgram "impl Equatable(a) { }.")
 
 testRejectsDuplicateImplMethodBindings :: IO ()
 testRejectsDuplicateImplMethodBindings =
   assertLeftDiagnosticContains
     "duplicate impl method binding"
     "duplicate method binding 'equals'"
-    (parseSurfaceProgram "impl Eq(Int) { equals = 1. equals = 2. }.")
+    (parseSurfaceProgram "impl Equatable(Int) { equals = 1. equals = 2. }.")
 
 testRejectsNonBindingImplBodyItem :: IO ()
 testRejectsNonBindingImplBodyItem =
   assertLeftDiagnosticContains
     "non-binding impl body item"
     "ordinary method binding"
-    (parseSurfaceProgram "impl Eq(Int) { equals :: Int. }.")
+    (parseSurfaceProgram "impl Equatable(Int) { equals :: Int. }.")
 
 testRejectsDuplicateClassParameters :: IO ()
 testRejectsDuplicateClassParameters =
   assertLeftDiagnosticContains
     "duplicate class parameter"
     "duplicate class parameter 'a'"
-    (parseSurfaceProgram "class Eq(a, a) { }.")
+    (parseSurfaceProgram "class Equatable(a, a) { }.")
 
 testRejectsConcreteClassParameters :: IO ()
 testRejectsConcreteClassParameters =
   assertLeftDiagnosticContains
     "concrete class parameter"
     "class parameters must be lowercase type variables"
-    (parseSurfaceProgram "class Eq(Int) { }.")
+    (parseSurfaceProgram "class Equatable(Int) { }.")
 
 testRejectsMalformedClassCapabilityHeader :: IO ()
 testRejectsMalformedClassCapabilityHeader =
@@ -261,30 +261,30 @@ testRejectsQualifiedClassDeclaration =
   assertLeftDiagnosticContains
     "qualified class declaration"
     "expected unqualified class name"
-    (parseSurfaceProgram "class Facts::Eq(a) { }.")
+    (parseSurfaceProgram "class Facts::Equatable(a) { }.")
 
 testRejectsMalformedAliasQualifiedClassMethod :: IO ()
 testRejectsMalformedAliasQualifiedClassMethod =
   assertLeftDiagnosticContains
     "malformed alias-qualified class method"
     "expected method name after '::'"
-    (parseSurfaceProgram "Facts::Eq::.")
+    (parseSurfaceProgram "Facts::Equatable::.")
 
 testRejectsOverlongAliasQualifiedClassMethod :: IO ()
 testRejectsOverlongAliasQualifiedClassMethod =
   assertLeftDiagnosticContains
     "overlong alias-qualified class method"
     "unexpected token '::' in qualified class method name"
-    (parseSurfaceProgram "Facts::Eq::equals::extra.")
+    (parseSurfaceProgram "Facts::Equatable::equals::extra.")
 
 testRejectsInvalidConstraintAliases :: IO ()
 testRejectsInvalidConstraintAliases =
   forM_
-    [ "f :: @{1::Eq(a)}: a -> a.",
-      "f :: @{((1::Eq(a)))}: a -> a.",
-      "f :: @{::Eq(a)}: a -> a.",
-      "f :: @{(::Eq(a))}: a -> a.",
-      "f :: @{Eq(a), ::Ord(a)}: a -> a."
+    [ "f :: @{1::Equatable(a)}: a -> a.",
+      "f :: @{((1::Equatable(a)))}: a -> a.",
+      "f :: @{::Equatable(a)}: a -> a.",
+      "f :: @{(::Equatable(a))}: a -> a.",
+      "f :: @{Equatable(a), ::Comparable(a)}: a -> a."
     ]
     $ \source ->
       assertLeftDiagnosticContains ("constraint alias: " <> source) "expected alias before '::'" (parseSurfaceProgram source)
@@ -293,11 +293,11 @@ testRejectsUnfinishedSignatures :: IO ()
 testRejectsUnfinishedSignatures =
   forM_
     [ ("f :: (Int\nnext = 1.", "expected '.' before 'next'"),
-      ("f :: @{Eq(a)\nnext = 1.", "expected '.' before 'next'"),
-      ("f :: (Int\nclass Eq(a) { }.", "expected '.' before 'class'"),
+      ("f :: @{Equatable(a)\nnext = 1.", "expected '.' before 'next'"),
+      ("f :: (Int\nclass Equatable(a) { }.", "expected '.' before 'class'"),
       ("f :: (Int.", "expected closing delimiter"),
       ("f :: [Int.", "expected closing delimiter"),
-      ("f :: @{Eq(a).", "expected closing delimiter"),
+      ("f :: @{Equatable(a).", "expected closing delimiter"),
       ("f :: Int\nnext :: Bool.", "expected '.' before 'next'")
     ]
     $ \(source, expected) ->
@@ -308,7 +308,7 @@ testRejectsTraitAbstractionSyntax =
   assertLeftDiagnosticContains
     "trait abstraction syntax non-canonical"
     "unsupported abstraction syntax 'trait'"
-    (parseSurfaceProgram "trait Eq { }.")
+    (parseSurfaceProgram "trait Equatable { }.")
 
 testRejectsLowercaseTraitAbstractionSyntax :: IO ()
 testRejectsLowercaseTraitAbstractionSyntax =
@@ -325,7 +325,7 @@ testRejectsTraitAbstractionSyntaxInModuleBody =
     ( parseSurfaceProgram
         """
         module App::Core {
-        trait Eq { }.
+        trait Equatable { }.
         }
         """
     )

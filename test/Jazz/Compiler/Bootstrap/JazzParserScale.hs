@@ -47,12 +47,12 @@ runJazzParserControlFlowScale observationRequest bindingCount =
         """
         module App::Main {
           import LexerTypes (CanonicalSourcePath).
-          import List (listLength).
+          import List as List.
           import Parser (parseSource).
           import ParserTypes (CanonicalSourceSuccess, CanonicalSourceLexicalFailure, CanonicalSourceParserFailure, BlockExpression).
           case parseSource (CanonicalSourcePath "fixtures/parser/generated-control-flow-scale.jz") __SOURCE__ {
             | CanonicalSourceSuccess _ expression -> case expression {
-              | BlockExpression statements -> listLength statements
+              | BlockExpression statements -> List::length statements
               | other -> 0
             }
             | CanonicalSourceLexicalFailure _ _ -> 0
@@ -82,12 +82,12 @@ runJazzParserOperatorScale observationRequest bindingCount =
         """
         module App::Main {
           import LexerTypes (CanonicalSourcePath).
-          import List (listLength).
+          import List as List.
           import Parser (parseSource).
           import ParserTypes (CanonicalSourceSuccess, CanonicalSourceLexicalFailure, CanonicalSourceParserFailure, BlockExpression).
           case parseSource (CanonicalSourcePath "fixtures/parser/generated-operator-scale.jz") __SOURCE__ {
             | CanonicalSourceSuccess _ expression -> case expression {
-              | BlockExpression statements -> listLength statements
+              | BlockExpression statements -> List::length statements
               | other -> 0
             }
             | CanonicalSourceLexicalFailure _ _ -> 0
@@ -117,12 +117,12 @@ runJazzParserScale observationRequest bindingCount =
         """
         module App::Main {
           import LexerTypes (CanonicalSourcePath).
-          import List (listLength).
+          import List as List.
           import Parser (parseSource).
           import ParserTypes (CanonicalSourceSuccess, CanonicalSourceLexicalFailure, CanonicalSourceParserFailure, BlockExpression).
           case parseSource (CanonicalSourcePath "fixtures/parser/generated-scale.jz") __SOURCE__ {
             | CanonicalSourceSuccess _ expression -> case expression {
-              | BlockExpression statements -> listLength statements
+              | BlockExpression statements -> List::length statements
               | other -> 0
             }
             | CanonicalSourceLexicalFailure _ _ -> 0
@@ -155,8 +155,8 @@ runJazzParserDeclarationsScale observationRequest declarationGroupCount =
             """
             module App::Main {
               import LexerTypes (CanonicalSourcePath).
-              import List (listFoldLeft, listLength).
-              import Maybe (Just, Nothing).
+              import List as List.
+              import Maybe as Maybe. import Maybe (Nothing, Just).
               import Parser (parseSource).
               import ParserTypes (
                 CanonicalSourceSuccess,
@@ -173,7 +173,7 @@ runJazzParserDeclarationsScale observationRequest declarationGroupCount =
               case parseSource (CanonicalSourcePath "fixtures/parser/generated-declarations-scale.jz") __SOURCE__ {
                 | CanonicalSourceSuccess _ expression -> case expression {
                   | BlockExpression statements -> {
-                    counts = listFoldLeft (\\(counts, statement) -> case counts {
+                    counts = List::foldLeft (\\(counts, statement) -> case counts {
                       | (modules, signatures, bindings, dataDeclarations, imports) -> case statement {
                         | ModuleStatement _ _ _ -> (modules + 1, signatures, bindings, dataDeclarations, imports)
                         | SignatureStatement _ _ _ -> (modules, signatures + 1, bindings, dataDeclarations, imports)
@@ -187,7 +187,7 @@ runJazzParserDeclarationsScale observationRequest declarationGroupCount =
                       }
                     }) (0, 0, 0, 0, 0) statements.
                     case counts {
-                      | (1, __DECLARATION_GROUP_COUNT__, __DECLARATION_GROUP_COUNT__, __DECLARATION_GROUP_COUNT__, __DECLARATION_GROUP_COUNT__) -> listLength statements
+                      | (1, __DECLARATION_GROUP_COUNT__, __DECLARATION_GROUP_COUNT__, __DECLARATION_GROUP_COUNT__, __DECLARATION_GROUP_COUNT__) -> List::length statements
                       | other -> 0
                     }.
                   }

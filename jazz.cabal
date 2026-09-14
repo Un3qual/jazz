@@ -429,6 +429,7 @@ test-suite stdlib-spec
   main-is: Jazz/Compiler/Stdlib/StdlibSpec.hs
   other-modules:
       Jazz.Compiler.Stdlib.FoundationsTests
+    Jazz.Compiler.Stdlib.GenericCapabilitiesTests
       Jazz.Compiler.Stdlib.LinearCollectionsTests
       Jazz.Compiler.Stdlib.OrderedCollectionsTests
       Jazz.Compiler.Stdlib.Shared

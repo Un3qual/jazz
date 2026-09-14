@@ -1,5 +1,5 @@
 module Expression {
-  import List.
+  import List as List.
 
   data Expression
     = Literal Int
@@ -38,7 +38,7 @@ module Expression {
     | Variable name -> lookupVariable name environment
     | Let name item body -> case evaluate environment item {
       | UnknownVariable missing -> UnknownVariable missing
-      | Evaluated result -> evaluate (listPrepend (name, result) environment) body
+      | Evaluated result -> evaluate (List::prepend (name, result) environment) body
     }
   }.
 }

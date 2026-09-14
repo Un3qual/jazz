@@ -1,11 +1,12 @@
 module Stdlib::OrderedCollections::MapExtrema {
-  import Map.
-  import Maybe.
-  start = mapFromList [(3, "three"), (1, "one"), (2, "TWO")].
+  import Map as Map.
+  import Maybe as Maybe.
+  import Maybe (Nothing, Just).
+  start = Map::fromList [(3, "three"), (1, "one"), (2, "TWO")].
   popView = \(result) -> case result {
     | Nothing -> Nothing
-    | Just ((key, item), remaining) -> Just ((key, item), mapToList remaining)
+    | Just ((key, item), remaining) -> Just ((key, item), Map::toList remaining)
   }.
-  (mapMinimum start, mapMaximum start,
-   popView (mapPopMinimum start), popView (mapPopMaximum start)).
+  (Map::minimum start, Map::maximum start,
+   popView (Map::popMinimum start), popView (Map::popMaximum start)).
 }

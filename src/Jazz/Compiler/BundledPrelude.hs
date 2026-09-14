@@ -43,6 +43,7 @@ bundledPreludeSource =
       <> ["", compareTextBinding]
       <> [""]
       <> map renderDefaultCapabilityImpl defaultCapabilityImpls
+      <> ["", collectionCapabilityImpls]
       <> [""]
       <> map renderKernelBridge allBuiltinSymbols
       <> [""]
@@ -72,6 +73,9 @@ data CapabilityClass
   | FractionalClass
   | ShowableClass
   | DefaultClass
+  | MappingClass
+  | ReductionClass
+  | CombinationClass
 
 data PreludeTargetType
   = PreludeInt
@@ -104,9 +108,21 @@ renderCapabilityClass :: CapabilityClass -> Text
 renderCapabilityClass capabilityClass =
   case capabilityClass of
     EqualityClass ->
-      renderClassWithMethod "Eq" "equals :: a -> a -> Bool."
+      Text.intercalate
+        "\n"
+        [ "class Equatable(a) {",
+          "equals :: a -> a -> Bool.",
+          "differs :: a -> a -> Bool.",
+          "differs = \\(left, right) -> if equals left right then False else True.",
+          "}."
+        ]
     OrderingClass ->
-      renderClassWithMethod "Ord" "compare :: a -> a -> Ordering."
+      Text.intercalate
+        "\n"
+        [ "class @{Equatable(a)}: Comparable(a) {",
+          "compare :: a -> a -> Ordering.",
+          "}."
+        ]
     NumericClass ->
       renderMarkerClass "Num"
     IntegralClass ->
@@ -117,6 +133,28 @@ renderCapabilityClass capabilityClass =
       renderClassWithMethod "Showable" "show :: a -> Text."
     DefaultClass ->
       renderClassWithMethod "Default" "defaultValue :: a."
+    MappingClass ->
+      Text.intercalate
+        "\n"
+        [ "class Mappable(f) {",
+          "map :: (a -> b) -> f(a) -> f(b).",
+          "}."
+        ]
+    ReductionClass ->
+      Text.intercalate
+        "\n"
+        [ "class Reducible(f) {",
+          "foldLeft :: (b -> a -> b) -> b -> f(a) -> b.",
+          "foldRight :: (a -> b -> b) -> b -> f(a) -> b.",
+          "}."
+        ]
+    CombinationClass ->
+      Text.intercalate
+        "\n"
+        [ "class Combinable(a) {",
+          "combine :: a -> a -> a.",
+          "}."
+        ]
 
 renderClassWithMethod :: Text -> Text -> Text
 renderClassWithMethod className methodSignature =
@@ -136,13 +174,13 @@ renderDefaultCapabilityImpl capabilityImpl =
   case capabilityImpl of
     EqualityImpl targetType ->
       renderMethodImpl
-        "Eq"
+        "Equatable"
         (renderPreludeTargetType targetType)
         "equals"
         "\\(left, right) -> left == right"
     OrderingImpl targetType ->
       renderMethodImpl
-        "Ord"
+        "Comparable"
         (renderOrderedPreludeTargetType targetType)
         "compare"
         (orderingExpression targetType)
@@ -273,7 +311,10 @@ canonicalCapabilityClasses =
     IntegralClass,
     FractionalClass,
     ShowableClass,
-    DefaultClass
+    DefaultClass,
+    MappingClass,
+    ReductionClass,
+    CombinationClass
   ]
 
 defaultCapabilityImpls :: [DefaultCapabilityImpl]
@@ -348,3 +389,38 @@ floatingWidthTypes =
 loadBundledPreludeSource :: IO Text
 loadBundledPreludeSource =
   pure bundledPreludeSource
+
+collectionCapabilityImpls :: Text
+collectionCapabilityImpls =
+  Text.intercalate
+    "\n"
+    [ "impl @{Equatable(a)}: Equatable([a]) {",
+      "equals = \\(left, right) -> case (left, right) {",
+      "| ([], []) -> True",
+      "| ([x | xs], [y | ys]) -> if equals x y then equals xs ys else False",
+      "| _ -> False",
+      "}.",
+      "}.",
+      "impl @{Equatable(a), Equatable(b)}: Equatable((a, b)) {",
+      "equals = \\((a, b), (x, y)) -> if equals a x then equals b y else False.",
+      "}.",
+      "impl @{Equatable(a), Equatable(b), Equatable(c)}: Equatable((a, b, c)) {",
+      "equals = \\((a, b, c), (x, y, z)) -> if equals a x then if equals b y then equals c z else False else False.",
+      "}.",
+      "impl Mappable(List) {",
+      "map = __kernel_map.",
+      "}.",
+      "impl Reducible(List) {",
+      "foldLeft = \\(step, initial, values) -> case values {",
+      "| [] -> initial",
+      "| [first | rest] -> foldLeft step (step initial first) rest",
+      "}.",
+      "foldRight = \\(step, initial, values) -> foldLeft (\\(acc, item) -> step item acc) initial (__kernel_listReverseRaw values).",
+      "}.",
+      "impl Combinable([a]) {",
+      "combine = \\(left, right) -> foldRight __kernel_listPrependRaw right left.",
+      "}.",
+      "impl Combinable(Text) {",
+      "combine = __kernel_textAppend.",
+      "}."
+    ]

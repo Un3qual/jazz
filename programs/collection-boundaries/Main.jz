@@ -1,11 +1,11 @@
 module Main {
   import Collections.
-  import Dictionary.
-  import Map.
-  import Queue.
-  import Set.
+  import Dictionary as Dictionary.
+  import Map as Map.
+  import Queue as Queue.
+  import Set as Set.
 
-  (dictionaryToList wordCounts, dictionaryLookup wordCounts "parse",
-   mapToList orderedValues, setToList selectedValues,
-   queueToList pendingValues, queuePeek pendingValues).
+  (Dictionary::toList wordCounts, Dictionary::lookup wordCounts "parse",
+   Map::toList orderedValues, Set::toList selectedValues,
+   Queue::toList pendingValues, Queue::peek pendingValues).
 }

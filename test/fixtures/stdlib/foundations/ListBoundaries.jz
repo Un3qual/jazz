@@ -1,32 +1,33 @@
 module Stdlib::Foundations::ListBoundaries {
-  import List.
-  import Maybe.
+  import List as List.
+  import Maybe as Maybe.
+  import Maybe (Nothing, Just).
   emptyInts :: [Int].
   emptyInts = [].
   emptyPairs :: [(Int, Text)].
   emptyPairs = [].
   values = [1, 2, 3].
-  (listPrepend 0 values, listReverse values, listLength values,
-   listLast [1], listInit [1],
-   listTake (0 - 1) values, listDrop (0 - 1) values, listSplitAt (0 - 1) values,
-   listAppend emptyInts values, listConcat [],
-   listRepeat 0 1, listRepeat (0 - 1) 1,
-   listIntersperse 0 emptyInts, listIntersperse 0 [1],
-   listIntercalate [0] [], listIntercalate [0] [[1, 2]],
-   listMap (\(item) -> item + 1) emptyInts,
-   listFilter (\(item) -> item > 0) emptyInts,
-   listFilterMap (\(item) -> Just item) emptyInts,
-   listPartition (\(item) -> item > 0) emptyInts,
-   listFoldLeft (\(total, item) -> total + item) 7 emptyInts,
-   listFoldRight (\(item, total) -> item + total) 7 emptyInts,
-   listScanLeft (\(total, item) -> total + item) 7 emptyInts,
-   listAny (\(item) -> item > 0) emptyInts,
-   listAll (\(item) -> item > 0) emptyInts,
-   listContains 1 emptyInts,
-   listFind (\(item) -> item > 0) emptyInts,
-   listFindIndex (\(item) -> item > 0) emptyInts,
-   listZip emptyInts ["a"], listUnzip emptyPairs, listIndexed emptyInts,
-   listDistinct emptyInts, listGroup emptyInts,
-   listGroupBy (\(left, right) -> left == right) emptyInts,
-   listSort emptyInts).
+  (List::prepend 0 values, List::reverse values, List::length values,
+   List::last [1], List::init [1],
+   List::take (0 - 1) values, List::drop (0 - 1) values, List::splitAt (0 - 1) values,
+   List::append emptyInts values, List::concat [],
+   List::repeat 0 1, List::repeat (0 - 1) 1,
+   List::intersperse 0 emptyInts, List::intersperse 0 [1],
+   List::intercalate [0] [], List::intercalate [0] [[1, 2]],
+   List::map (\(item) -> item + 1) emptyInts,
+   List::filter (\(item) -> item > 0) emptyInts,
+   List::filterMap (\(item) -> Just item) emptyInts,
+   List::partition (\(item) -> item > 0) emptyInts,
+   List::foldLeft (\(total, item) -> total + item) 7 emptyInts,
+   List::foldRight (\(item, total) -> item + total) 7 emptyInts,
+   List::scanLeft (\(total, item) -> total + item) 7 emptyInts,
+   List::any (\(item) -> item > 0) emptyInts,
+   List::all (\(item) -> item > 0) emptyInts,
+   List::contains 1 emptyInts,
+   List::find (\(item) -> item > 0) emptyInts,
+   List::findIndex (\(item) -> item > 0) emptyInts,
+   List::zip emptyInts ["a"], List::unzip emptyPairs, List::indexed emptyInts,
+   List::distinct emptyInts, List::group emptyInts,
+   List::groupBy (\(left, right) -> left == right) emptyInts,
+   List::sort emptyInts).
 }

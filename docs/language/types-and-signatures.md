@@ -58,7 +58,7 @@ Fragment:
 <!-- jazz-example: fragment -->
 
 ```jazz
-contains :: @{Eq(a)}: [a] -> a -> Bool.
+contains :: @{Equatable(a)}: [a] -> a -> Bool.
 
 identity :: a -> a.
 identity = \(item) -> item.

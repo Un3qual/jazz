@@ -155,7 +155,7 @@ testSourceRejectsSignatureSeparatedByCapabilityDeclaration =
   assertSourceErrorContains
     """
     x :: Int.
-    class Eq(a) { }.
+    class Equatable(a) { }.
     x = 1.
     """
     "E1002"
@@ -399,18 +399,18 @@ testSourceRejectsForwardCapabilityFactsForConstrainedSignature :: IO ()
 testSourceRejectsForwardCapabilityFactsForConstrainedSignature =
   assertSourceSingleErrorContainsWithoutPrelude
     """
-    x :: @{Eq(Int)}: Int.
+    x :: @{Equatable(Int)}: Int.
     x = 1.
-    class Eq(a) { }.
-    impl Eq(Int) { }.
+    class Equatable(a) { }.
+    impl Equatable(Int) { }.
     """
-    "missing class declaration 'Eq'"
+    "missing class declaration 'Equatable'"
 
 testSourceRejectsTypeApplicationConstrainedSignatureArgument :: IO ()
 testSourceRejectsTypeApplicationConstrainedSignatureArgument =
   assertSourceSingleErrorContains
     """
-    x :: @{Eq(Maybe(Int))}: Int.
+    x :: @{Equatable(Maybe(Int))}: Int.
     x = 1.
     """
     "E2009"
@@ -419,7 +419,7 @@ testSourceRejectsFunctionConstrainedSignatureArgument :: IO ()
 testSourceRejectsFunctionConstrainedSignatureArgument =
   assertSourceSingleErrorContains
     """
-    x :: @{Eq(Int -> Int)}: Int.
+    x :: @{Equatable(Int -> Int)}: Int.
     x = 1.
     """
     "E2009"
@@ -439,22 +439,22 @@ testSourceRejectsUnsupportedConstrainedSignatureSpans = do
     """
   assertSignatureSpan
     """
-    x :: @{Eq(Int, Bool)}: Int.
+    x :: @{Equatable(Int, Bool)}: Int.
     x = 1.
     """
   assertSignatureSpan
     """
-    x :: @{Eq(Maybe(Int))}: Int.
+    x :: @{Equatable(Maybe(Int))}: Int.
     x = 1.
     """
   assertSignatureSpan
     """
-    x :: @{Eq(Int -> Int)}: Int.
+    x :: @{Equatable(Int -> Int)}: Int.
     x = 1.
     """
   assertSignatureSpan
     """
-    f :: @{Eq(a), Eq(a)}: a -> a.
+    f :: @{Equatable(a), Equatable(a)}: a -> a.
     f = \\(x) -> x.
     """
 
@@ -485,22 +485,22 @@ testSourceRejectsMissingUseSiteFactsForVariableConstrainedSignatures :: IO ()
 testSourceRejectsMissingUseSiteFactsForVariableConstrainedSignatures =
   assertSourceSingleErrorContainsWithoutPrelude
     """
-    class Eq(a) { }.
-    impl Eq(Int) { }.
-    id :: @{Eq(a)}: a -> a.
+    class Equatable(a) { }.
+    impl Equatable(Int) { }.
+    id :: @{Equatable(a)}: a -> a.
     id = \\(x) -> x.
     ok = id 1.
     bad = id True.
     """
-    "missing impl fact 'Eq(Bool)'"
+    "missing impl fact 'Equatable(Bool)'"
 
 testSourceRejectsAmbiguousVariableConstrainedSignatureUse :: IO ()
 testSourceRejectsAmbiguousVariableConstrainedSignatureUse =
   assertSourceSingleErrorContainsWithoutPrelude
     """
-    class Eq(a) { }.
-    impl Eq(Int) { }.
-    id :: @{Eq(a)}: a -> a.
+    class Equatable(a) { }.
+    impl Equatable(Int) { }.
+    id :: @{Equatable(a)}: a -> a.
     id = \\(x) -> x.
     ambiguous = id [].
     ambiguous.
@@ -525,7 +525,7 @@ testSourceRejectsConstrainedSignatureSurface = do
     compileSource
       defaultWarningSettings
       """
-      f :: @{Eq(a), Ord(b)}: a -> c.
+      f :: @{Equatable(a), Comparable(b)}: a -> c.
       f = \\(x) -> x.
       """
   assertSingleDiagnosticCode

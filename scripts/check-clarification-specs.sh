@@ -99,9 +99,9 @@ require_contract_pattern "docs/language/operators.md" "executable built-ins are 
 require_contract_pattern "docs/language/operators.md" "supported built-in section families" 'Sections are available[[:space:]]+for arithmetic `\+`, `-`, `\*`, `/`; ordering `<`, `<=`, `>`, `>=`; and equality[[:space:]]+`==`, `!=`\.'
 require_contract_pattern "docs/language/operators.md" "dollar is callable but not sectionable" '`\$` is[[:space:]]+callable but not sectionable\.'
 
-require_contract_pattern "docs/standard-library/queue.md" "queuePeek worst-case normalization" '`queuePeek` is `O\(1\)` when the front is populated and `O\(n\)` when it must[[:space:]]+reverse a non-empty rear to find the oldest value\.'
-require_contract_pattern "docs/standard-library/queue.md" "repeated queuePeek cost" 'Because `queuePeek` does not return the normalized[[:space:]]+queue, repeated peeks of the same front-empty value repeat that `O\(n\)` work\.'
-require_contract_pattern "docs/standard-library/queue.md" "queueDequeue amortization boundary" '`queueDequeue` is amortized `O\(1\)` only across a dequeue sequence that keeps using each returned queue\.'
+require_contract_pattern "docs/standard-library/queue.md" "peek worst-case normalization" '`peek` is `O\(1\)` when the front is populated and `O\(n\)` when it must[[:space:]]+reverse a non-empty rear to find the oldest value\.'
+require_contract_pattern "docs/standard-library/queue.md" "repeated peek cost" 'Because `peek` does not return the normalized[[:space:]]+queue, repeated peeks of the same front-empty value repeat that `O\(n\)` work\.'
+require_contract_pattern "docs/standard-library/queue.md" "dequeue amortization boundary" '`dequeue` is amortized `O\(1\)` only across a dequeue sequence that keeps using each returned queue\.'
 
 require_rendered_code_pattern "docs/standard-library/prelude.md" "map signature" 'map :: \(a -> b\) -> \[a\] -> \[b\]\.'
 require_rendered_code_pattern "docs/standard-library/prelude.md" "filter signature" 'filter :: \(a -> Bool\) -> \[a\] -> \[a\]\.'

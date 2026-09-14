@@ -1789,7 +1789,7 @@ testStandalonePreludePattern :: IO ()
 testStandalonePreludePattern =
   mapM_ check [source, "module App::Main { " <> source <> " }"]
   where
-    source = "matches = \\(item) -> case item { | LT -> True | _ -> False }. (case LT { | LT -> True | _ -> False }, matches (Ord::compare 1 2))."
+    source = "matches = \\(item) -> case item { | LT -> True | _ -> False }. (case LT { | LT -> True | _ -> False }, matches (Comparable::compare 1 2))."
     check program = do
       result <- runSource defaultWarningSettings program
       assertEqual "Prelude pattern compile errors" [] (runCompileErrors result)

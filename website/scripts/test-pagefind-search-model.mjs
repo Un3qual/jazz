@@ -113,8 +113,8 @@ test('search categories follow public documentation routes', () => {
 test('search result URLs preserve a configured base URL exactly once', () => {
   // Mutation caught: dropping /jazz/ breaks production navigation, while
   // applying it twice produces a non-existent path.
-  assert.equal(withBaseUrl('/docs/standard-library/maybe#maybemap', '/jazz/'), '/jazz/docs/standard-library/maybe#maybemap');
-  assert.equal(withBaseUrl('/jazz/docs/standard-library/maybe#maybemap', '/jazz/'), '/jazz/docs/standard-library/maybe#maybemap');
+  assert.equal(withBaseUrl('/docs/standard-library/maybe#map', '/jazz/'), '/jazz/docs/standard-library/maybe#map');
+  assert.equal(withBaseUrl('/jazz/docs/standard-library/maybe#map', '/jazz/'), '/jazz/docs/standard-library/maybe#map');
   assert.equal(withBaseUrl('docs/reference/types', '/jazz/'), '/jazz/docs/reference/types');
 });
 
@@ -131,8 +131,8 @@ test('search model flattens Pagefind section results with local excerpts', async
           meta: {title: 'Maybe'},
           sub_results: [
             {
-              url: '/docs/standard-library/maybe#maybemap',
-              title: 'maybeMap',
+              url: '/docs/standard-library/maybe#map',
+              title: 'map',
               excerpt: 'Maps a function over a Maybe value.',
             },
           ],
@@ -142,9 +142,9 @@ test('search model flattens Pagefind section results with local excerpts', async
   }, '/jazz/');
 
   assert.deepEqual(rows, [{
-    url: '/jazz/docs/standard-library/maybe#maybemap',
+    url: '/jazz/docs/standard-library/maybe#map',
     pageTitle: 'Maybe',
-    sectionTitle: 'maybeMap',
+    sectionTitle: 'map',
     category: 'Standard library',
     excerpt: 'Maps a function over a Maybe value.',
   }]);

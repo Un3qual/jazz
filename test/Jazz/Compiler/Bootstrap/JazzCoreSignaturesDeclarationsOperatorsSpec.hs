@@ -261,8 +261,8 @@ directFixtures =
                 "constrained"
                 span1
                 ( ConstrainedSignature
-                    [ SignatureConstraint (SurfaceName "Eq" span1 Nothing) [TypeVariable "a"],
-                      SignatureConstraint (SurfaceName "Alias::Ord" span1 (Just span1)) [TypeList (TypeVariable "a")]
+                    [ SignatureConstraint (SurfaceName "Equatable" span1 Nothing) [TypeVariable "a"],
+                      SignatureConstraint (SurfaceName "Alias::Comparable" span1 (Just span1)) [TypeList (TypeVariable "a")]
                     ]
                     (TypeFunction (TypeVariable "a") (TypeList (TypeVariable "a")))
                 )
@@ -330,7 +330,7 @@ directFixtures =
         ( SEBlock
             [ SSClass
                 span1
-                "Eq"
+                "Equatable"
                 ["a"]
                 [ SurfaceClassMethodSignature
                     "equals"
@@ -342,7 +342,7 @@ directFixtures =
                     "compare"
                     span1
                     ( ConstrainedSignature
-                        [SignatureConstraint (SurfaceName "Alias::Ord" span1 (Just span1)) [TypeVariable "a"]]
+                        [SignatureConstraint (SurfaceName "Alias::Comparable" span1 (Just span1)) [TypeVariable "a"]]
                         (TypeFunction (TypeVariable "a") TypeInt)
                     )
                 ]
@@ -449,18 +449,18 @@ composedFixtures =
     ("signature-qualified", "qualified :: Alias::Result."),
     ("qualified-method", "result = Alias::Class::method."),
     ( "signature-constrained",
-      "constrained :: @{Eq(a), Ord(List(a))}: a -> List(a)."
+      "constrained :: @{Equatable(a), Comparable(List(a))}: a -> List(a)."
     ),
     ("signature-unsupported-forall", "item :: forall a. item = 1."),
     ("data-nullary", "data Maybe = Nothing | Just."),
     ("data-parameterized", "data Maybe a = None | Some a | Pair (a, a) [a]."),
     ("class-empty", "class Marker(a) { }."),
     ( "class-method-signature",
-      "class Eq(a) { equals :: a -> a -> Bool. notEquals :: a -> a -> Bool. }."
+      "class Equatable(a) { equals :: a -> a -> Bool. notEquals :: a -> a -> Bool. }."
     ),
-    ("impl-empty", "impl Eq(Int) { }."),
+    ("impl-empty", "impl Equatable(Int) { }."),
     ( "impl-method-body",
-      "impl Eq(Int) { equals = \\(left, right) -> left == right. }."
+      "impl Equatable(Int) { equals = \\(left, right) -> left == right. }."
     ),
     ( "operator-signature-binding",
       "operator %% tier 2. (%%) :: Int -> Int -> Int. (%%) = \\(left, right) -> left + right. item = 1 %% 2."

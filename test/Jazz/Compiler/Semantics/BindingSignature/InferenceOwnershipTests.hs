@@ -162,18 +162,18 @@ testDuplicateConstraintsReportFirstRepeatedName :: IO ()
 testDuplicateConstraintsReportFirstRepeatedName =
   assertEqual
     "first duplicate"
-    (Just "Eq")
+    (Just "Equatable")
     ( duplicateConstraintName
-        [ SignatureConstraint (capabilityName "Eq") [TypeInt],
-          SignatureConstraint (capabilityName "Ord") [TypeInt],
-          SignatureConstraint (capabilityName "Eq") [TypeInt],
-          SignatureConstraint (capabilityName "Ord") [TypeBool]
+        [ SignatureConstraint (capabilityName "Equatable") [TypeInt],
+          SignatureConstraint (capabilityName "Comparable") [TypeInt],
+          SignatureConstraint (capabilityName "Equatable") [TypeInt],
+          SignatureConstraint (capabilityName "Comparable") [TypeBool]
         ]
     )
 
 testStateRecordModifiers :: IO ()
 testStateRecordModifiers = do
-  assertEqual "declaration update" (Map.singleton (CapabilityId (capabilityName "Eq")) (ClassDefinition TypeKind [] Set.empty)) (inferClassFacts updatedState)
+  assertEqual "declaration update" (Map.singleton (CapabilityId (capabilityName "Equatable")) (ClassDefinition TypeKind [] Set.empty)) (inferClassFacts updatedState)
   assertEqual "module update" (Just (mkModulePath (mkIdentifier "App" :| [mkIdentifier "Main"]))) (inferCurrentModulePath updatedState)
   assertEqual "output update" 3 (inferErrorCount updatedState)
   where
@@ -187,7 +187,7 @@ testStateRecordModifiers = do
                     declarations
                       { declarationCapabilities =
                           (declarationCapabilities declarations)
-                            { scopeClassFacts = Map.singleton (CapabilityId (capabilityName "Eq")) (ClassDefinition TypeKind [] Set.empty)
+                            { scopeClassFacts = Map.singleton (CapabilityId (capabilityName "Equatable")) (ClassDefinition TypeKind [] Set.empty)
                             }
                       }
                 )
@@ -224,9 +224,9 @@ testInferenceOutputConstraintCursors = do
               }
         )
         initialInferState
-    firstDeferred = deferredConstraint "Eq" SemanticInt
+    firstDeferred = deferredConstraint "Equatable" SemanticInt
     secondDeferred = deferredConstraint "Show" SemanticText
-    firstInferred = TypeSchemeInferredConstraint (CapabilityId (capabilityName "Eq")) SemanticInt
+    firstInferred = TypeSchemeInferredConstraint (CapabilityId (capabilityName "Equatable")) SemanticInt
     secondInferred = TypeSchemeMethodConstraint (CapabilityId (capabilityName "Show")) (CapabilityId (capabilityName "Show"), mkIdentifier "show") SemanticText
 
 deferredConstraint :: Text -> ExpressionType -> DeferredExplicitConstraint
@@ -250,8 +250,8 @@ testSchemeConstraintDeduplicationOrder =
     [middleConstraint, repeatedConstraint]
     (dedupeTypeSchemeConstraints [repeatedConstraint, middleConstraint, repeatedConstraint])
   where
-    repeatedConstraint = TypeSchemeConstraint (CapabilityId (capabilityName "Eq")) (SemanticVariable 0)
-    middleConstraint = TypeSchemeInferredConstraint (CapabilityId (capabilityName "Ord")) (SemanticVariable 1)
+    repeatedConstraint = TypeSchemeConstraint (CapabilityId (capabilityName "Equatable")) (SemanticVariable 0)
+    middleConstraint = TypeSchemeInferredConstraint (CapabilityId (capabilityName "Comparable")) (SemanticVariable 1)
 
 testEmptySchemeConstraintsSkipCapabilityFacts :: IO ()
 testEmptySchemeConstraintsSkipCapabilityFacts =
@@ -363,7 +363,7 @@ testTypeOpsCollectConstraintFreeVariables = do
     "class constraint free variables"
     (Set.fromList [1, 2])
     ( freeTypeVariablesInTypeSchemeConstraints
-        [ TypeSchemeConstraint (CapabilityId (capabilityName "Eq")) (SemanticList (SemanticVariable 1)),
+        [ TypeSchemeConstraint (CapabilityId (capabilityName "Equatable")) (SemanticList (SemanticVariable 1)),
           TypeSchemeMethodConstraint (CapabilityId (capabilityName "Show")) (CapabilityId (capabilityName "Show"), mkIdentifier "show") (SemanticVariable 2)
         ]
     )

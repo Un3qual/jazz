@@ -1,16 +1,17 @@
 module Traversal (value breadthFirst) {
-  import List.
-  import Maybe.
-  import Queue.
+  import List as List.
+  import Maybe as Maybe.
+  import Maybe (Nothing, Just).
+  import Queue as Queue.
 
-  breadthFirstFrom = \(pending, reversedVisited) -> case queueDequeue pending {
-    | Nothing -> listReverse reversedVisited
+  breadthFirstFrom = \(pending, reversedVisited) -> case Queue::dequeue pending {
+    | Nothing -> List::reverse reversedVisited
     | Just (item, remaining) -> if item >= 8
-      then breadthFirstFrom remaining (listPrepend item reversedVisited)
+      then breadthFirstFrom remaining (List::prepend item reversedVisited)
       else breadthFirstFrom
-        (queueEnqueueAll remaining [item * 2, item * 2 + 1])
-        (listPrepend item reversedVisited)
+        (Queue::enqueueAll remaining [item * 2, item * 2 + 1])
+        (List::prepend item reversedVisited)
   }.
 
-  breadthFirst = \(root) -> breadthFirstFrom (queueSingleton root) [].
+  breadthFirst = \(root) -> breadthFirstFrom (Queue::singleton root) [].
 }

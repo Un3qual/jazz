@@ -54,15 +54,15 @@ tests =
     ("preserves landed binding and expression statement dispatch", testFoundationalDispatch),
     ("constructs the recursive signature parser lazily", testDirectSignatureType),
     ("matches stage 0 signature type and fallback behavior", testSignatureParity),
-    ("matches stage 0 for qualified constraint statement boundary", assertStage0Parity "qualified constraint statement boundary" "constrained :: @{Eq(a), Alias::Ord(List(a))}: a -> List(a)."),
-    ("matches stage 0 for missing constraint alias", assertStage0Parity "missing constraint alias" "f :: @{::Eq(a)}: a -> a."),
-    ("matches stage 0 for parenthesized missing constraint alias", assertStage0Parity "parenthesized missing constraint alias" "f :: @{(::Eq(a))}: a -> a."),
-    ("matches stage 0 for later missing constraint alias", assertStage0Parity "later missing constraint alias" "f :: @{Eq(a), ::Ord(a)}: a -> a."),
+    ("matches stage 0 for qualified constraint statement boundary", assertStage0Parity "qualified constraint statement boundary" "constrained :: @{Equatable(a), Alias::Comparable(List(a))}: a -> List(a)."),
+    ("matches stage 0 for missing constraint alias", assertStage0Parity "missing constraint alias" "f :: @{::Equatable(a)}: a -> a."),
+    ("matches stage 0 for parenthesized missing constraint alias", assertStage0Parity "parenthesized missing constraint alias" "f :: @{(::Equatable(a))}: a -> a."),
+    ("matches stage 0 for later missing constraint alias", assertStage0Parity "later missing constraint alias" "f :: @{Equatable(a), ::Comparable(a)}: a -> a."),
     ("matches stage 0 for overlong qualified constraint head", assertStage0Parity "overlong qualified constraint head" "item :: @{Alias::Class::Extra}: Int."),
     ("matches stage 0 for compact overlong qualified constraint head", assertStage0Parity "compact overlong qualified constraint head" "item::@{Alias::Class::Extra}: Int."),
     ("matches stage 0 for parenthesized overlong qualified constraint head", assertStage0Parity "parenthesized overlong qualified constraint head" "item :: @{(Alias::Class::Extra)}: Int."),
-    ("matches stage 0 for later overlong qualified constraint head", assertStage0Parity "later overlong qualified constraint head" "item :: @{Eq(a), Alias::Class::Extra}: Int."),
-    ("matches stage 0 for overlong qualified constraint type argument", assertStage0Parity "overlong qualified constraint type argument" "item :: @{Eq(Alias::Class::Extra)}: Int."),
+    ("matches stage 0 for later overlong qualified constraint head", assertStage0Parity "later overlong qualified constraint head" "item :: @{Equatable(a), Alias::Class::Extra}: Int."),
+    ("matches stage 0 for overlong qualified constraint type argument", assertStage0Parity "overlong qualified constraint type argument" "item :: @{Equatable(Alias::Class::Extra)}: Int."),
     ("matches stage 0 for empty spaced signature payload", assertStage0Parity "empty spaced signature payload" "item :: ."),
     ("matches stage 0 for qualified signature type variable", assertStage0Parity "qualified signature type variable" "qualified :: Alias::a."),
     ("matches stage 0 for spaced signature type qualifier", assertStage0Parity "spaced signature type qualifier" "item :: Alias ::Int."),
@@ -72,14 +72,14 @@ tests =
     ("matches stage 0 data, class, and impl declarations", testTypeDeclarationParity),
     ("matches stage 0 for spaced data field type qualifier", assertStage0Parity "spaced data field type qualifier" "data Box = Box Alias ::Int."),
     ("matches stage 0 for spaced data field type member", assertStage0Parity "spaced data field type member" "data Box = Box Alias:: Int."),
-    ("matches stage 0 for operator class method", assertStage0Parity "operator class method" "class Eq(a) { operator :: Int. }."),
-    ("matches stage 0 for operator impl method", assertStage0Parity "operator impl method" "impl Eq(Int) { operator = 1. }."),
+    ("matches stage 0 for operator class method", assertStage0Parity "operator class method" "class Equatable(a) { operator :: Int. }."),
+    ("matches stage 0 for operator impl method", assertStage0Parity "operator impl method" "impl Equatable(Int) { operator = 1. }."),
     ("matches stage 0 for uppercase data type parameter", assertStage0Parity "uppercase data type parameter" "data Box A = Box."),
-    ("matches stage 0 for qualified lowercase impl target", assertStage0Parity "qualified lowercase impl target" "impl Eq(Alias::a) { }."),
-    ("matches stage 0 for unsupported capability header argument", assertStage0Parity "unsupported capability header argument" "class Eq(forall a) { }."),
+    ("matches stage 0 for qualified lowercase impl target", assertStage0Parity "qualified lowercase impl target" "impl Equatable(Alias::a) { }."),
+    ("matches stage 0 for unsupported capability header argument", assertStage0Parity "unsupported capability header argument" "class Equatable(forall a) { }."),
     ("matches stage 0 for superclass contexts and defaults", assertStage0Parity "superclass contexts and defaults" "class @{Same(a)}: Ordered(a) { order :: a -> Int. order = \\(x) -> 1. }."),
     ("matches stage 0 for generic implementation contexts", assertStage0Parity "generic implementation contexts" "impl @{Same(a)}: Same([a]) { same = \\(x, y) -> True. }."),
-    ("matches stage 0 for capability header EOF context", assertStage0Parity "capability header EOF context" "class Eq(a"),
+    ("matches stage 0 for capability header EOF context", assertStage0Parity "capability header EOF context" "class Equatable(a"),
     ("matches stage 0 for qualified method binding expression", assertStage0Parity "qualified method binding expression" "result = Alias::Class::method."),
     ("matches stage 0 for qualified method name before dot", assertStage0Parity "qualified method name before dot" "result = Alias::Class::."),
     ("matches stage 0 for nonadjacent qualified method name", assertStage0Parity "nonadjacent qualified method name" "result = Alias::Class:: method."),
@@ -197,7 +197,7 @@ testSignatureParity =
         "qualified :: Alias::Result."
       ),
       ( "non-empty and empty constraints",
-        "constrained :: @{Eq(a), Ord(List(a))}: a -> List(a). empty :: @{}: ()."
+        "constrained :: @{Equatable(a), Comparable(List(a))}: a -> List(a). empty :: @{}: ()."
       ),
       ( "unsupported forall token fallback",
         "x :: forall a. x = 1."
@@ -270,10 +270,10 @@ testTypeDeclarationParity = do
       ("rejects unclosed constructor argument delimiters", "data Thing a = Thing [a."),
       ("requires uppercase class names", "class eq(a) { }."),
       ("requires uppercase impl names", "impl eq(Int) { }."),
-      ("rejects unclosed capability headers", "class Eq(a { }."),
+      ("rejects unclosed capability headers", "class Equatable(a { }."),
       ("rejects nested data declarations", "{ data Thing = Thing. }."),
-      ("preserves nested class declaration behavior", "{ class Eq(a) { }. }."),
-      ("preserves nested impl declaration behavior", "{ impl Eq(Int) { }. }.")
+      ("preserves nested class declaration behavior", "{ class Equatable(a) { }. }."),
+      ("preserves nested impl declaration behavior", "{ impl Equatable(Int) { }. }.")
     ]
 
 testModuleDeclarationParity :: IO ()

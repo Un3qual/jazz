@@ -12,9 +12,10 @@ module ParserOperator (
   value operatorIsReserved,
   value operatorIsValidUserSymbol
 ) {
-  import List (listAll, listContains).
-  import Maybe.
-  import Text (textIsEmpty, textToChars).
+  import List as List.
+  import Maybe as Maybe.
+  import Maybe (Nothing, Just).
+  import Text as Text.
 
   data OperatorAssociativity = LeftAssociative | RightAssociative | NonAssociative.
 
@@ -40,7 +41,7 @@ module ParserOperator (
     | OperatorInfo symbol precedence previous -> OperatorInfo symbol precedence associativity
   }.
 
-  builtinOperator :: Text -> Maybe(OperatorInfo).
+  builtinOperator :: Text -> Maybe::Maybe(OperatorInfo).
   builtinOperator = \(symbol) -> if symbol == "*" then
     Just (OperatorInfo symbol 5 LeftAssociative)
     else if symbol == "/" then
@@ -67,7 +68,7 @@ module ParserOperator (
                           Just (OperatorInfo symbol 1 RightAssociative)
                           else Nothing.
 
-  declaredOperator :: [OperatorInfo] -> Text -> Maybe(OperatorInfo).
+  declaredOperator :: [OperatorInfo] -> Text -> Maybe::Maybe(OperatorInfo).
   declaredOperator = \(operators, symbol) -> case operators {
     | [] -> Nothing
     | [first | rest] -> if operatorInfoSymbol first == symbol then
@@ -75,13 +76,13 @@ module ParserOperator (
       else declaredOperator rest symbol
   }.
 
-  operatorLookup :: [OperatorInfo] -> Text -> Maybe(OperatorInfo).
+  operatorLookup :: [OperatorInfo] -> Text -> Maybe::Maybe(OperatorInfo).
   operatorLookup = \(operators, symbol) -> case declaredOperator operators symbol {
     | Just info -> Just info
     | Nothing -> builtinOperator symbol
   }.
 
-  operatorForTier :: Text -> Int -> Maybe(OperatorInfo).
+  operatorForTier :: Text -> Int -> Maybe::Maybe(OperatorInfo).
   operatorForTier = \(symbol, tier) -> if tier == 1 then
     Just (OperatorInfo symbol 5 LeftAssociative)
     else if tier == 2 then
@@ -94,7 +95,7 @@ module ParserOperator (
             Just (OperatorInfo symbol 1 RightAssociative)
             else Nothing.
 
-  operatorForPrecedence :: Text -> Int -> Maybe(OperatorInfo).
+  operatorForPrecedence :: Text -> Int -> Maybe::Maybe(OperatorInfo).
   operatorForPrecedence = \(symbol, precedence) -> if precedence < 1 then
     Nothing
     else if precedence > 99 then
@@ -124,11 +125,11 @@ module ParserOperator (
   operatorSymbolCharacters = ['!', '%', '&', '*', '+', '-', '/', '<', '>', '?', '^', '|', '~'].
 
   operatorIsValidUserSymbol :: Text -> Bool.
-  operatorIsValidUserSymbol = \(symbol) -> if textIsEmpty symbol then
+  operatorIsValidUserSymbol = \(symbol) -> if Text::isEmpty symbol then
     False
     else if operatorIsBuiltin symbol then
       False
       else if operatorIsReserved symbol then
         False
-        else listAll (\(character) -> listContains character operatorSymbolCharacters) (textToChars symbol).
+        else List::all (\(character) -> List::contains character operatorSymbolCharacters) (Text::toChars symbol).
 }

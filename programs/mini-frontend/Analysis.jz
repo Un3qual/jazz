@@ -1,5 +1,5 @@
 module Analysis {
-  import List.
+  import List as List.
   import Syntax.
 
   data Summary = Summary Int [Text].
@@ -16,10 +16,10 @@ module Analysis {
   collectReferences = \(expression, reversed) -> case expression {
     | Literal item -> reversed
     | Add left right -> collectReferences right (collectReferences left reversed)
-    | Reference name -> listPrepend name reversed
+    | Reference name -> List::prepend name reversed
     | LetExpression name item body -> collectReferences body (collectReferences item reversed)
   }.
 
   analyze :: Expression(a) -> Summary.
-  analyze = \(expression) -> Summary (nodeCount expression) (listReverse (collectReferences expression [])).
+  analyze = \(expression) -> Summary (nodeCount expression) (List::reverse (collectReferences expression [])).
 }

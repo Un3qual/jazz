@@ -1,76 +1,86 @@
 module NonEmpty (
   type NonEmpty(..),
-  value nonEmptySingleton,
-  value nonEmptyFromList,
-  value nonEmptyToList,
-  value nonEmptyHead,
-  value nonEmptyTail,
-  value nonEmptyLast,
-  value nonEmptyPrepend,
-  value nonEmptyAppendList,
-  value nonEmptyMap,
-  value nonEmptyLength,
-  value nonEmptyFoldLeft,
-  value nonEmptyFoldRight
+  value singleton,
+  value fromList,
+  value toList,
+  value head,
+  value tail,
+  value last,
+  value prepend,
+  value appendList,
+  value map,
+  value length,
+  value foldLeft,
+  value foldRight
 ) {
-  import List.
-  import Maybe.
+  import List as List.
+  import Maybe as Maybe.
+  import Maybe (Nothing, Just).
 
   data NonEmpty a = NonEmpty a [a].
 
-  nonEmptySingleton :: a -> NonEmpty(a).
-  nonEmptySingleton = \(item) -> NonEmpty item [].
+  singleton :: a -> NonEmpty(a).
+  singleton = \(item) -> NonEmpty item [].
 
-  nonEmptyFromList :: [a] -> Maybe(NonEmpty(a)).
-  nonEmptyFromList = \(values) -> case values {
+  fromList :: [a] -> Maybe::Maybe(NonEmpty(a)).
+  fromList = \(values) -> case values {
     | [] -> Nothing
     | [first | rest] -> Just (NonEmpty first rest)
   }.
 
-  nonEmptyToList :: NonEmpty(a) -> [a].
-  nonEmptyToList = \(nonEmpty) -> case nonEmpty {
-    | NonEmpty first rest -> listPrepend first rest
+  toList :: NonEmpty(a) -> [a].
+  toList = \(nonEmpty) -> case nonEmpty {
+    | NonEmpty first rest -> List::prepend first rest
   }.
 
-  nonEmptyHead :: NonEmpty(a) -> a.
-  nonEmptyHead = \(nonEmpty) -> case nonEmpty {
+  head :: NonEmpty(a) -> a.
+  head = \(nonEmpty) -> case nonEmpty {
     | NonEmpty first rest -> first
   }.
 
-  nonEmptyTail :: NonEmpty(a) -> [a].
-  nonEmptyTail = \(nonEmpty) -> case nonEmpty {
+  tail :: NonEmpty(a) -> [a].
+  tail = \(nonEmpty) -> case nonEmpty {
     | NonEmpty first rest -> rest
   }.
 
-  nonEmptyLast :: NonEmpty(a) -> a.
-  nonEmptyLast = \(nonEmpty) -> case nonEmpty {
-    | NonEmpty first rest -> case listLast rest {
+  last :: NonEmpty(a) -> a.
+  last = \(nonEmpty) -> case nonEmpty {
+    | NonEmpty first rest -> case List::last rest {
       | Nothing -> first
       | Just item -> item
     }
   }.
 
-  nonEmptyPrepend :: a -> NonEmpty(a) -> NonEmpty(a).
-  nonEmptyPrepend = \(item, nonEmpty) -> NonEmpty item (nonEmptyToList nonEmpty).
+  prepend :: a -> NonEmpty(a) -> NonEmpty(a).
+  prepend = \(item, nonEmpty) -> NonEmpty item (toList nonEmpty).
 
-  nonEmptyAppendList :: NonEmpty(a) -> [a] -> NonEmpty(a).
-  nonEmptyAppendList = \(nonEmpty, suffix) -> case nonEmpty {
-    | NonEmpty first rest -> NonEmpty first (listAppend rest suffix)
+  appendList :: NonEmpty(a) -> [a] -> NonEmpty(a).
+  appendList = \(nonEmpty, suffix) -> case nonEmpty {
+    | NonEmpty first rest -> NonEmpty first (List::append rest suffix)
   }.
 
-  nonEmptyMap :: (a -> b) -> NonEmpty(a) -> NonEmpty(b).
-  nonEmptyMap = \(transform, nonEmpty) -> case nonEmpty {
-    | NonEmpty first rest -> NonEmpty (transform first) (listMap transform rest)
+  map :: (a -> b) -> NonEmpty(a) -> NonEmpty(b).
+  map = \(transform, nonEmpty) -> case nonEmpty {
+    | NonEmpty first rest -> NonEmpty (transform first) (List::map transform rest)
   }.
 
-  nonEmptyLength :: NonEmpty(a) -> Int.
-  nonEmptyLength = \(nonEmpty) -> 1 + (listLength (nonEmptyTail nonEmpty)).
+  length :: NonEmpty(a) -> Int.
+  length = \(nonEmpty) -> 1 + (List::length (tail nonEmpty)).
 
-  nonEmptyFoldLeft :: (b -> a -> b) -> b -> NonEmpty(a) -> b.
-  nonEmptyFoldLeft = \(combine, initial, nonEmpty) -> case nonEmpty {
-    | NonEmpty first rest -> listFoldLeft combine (combine initial first) rest
+  foldLeft :: (b -> a -> b) -> b -> NonEmpty(a) -> b.
+  foldLeft = \(combine, initial, nonEmpty) -> case nonEmpty {
+    | NonEmpty first rest -> List::foldLeft combine (combine initial first) rest
   }.
 
-  nonEmptyFoldRight :: (a -> b -> b) -> b -> NonEmpty(a) -> b.
-  nonEmptyFoldRight = \(combine, initial, nonEmpty) -> listFoldRight combine initial (nonEmptyToList nonEmpty).
+  foldRight :: (a -> b -> b) -> b -> NonEmpty(a) -> b.
+  foldRight = \(combine, initial, nonEmpty) -> List::foldRight combine initial (toList nonEmpty).
+
+  impl @{Equatable(a)}: Equatable(NonEmpty(a)) {
+    equals = \(left, right) -> equals (toList left) (toList right).
+  }.
+  impl Mappable(NonEmpty) { map = map. }.
+  impl Reducible(NonEmpty) { foldLeft = foldLeft. foldRight = foldRight. }.
+  impl Combinable(NonEmpty(a)) {
+    combine = \(left, right) -> appendList left (toList right).
+  }.
 }

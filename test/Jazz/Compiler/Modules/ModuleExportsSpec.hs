@@ -70,14 +70,14 @@ sampleInventory =
       ModuleExport ConstructorNamespace "Box",
       ModuleExport TypeNamespace "Box",
       ModuleExport TypeNamespace "HiddenType",
-      ModuleExport CapabilityNamespace "Eq"
+      ModuleExport CapabilityNamespace "Equatable"
     ]
 
 testDeclarationExportNames :: IO ()
 testDeclarationExportNames =
   assertEqual
     "declaration export names include types"
-    (Set.fromList ["answer", "Box", "HiddenType", "Eq"])
+    (Set.fromList ["answer", "Box", "HiddenType", "Equatable"])
     (declarationExportNames sampleInventory)
 
 testPreservesNamespaces :: IO ()
@@ -98,7 +98,7 @@ testSelectorEligibility :: IO ()
 testSelectorEligibility =
   assertEqual
     "selector names"
-    (Set.fromList ["answer", "Box", "Eq"])
+    (Set.fromList ["answer", "Box", "Equatable"])
     (selectorEligibleNames sampleInventory)
 
 testSelectsSameTextEntries :: IO ()
@@ -273,19 +273,19 @@ testInterfaceInventory =
     "interface inventory"
     ( Set.fromList
         [ ModuleExport ValueNamespace "answer",
-          ModuleExport CapabilityNamespace "Eq"
+          ModuleExport CapabilityNamespace "Equatable"
         ]
     )
     (exportInventoryEntries (moduleInterfaceExportInventory interface))
   where
     interface =
       emptyModuleInterface
-        { interfacePublicExports = exportInventory [ModuleExport ValueNamespace "answer", ModuleExport CapabilityNamespace "Eq"],
+        { interfacePublicExports = exportInventory [ModuleExport ValueNamespace "answer", ModuleExport CapabilityNamespace "Equatable"],
           interfaceValueBindings =
             Map.singleton
               (ModuleExport ValueNamespace "answer")
               (ModuleValueBinding (LexicalReference (CoreBinderId (StandaloneSourceUnit standaloneModulePath, CoreNodeId 1))) (PlainTypeBinding SemanticInt)),
-          interfaceCapabilities = mempty {scopeClassFacts = Map.singleton (CapabilityId (resolvedLocalName CapabilityNamespace (mkIdentifier "Eq"))) (ClassDefinition TypeKind [] Set.empty)}
+          interfaceCapabilities = mempty {scopeClassFacts = Map.singleton (CapabilityId (resolvedLocalName CapabilityNamespace (mkIdentifier "Equatable"))) (ClassDefinition TypeKind [] Set.empty)}
         }
 
 testPublicationRetainsReachablePrivateTypes :: IO ()

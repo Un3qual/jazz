@@ -6,6 +6,7 @@ import Jazz.Compiler.Stdlib.FoundationsTests
   ( foundationPerformanceTests,
     foundationTests,
   )
+import Jazz.Compiler.Stdlib.GenericCapabilitiesTests (genericCapabilityTests)
 import Jazz.Compiler.Stdlib.LinearCollectionsTests
   ( linearCollectionScaleTests,
     linearCollectionTests,
@@ -29,4 +30,4 @@ main = do
         if "--skip-performance" `elem` args
           then []
           else foundationPerformanceTests <> linearCollectionScaleTests <> textScaleTests
-  runTestSuite "Stdlib" (foundationTests <> linearCollectionTests <> orderedCollectionTests <> textTests <> performanceTests)
+  runTestSuite "Stdlib" (genericCapabilityTests <> foundationTests <> linearCollectionTests <> orderedCollectionTests <> textTests <> performanceTests)

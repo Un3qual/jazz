@@ -1,7 +1,9 @@
 module CoreTypes {
   import LexerTypes (CanonicalLexError, CanonicalSourcePath).
-  import Maybe.
-  import NonEmpty.
+  import Maybe as Maybe.
+  import Maybe (Nothing, Just).
+  import NonEmpty as NonEmpty.
+  import NonEmpty (NonEmpty).
   import ParserTypes (ParserFailure).
 
   data CoreGeneratedNameKind
@@ -14,7 +16,7 @@ module CoreTypes {
     | CoreQualifiedMethodName Text Text Text
     | CoreGeneratedName CoreGeneratedNameKind.
 
-  data CoreSpan = CoreSpan Maybe(CanonicalSourcePath) Int Int.
+  data CoreSpan = CoreSpan Maybe::Maybe(CanonicalSourcePath) Int Int.
 
   data CoreNumericType
     = CoreInt8Type
@@ -31,7 +33,7 @@ module CoreTypes {
 
   data CoreLiteral
     = CoreIntegerLiteral Text
-    | CoreFractionalLiteral Text Text Maybe(CoreNumericType)
+    | CoreFractionalLiteral Text Text Maybe::Maybe(CoreNumericType)
     | CoreBooleanLiteral Bool
     | CoreCharacterLiteral Char
     | CoreTextLiteral Text.
@@ -47,7 +49,7 @@ module CoreTypes {
     | CoreAsPattern CoreName CorePattern
     | CoreOrPattern [CorePattern].
 
-  data CoreCaseArm = CoreCaseArm CorePattern Maybe(CoreExpr) CoreExpr.
+  data CoreCaseArm = CoreCaseArm CorePattern Maybe::Maybe(CoreExpr) CoreExpr.
 
   data CoreDataConstructor = CoreDataConstructor CoreName [CoreSignatureType].
 
@@ -117,7 +119,7 @@ module CoreTypes {
     | CoreImplStatement CoreSpan CoreName [CoreSignatureType]
       [CoreImplMethod] [CoreSignatureConstraint]
     | CoreModuleStatement CoreSpan [Text]
-    | CoreImportStatement CoreSpan [Text] Maybe(Text) Maybe([Text])
+    | CoreImportStatement CoreSpan [Text] Maybe::Maybe(Text) Maybe::Maybe([Text])
     | CoreExpressionStatement CoreSpan CoreExpr.
 
   data CoreNameNamespace = CoreValueName | CoreConstructorName | CoreTypeName | CoreCapabilityName.
@@ -130,15 +132,17 @@ module CoreTypes {
     | CoreSelectedConstructors NonEmpty(CoreLocatedExportName).
 
   data CoreModuleExportSelector
-    = CoreNamedExportSelector Maybe(CoreNameNamespace) Text
+    = CoreNamedExportSelector Maybe::Maybe(CoreNameNamespace) Text
     | CoreTypeExportSelector Text CoreSpan CoreTypeConstructorSelector.
 
   data CoreDeclaredModuleExports = CoreDeclaredModuleExports CoreSpan [CoreModuleExportSelector].
 
-  data CoreResolvedImport = CoreResolvedImport CoreSpan [Text] Maybe(Text) Maybe([Text]).
+  data CoreResolvedImport
+    = CoreResolvedImport CoreSpan [Text] Maybe::Maybe(Text) Maybe::Maybe([Text]).
 
   data CoreModule
-    = CoreModule Maybe([Text]) Maybe(CoreDeclaredModuleExports) [CoreResolvedImport] CoreExpr.
+    = CoreModule Maybe::Maybe([Text]) Maybe::Maybe(CoreDeclaredModuleExports)
+      [CoreResolvedImport] CoreExpr.
 
   data CoreModuleDeclaration = CoreModuleDeclaration CoreSpan [Text].
 

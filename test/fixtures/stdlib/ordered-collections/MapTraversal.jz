@@ -1,10 +1,10 @@
 module Stdlib::OrderedCollections::MapTraversal {
-  import Map.
-  import Text.
-  start = mapFromList [(3, "three"), (1, "one"), (2, "TWO")].
-  (mapKeys start, mapValues start,
-   mapToList (mapMapValues start (\(item) -> textAppend item "!")),
-   mapToList (mapFilter start (\(key, item) -> key > 1)),
-   mapFoldLeft start "" (\(result, key, item) -> textAppend result (Showable::show key)),
-   mapFoldRight start "" (\(key, item, result) -> textAppend (Showable::show key) result)).
+  import Map as Map.
+  import Text as Text.
+  start = Map::fromList [(3, "three"), (1, "one"), (2, "TWO")].
+  (Map::keys start, Map::values start,
+   Map::toList (Map::mapValues start (\(item) -> Text::append item "!")),
+   Map::toList (Map::filter start (\(key, item) -> key > 1)),
+   Map::foldLeft start "" (\(result, key, item) -> Text::append result (Showable::show key)),
+   Map::foldRight start "" (\(key, item, result) -> Text::append (Showable::show key) result)).
 }
