@@ -70,7 +70,8 @@ aliasClassTests =
              ("qualified impl lookup rejects private classes", "impl Facts::Hidden(Int) { hidden = \\(x) -> x. }.", "E4014")
            ]
        ]
-    ++ [ ("qualified class diagnostics identify the failing source component", testDiagnosticComponents),
+    ++ [ ("imported type constructors preserve inferred parameter kinds", testImportedConstructorKinds),
+         ("qualified class diagnostics identify the failing source component", testDiagnosticComponents),
          ("qualified method argument errors retain the argument location", testArgumentDiagnostic),
          ("qualified class constraints reject spaced qualification", assertRejected "same :: @{Facts :: Eq(Int)}: Int. same = 1." "E4004"),
          ("qualified result types reject spacing before the separator", assertRejected "same :: Int -> Facts :: OnlyType. same = \\(x) -> x." "E4004"),
@@ -136,6 +137,20 @@ assertFailure :: Text -> Text -> IO ()
 assertFailure body message = do
   result <- runProgram body []
   assertSingleDiagnosticContains "compile failure" message (runCompileErrors result)
+
+testImportedConstructorKinds :: IO ()
+testImportedConstructorKinds = do
+  let definitions = [("src/Lib/Kinds.jz", "data Wrapped f a = Wrapped f(a). unwrap = \\(wrapped) -> case wrapped { | Wrapped xs -> xs }.")]
+  accepted <-
+    runProgram
+      "import Lib::Kinds as K. keep :: K::Wrapped(List, Int) -> K::Wrapped(List, Int). keep = \\(x) -> x. K::unwrap (keep (K::Wrapped [1, 2]))."
+      definitions
+  assertOutput accepted "[1, 2]"
+  rejected <-
+    runProgram
+      "import Lib::Kinds as K. keep :: K::Wrapped(Int, Int) -> K::Wrapped(Int, Int). keep = \\(x) -> x."
+      definitions
+  assertSingleDiagnosticContains "imported kind mismatch" "kind mismatch" (runCompileErrors rejected)
 
 testDifferentOrigins :: IO ()
 testDifferentOrigins = do

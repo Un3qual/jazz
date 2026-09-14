@@ -222,7 +222,7 @@ publishFieldNames (ConstructorArgumentType value) = ConstructorArgumentType (fir
 publishFieldNames ConstructorArgumentFresh = ConstructorArgumentFresh
 
 publishDataNames :: DataTypeBinding -> DataTypeBinding
-publishDataNames (DataTypeBinding parameters constructors) = DataTypeBinding parameters (map (map publishFieldNames) constructors)
+publishDataNames binding = binding {dataTypeConstructors = map (map publishFieldNames) (dataTypeConstructors binding)}
 
 data CompileInputs = CompileInputs
   { compileInputWarningSettings :: WarningSettings,

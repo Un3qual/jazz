@@ -1,8 +1,10 @@
+{-# LANGUAGE TupleSections #-}
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DeriveTraversable #-}
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE PatternSynonyms #-}
 
 -- | Validated declaration templates, independent of a checker's solver state.
 module Jazz.Compiler.SemanticDeclarations
@@ -10,7 +12,9 @@ module Jazz.Compiler.SemanticDeclarations
     ConstructorArgumentType (..),
     ConcreteImplFact (..),
     concreteSignatureType,
-    DataTypeBinding (..),
+    DataTypeBinding (.., DataTypeBinding),
+    prepareDataTypeKinds,
+    signatureVariableKinds,
     ImplMethodType (..),
     SignatureTypeFailure (..),
     DeclarationVariable (..),
@@ -33,7 +37,6 @@ module Jazz.Compiler.SemanticDeclarations
     traverseBindingTypes,
     instantiateDeclarationType,
     concreteImplementationType,
-    implementationTargetSignature,
     normalizeSignatureType,
     semanticFunctionArguments,
   )
@@ -41,6 +44,7 @@ where
 
 import Control.Applicative ((<|>))
 import Control.DeepSeq (NFData)
+import Data.Bifunctor (first)
 import Data.Foldable (toList)
 import Data.Functor.Identity (Identity (..))
 import Data.Map.Strict (Map)
@@ -48,13 +52,14 @@ import qualified Data.Map.Strict as Map
 import Data.Set (Set)
 import qualified Data.Set as Set
 import Data.Text (Text)
-import Data.Void (Void, absurd)
+import Data.Void (Void)
 import GHC.Generics (Generic)
 import Jazz.Compiler.BuiltinCatalog (BuiltinSymbol, numericTypeFromName)
 import Jazz.Compiler.CoreIdentity (CapabilityId, CapabilityMethodKey, CoreBinderId, MethodId)
+import Jazz.Compiler.KindInference (inferDataKinds, inferSignatureKinds)
 import Jazz.Compiler.Name (ResolvedName, identifierLooksLikeTypeVariable, identifierText)
 import Jazz.Compiler.StableSet (StableSet, stableSetFromPreferred, stableSetMembershipSet, stableSetOrderedList)
-import Jazz.Compiler.TypeRepresentation (SemanticType (..), SignatureType (..), semanticTypeToSignature, substituteSemanticVariables)
+import Jazz.Compiler.TypeRepresentation (Kind (..), SemanticType (..), SignatureType (..), substituteSemanticVariables)
 
 -- | A checked method type with its class parameter explicitly bound.
 data ClassMethodType = ClassMethodType Text (SemanticType ResolvedName Text)
@@ -83,9 +88,46 @@ data ConstructorArgumentType
   deriving stock (Eq, Generic, Show)
   deriving anyclass (NFData)
 
-data DataTypeBinding = DataTypeBinding [ResolvedName] [[ConstructorArgumentType]]
+data DataTypeBinding = KindedDataTypeBinding
+  { dataTypeParameters :: [ResolvedName],
+    dataTypeConstructors :: [[ConstructorArgumentType]],
+    dataTypeParameterKinds :: [Kind Void]
+  }
   deriving stock (Eq, Generic, Show)
   deriving anyclass (NFData)
+
+-- Existing first-order declaration producers default every parameter to Type.
+pattern DataTypeBinding :: [ResolvedName] -> [[ConstructorArgumentType]] -> DataTypeBinding
+pattern DataTypeBinding parameters constructors <- KindedDataTypeBinding parameters constructors _
+  where
+    DataTypeBinding parameters constructors = KindedDataTypeBinding parameters constructors (map (const TypeKind) parameters)
+
+{-# COMPLETE DataTypeBinding #-}
+
+prepareDataTypeKinds :: Map ResolvedName DataTypeBinding -> [(ResolvedName, [ResolvedName], [SignatureType ResolvedName ResolvedName])] -> Either (ResolvedName, SignatureTypeFailure) (Map ResolvedName DataTypeBinding)
+prepareDataTypeKinds existing declarations = do
+  normalized <- traverse normalize declarations
+  kinds <- first (fmap SignatureKindMismatch) (inferDataKinds (dataConstructorKinds existing) normalized)
+  pure $
+    Map.fromList
+      [ (name, KindedDataTypeBinding parameters [] (Map.findWithDefault [] name kinds))
+      | (name, parameters, _) <- declarations
+      ]
+  where
+    normalize (name, parameters, fields) = do
+      let variables = Map.fromList [(identifierText parameter, SemanticVariable (identifierText parameter)) | parameter <- parameters]
+      normalized <- first (name,) (traverse (normalizeSignatureTypeWith checkName variables) fields)
+      pure (name, map identifierText parameters, normalized)
+    checkName name _
+      | Map.member name existing || any (\(candidate, _, _) -> candidate == name) declarations = Right ()
+      | otherwise = Left (UnknownNamedType name)
+
+dataConstructorKinds :: Map ResolvedName DataTypeBinding -> Map ResolvedName (Kind Void)
+dataConstructorKinds = Map.map (foldr FunctionKind TypeKind . dataTypeParameterKinds)
+
+signatureVariableKinds :: (Ord variable) => Map ResolvedName DataTypeBinding -> Map variable (Kind Void) -> [SemanticType ResolvedName variable] -> Either SignatureTypeFailure (Map variable (Kind Void))
+signatureVariableKinds dataTypes known =
+  either (Left . SignatureKindMismatch) Right . inferSignatureKinds (dataConstructorKinds dataTypes) known
 
 instantiateDeclarationType :: Map Text (SemanticType ResolvedName variable) -> SemanticType ResolvedName Text -> Maybe (SemanticType ResolvedName variable)
 instantiateDeclarationType parameters field =
@@ -94,21 +136,25 @@ instantiateDeclarationType parameters field =
 data SignatureTypeFailure
   = UnknownNamedType ResolvedName
   | NamedTypeArityMismatch ResolvedName Int Int
-  | TypeVariableApplicationHead ResolvedName
+  | SignatureKindMismatch Text
   | UnboundSignatureTypeVariable ResolvedName
   deriving (Eq, Show)
 
 normalizeSignatureType ::
+  (Ord variable) =>
   Map ResolvedName DataTypeBinding ->
   Map Text (SemanticType ResolvedName variable) ->
   SignatureType ResolvedName ResolvedName ->
   Either SignatureTypeFailure (SemanticType ResolvedName variable)
-normalizeSignatureType dataTypes = normalizeSignatureTypeWith checkNamed
+normalizeSignatureType dataTypes variables signature = do
+  normalized <- normalizeSignatureTypeWith checkNamed variables signature
+  _ <- signatureVariableKinds dataTypes Map.empty [normalized]
+  pure normalized
   where
     checkNamed name argumentCount = case Map.lookup name dataTypes of
       Nothing -> Left (UnknownNamedType name)
       Just (DataTypeBinding parameters _)
-        | length parameters /= argumentCount -> Left (NamedTypeArityMismatch name (length parameters) argumentCount)
+        | length parameters < argumentCount -> Left (NamedTypeArityMismatch name (length parameters) argumentCount)
         | otherwise -> Right ()
 
 -- Declaration diagnostics compare concrete targets before data-type arity
@@ -140,10 +186,10 @@ normalizeSignatureTypeWith checkNamed variables signatureType =
       case builtinOrVariableType name of
         Just expressionType -> Right expressionType
         Nothing -> namedType name []
-    TypeApplication name arguments
-      | identifierLooksLikeTypeVariable name ->
-          Left (TypeVariableApplicationHead name)
-      | otherwise -> namedType name arguments
+    TypeApplication name arguments ->
+      case builtinOrVariableType name of
+        Just headType -> foldl SemanticApplication headType <$> traverse convert arguments
+        Nothing -> namedType name arguments
     TypeList innerType ->
       SemanticList <$> convert innerType
     TypeTuple elementTypes ->
@@ -160,6 +206,7 @@ normalizeSignatureTypeWith checkNamed variables signatureType =
         "Bool" -> Just SemanticBool
         "Char" -> Just SemanticChar
         "Text" -> Just SemanticText
+        "List" -> Just SemanticListConstructor
         typeName ->
           (SemanticNumeric <$> numericTypeFromName typeName)
             <|> Map.lookup typeName variables
@@ -181,10 +228,8 @@ concreteImplementationType target = case target of
   SemanticList element -> concreteImplementationType element
   SemanticTuple elements -> all concreteImplementationType elements
   SemanticData _ arguments -> all concreteImplementationType arguments
+  SemanticApplication constructor argument -> concreteImplementationType constructor && concreteImplementationType argument
   _ -> True
-
-implementationTargetSignature :: SemanticType ResolvedName Void -> SignatureType ResolvedName ResolvedName
-implementationTargetSignature = semanticTypeToSignature . fmap absurd
 
 -- | Quantifiers are local to a scheme. A monomorphic parameter instead belongs
 -- to a declaration, so aliases preserve sharing without exposing solver IDs.

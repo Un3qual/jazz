@@ -99,10 +99,10 @@ import Jazz.Compiler.Name
     identifierText,
     mkIdentifier,
   )
-import Jazz.Compiler.SemanticDeclarations (concreteImplementationType, implementationTargetSignature, semanticFunctionArguments)
+import Jazz.Compiler.SemanticDeclarations (concreteImplementationType, semanticFunctionArguments)
 import Jazz.Compiler.SemanticFacts (AnalyzedScheme (..), ExpressionFacts (expressionResolution), StatementFacts (..))
 import Jazz.Compiler.SignatureRendering
-  ( renderSignatureType,
+  ( renderSemanticType,
   )
 import Jazz.Compiler.TypeInference.Diagnostics
   ( addTypeError,
@@ -747,7 +747,7 @@ resolveDeferredExplicitConstraint state deferredConstraint =
                             && length (methodBodyHints methodKey) > 1
                             && not (uniqueExactRuntimeCandidateHint state unresolvedArgumentType (methodBodyHints methodKey))
                         renderedImplFactKey =
-                          renderCapabilityId constraintName <> "(" <> renderSignatureType (implementationTargetSignature firstArgumentHint) <> ")"
+                          renderCapabilityId constraintName <> "(" <> renderSemanticType (fmap absurd firstArgumentHint) <> ")"
                      in case maybeMethodKey of
                           Nothing
                             | not (null implFactHints) ->

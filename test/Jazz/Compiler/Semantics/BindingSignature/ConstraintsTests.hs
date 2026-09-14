@@ -35,7 +35,9 @@ import Jazz.TestHarness
 
 constraintTests :: [NamedTest]
 constraintTests =
-  [ ("source pipeline accepts inert class and impl declarations", testSourceAcceptsCapabilityDeclarations),
+  [ ("constructor parameters accept List and variable application", testConstructorParameters),
+    ("constructor kinds reject invalid applications", testInvalidConstructorKinds),
+    ("source pipeline accepts inert class and impl declarations", testSourceAcceptsCapabilityDeclarations),
     ("source pipeline accepts class method signature metadata", testSourceAcceptsClassMethodSignatureMetadata),
     ("source pipeline rejects method-local class signature variables", testSourceRejectsMethodLocalClassSignatureVariables),
     ("source pipeline rejects constrained class method signatures", testSourceRejectsConstrainedClassMethodSignatures),
@@ -124,6 +126,27 @@ constraintTests =
     ("source pipeline discards failed application function constraints", testSourceDiscardsFailedApplicationFunctionConstraints),
     ("source pipeline rejects unused variable constraint with bidirectional contract", testSourceRejectsUnusedVariableConstraintWithBidirectionalContract)
   ]
+
+testConstructorParameters :: IO ()
+testConstructorParameters =
+  assertSourceOkWithoutPrelude
+    """
+    data Wrapped f a = Wrapped f(a).
+    keep :: Wrapped(List, Int) -> Wrapped(List, Int).
+    keep = \\(x) -> x.
+    keep (Wrapped [1, 2]).
+    """
+
+testInvalidConstructorKinds :: IO ()
+testInvalidConstructorKinds =
+  mapM_
+    (`assertSourceSingleErrorContainsWithoutPrelude` "kind mismatch")
+    [ "data Wrapped f a = Wrapped f(a). bad :: Wrapped(Int, Int). bad = 1.",
+      "bad :: Int(Bool). bad = 1.",
+      "data Infinite f = Infinite f(f).",
+      "data Inconsistent f = Inconsistent f(Int) f(Int, Int).",
+      "data Phantom f = Phantom. bad :: Phantom(List). bad = Phantom."
+    ]
 
 testSourceAcceptsCapabilityDeclarations :: IO ()
 testSourceAcceptsCapabilityDeclarations =

@@ -94,8 +94,7 @@ renderSignatureTypeFailure failure =
         <> tshow expected
         <> " argument(s), found "
         <> tshow received
-    TypeVariableApplicationHead name ->
-      "type variable '" <> identifierText name <> "' cannot be used as an application head"
+    SignatureKindMismatch message -> "kind mismatch: " <> message
     UnboundSignatureTypeVariable name ->
       "unbound type variable '" <> identifierText name <> "'"
 

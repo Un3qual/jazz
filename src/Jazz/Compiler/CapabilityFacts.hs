@@ -21,6 +21,7 @@ where
 import qualified Data.Set as Set
 import Data.Text (Text)
 import qualified Data.Text as Text
+import Data.Void (absurd)
 import qualified Jazz.Compiler.AST as AST
 import Jazz.Compiler.BuiltinCatalog (numericTypeFromName)
 import Jazz.Compiler.CoreIdentity (CapabilityId (..), CapabilityMethodKey, renderCapabilityId)
@@ -30,9 +31,9 @@ import Jazz.Compiler.Name
     mkIdentifier,
     renderName,
   )
-import Jazz.Compiler.SemanticDeclarations (ConcreteImplFact (..), concreteSignatureType, implementationTargetSignature)
+import Jazz.Compiler.SemanticDeclarations (ConcreteImplFact (..), concreteSignatureType)
 import Jazz.Compiler.SignatureRendering
-  ( renderSignatureType,
+  ( renderSemanticType,
   )
 import Jazz.Compiler.TypeRepresentation
   ( pattern ConstrainedSignature,
@@ -74,7 +75,7 @@ concreteImplFact capabilityName arguments =
 
 renderConcreteImplFact :: ConcreteImplFact -> Text
 renderConcreteImplFact (ConcreteImplFact capabilityName argument) =
-  renderCapabilityId capabilityName <> "(" <> renderSignatureType (implementationTargetSignature argument) <> ")"
+  renderCapabilityId capabilityName <> "(" <> renderSemanticType (fmap absurd argument) <> ")"
 
 concreteImplFactCapability :: ConcreteImplFact -> CapabilityId
 concreteImplFactCapability (ConcreteImplFact capabilityName _) = capabilityName
@@ -202,8 +203,8 @@ constraintSignatureTypeVariableNamesInOrder =
               [renderName name]
           | otherwise ->
               []
-        TypeApplication _ arguments ->
-          concatMap go arguments
+        TypeApplication name arguments ->
+          [renderName name | identifierLooksLikeTypeVariable name] <> concatMap go arguments
         TypeList innerType ->
           go innerType
         TypeTuple elementTypes ->

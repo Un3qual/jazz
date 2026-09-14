@@ -7,6 +7,7 @@
 -- syntax and responsibilities.
 module Jazz.Compiler.SignatureRendering
   ( renderSignatureType,
+    renderSemanticType,
   )
 where
 
@@ -21,7 +22,9 @@ import Jazz.Compiler.Name
     renderName,
   )
 import Jazz.Compiler.TypeRepresentation
-  ( SignatureType,
+  ( SemanticType (..),
+    SignatureType,
+    semanticApplicationSpine,
     pattern TypeApplication,
     pattern TypeBool,
     pattern TypeChar,
@@ -58,3 +61,28 @@ renderSignatureTypeAtom signatureType =
   case signatureType of
     TypeFunction {} -> "(" <> renderSignatureType signatureType <> ")"
     _ -> renderSignatureType signatureType
+
+-- | Render canonical semantic applications using the same source spellings.
+renderSemanticType :: (UserNameLike user) => SemanticType (Name user) (Name user) -> Text
+renderSemanticType = render
+  where
+    render semanticType = case semanticType of
+      SemanticInt -> "Int"
+      SemanticFloat -> "Float"
+      SemanticNumeric numeric -> renderNumericTypeName numeric
+      SemanticBool -> "Bool"
+      SemanticChar -> "Char"
+      SemanticText -> "Text"
+      SemanticVariable variable -> renderName variable
+      SemanticListConstructor -> "List"
+      SemanticNamedConstructor name -> renderName name
+      SemanticList element -> "[" <> atom element <> "]"
+      SemanticTuple elements -> "(" <> renderMany elements <> ")"
+      SemanticFunction argument result -> atom argument <> " -> " <> render result
+      application@SemanticApplication {} ->
+        let (constructor, arguments) = semanticApplicationSpine application
+         in atom constructor <> "(" <> renderMany arguments <> ")"
+    renderMany = Text.intercalate ", " . map render
+    atom semanticType = case semanticType of
+      SemanticFunction {} -> "(" <> render semanticType <> ")"
+      _ -> render semanticType

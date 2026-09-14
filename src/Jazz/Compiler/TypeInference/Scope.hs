@@ -83,7 +83,7 @@ import Jazz.Compiler.RecursiveBindings
     preparedRecursiveScopeStatements,
     resolvedExpressionReferences,
   )
-import Jazz.Compiler.SemanticDeclarations (normalizeSignatureType)
+import Jazz.Compiler.SemanticDeclarations (normalizeSignatureType, prepareDataTypeKinds)
 import Jazz.Compiler.SemanticFacts
   ( SemanticFactInvariantFailure (..),
     StatementDeclarationFact (..),
@@ -576,8 +576,7 @@ inferScopeTypeInternal
       selfRecursiveTypeStatements = resolvedScopeSelfReferences lexicalFacts
       signedBindingStatements = collectSignedBindingStatements indexedStatements
       statementsByIndex = Map.fromList indexedStatements
-      predeclaredDataTypes =
-        predeclareScopeDataTypes indexedStatements initialState
+      predeclaredDataTypes = preparedDataTypes scopePreparation
       scopePreparation =
         prepareScope scopeForwardSignedFunctionsPolicy mode indexedStatements initialState
       bindingSeedsByStatement = preparedBindingSeeds scopePreparation
@@ -680,8 +679,11 @@ inferScopeTypeInternal
                   SData dataNode typeName typeParameters constructors ->
                     let dataTypeAlreadyDeclared =
                           Map.member typeName (inferDataTypes state)
-                        (nextEnv, nextState) =
-                          registerDataConstructors predeclaredDataTypes (coreNodeSpan dataNode) typeName typeParameters constructors env state
+                        (nextEnv, nextState) = case Map.lookup statementIndex (preparedDeclarations scopePreparation) of
+                          Just (Left diagnostic) -> (env, addTypeError state diagnostic)
+                          Just (Right (PreparedDataType binding)) ->
+                            registerDataConstructors (Map.insert typeName binding predeclaredDataTypes) (coreNodeSpan dataNode) typeName typeParameters constructors env state
+                          _ -> registerDataConstructors predeclaredDataTypes (coreNodeSpan dataNode) typeName typeParameters constructors env state
                         nextEnvFreeVariables =
                           if dataTypeAlreadyDeclared
                             then envFreeVariables
@@ -1496,12 +1498,14 @@ data PreparedSignature
 data PreparedDeclaration
   = PreparedClassMethods [CheckedClassMethod]
   | PreparedImplementationTargets [SemanticType ResolvedName Void]
+  | PreparedDataType DataTypeBinding
 
 data ScopePreparation = ScopePreparation
   { preparedBindingSeeds :: Map Int ExpressionType,
     preparedSignatures :: Map Int PreparedSignature,
     preparedForwardFunctions :: Map Int ExpressionType,
     preparedDeclarations :: Map Int (Either Diagnostic PreparedDeclaration),
+    preparedDataTypes :: Map ResolvedName DataTypeBinding,
     preparedScopeState :: InferState
   }
 
@@ -1529,6 +1533,7 @@ prepareScope forwardSignedFunctionsPolicy mode indexedStatements initialState =
           preparedSignatures = signatures,
           preparedForwardFunctions = forwardFunctions,
           preparedDeclarations = declarations,
+          preparedDataTypes = scopeDataTypes,
           preparedScopeState =
             initialState
               { inferSolver =
@@ -1538,6 +1543,14 @@ prepareScope forwardSignedFunctionsPolicy mode indexedStatements initialState =
               }
         }
   where
+    preparedKinds = predeclareScopeDataTypes indexedStatements initialState
+    scopeDataTypes = either (const fallbackDataTypes) id preparedKinds
+    fallbackDataTypes = Map.fromList [(name, DataTypeBinding parameters []) | (_, SData _ name parameters _) <- indexedStatements]
+    checkedDataType node name binding = case preparedKinds of
+      Left (failedName, failure@Signature.SignatureKindMismatch {})
+        | name == failedName ->
+            Left (setDiagnosticPrimarySpan (coreNodeSpan node) (mkInvalidConstructorPayloadTypeError (Signature.renderSignatureTypeFailure failure)))
+      _ -> Right (PreparedDataType binding)
     step
       (bindingSeeds, signatures, forwardFunctions, declarations, pendingSignature, moduleBaselineFacts, state)
       (statementIndex, statement) =
@@ -1582,14 +1595,14 @@ prepareScope forwardSignedFunctionsPolicy mode indexedStatements initialState =
                   updateRootModuleBaselineFacts moduleBaselineFacts state nextState,
                   nextState
                 )
-          SData _ typeName typeParameters _ ->
-            -- Forward signature checking only needs nominal type arity. Fields
-            -- are normalized by the declaration's real checking step.
-            let nextState = modifyDeclarationState (\current -> current {declarationDataTypes = Map.insertWith (\_ existing -> existing) typeName (DataTypeBinding typeParameters []) (inferDataTypes state)}) state
+          SData node typeName typeParameters _ ->
+            let binding = Map.findWithDefault (DataTypeBinding typeParameters []) typeName scopeDataTypes
+                checked = checkedDataType node typeName binding
+                nextState = modifyDeclarationState (\current -> current {declarationDataTypes = Map.insertWith (\_ existing -> existing) typeName binding (inferDataTypes state)}) state
              in ( bindingSeeds,
                   signatures,
                   forwardFunctions,
-                  declarations,
+                  Map.insert statementIndex checked declarations,
                   Nothing,
                   moduleBaselineFacts,
                   nextState
@@ -1687,20 +1700,15 @@ prepareScope forwardSignedFunctionsPolicy mode indexedStatements initialState =
 predeclareScopeDataTypes ::
   [(Int, Statement 'Resolved)] ->
   InferState ->
-  Map ResolvedName DataTypeBinding
+  Either (ResolvedName, Signature.SignatureTypeFailure) (Map ResolvedName DataTypeBinding)
 predeclareScopeDataTypes indexedStatements initialState =
-  foldl' step Map.empty indexedStatements
+  prepareDataTypeKinds (inferDataTypes initialState) declarations
   where
-    step predeclaredDataTypes (_, statement) =
-      case statement of
-        SData _ typeName typeParameters _
-          | Map.notMember typeName (inferDataTypes initialState),
-            Map.notMember typeName predeclaredDataTypes ->
-              Map.insert
-                typeName
-                (DataTypeBinding typeParameters [])
-                predeclaredDataTypes
-        _ -> predeclaredDataTypes
+    declarations =
+      [ (typeName, parameters, concatMap (\(DataConstructor _ _ fields) -> fields) constructors)
+      | (_, SData _ typeName parameters constructors) <- indexedStatements,
+        Map.notMember typeName (inferDataTypes initialState)
+      ]
 
 recursiveBindingEnv ::
   Int ->
@@ -2070,7 +2078,7 @@ registerDataConstructors predeclaredDataTypes spanValue typeName typeParameters 
                     { declarationDataTypes =
                         Map.insert
                           typeName
-                          (DataTypeBinding typeParameters (reverse constructorPayloadsRev))
+                          ((Map.findWithDefault (DataTypeBinding typeParameters []) typeName predeclaredDataTypes) {dataTypeConstructors = reverse constructorPayloadsRev})
                           (inferDataTypes nextState)
                     }
               )

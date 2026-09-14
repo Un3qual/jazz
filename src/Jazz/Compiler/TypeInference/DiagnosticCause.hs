@@ -150,6 +150,9 @@ renderDiagnosticType = render
       SemanticData name arguments -> name <> "<" <> renderMany arguments <> ">"
       SemanticFunction argument result -> renderAtom argument <> " -> " <> render result
       SemanticVariable variable -> "t" <> Text.pack (show variable)
+      SemanticListConstructor -> "List"
+      SemanticNamedConstructor name -> name
+      SemanticApplication constructor argument -> render constructor <> "(" <> render argument <> ")"
     renderMany = Text.intercalate ", " . map render
     renderAtom typeValue = case typeValue of
       SemanticFunction {} -> "(" <> render typeValue <> ")"

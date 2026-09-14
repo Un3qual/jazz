@@ -122,11 +122,12 @@ unifyTypesWithoutCostCentre leftType rightType state =
         (SemanticBool, SemanticBool) -> Just stateAfterDereference
         (SemanticChar, SemanticChar) -> Just stateAfterDereference
         (SemanticText, SemanticText) -> Just stateAfterDereference
-        (SemanticData leftName leftArguments, SemanticData rightName rightArguments)
-          | leftName == rightName ->
-              unifyTypeListsWithoutCostCentre leftArguments rightArguments stateAfterDereference
-        (SemanticList leftElementType, SemanticList rightElementType) ->
-          unifyTypesWithoutCostCentre leftElementType rightElementType stateAfterDereference
+        (SemanticNamedConstructor leftName, SemanticNamedConstructor rightName)
+          | leftName == rightName -> Just stateAfterDereference
+        (SemanticListConstructor, SemanticListConstructor) -> Just stateAfterDereference
+        (SemanticApplication leftHead leftArgument, SemanticApplication rightHead rightArgument) -> do
+          afterHead <- unifyTypesWithoutCostCentre leftHead rightHead stateAfterDereference
+          unifyTypesWithoutCostCentre leftArgument rightArgument afterHead
         (SemanticTuple leftElementTypes, SemanticTuple rightElementTypes) ->
           unifyTypeListsWithoutCostCentre leftElementTypes rightElementTypes stateAfterDereference
         ( SemanticFunction leftInputType leftOutputType,

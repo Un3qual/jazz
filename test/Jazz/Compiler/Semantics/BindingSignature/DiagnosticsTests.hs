@@ -232,7 +232,7 @@ testSourceRejectsPartialNamedSignatureType =
     candidate :: Box.
     candidate = Box 1.
     """
-    "type 'Box' expects 1 argument(s), found 0"
+    "kind mismatch"
 
 testSourcePreservesLocalTypeDeclarationOrder :: IO ()
 testSourcePreservesLocalTypeDeclarationOrder =

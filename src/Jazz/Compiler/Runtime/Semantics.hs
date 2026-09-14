@@ -758,6 +758,9 @@ runtimeValueMatchesConstraint signatureType runtimeValue =
                 Just typeHint -> runtimeTypesCompatible typeHint signatureType
                 Nothing -> True
             _ -> isFunctionValue runtimeValue
+        SemanticListConstructor -> False
+        SemanticNamedConstructor {} -> False
+        SemanticApplication {} -> False
 
 runtimeDataTypeApplicationMatches :: (AnalyzedType -> RuntimeValue -> Bool) -> ResolvedName -> [AnalyzedType] -> RuntimeValue -> Bool
 runtimeDataTypeApplicationMatches matches typeName typeArguments runtimeValue =

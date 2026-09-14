@@ -29,6 +29,27 @@ data Box a = Box a.
 extract :: Box(Int) -> Int.
 ```
 
+Parameters can also stand for type constructors. Jazz infers their kinds from
+the declaration: complete value types have kind `Type`, and `List` has kind
+`Type -> Type`.
+
+Fragment:
+
+<!-- jazz-example: fragment -->
+
+```jazz
+data Wrapped f a = Wrapped f(a).
+keep :: Wrapped(List, Int) -> Wrapped(List, Int).
+keep = \(item) -> item.
+```
+
+Named constructors may be partially applied when an argument expects a
+constructor. `List(a)` and `[a]` are equivalent. Datatype fields and term
+signatures require complete types. Applying `Int` as a constructor,
+overapplying a constructor, or forming an infinite kind is an error. An unused
+parameter defaults to `Type` when its declaration group is checked; importing
+the type preserves those fixed kinds.
+
 This signature requires equality for its element type, while `identity` is
 unconstrained:
 

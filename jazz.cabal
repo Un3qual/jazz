@@ -112,6 +112,7 @@ library jazz-internal
       Jazz.Compiler.FractionalLiteral
       Jazz.Compiler.Identifier
       Jazz.Compiler.Literal
+      Jazz.Compiler.KindInference
       Jazz.Compiler.ModuleGraph
       Jazz.Compiler.ModuleAnalysis
       Jazz.Compiler.ModuleIdentity
