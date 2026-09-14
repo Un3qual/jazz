@@ -2,9 +2,9 @@
 {-# LANGUAGE TupleSections #-}
 
 -- | Declaration-local kind inference. Solved metadata never contains variables.
-module Jazz.Compiler.KindInference (inferDataKinds, inferSignatureKinds) where
+module Jazz.Compiler.KindInference (inferDataKinds, inferSignatureKinds, inferSignatureKindsAt) where
 
-import Control.Monad (foldM, replicateM, unless, zipWithM_, (>=>))
+import Control.Monad (foldM, replicateM, unless, zipWithM_)
 import Control.Monad.Trans.Class (lift)
 import Control.Monad.Trans.State.Strict (StateT, evalStateT, get, modify')
 import Data.Bifoldable (bifoldMap)
@@ -78,10 +78,13 @@ typeKind constructors variables = infer
     complete expression = infer expression >>= unifyKinds TypeKind
 
 inferSignatureKinds :: (Ord variable) => Map ResolvedName (Kind Void) -> Map variable (Kind Void) -> [SemanticType ResolvedName variable] -> Either Text (Map variable (Kind Void))
-inferSignatureKinds constructors known expressions = flip evalStateT (0, Map.empty) $ do
-  variables <- traverse (const freshKind) (Map.fromSet (const ()) (Set.fromList (concatMap toList expressions) <> Map.keysSet known))
+inferSignatureKinds constructors known = inferSignatureKindsAt constructors known . map (,TypeKind)
+
+inferSignatureKindsAt :: (Ord variable) => Map ResolvedName (Kind Void) -> Map variable (Kind Void) -> [(SemanticType ResolvedName variable, Kind Void)] -> Either Text (Map variable (Kind Void))
+inferSignatureKindsAt constructors known requirements = flip evalStateT (0, Map.empty) $ do
+  variables <- traverse (const freshKind) (Map.fromSet (const ()) (Set.fromList (concatMap (toList . fst) requirements) <> Map.keysSet known))
   mapM_ (\(variable, kind) -> maybe (pure ()) (unifyKinds (fmap absurd kind)) (Map.lookup variable variables)) (Map.toList known)
-  mapM_ (typeKind (fmap (fmap absurd) constructors) variables >=> unifyKinds TypeKind) expressions
+  mapM_ (\(expression, expected) -> typeKind (fmap (fmap absurd) constructors) variables expression >>= unifyKinds (fmap absurd expected)) requirements
   traverse fixedKind variables
 
 inferDataKinds :: Map ResolvedName (Kind Void) -> [(ResolvedName, [Text], [SemanticType ResolvedName Text])] -> Either (ResolvedName, Text) (Map ResolvedName [Kind Void])

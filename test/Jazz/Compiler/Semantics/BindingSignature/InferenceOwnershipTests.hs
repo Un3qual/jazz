@@ -96,7 +96,8 @@ import Jazz.Compiler.TypeInference.TypeOps
     replaceTypeVariables,
   )
 import Jazz.Compiler.TypeInference.Types
-  ( ClassMethodType (..),
+  ( ClassDefinition (..),
+    ClassMethodType (..),
     ExpressionType,
     NumericConstraint (..),
     SchemeConstraint (..),
@@ -110,6 +111,7 @@ import Jazz.Compiler.TypeInference.Types
   )
 import Jazz.Compiler.TypeRepresentation
   ( InferenceVariable,
+    Kind (..),
     pattern SignatureConstraint,
     pattern SignatureType,
     pattern TypeBool,
@@ -168,7 +170,7 @@ testDuplicateConstraintsReportFirstRepeatedName =
 
 testStateRecordModifiers :: IO ()
 testStateRecordModifiers = do
-  assertEqual "declaration update" (Map.singleton (CapabilityId (capabilityName "Eq")) 1) (inferClassFacts updatedState)
+  assertEqual "declaration update" (Map.singleton (CapabilityId (capabilityName "Eq")) (ClassDefinition TypeKind [] Set.empty)) (inferClassFacts updatedState)
   assertEqual "module update" (Just (mkModulePath (mkIdentifier "App" :| [mkIdentifier "Main"]))) (inferCurrentModulePath updatedState)
   assertEqual "output update" 3 (inferErrorCount updatedState)
   where
@@ -182,7 +184,7 @@ testStateRecordModifiers = do
                     declarations
                       { declarationCapabilities =
                           (declarationCapabilities declarations)
-                            { scopeClassFacts = Map.singleton (CapabilityId (capabilityName "Eq")) 1
+                            { scopeClassFacts = Map.singleton (CapabilityId (capabilityName "Eq")) (ClassDefinition TypeKind [] Set.empty)
                             }
                       }
                 )

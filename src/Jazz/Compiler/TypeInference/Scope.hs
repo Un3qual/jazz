@@ -47,6 +47,7 @@ import Jazz.Compiler.AST
     Expr (..),
     ImplMethod (..),
     Literal (..),
+    SignatureConstraint,
     SignatureType,
     Statement (..),
     expressionNode,
@@ -58,19 +59,19 @@ import Jazz.Compiler.BuiltinCatalog
   )
 import Jazz.Compiler.CapabilityFacts
   ( constraintSignatureTypeVariableNamesInOrder,
-    signaturePayloadConstraintType,
   )
-import Jazz.Compiler.CoreIdentity (CoreBinderId, ResolvedNodeFacts (..), ResolvedReference (..), ResolvedScopeFacts (..), renderCapabilityId, resolvedNodeImportTarget, resolvedValueReference)
+import Jazz.Compiler.CoreIdentity (CapabilityId (..), CoreBinderId, ResolvedNodeFacts (..), ResolvedReference (..), ResolvedScopeFacts (..), renderCapabilityId, resolvedNodeImportTarget, resolvedValueReference)
 import Jazz.Compiler.Diagnostics
   ( Diagnostic,
     DiagnosticContext (CheckingBinding),
-    SourceSpan,
+    SourceSpan (..),
     setDiagnosticPrimarySpan,
   )
 import Jazz.Compiler.ModuleIdentity (sourceUnitOwnerModulePath)
 import Jazz.Compiler.Name
   ( ResolvedName,
     identifierText,
+    mkIdentifier,
   )
 import Jazz.Compiler.Parser.Operator
   ( isBuiltinOperatorSymbol,
@@ -83,7 +84,7 @@ import Jazz.Compiler.RecursiveBindings
     preparedRecursiveScopeStatements,
     resolvedExpressionReferences,
   )
-import Jazz.Compiler.SemanticDeclarations (normalizeSignatureType, prepareDataTypeKinds)
+import Jazz.Compiler.SemanticDeclarations (normalizeSignatureStructure, normalizeSignatureType, prepareDataTypeKinds, signatureVariableKindsAt)
 import Jazz.Compiler.SemanticFacts
   ( SemanticFactInvariantFailure (..),
     StatementDeclarationFact (..),
@@ -121,11 +122,10 @@ import Jazz.Compiler.TypeInference.Diagnostics
     annotateNewErrorsWithPrimarySpan,
     mkBindingTypeMismatchError,
     mkDuplicateDataTypeDeclarationError,
+    mkInvalidCapabilityDeclarationError,
     mkInvalidConstructorPayloadTypeError,
     mkInvalidImplTargetError,
-    mkInvalidQualifiedMethodSignatureError,
     mkInvalidSignatureTypeError,
-    mkMethodLocalTypeVariableError,
     mkSignatureTypeMismatchError,
     mkUndeclaredSignatureConstraintError,
     mkUnknownConstructorPayloadTypeError,
@@ -154,6 +154,7 @@ import Jazz.Compiler.TypeInference.State
     InferenceOutput (..),
     ModuleInferenceState (..),
     SolverState (..),
+    inferClassFacts,
     inferDataTypes,
     inferErrorCount,
     inferInferredClassConstraintCount,
@@ -176,7 +177,8 @@ import Jazz.Compiler.TypeInference.TypeOps
     freeTypeVariablesInTypeSchemePrimitiveConstraints,
   )
 import Jazz.Compiler.TypeInference.Types
-  ( ClassMethodType (..),
+  ( ClassDefinition (..),
+    ClassMethodType (..),
     ConstructorArgumentType (..),
     DataTypeBinding (..),
     ExpressionType,
@@ -200,9 +202,12 @@ import Jazz.Compiler.TypeInference.Types
     typeEnvReferenceKey,
   )
 import Jazz.Compiler.TypeRepresentation
-  ( NumericType (..),
+  ( Kind (..),
+    NumericType (..),
     pattern ConstrainedSignature,
+    pattern SignatureConstraint,
     pattern SignatureType,
+    pattern TypeVariable,
   )
 
 inferExprTypeWithExpectedMode ::
@@ -261,37 +266,60 @@ checkImplementationTargets state implSpan =
 
 type CheckedClassMethod = (CoreNode 'Resolved 'StatementSort, ResolvedName, ClassMethodType)
 
-checkClassMethods :: InferState -> ResolvedName -> [ResolvedName] -> [ClassMethodSignature 'Resolved] -> Either Diagnostic [CheckedClassMethod]
-checkClassMethods state capabilityName parameters = traverse checkMethod
+checkClassMethods :: InferState -> SourceSpan -> ResolvedName -> [ResolvedName] -> [ClassMethodSignature 'Resolved] -> [SignatureConstraint 'Resolved] -> [ImplMethod 'Resolved] -> Either Diagnostic (ClassDefinition, [CheckedClassMethod])
+checkClassMethods state declarationSpan capabilityName parameters signatures prerequisites defaults = do
+  superclasses <- traverse checkSuperclass prerequisites
+  checked <- traverse checkMethod signatures
+  let kindRequirements = concatMap methodRequirements checked <> [(SemanticVariable classParameter, classParameterKind definition) | (_, definition) <- superclasses]
+  kinds <- first (invalid . Signature.renderSignatureTypeFailure) (signatureVariableKindsAt (inferDataTypes state) Map.empty kindRequirements)
+  mapM_ checkDefault defaults
+  pure (ClassDefinition (Map.findWithDefault TypeKind classParameter kinds) (map fst superclasses) (Set.fromList [mkIdentifier (identifierText name) | ImplMethod _ name _ <- defaults]), checked)
   where
-    parameterNames = map identifierText parameters
-    variables = Map.fromList [(parameter, SemanticVariable parameter) | parameter <- parameterNames]
-    classParameter = case parameterNames of
-      [parameter] -> parameter
-      _ -> ""
-    checkMethod (ClassMethodSignature node methodName payload) =
-      let methodSpan = coreNodeSpan node
-          methodKey = identifierText capabilityName <> "::" <> identifierText methodName
-          methodVariables = maybe [] constraintSignatureTypeVariableNamesInOrder (signaturePayloadConstraintType payload)
-          methodLocalVariables = filter (`Map.notMember` variables) methodVariables
-          invalid = mkInvalidSignatureTypeError state methodKey methodSpan payload
-          normalize signature = case normalizeSignatureType (inferDataTypes state) variables signature of
-            Right methodType -> Right (node, methodName, ClassMethodType classParameter methodType)
-            Left _ -> Left invalid
-       in case payload of
-            ConstrainedSignature (_ : _) _ -> Left (setDiagnosticPrimarySpan methodSpan (mkInvalidQualifiedMethodSignatureError methodKey payload))
-            _ -> case methodLocalVariables of
-              variable : _ -> Left (mkMethodLocalTypeVariableError methodKey variable methodSpan)
-              [] -> case payload of
-                SignatureType signature -> normalize signature
-                ConstrainedSignature [] signature -> normalize signature
-                _ -> Left invalid
+    classParameter = case parameters of [parameter] -> identifierText parameter; _ -> ""
+    capability = CapabilityId capabilityName
+    invalid = mkInvalidCapabilityDeclarationError declarationSpan
+    checkSuperclass (SignatureConstraint name [TypeVariable parameter])
+      | identifierText parameter == classParameter = case Map.lookup (CapabilityId name) (inferClassFacts state) of
+          Just definition
+            | CapabilityId name /= capability -> Right (CapabilityId name, definition)
+          _ -> Left (invalid ("unknown or cyclic superclass '" <> identifierText name <> "'"))
+    checkSuperclass _ = Left (invalid "superclass constraints must apply one class to the class parameter")
+    checkDefault :: ImplMethod 'Resolved -> Either Diagnostic ()
+    checkDefault (ImplMethod node name _)
+      | any (\(ClassMethodSignature _ method _) -> identifierText method == identifierText name) signatures = Right ()
+      | otherwise = Left (mkInvalidCapabilityDeclarationError (coreNodeSpan node) ("default method '" <> identifierText name <> "' requires a signature"))
+    checkMethod (ClassMethodSignature node methodName payload) = do
+      (constraints, signature) <- case payload of
+        SignatureType signature -> Right ([], signature)
+        ConstrainedSignature constraints signature -> Right (constraints, signature)
+        _ -> Left (mkInvalidSignatureTypeError state methodKey (coreNodeSpan node) payload)
+      let names = classParameter : constraintSignatureTypeVariableNamesInOrder signature <> concat [concatMap constraintSignatureTypeVariableNamesInOrder arguments | SignatureConstraint _ arguments <- constraints]
+          variables = Map.fromList [(name, SemanticVariable name) | name <- names]
+          normalize = first (const (mkInvalidSignatureTypeError state methodKey (coreNodeSpan node) payload)) . normalizeSignatureStructure (inferDataTypes state) variables
+      result <- normalize signature
+      checkedConstraints <- traverse (checkConstraint normalize) constraints
+      let self = TypeSchemeMethodConstraint capability (capability, mkIdentifier (identifierText methodName)) (SemanticVariable classParameter)
+          scheme = SemanticScheme (quantifiedVariablesFromPreferred names (Map.keysSet variables)) (self : checkedConstraints) [] mempty result
+      pure (node, methodName, ClassMethodScheme classParameter scheme)
+      where
+        methodKey = identifierText capabilityName <> "::" <> identifierText methodName
+        checkConstraint normalize (SignatureConstraint name [target])
+          | CapabilityId name == capability || Map.member (CapabilityId name) (inferClassFacts state) = TypeSchemeConstraint (CapabilityId name) <$> normalize target
+        checkConstraint _ _ = Left (mkInvalidCapabilityDeclarationError (coreNodeSpan node) "method constraints require a known unary class")
+    methodRequirements (_, methodName, ClassMethodScheme _ scheme) =
+      (rename (schemeResultType scheme), TypeKind)
+        : [ (rename target, classParameterKind definition)
+          | constraint <- schemeClassConstraints scheme,
+            let (name, target) = case constraint of TypeSchemeConstraint owner argument -> (owner, argument); TypeSchemeMethodConstraint owner _ argument -> (owner, argument); TypeSchemeInferredConstraint owner argument -> (owner, argument),
+            name /= capability,
+            Just definition <- [Map.lookup name (inferClassFacts state)]
+          ]
+      where
+        rename = fmap (\name -> if name == classParameter then name else identifierText methodName <> "$" <> name)
 
-registerClassDeclaration :: InferState -> ResolvedName -> [ResolvedName] -> [CheckedClassMethod] -> InferState
-registerClassDeclaration state capabilityName parameters checkedMethods =
-  registerClassCapabilityFacts capabilityName (length parameters) unaryMethods state
-  where
-    unaryMethods = if length parameters == 1 then [(name, methodType) | (_, name, methodType) <- checkedMethods] else []
+registerClassDeclaration :: InferState -> ResolvedName -> (ClassDefinition, [CheckedClassMethod]) -> InferState
+registerClassDeclaration state capabilityName (definition, checkedMethods) =
+  registerClassCapabilityFacts capabilityName definition [(name, methodType) | (_, name, methodType) <- checkedMethods] state
 
 publishVisibleTypes :: TypeEnv -> InferState -> InferState
 publishVisibleTypes env state =
@@ -441,7 +469,7 @@ inferScopeTypeInternal
         SData node name parameters constructors -> SData <$> facts node Nothing (DataDeclaration name [constructorName | DataConstructor _ constructorName _ <- constructors]) <*> pure name <*> pure parameters <*> traverse constructor constructors
         SClass node name parameters signatures context defaults ->
           let checkedSignatures = case Map.lookup index (preparedDeclarations scopePreparation) of
-                Just (Right (PreparedClassMethods checkedMethods)) -> zipWithM classMethod signatures checkedMethods
+                Just (Right (PreparedClassMethods (_, checkedMethods))) -> zipWithM classMethod signatures checkedMethods
                 _ -> rejectedDraft (MissingStatementFacts (coreNodeId node))
            in SClass <$> facts node Nothing (CapabilityDeclaration name parameters) <*> pure name <*> pure parameters <*> checkedSignatures <*> pure context <*> traverse implMethod (zip [0 ..] defaults)
         SImpl node name arguments declarations context -> SImpl <$> implementationNode node name <*> pure name <*> pure arguments <*> traverse implMethod (zip [0 ..] declarations) <*> pure context
@@ -615,10 +643,10 @@ inferScopeTypeInternal
                   SImport importNode _ maybeAlias maybeSymbolNames ->
                     let next = maybe state (\target -> importModuleCapabilityFacts target maybeAlias maybeSymbolNames state) (resolvedNodeImportTarget (coreNodeFacts importNode))
                      in go (retainStatement statementIndex statement env next Nothing [] walkState {scopeWalkRecursiveGroupPreviewCache = Map.empty}) rest
-                  SClass _ capabilityName parameters _ _ _ ->
+                  SClass _ capabilityName _ _ _ _ ->
                     let nextState = case Map.lookup statementIndex (preparedDeclarations scopePreparation) of
                           Just (Left diagnostic) -> addTypeError stateForSource diagnostic
-                          Just (Right (PreparedClassMethods methods)) -> registerClassDeclaration stateForSource capabilityName parameters methods
+                          Just (Right (PreparedClassMethods methods)) -> registerClassDeclaration stateForSource capabilityName methods
                           _ -> stateForSource -- The owned declaration draft rejects missing preparation.
                         nextModuleBaselineFacts =
                           updateRootModuleBaselineFacts moduleBaselineFacts state nextState
@@ -1497,7 +1525,7 @@ data PreparedSignature
   = PreparedSignature (Maybe PendingSignatureType) Bool
 
 data PreparedDeclaration
-  = PreparedClassMethods [CheckedClassMethod]
+  = PreparedClassMethods (ClassDefinition, [CheckedClassMethod])
   | PreparedImplementationTargets [SemanticType ResolvedName Void]
   | PreparedDataType DataTypeBinding
 
@@ -1574,9 +1602,9 @@ prepareScope forwardSignedFunctionsPolicy mode indexedStatements initialState =
               moduleBaselineFacts,
               maybe state (\target -> importModuleCapabilityFacts target maybeAlias maybeSymbolNames state) (resolvedNodeImportTarget (coreNodeFacts importNode))
             )
-          SClass _ capabilityName parameters methods _ _ ->
-            let checked = checkClassMethods state capabilityName parameters methods
-                nextState = either (const state) (registerClassDeclaration state capabilityName parameters) checked
+          SClass classNode capabilityName parameters methods prerequisites defaults ->
+            let checked = checkClassMethods state (coreNodeSpan classNode) capabilityName parameters methods prerequisites defaults
+                nextState = either (const state) (registerClassDeclaration state capabilityName) checked
              in ( bindingSeeds,
                   signatures,
                   forwardFunctions,

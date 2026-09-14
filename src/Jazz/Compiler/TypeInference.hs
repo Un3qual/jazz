@@ -110,7 +110,7 @@ import Jazz.Compiler.TypeInference.Solver
   )
 import Jazz.Compiler.TypeInference.State
   ( DeclarationState (..),
-    ExpressionEvidenceSeed,
+    EvidenceReference,
     InferState (..),
     InferenceOutput (..),
     ModuleInferenceState (..),
@@ -409,7 +409,7 @@ inferExprTypeDetailed env state expr = case expr of
       let (checked, nextState) = inferExprTypeDetailed argumentEnv priorState argumentExpr
        in (checked, annotateNewErrorsWithPrimarySpan (coreNodeSpan (expressionNode argumentExpr)) priorState nextState)
 
-inferLeafExpression :: TypeEnv -> InferState -> Expr 'Resolved -> (Maybe ExpressionType, Maybe ExpressionEvidenceSeed, InferState)
+inferLeafExpression :: TypeEnv -> InferState -> Expr 'Resolved -> (Maybe ExpressionType, Maybe EvidenceReference, InferState)
 inferLeafExpression env state expr = case expr of
   ELit _ literal ->
     let (literalType, afterLiteral) = literalExpressionType literal state
@@ -595,7 +595,7 @@ applicationSpine expr =
 
 -- Specialized checks construct skipped callable wrappers from their selected
 -- types and owned argument trees. These builders do not mutate solver output.
-draftQualifiedMethodSpine :: Maybe ExpressionEvidenceSeed -> Expr 'Resolved -> ExpressionType -> [CheckedExpr] -> Draft (Expr 'Analyzed)
+draftQualifiedMethodSpine :: Maybe EvidenceReference -> Expr 'Resolved -> ExpressionType -> [CheckedExpr] -> Draft (Expr 'Analyzed)
 draftQualifiedMethodSpine evidence root methodType arguments =
   let (_, tree, remaining) = walk root arguments
    in if null remaining then tree else rejected root

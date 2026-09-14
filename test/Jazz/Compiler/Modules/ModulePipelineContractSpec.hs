@@ -215,7 +215,7 @@ tests =
     ("checked subtrees own their facts before finalization", testCheckedSubtreeOwnership),
     ("successful inference attaches complete analyzed facts", testAnalyzedProgramFactsAreComplete),
     ("analyzed methods identify used and unused class parameters", testAnalyzedMethodParameterIdentity),
-    ("method projection rejects variables outside the class binder", testAnalyzedMethodParameterBoundary),
+    ("method projection rejects variables outside the declared scheme", testAnalyzedMethodParameterBoundary),
     ("checked-tree finalization rejects incomplete semantic nodes", testAnalyzedFactInvariantFailures),
     ("dependency expressions are checked but not executed", testDependencyExpressionContract),
     ("analyzed interfaces expose only declared exports", testAnalyzedInterfacesExposeOnlyDeclaredExports),
@@ -592,7 +592,7 @@ testAnalyzedMethodParameterBoundary =
       assertEqual
         "an unexpected variable fails projection instead of dropping or guessing the binder"
         (Left (InvalidAnalyzedMethodSignature "Probe::bad"))
-        (projectAnalyzedMethodSignature "Probe::bad" (ClassMethodType "a" signatureType))
+        (projectAnalyzedMethodSignature "Probe::bad" (ClassMethodScheme "a" (SemanticScheme (quantifiedVariablesFromPreferred ["a"] (Set.singleton "a")) [] [] emptyScopeCapabilityFacts signatureType)))
 
 -- Finalization may read the solver, but the checker must already own the tree
 -- and its decisions. Erasing all output facts must leave that tree intact.

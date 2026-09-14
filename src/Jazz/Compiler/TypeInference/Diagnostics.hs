@@ -27,6 +27,7 @@ module Jazz.Compiler.TypeInference.Diagnostics
     mkImplMethodMissingClassMethodError,
     mkImplMethodTypeMismatchError,
     mkInvalidImplTargetError,
+    mkInvalidCapabilityDeclarationError,
     mkInvalidSignatureTypeError,
     mkInvalidQualifiedMethodSignatureError,
     mkMethodLocalTypeVariableError,
@@ -594,7 +595,7 @@ concreteConstraintFailureSummary state constraints
           Nothing
       where
         constraintNameText = identifierText constraintName
-        maybeClassArity = Map.lookup (CapabilityId constraintName) (inferClassFacts state)
+        maybeClassArity = 1 <$ Map.lookup (CapabilityId constraintName) (inferClassFacts state)
 
 constrainedSignatureHasTypeVariable :: [SignatureConstraint 'Resolved] -> SignatureType 'Resolved -> Bool
 constrainedSignatureHasTypeVariable constraints signatureType =
@@ -608,3 +609,7 @@ constraintHasTypeVariable (SignatureConstraint _ arguments) =
 constraintTypeHasTypeVariable :: SignatureType 'Resolved -> Bool
 constraintTypeHasTypeVariable signatureType =
   getAny (bifoldMap (Any . identifierLooksLikeTypeVariable) (const (Any True)) signatureType)
+
+mkInvalidCapabilityDeclarationError :: SourceSpan -> Text -> Diagnostic
+mkInvalidCapabilityDeclarationError spanValue message =
+  setDiagnosticPrimarySpan spanValue (mkErrorDiagnostic E2009 CompilationOrigin message)

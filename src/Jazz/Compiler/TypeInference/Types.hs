@@ -1,8 +1,10 @@
 {-# LANGUAGE DerivingStrategies #-}
+{-# LANGUAGE PatternSynonyms #-}
 
 -- | Internal type model shared by inference subsystems.
 module Jazz.Compiler.TypeInference.Types
   ( ClassMethodType (..),
+    ClassDefinition (..),
     ConstructorArgumentType (..),
     DataTypeBinding (..),
     ExpressionType,
@@ -39,7 +41,8 @@ import Jazz.Compiler.Name
   ( ResolvedName,
   )
 import Jazz.Compiler.SemanticDeclarations
-  ( ClassMethodType (..),
+  ( ClassDefinition (..),
+    ClassMethodType (..),
     ConstructorArgumentType (..),
     DataTypeBinding (..),
     ImplMethodType (..),

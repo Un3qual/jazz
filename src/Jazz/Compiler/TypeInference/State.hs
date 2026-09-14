@@ -4,7 +4,7 @@ module Jazz.Compiler.TypeInference.State
     DeferredExplicitConstraint (..),
     ExplicitInstantiationSeed (..),
     ExplicitInstantiationTarget (..),
-    ExpressionEvidenceSeed (..),
+    EvidenceReference (..),
     InferState (..),
     InferenceOutput (..),
     ModuleInferenceState (..),
@@ -50,12 +50,13 @@ import Data.Sequence (Seq)
 import qualified Data.Sequence as Seq
 import Data.Set (Set)
 import qualified Data.Set as Set
-import Jazz.Compiler.CoreIdentity (CapabilityId, CapabilityMethodKey, ImplId, MethodId)
+import Jazz.Compiler.CoreIdentity (CapabilityId, CapabilityMethodKey)
 import Jazz.Compiler.Diagnostics (Diagnostic)
 import Jazz.Compiler.ModuleIdentity (ModulePath)
 import Jazz.Compiler.Name (ResolvedName, UnresolvedName)
 import Jazz.Compiler.PatternCoverage (PatternCoverageSite)
-import Jazz.Compiler.SemanticDeclarations (ConcreteImplFact, DeclarationVariable)
+import Jazz.Compiler.SemanticDeclarations (ClassDefinition, ConcreteImplFact, DeclarationVariable)
+import Jazz.Compiler.SemanticFacts (EvidenceReference (..))
 import Jazz.Compiler.TypeInference.Types
   ( ClassMethodType,
     DataTypeBinding,
@@ -104,13 +105,6 @@ data InferenceOutput = InferenceOutput
     outputNextPatternCoverageOrdinal :: Int
   }
   deriving (Eq, Show)
-
-data ExpressionEvidenceSeed = ExpressionEvidenceSeed
-  { evidenceSeedCapability :: CapabilityId,
-    evidenceSeedImplementation :: ImplId,
-    evidenceSeedMethod :: MethodId,
-    evidenceSeedType :: ExpressionType
-  }
 
 data ExplicitInstantiationTarget
   = ExplicitBinderInstantiation ResolvedName
@@ -206,7 +200,7 @@ inferRigidTypeVars = solverRigidTypeVars . inferSolver
 inferDataTypes :: InferState -> Map ResolvedName DataTypeBinding
 inferDataTypes = declarationDataTypes . inferDeclarations
 
-inferClassFacts :: InferState -> Map CapabilityId Int
+inferClassFacts :: InferState -> Map CapabilityId ClassDefinition
 inferClassFacts = scopeClassFacts . declarationCapabilities . inferDeclarations
 
 inferConcreteImplFacts :: InferState -> Set ConcreteImplFact

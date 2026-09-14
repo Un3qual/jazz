@@ -55,7 +55,6 @@ import Jazz.Compiler.TypeInference.Solver (resolveType)
 import Jazz.Compiler.TypeInference.State
   ( ExplicitInstantiationSeed (..),
     ExplicitInstantiationTarget (..),
-    ExpressionEvidenceSeed (..),
     InferState,
     inferNumericVars,
   )
@@ -87,13 +86,13 @@ finalizeCheckedExpression solved checked = finalizeDraft solved (checkedExprTree
 data ExpressionNodeDraft = ExpressionNodeDraft
   { draftNodeType :: !(Maybe ExpressionType),
     draftNodeOperation :: !(Maybe BinaryOperation),
-    draftNodeEvidence :: !(Maybe ExpressionEvidenceSeed),
+    draftNodeEvidence :: !(Maybe EvidenceReference),
     draftNodeInstantiation :: !(Attachment [SemanticInstantiation])
   }
 
 data ExpressionDecision = ExpressionDecision
   { decisionOperation :: Maybe BinaryOperation,
-    decisionEvidence :: Maybe ExpressionEvidenceSeed,
+    decisionEvidence :: Maybe EvidenceReference,
     decisionInstantiation :: Maybe ExplicitInstantiationSeed
   }
 
@@ -183,7 +182,7 @@ finalizeExpressionNode state payload (CoreNode nodeId spanValue resolution) =
             expressionResultRepresentation = resultRepresentation semanticType
           }
 
-explicitInstantiationFacts :: CoreNodeId -> Maybe (Expr 'Resolved) -> Maybe ExplicitInstantiationSeed -> Maybe ExpressionEvidenceSeed -> Attachment [SemanticInstantiation]
+explicitInstantiationFacts :: CoreNodeId -> Maybe (Expr 'Resolved) -> Maybe ExplicitInstantiationSeed -> Maybe EvidenceReference -> Attachment [SemanticInstantiation]
 explicitInstantiationFacts nodeId expression instantiation evidence =
   case (expression, instantiation) of
     (Just ETypeApplication {}, Nothing) ->
@@ -222,18 +221,11 @@ explicitInstantiationTargetName target =
     ExplicitBinderInstantiation name -> name
     ExplicitQualifiedMethodInstantiation name -> name
 
-expressionEvidenceFacts :: InferState -> Maybe ExpressionEvidenceSeed -> [EvidenceReference]
+expressionEvidenceFacts :: InferState -> Maybe EvidenceReference -> [EvidenceReference]
 expressionEvidenceFacts state evidence =
   case evidence of
     Nothing -> []
-    Just (ExpressionEvidenceSeed capability implementation method targetType) ->
-      [ EvidenceReference
-          { evidenceCapability = capability,
-            evidenceImplementation = implementation,
-            evidenceMethod = method,
-            evidenceType = resolveType state targetType
-          }
-      ]
+    Just reference -> [reference {evidenceType = resolveType state (evidenceType reference)}]
 
 -- Only a closed representation needs enforcement at the return boundary.
 resultRepresentation :: ExpressionType -> Maybe ExpressionType
@@ -378,10 +370,10 @@ projectNumericConstraint constraint =
     IntegralLiteralNumericConstraint (IntegerLiteralRange lower upper) -> AnalyzedIntegralLiteralNumericConstraint lower upper
 
 projectAnalyzedMethodSignature :: Text -> ClassMethodType -> Either SemanticFactInvariantFailure AnalyzedMethodSignature
-projectAnalyzedMethodSignature methodName (ClassMethodType parameter methodType) =
-  case instantiateDeclarationType (Map.singleton parameter parameterType) methodType of
-    Nothing -> Left (InvalidAnalyzedMethodSignature methodName)
-    Just signature -> Right (AnalyzedMethodSignature parameterId signature)
+projectAnalyzedMethodSignature methodName (ClassMethodScheme parameter scheme) =
+  case (Map.lookup parameter variables, instantiateDeclarationType variables (schemeResultType scheme)) of
+    (Just (SemanticVariable parameterId), Just signature) -> Right (AnalyzedMethodSignature parameterId signature)
+    _ -> Left (InvalidAnalyzedMethodSignature methodName)
   where
-    parameterId = 0
-    parameterType = SemanticVariable parameterId
+    order = quantifiedVariablesOrderedList (schemeQuantifiedVariables scheme)
+    variables = Map.fromList (zip order (map SemanticVariable [0 ..]))

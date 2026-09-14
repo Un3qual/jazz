@@ -112,7 +112,6 @@ import Jazz.Compiler.TypeInference.Diagnostics
     mkAmbiguousQualifiedMethodBodyError,
     mkAmbiguousQualifiedMethodBodyForArgumentsError,
     mkApplyTypeError,
-    mkExplicitConstraintArityError,
     mkMissingClassMethodError,
     mkMissingExplicitConstraintClassError,
     mkMissingExplicitConstraintImplFactError,
@@ -143,7 +142,7 @@ import Jazz.Compiler.TypeInference.Solver
 import Jazz.Compiler.TypeInference.State
   ( DeclarationState (..),
     DeferredExplicitConstraint (..),
-    ExpressionEvidenceSeed (..),
+    EvidenceReference (..),
     InferState (..),
     InferenceOutput (..),
     ModuleInferenceState (..),
@@ -169,7 +168,8 @@ import Jazz.Compiler.TypeInference.TypeOps
     freeTypeVariables,
   )
 import Jazz.Compiler.TypeInference.Types
-  ( ClassMethodType (..),
+  ( ClassDefinition (..),
+    ClassMethodType (..),
     ConstructorArgumentType (..),
     ExpressionType,
     ImplMethodType (..),
@@ -338,11 +338,11 @@ filterImportedCapabilityFacts maybeAlias maybeSymbolNames facts =
             importedMethodClassIsVisible methodKey =
               Set.member (renderCapabilityId (fst methodKey)) visibleSymbols
 
-registerClassCapabilityFacts :: ResolvedName -> Int -> [(ResolvedName, ClassMethodType)] -> InferState -> InferState
-registerClassCapabilityFacts capabilityName arity methods =
+registerClassCapabilityFacts :: ResolvedName -> ClassDefinition -> [(ResolvedName, ClassMethodType)] -> InferState -> InferState
+registerClassCapabilityFacts capabilityName definition methods =
   modifyCapabilityFacts $ \facts ->
     facts
-      { scopeClassFacts = Map.insert (CapabilityId capabilityName) arity (scopeClassFacts facts),
+      { scopeClassFacts = Map.insert (CapabilityId capabilityName) definition (scopeClassFacts facts),
         scopeClassMethodSignatures = foldl' insertMethod (scopeClassMethodSignatures facts) methods
       }
   where
@@ -399,7 +399,7 @@ qualifiedMethodClassIsVisible methodKey state =
 
 data MethodSelection = MethodSelection
   { selectedMethodType :: Maybe ExpressionType,
-    selectedMethodEvidence :: Maybe ExpressionEvidenceSeed
+    selectedMethodEvidence :: Maybe EvidenceReference
   }
 
 unselectedMethodResult :: (Maybe ExpressionType, InferState) -> (MethodSelection, InferState)
@@ -409,7 +409,7 @@ selectedMethodResult :: ImplMethodType -> (Maybe ExpressionType, InferState) -> 
 selectedMethodResult method (result, state) = (MethodSelection result (evidence <$ result), state)
   where
     MethodId (implementationId, _) = implMethodIdentity method
-    evidence = ExpressionEvidenceSeed (implMethodCapability method) implementationId (implMethodIdentity method) (fmap absurd (implMethodTarget method))
+    evidence = EvidenceReference (implMethodCapability method) implementationId (implMethodIdentity method) (fmap absurd (implMethodTarget method))
 
 inferQualifiedMethodApplicationWithResults ::
   InferExprFn ->
@@ -724,48 +724,45 @@ resolveDeferredExplicitConstraint state deferredConstraint =
         else case Map.lookup constraintName (scopeClassFacts facts) of
           Nothing ->
             addTypeError state (mkMissingExplicitConstraintClassError constraintName)
-          Just classArity
-            | classArity /= 1 ->
-                addTypeError state (mkExplicitConstraintArityError constraintName classArity)
-            | otherwise ->
-                case uncons (constraintCandidateTypesForDeferred facts state inferredConstraint constraintName maybeMethodKey unresolvedArgumentType) of
-                  Nothing ->
-                    addTypeError state (mkAmbiguousDeferredConstraintError inferredConstraint constraintName resolvedArgumentType)
-                  Just (firstArgumentHint, remainingArgumentHints) ->
-                    let argumentHints = firstArgumentHint : remainingArgumentHints
-                        implFactHints =
-                          filter
-                            (constraintImplFactExistsForDeferred facts inferredConstraint constraintName)
-                            argumentHints
-                        methodBodyHints methodKey =
-                          filter
-                            (\argumentHint -> concreteImplMethodBodyExists methodKey argumentHint facts)
-                            implFactHints
-                        ambiguousMethodBodyHints methodKey =
-                          inferredConstraint
-                            && expressionTypeContainsUncommittedIntegerLiteral state unresolvedArgumentType
-                            && length (methodBodyHints methodKey) > 1
-                            && not (uniqueExactRuntimeCandidateHint state unresolvedArgumentType (methodBodyHints methodKey))
-                        renderedImplFactKey =
-                          renderCapabilityId constraintName <> "(" <> renderSemanticType (fmap absurd firstArgumentHint) <> ")"
-                     in case maybeMethodKey of
-                          Nothing
-                            | not (null implFactHints) ->
-                                state
-                            | inferredConstraint
-                                && inferredEqualityConstraintCanUseStructuralRuntimeEquality state structuralFacts maybeMethodKey constraintName resolvedArgumentType ->
-                                state
-                            | otherwise ->
-                                addTypeError state (mkMissingExplicitConstraintImplFactError renderedImplFactKey)
-                          Just methodKey
-                            | null implFactHints ->
-                                addTypeError state (mkMissingExplicitConstraintImplFactError renderedImplFactKey)
-                            | ambiguousMethodBodyHints methodKey ->
-                                addTypeError state (mkAmbiguousQualifiedMethodBodyError methodKey)
-                            | not (null (methodBodyHints methodKey)) ->
-                                state
-                            | otherwise ->
-                                addTypeError state (mkMissingImplMethodBodyError methodKey)
+          Just _ ->
+            case uncons (constraintCandidateTypesForDeferred facts state inferredConstraint constraintName maybeMethodKey unresolvedArgumentType) of
+              Nothing ->
+                addTypeError state (mkAmbiguousDeferredConstraintError inferredConstraint constraintName resolvedArgumentType)
+              Just (firstArgumentHint, remainingArgumentHints) ->
+                let argumentHints = firstArgumentHint : remainingArgumentHints
+                    implFactHints =
+                      filter
+                        (constraintImplFactExistsForDeferred facts inferredConstraint constraintName)
+                        argumentHints
+                    methodBodyHints methodKey =
+                      filter
+                        (\argumentHint -> concreteImplMethodBodyExists methodKey argumentHint facts)
+                        implFactHints
+                    ambiguousMethodBodyHints methodKey =
+                      inferredConstraint
+                        && expressionTypeContainsUncommittedIntegerLiteral state unresolvedArgumentType
+                        && length (methodBodyHints methodKey) > 1
+                        && not (uniqueExactRuntimeCandidateHint state unresolvedArgumentType (methodBodyHints methodKey))
+                    renderedImplFactKey =
+                      renderCapabilityId constraintName <> "(" <> renderSemanticType (fmap absurd firstArgumentHint) <> ")"
+                 in case maybeMethodKey of
+                      Nothing
+                        | not (null implFactHints) ->
+                            state
+                        | inferredConstraint
+                            && inferredEqualityConstraintCanUseStructuralRuntimeEquality state structuralFacts maybeMethodKey constraintName resolvedArgumentType ->
+                            state
+                        | otherwise ->
+                            addTypeError state (mkMissingExplicitConstraintImplFactError renderedImplFactKey)
+                      Just methodKey
+                        | null implFactHints ->
+                            addTypeError state (mkMissingExplicitConstraintImplFactError renderedImplFactKey)
+                        | ambiguousMethodBodyHints methodKey ->
+                            addTypeError state (mkAmbiguousQualifiedMethodBodyError methodKey)
+                        | not (null (methodBodyHints methodKey)) ->
+                            state
+                        | otherwise ->
+                            addTypeError state (mkMissingImplMethodBodyError methodKey)
   where
     constraintName = deferredConstraintName deferredConstraint
     maybeMethodKey = deferredMethodKey deferredConstraint
@@ -880,7 +877,7 @@ equalityConstraintNameCanUseStructuralRuntimeEquality state facts constraintName
 generatedHiddenEqualityClassFact :: CapabilityId -> ScopeCapabilityFacts -> Bool
 generatedHiddenEqualityClassFact constraintName facts =
   Set.member constraintName (scopeGeneratedEqualityClassFacts facts)
-    && Map.lookup constraintName (scopeClassFacts facts) == Just 1
+    && Map.member constraintName (scopeClassFacts facts)
 
 structuralRuntimeEqualityType :: InferState -> ExpressionType -> Bool
 structuralRuntimeEqualityType state argumentType =
@@ -1044,8 +1041,7 @@ inferQualifiedMethodRequirementWithoutCostCentre ::
   Maybe (Maybe ExpressionType, InferState)
 inferQualifiedMethodRequirementWithoutCostCentre methodKey (ClassMethodType classParameter methodSignature) state argumentTypes = do
   let capabilityName = fst methodKey
-  classArity <- Map.lookup capabilityName (inferClassFacts state)
-  guard (classArity == 1)
+  _ <- Map.lookup capabilityName (inferClassFacts state)
   guard (classMethodSignatureHasTargetArgument classParameter methodSignature)
   let (classTarget, stateAfterClassTarget) = freshTypeVar state
   methodType <- instantiateDeclarationType (Map.singleton classParameter classTarget) methodSignature
@@ -1488,7 +1484,7 @@ addInferredEqualityClassConstraintIfVisible argumentType state =
 activeEqualityClassName :: InferState -> Maybe CapabilityId
 activeEqualityClassName state =
   case filter (unqualifiedEqualityClass . fst) classes of
-    (capability, 1) : _ -> Just capability
+    (capability, _) : _ -> Just capability
     _ -> case filter importedEqualityClass classes of
       [(capability, _)] -> Just capability
       _ -> Nothing
@@ -1497,6 +1493,6 @@ activeEqualityClassName state =
     unqualifiedEqualityClass (CapabilityId name) = case name of
       UserName (ResolvedUserName ImportedModule {} _ _) -> False
       _ -> identifierText name == "Eq"
-    importedEqualityClass (CapabilityId (UserName (ResolvedUserName ImportedModule {} _ member)), arity) =
-      arity == 1 && identifierText member == "Eq"
+    importedEqualityClass (CapabilityId (UserName (ResolvedUserName ImportedModule {} _ member)), _) =
+      identifierText member == "Eq"
     importedEqualityClass _ = False

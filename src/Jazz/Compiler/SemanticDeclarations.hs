@@ -1,20 +1,24 @@
-{-# LANGUAGE TupleSections #-}
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DeriveTraversable #-}
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE PatternSynonyms #-}
+{-# LANGUAGE TupleSections #-}
 
 -- | Validated declaration templates, independent of a checker's solver state.
 module Jazz.Compiler.SemanticDeclarations
-  ( ClassMethodType (..),
+  ( ClassMethodType (.., ClassMethodType),
+    ClassDefinition (..),
     ConstructorArgumentType (..),
     ConcreteImplFact (..),
     concreteSignatureType,
     DataTypeBinding (.., DataTypeBinding),
     prepareDataTypeKinds,
     signatureVariableKinds,
+    signatureVariableKindsAt,
+    normalizeSignatureTypeAt,
+    normalizeSignatureStructure,
     ImplMethodType (..),
     SignatureTypeFailure (..),
     DeclarationVariable (..),
@@ -56,13 +60,34 @@ import Data.Void (Void)
 import GHC.Generics (Generic)
 import Jazz.Compiler.BuiltinCatalog (BuiltinSymbol, numericTypeFromName)
 import Jazz.Compiler.CoreIdentity (CapabilityId, CapabilityMethodKey, CoreBinderId, MethodId)
-import Jazz.Compiler.KindInference (inferDataKinds, inferSignatureKinds)
-import Jazz.Compiler.Name (ResolvedName, identifierLooksLikeTypeVariable, identifierText)
+import Jazz.Compiler.KindInference (inferDataKinds, inferSignatureKinds, inferSignatureKindsAt)
+import Jazz.Compiler.Name (Identifier, ResolvedName, identifierLooksLikeTypeVariable, identifierText)
 import Jazz.Compiler.StableSet (StableSet, stableSetFromPreferred, stableSetMembershipSet, stableSetOrderedList)
 import Jazz.Compiler.TypeRepresentation (Kind (..), SemanticType (..), SignatureType (..), substituteSemanticVariables)
 
 -- | A checked method type with its class parameter explicitly bound.
-data ClassMethodType = ClassMethodType Text (SemanticType ResolvedName Text)
+data ClassMethodType = ClassMethodScheme
+  { classMethodParameter :: Text,
+    classMethodScheme :: SemanticScheme Text
+  }
+  deriving stock (Eq, Generic, Show)
+  deriving anyclass (NFData)
+
+pattern ClassMethodType :: Text -> SemanticType ResolvedName Text -> ClassMethodType
+pattern ClassMethodType parameter result <- ClassMethodScheme parameter (SemanticScheme {schemeResultType = result})
+  where
+    ClassMethodType parameter result =
+      ClassMethodScheme
+        parameter
+        (SemanticScheme (quantifiedVariablesFromPreferred (parameter : toList result) (Set.insert parameter (Set.fromList (toList result)))) [] [] emptyScopeCapabilityFacts result)
+
+{-# COMPLETE ClassMethodType #-}
+
+data ClassDefinition = ClassDefinition
+  { classParameterKind :: Kind Void,
+    classSuperclasses :: [CapabilityId],
+    classDefaultMethods :: Set Identifier
+  }
   deriving stock (Eq, Generic, Show)
   deriving anyclass (NFData)
 
@@ -129,6 +154,10 @@ signatureVariableKinds :: (Ord variable) => Map ResolvedName DataTypeBinding -> 
 signatureVariableKinds dataTypes known =
   either (Left . SignatureKindMismatch) Right . inferSignatureKinds (dataConstructorKinds dataTypes) known
 
+signatureVariableKindsAt :: (Ord variable) => Map ResolvedName DataTypeBinding -> Map variable (Kind Void) -> [(SemanticType ResolvedName variable, Kind Void)] -> Either SignatureTypeFailure (Map variable (Kind Void))
+signatureVariableKindsAt dataTypes known =
+  either (Left . SignatureKindMismatch) Right . inferSignatureKindsAt (dataConstructorKinds dataTypes) known
+
 instantiateDeclarationType :: Map Text (SemanticType ResolvedName variable) -> SemanticType ResolvedName Text -> Maybe (SemanticType ResolvedName variable)
 instantiateDeclarationType parameters field =
   substituteSemanticVariables id <$> traverse (`Map.lookup` parameters) field
@@ -146,10 +175,16 @@ normalizeSignatureType ::
   Map Text (SemanticType ResolvedName variable) ->
   SignatureType ResolvedName ResolvedName ->
   Either SignatureTypeFailure (SemanticType ResolvedName variable)
-normalizeSignatureType dataTypes variables signature = do
-  normalized <- normalizeSignatureTypeWith checkNamed variables signature
-  _ <- signatureVariableKinds dataTypes Map.empty [normalized]
+normalizeSignatureType dataTypes variables = normalizeSignatureTypeAt dataTypes variables TypeKind
+
+normalizeSignatureTypeAt :: (Ord variable) => Map ResolvedName DataTypeBinding -> Map Text (SemanticType ResolvedName variable) -> Kind Void -> SignatureType ResolvedName ResolvedName -> Either SignatureTypeFailure (SemanticType ResolvedName variable)
+normalizeSignatureTypeAt dataTypes variables expected signature = do
+  normalized <- normalizeSignatureStructure dataTypes variables signature
+  _ <- signatureVariableKindsAt dataTypes Map.empty [(normalized, expected)]
   pure normalized
+
+normalizeSignatureStructure :: Map ResolvedName DataTypeBinding -> Map Text (SemanticType ResolvedName variable) -> SignatureType ResolvedName ResolvedName -> Either SignatureTypeFailure (SemanticType ResolvedName variable)
+normalizeSignatureStructure dataTypes = normalizeSignatureTypeWith checkNamed
   where
     checkNamed name argumentCount = case Map.lookup name dataTypes of
       Nothing -> Left (UnknownNamedType name)
@@ -302,7 +337,7 @@ data SchemeConstraint typeValue
   deriving anyclass (NFData)
 
 data ScopeCapabilityFacts = ScopeCapabilityFacts
-  { scopeClassFacts :: Map CapabilityId Int,
+  { scopeClassFacts :: Map CapabilityId ClassDefinition,
     scopeGeneratedEqualityClassFacts :: Set CapabilityId,
     scopeConcreteImplFacts :: Set ConcreteImplFact,
     scopeClassMethodSignatures :: Map CapabilityMethodKey ClassMethodType,

@@ -38,7 +38,8 @@ import Jazz.Compiler.ModuleExports
 import Jazz.Compiler.ModuleIdentity (SourceUnitOwner (..))
 import Jazz.Compiler.Name (Name (..), NameNamespace (..), ResolvedName, ResolvedNameOrigin (..), ResolvedUserName (..), renderName)
 import Jazz.Compiler.SemanticDeclarations
-  ( ClassMethodType (..),
+  ( ClassDefinition (..),
+    ClassMethodType (..),
     ConcreteImplFact (..),
     ConstructorArgumentType (..),
     DataTypeBinding (..),
@@ -201,7 +202,7 @@ publishSchemeNames scheme =
 publishCapabilityNames :: ScopeCapabilityFacts -> ScopeCapabilityFacts
 publishCapabilityNames facts =
   ScopeCapabilityFacts
-    { scopeClassFacts = Map.mapKeys publishedCapability (scopeClassFacts facts),
+    { scopeClassFacts = Map.mapKeys publishedCapability (Map.map (\definition -> definition {classSuperclasses = map publishedCapability (classSuperclasses definition)}) (scopeClassFacts facts)),
       scopeGeneratedEqualityClassFacts = Set.map publishedCapability (scopeGeneratedEqualityClassFacts facts),
       scopeConcreteImplFacts = Set.map publishImplFact (scopeConcreteImplFacts facts),
       scopeClassMethodSignatures = Map.mapKeys publishedMethod (Map.map publishMethodType (scopeClassMethodSignatures facts)),
@@ -215,7 +216,18 @@ publishImplType :: ImplMethodType -> ImplMethodType
 publishImplType method = method {implMethodTarget = first publishedName (implMethodTarget method), implMethodCapability = publishedCapability (implMethodCapability method)}
 
 publishMethodType :: ClassMethodType -> ClassMethodType
-publishMethodType (ClassMethodType parameter value) = ClassMethodType parameter (first publishedName value)
+publishMethodType (ClassMethodScheme parameter scheme) =
+  ClassMethodScheme
+    parameter
+    scheme
+      { schemeResultType = first publishedName (schemeResultType scheme),
+        schemeClassConstraints = map publishConstraint (schemeClassConstraints scheme)
+      }
+  where
+    publishConstraint constraint = case constraint of
+      TypeSchemeConstraint capability target -> TypeSchemeConstraint (publishedCapability capability) (first publishedName target)
+      TypeSchemeInferredConstraint capability target -> TypeSchemeInferredConstraint (publishedCapability capability) (first publishedName target)
+      TypeSchemeMethodConstraint capability method target -> TypeSchemeMethodConstraint (publishedCapability capability) (publishedMethod method) (first publishedName target)
 
 publishFieldNames :: ConstructorArgumentType -> ConstructorArgumentType
 publishFieldNames (ConstructorArgumentType value) = ConstructorArgumentType (first publishedName value)

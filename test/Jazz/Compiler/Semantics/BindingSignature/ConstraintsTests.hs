@@ -39,8 +39,8 @@ constraintTests =
     ("constructor kinds reject invalid applications", testInvalidConstructorKinds),
     ("source pipeline accepts inert class and impl declarations", testSourceAcceptsCapabilityDeclarations),
     ("source pipeline accepts class method signature metadata", testSourceAcceptsClassMethodSignatureMetadata),
-    ("source pipeline rejects method-local class signature variables", testSourceRejectsMethodLocalClassSignatureVariables),
-    ("source pipeline rejects constrained class method signatures", testSourceRejectsConstrainedClassMethodSignatures),
+    ("source pipeline accepts method-local class signature variables", testSourceAcceptsMethodLocalClassSignatureVariables),
+    ("source pipeline accepts constrained class method signatures", testSourceAcceptsConstrainedClassMethodSignatures),
     ("source pipeline rejects unknown named class method signatures", testSourceRejectsUnknownNamedClassMethodSignatures),
     ("source pipeline rejects duplicate class method signatures", testSourceRejectsDuplicateClassMethodSignatures),
     ("analyzer rejects duplicate class method metadata", testAnalyzerRejectsDuplicateClassMethodMetadata),
@@ -173,21 +173,19 @@ testSourceAcceptsClassMethodSignatureMetadata =
     x.
     """
 
-testSourceRejectsMethodLocalClassSignatureVariables :: IO ()
-testSourceRejectsMethodLocalClassSignatureVariables =
-  assertSourceSingleErrorContainsWithoutPrelude
-    "class C(a) { f :: b -> b. }."
-    "method-local type variable 'b'"
+testSourceAcceptsMethodLocalClassSignatureVariables :: IO ()
+testSourceAcceptsMethodLocalClassSignatureVariables =
+  assertSourceOkWithoutPrelude
+    "class Transforming(f) { transform :: (a -> b) -> f(a) -> f(b). }. 0."
 
-testSourceRejectsConstrainedClassMethodSignatures :: IO ()
-testSourceRejectsConstrainedClassMethodSignatures =
-  assertSourceSingleErrorContainsWithoutPrelude
+testSourceAcceptsConstrainedClassMethodSignatures :: IO ()
+testSourceAcceptsConstrainedClassMethodSignatures =
+  assertSourceOkWithoutPrelude
     """
     class Need(a) { }.
-    class C(a) { m :: @{Need(a)}: a -> Bool. }.
+    class C(a) { m :: @{Need(b)}: a -> b -> Bool. }.
     0.
     """
-    "invalid or unsupported class method signature for 'C::m'"
 
 testSourceRejectsUnknownNamedClassMethodSignatures :: IO ()
 testSourceRejectsUnknownNamedClassMethodSignatures =

@@ -58,7 +58,8 @@ import Jazz.Compiler.StableSet
     stableSetSingleton,
   )
 import Jazz.Compiler.TypeInference.Types
-  ( ClassMethodType (ClassMethodType),
+  ( ClassDefinition (..),
+    ClassMethodType (ClassMethodType),
     DataTypeBinding (DataTypeBinding),
     ImplMethodType (ImplMethodType),
     ScopeCapabilityFacts (..),
@@ -234,7 +235,7 @@ testScopeCapabilityFacts = do
   assertMonoidLaws "scope capability facts" first second third
   assertEqual
     "class facts remain left-biased"
-    (Just 1)
+    (Just (ClassDefinition TypeRepresentation.TypeKind [] Set.empty))
     (Map.lookup comparable (scopeClassFacts combined))
   assertEqual
     "method facts remain left-biased"
@@ -254,7 +255,7 @@ testScopeCapabilityFacts = do
     combined = first <> second
     first =
       mempty
-        { scopeClassFacts = Map.singleton comparable 1,
+        { scopeClassFacts = Map.singleton comparable (ClassDefinition TypeRepresentation.TypeKind [] Set.empty),
           scopeClassMethodSignatures =
             Map.singleton compareMethod (ClassMethodType "Left" TypeRepresentation.SemanticInt),
           scopeConcreteImplMethods =
@@ -262,7 +263,7 @@ testScopeCapabilityFacts = do
         }
     second =
       mempty
-        { scopeClassFacts = Map.singleton comparable 2,
+        { scopeClassFacts = Map.singleton comparable (ClassDefinition (TypeRepresentation.FunctionKind TypeRepresentation.TypeKind TypeRepresentation.TypeKind) [] Set.empty),
           scopeClassMethodSignatures =
             Map.singleton compareMethod (ClassMethodType "Right" TypeRepresentation.SemanticBool),
           scopeConcreteImplMethods =
@@ -270,7 +271,7 @@ testScopeCapabilityFacts = do
         }
     third =
       mempty
-        { scopeClassFacts = Map.singleton comparable 3,
+        { scopeClassFacts = Map.singleton comparable (ClassDefinition (TypeRepresentation.FunctionKind TypeRepresentation.TypeKind (TypeRepresentation.FunctionKind TypeRepresentation.TypeKind TypeRepresentation.TypeKind)) [] Set.empty),
           scopeClassMethodSignatures =
             Map.singleton compareMethod (ClassMethodType "Third" TypeRepresentation.SemanticInt),
           scopeConcreteImplMethods =
@@ -348,7 +349,7 @@ assertImportedConstraintFactAccepted label sourceArgument importedArgument = do
           inferenceImportedConstructorWitnessNames = Map.empty,
           inferenceImportedCapabilities =
             emptyScopeCapabilityFacts
-              { scopeClassFacts = Map.singleton (CapabilityId (localCapabilityName "Marked")) 1,
+              { scopeClassFacts = Map.singleton (CapabilityId (localCapabilityName "Marked")) (ClassDefinition TypeRepresentation.TypeKind [] Set.empty),
                 scopeConcreteImplFacts = Set.singleton (fixtureConcreteImplFact (localCapabilityName "Marked") factArgument)
               },
           inferenceImportedClassNames = Set.singleton "Marked",

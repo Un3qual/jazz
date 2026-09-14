@@ -156,7 +156,7 @@ signaturePayloadToSignatureType signaturePayload state =
       guard (Set.member (ConcreteImplFact (CapabilityId capability) target) (inferConcreteImplFacts state))
     checkConcreteConstraint _ = Nothing
 
-    unaryCapability capability = Map.lookup (CapabilityId capability) (inferClassFacts state) == Just 1
+    unaryCapability capability = Map.member (CapabilityId capability) (inferClassFacts state)
 
 allocateSignatureTypeVariables :: [Text] -> InferState -> (Map Text ExpressionType, InferState)
 allocateSignatureTypeVariables variableNames state =
