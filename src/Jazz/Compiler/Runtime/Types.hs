@@ -48,7 +48,6 @@ module Jazz.Compiler.Runtime.Types
     foldRuntimeExplicitResultHints,
     RuntimeAppliedArguments,
     RuntimeConstructorShape,
-    emptyRuntimeAppliedArguments,
     appendRuntimeAppliedArgument,
     runtimeAppliedArgumentsInOrder,
     constructorApplicationIsSaturated,
@@ -357,9 +356,6 @@ constructorIsSaturated fieldTypes capturedArgs =
 runtimeAppliedArgumentsFromList :: [RuntimeValue] -> RuntimeAppliedArguments
 runtimeAppliedArgumentsFromList capturedArgs =
   RuntimeAppliedArguments (Seq.fromList capturedArgs)
-
-emptyRuntimeAppliedArguments :: RuntimeAppliedArguments
-emptyRuntimeAppliedArguments = RuntimeAppliedArguments Seq.empty
 
 runtimeAppliedArgumentsInOrder :: RuntimeAppliedArguments -> [RuntimeValue]
 runtimeAppliedArgumentsInOrder (RuntimeAppliedArguments capturedArgs) =

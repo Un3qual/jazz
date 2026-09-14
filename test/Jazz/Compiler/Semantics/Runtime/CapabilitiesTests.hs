@@ -1,6 +1,5 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE PatternSynonyms #-}
 
 module Jazz.Compiler.Semantics.Runtime.CapabilitiesTests
   ( capabilityTests,

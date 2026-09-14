@@ -1,6 +1,6 @@
 ---
 id: JN-GENERIC-CAPABILITIES-REVIEW-001
-status: ready
+status: complete
 priority: P2
 size: M
 kind: impl
@@ -60,12 +60,12 @@ remains the public contract; this work preserves behavior.
 - [x] Replace positional capability-law goldens with named checks while keeping
       shared fixture execution, changed-element-type coverage, empty cases,
       custom element evidence, and fold order.
-- [ ] Run focused suites after each coherent change and commit verified batches.
+- [x] Run focused suites after each coherent change and commit verified batches.
       Then run the verification list in pinned Nix shells, serializing Cabal.
       Keep runtime budget limits unchanged. The four opt-in full parser-scale
       workloads were run for the original RFC; this refactor runs the normal
       full suite, including bounded parser-scale and corpus budgets.
-- [ ] Review the final diff, record verification, close the queue row, and commit.
+- [x] Review the final diff, record verification, close the queue row, and commit.
 
 ## Verification receipt
 
@@ -94,3 +94,21 @@ The two fixtures now report 70 labeled checks. Deliberately changing one
 expectation in each fixture produced exactly two failures with the expected
 labels; restoring them returned every stdlib behavior test to passing.
 No test harness or repeated module-graph setup was added.
+
+## Final verification
+
+- All 62 regular suites passed with `-f-full-parser-scale --jobs=1`, including
+  bounded parser-scale, program-corpus budgets, and stdlib performance cases.
+- `cabal build all -f-full-parser-scale --jobs=1` passed.
+- The fresh Haskell quality gate passed: no HLint hints, production and whole-tree
+  Weeder, all test/tool/benchmark builds (including opt-in parser-scale code),
+  and generated invariants. Production Weeder identified one final caller-free
+  `emptyRuntimeAppliedArguments` helper; it and an unused test pragma were removed.
+- Both runtime-semantics-spec and runtime-observation-spec passed again using
+  the final-source binaries from the clean quality build.
+- Pinned Ormolu, documentation/queue checks, and `git diff --check` passed.
+- No runtime budget limits changed. Production Haskell has 247 fewer lines.
+
+Implementation commits: `db2439c3` (runtime catalog), `7b48bc2a` (inference and
+scheme APIs), `509b6c25` (prepared captures), and `8a5555f8` (named law checks).
+The closeout commit also removes the two final unused declarations noted above.
