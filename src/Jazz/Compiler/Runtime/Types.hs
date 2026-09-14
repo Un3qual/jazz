@@ -55,11 +55,7 @@ module Jazz.Compiler.Runtime.Types
     runtimeAppliedArgumentsInOrder,
     emptyRuntimeMethodCandidates,
     appendRuntimeMethodCandidate,
-    filterRuntimeMethodCandidates,
-    selectRuntimeMethodCandidate,
-    runtimeMethodIsSelected,
     runtimeMethodCandidatesInOrder,
-    foldrRuntimeMethodCandidates,
     constructorApplicationIsSaturated,
     foldrRuntimeAppliedArguments,
     runtimeAppliedArgumentCount,
@@ -79,7 +75,6 @@ where
 import Control.Monad.Trans.State.Strict (StateT)
 import qualified Data.Foldable as Foldable
 import Data.Map.Strict (Map)
-import qualified Data.Map.Strict as Map
 import Data.Sequence (Seq)
 import qualified Data.Sequence as Seq
 import Data.Text (Text)
@@ -173,13 +168,9 @@ data RuntimeConstructorShape = RuntimeConstructorShape ResolvedName [InferenceVa
 -- an invariant.
 newtype RuntimeAppliedArguments = RuntimeAppliedArguments (Seq RuntimeValue)
 
--- | Source-ordered qualified-method candidates. Candidate precedence follows
--- insertion order, so construction stays private and append-only.
--- Dynamic calls retain source order; checked evidence uses the identity index.
--- A selected method never re-enters argument-based candidate selection.
-data RuntimeMethodCandidates
-  = RuntimeMethodCandidates (Seq RuntimeMethodCandidate) (Map MethodId RuntimeMethodCandidate)
-  | SelectedRuntimeMethod RuntimeMethodCandidate
+-- | Source-ordered declaration catalog for runtime inspection. Execution uses
+-- the selected dictionary's method cells, independently of this catalog.
+newtype RuntimeMethodCandidates = RuntimeMethodCandidates (Seq RuntimeMethodCandidate)
 
 -- | Value-associated typing information survives storing and partially applying
 -- a callable. Operations that only inspect the payload can ignore its kind.
@@ -416,48 +407,14 @@ foldrRuntimeAppliedArguments ::
 foldrRuntimeAppliedArguments step initial (RuntimeAppliedArguments capturedArgs) =
   Foldable.foldr step initial capturedArgs
 
-runtimeMethodCandidatesFromList :: [RuntimeMethodCandidate] -> RuntimeMethodCandidates
-runtimeMethodCandidatesFromList = Foldable.foldl' (flip appendRuntimeMethodCandidate) emptyRuntimeMethodCandidates
-
 emptyRuntimeMethodCandidates :: RuntimeMethodCandidates
-emptyRuntimeMethodCandidates = RuntimeMethodCandidates Seq.empty Map.empty
+emptyRuntimeMethodCandidates = RuntimeMethodCandidates Seq.empty
 
 appendRuntimeMethodCandidate :: RuntimeMethodCandidate -> RuntimeMethodCandidates -> RuntimeMethodCandidates
-appendRuntimeMethodCandidate candidate@(RuntimeMethodCandidate evidence _) (RuntimeMethodCandidates candidates index) =
-  RuntimeMethodCandidates (candidates Seq.|> candidate) $ case evidence of
-    EvidenceReference {evidenceMethod = Just method} -> Map.insertWith (\_ existing -> existing) method candidate index
-    _ -> index
-appendRuntimeMethodCandidate _ selected@SelectedRuntimeMethod {} = selected
-
-filterRuntimeMethodCandidates :: (RuntimeMethodCandidate -> Bool) -> RuntimeMethodCandidates -> RuntimeMethodCandidates
-filterRuntimeMethodCandidates predicate selected@(SelectedRuntimeMethod candidate)
-  | predicate candidate = selected
-  | otherwise = emptyRuntimeMethodCandidates
-filterRuntimeMethodCandidates predicate candidates =
-  runtimeMethodCandidatesFromList (filter predicate (runtimeMethodCandidatesInOrder candidates))
-
-selectRuntimeMethodCandidate :: MethodId -> RuntimeMethodCandidates -> Maybe RuntimeMethodCandidates
-selectRuntimeMethodCandidate method (RuntimeMethodCandidates _ index) = SelectedRuntimeMethod <$> Map.lookup method index
-selectRuntimeMethodCandidate method selected@(SelectedRuntimeMethod (RuntimeMethodCandidate EvidenceReference {evidenceMethod = Just identity} _))
-  | identity == method = Just selected
-  | otherwise = Nothing
-selectRuntimeMethodCandidate _ SelectedRuntimeMethod {} = Nothing
-
-runtimeMethodIsSelected :: RuntimeMethodCandidates -> Bool
-runtimeMethodIsSelected SelectedRuntimeMethod {} = True
-runtimeMethodIsSelected RuntimeMethodCandidates {} = False
+appendRuntimeMethodCandidate candidate (RuntimeMethodCandidates candidates) = RuntimeMethodCandidates (candidates Seq.|> candidate)
 
 runtimeMethodCandidatesInOrder :: RuntimeMethodCandidates -> [RuntimeMethodCandidate]
-runtimeMethodCandidatesInOrder (RuntimeMethodCandidates candidates _) = Foldable.toList candidates
-runtimeMethodCandidatesInOrder (SelectedRuntimeMethod candidate) = [candidate]
-
-foldrRuntimeMethodCandidates ::
-  (RuntimeMethodCandidate -> accumulator -> accumulator) ->
-  accumulator ->
-  RuntimeMethodCandidates ->
-  accumulator
-foldrRuntimeMethodCandidates step initial (RuntimeMethodCandidates candidates _) = Foldable.foldr step initial candidates
-foldrRuntimeMethodCandidates step initial (SelectedRuntimeMethod candidate) = step candidate initial
+runtimeMethodCandidatesInOrder (RuntimeMethodCandidates candidates) = Foldable.toList candidates
 
 constructorApplicationIsSaturated :: RuntimeConstructorShape -> RuntimeAppliedArguments -> Bool
 constructorApplicationIsSaturated shape capturedArgs =

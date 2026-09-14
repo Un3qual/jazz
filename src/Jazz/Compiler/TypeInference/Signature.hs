@@ -7,7 +7,6 @@
 module Jazz.Compiler.TypeInference.Signature
   ( SignaturePayloadType (..),
     SignatureTypeFailure (..),
-    constraintSignatureTypeToExpressionTypeWithState,
     duplicateConstraintName,
     renderSignatureTypeFailure,
     signaturePayloadToSignatureType,
@@ -96,17 +95,6 @@ renderSignatureTypeFailure failure =
     SignatureKindMismatch message -> "kind mismatch: " <> message
     UnboundSignatureTypeVariable name ->
       "unbound type variable '" <> identifierText name <> "'"
-
-constraintSignatureTypeToExpressionTypeWithState ::
-  InferState ->
-  Map Text ExpressionType ->
-  SignatureType 'Resolved ->
-  Maybe ExpressionType
-constraintSignatureTypeToExpressionTypeWithState state signatureVariables signatureType =
-  either
-    (const Nothing)
-    Just
-    (signatureTypeToExpressionType state signatureVariables signatureType)
 
 data SignaturePayloadType = SignaturePayloadType
   { signaturePayloadDeclaredType :: ExpressionType,

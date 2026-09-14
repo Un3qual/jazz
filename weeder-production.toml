@@ -1,5 +1,7 @@
 # Reviewed GHC 9.14 baseline; keep new unreachable declarations visible.
 roots = [
+  # Exact representation inspection used by numeric and nominal runtime tests.
+  '^Jazz\.Compiler\.Runtime\.Semantics\.runtimeValueExactlyMatchesConstraint$',
   '^Main\.main$',
   # Explicit compiler inspection/testing API; retained migration baseline.
   # src/Jazz/CLI/Main.hs
@@ -99,6 +101,10 @@ root-modules = []
 # result head, so a retained type in a constraint cannot root a new wrapper.
 # New types and source files require review before entering this baseline.
 root-instances = [
+  # RFC 0019 retains the shared Kind structural and traversal interfaces.
+  { module = '^src/Jazz/Compiler/TypeRepresentation\.hs$', instance = '(^|=> )(Eq|Ord|Show|Generic|NFData|Functor|Foldable|Traversable) (\(Kind variable\)|Kind)$' },
+  # Render concrete diagnostic views in compiler inspection tests.
+  { module = '^src/Jazz/Compiler/SemanticDeclarations\.hs$', instance = '^Show ConcreteImplFact$' },
   { module = '^src/Jazz/CLI/Main\.hs$', instance = '(^|=> )(Eq|Ord|Show|Generic|NFData|Enum|Bounded|Functor|Foldable|Traversable) (CliExecutionMode|CliInput|CliOptions|CliOutput|CliPreludeSelection|RawCliOptions|RuntimeStatisticsFormat)$' },
   { module = '^src/Jazz/Compiler/AST\.hs$', instance = '(^|=> )(Eq|Ord|Show|Generic|NFData|Enum|Bounded|Functor|Foldable|Traversable) (\(CaseArm phase\)|\(ClassMethodSignature phase\)|\(CoreNode phase sort\)|\(DataConstructor phase\)|\(Expr phase\)|\(ImplMethod phase\)|\(Pattern phase\)|\(Statement phase\))$' },
   { module = '^src/Jazz/Compiler/Analyzer\.hs$', instance = '(^|=> )(Eq|Ord|Show|Generic|NFData|Enum|Bounded|Functor|Foldable|Traversable) (AnalysisBinding|AnalysisInputs|AnalysisResult)$' },

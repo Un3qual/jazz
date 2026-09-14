@@ -15,7 +15,6 @@ module Jazz.Compiler.SemanticDeclarations
     concreteSignatureType,
     DataTypeBinding (.., DataTypeBinding),
     prepareDataTypeKinds,
-    signatureVariableKinds,
     signatureVariableKindsAt,
     normalizeSignatureTypeAt,
     normalizeSignatureStructure,
@@ -33,7 +32,6 @@ module Jazz.Compiler.SemanticDeclarations
     SchemeConstraint (..),
     SchemePrimitiveConstraint (..),
     emptyScopeCapabilityFacts,
-    filterScopeCapabilities,
     quantifiedVariablesFromPreferred,
     quantifiedVariablesMembershipSet,
     quantifiedVariablesOrderedList,
@@ -44,7 +42,6 @@ module Jazz.Compiler.SemanticDeclarations
     instantiateDeclarationType,
     concreteImplementationType,
     normalizeSignatureType,
-    semanticFunctionArguments,
   )
 where
 
@@ -62,7 +59,7 @@ import Data.Void (Void)
 import GHC.Generics (Generic)
 import Jazz.Compiler.BuiltinCatalog (BuiltinSymbol, numericTypeFromName)
 import Jazz.Compiler.CoreIdentity (CapabilityId, CapabilityMethodKey, ImplId, MethodId, ResolvedReference)
-import Jazz.Compiler.KindInference (inferDataKinds, inferSignatureKinds, inferSignatureKindsAt)
+import Jazz.Compiler.KindInference (inferDataKinds, inferSignatureKindsAt)
 import Jazz.Compiler.Name (Identifier, ResolvedName, identifierLooksLikeTypeVariable, identifierText)
 import Jazz.Compiler.StableSet (StableSet, stableSetFromPreferred, stableSetMembershipSet, stableSetOrderedList)
 import Jazz.Compiler.TypeRepresentation (Kind (..), SemanticType (..), SignatureType (..), substituteSemanticVariables)
@@ -95,8 +92,7 @@ data ClassDefinition = ClassDefinition
 
 -- | A checked implementation target with nominal capability/type identity.
 data ConcreteImplFact = ConcreteImplFact CapabilityId (SemanticType ResolvedName Void)
-  deriving stock (Eq, Generic, Ord, Show)
-  deriving anyclass (NFData)
+  deriving stock (Eq, Ord, Show)
 
 -- | One checked instance declaration, shared by all of its methods.
 data ImplementationTemplate = ImplementationTemplate
@@ -156,10 +152,6 @@ prepareDataTypeKinds existing declarations = do
 
 dataConstructorKinds :: Map ResolvedName DataTypeBinding -> Map ResolvedName (Kind Void)
 dataConstructorKinds = Map.map (foldr FunctionKind TypeKind . dataTypeParameterKinds)
-
-signatureVariableKinds :: (Ord variable) => Map ResolvedName DataTypeBinding -> Map variable (Kind Void) -> [SemanticType ResolvedName variable] -> Either SignatureTypeFailure (Map variable (Kind Void))
-signatureVariableKinds dataTypes known =
-  either (Left . SignatureKindMismatch) Right . inferSignatureKinds (dataConstructorKinds dataTypes) known
 
 signatureVariableKindsAt :: (Ord variable) => Map ResolvedName DataTypeBinding -> Map variable (Kind Void) -> [(SemanticType ResolvedName variable, Kind Void)] -> Either SignatureTypeFailure (Map variable (Kind Void))
 signatureVariableKindsAt dataTypes known =
@@ -256,12 +248,6 @@ normalizeSignatureTypeWith checkNamed variables signatureType =
     namedType name arguments = do
       checkNamed name (length arguments)
       SemanticData name <$> traverse convert arguments
-
-semanticFunctionArguments :: SemanticType name variable -> ([SemanticType name variable], SemanticType name variable)
-semanticFunctionArguments (SemanticFunction argument result) =
-  let (arguments, finalResult) = semanticFunctionArguments result
-   in (argument : arguments, finalResult)
-semanticFunctionArguments result = ([], result)
 
 concreteImplementationType :: SemanticType name variable -> Bool
 concreteImplementationType target = case target of
@@ -363,15 +349,6 @@ instance Semigroup ScopeCapabilityFacts where
 
 instance Monoid ScopeCapabilityFacts where
   mempty = ScopeCapabilityFacts Map.empty Set.empty Map.empty Map.empty
-
--- Instance transport is independent of source name selection.
-filterScopeCapabilities :: (CapabilityId -> Bool) -> ScopeCapabilityFacts -> ScopeCapabilityFacts
-filterScopeCapabilities selected facts =
-  facts
-    { scopeClassFacts = Map.filterWithKey (\capability _ -> selected capability) (scopeClassFacts facts),
-      scopeGeneratedEqualityClassFacts = Set.filter selected (scopeGeneratedEqualityClassFacts facts),
-      scopeClassMethodSignatures = Map.filterWithKey (\(capability, _) _ -> selected capability) (scopeClassMethodSignatures facts)
-    }
 
 -- Concrete views serve the existing structural-equality diagnostics during
 -- inference. Instance declarations themselves have only one stored catalog.

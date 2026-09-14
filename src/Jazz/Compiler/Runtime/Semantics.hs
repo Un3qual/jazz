@@ -29,9 +29,6 @@ module Jazz.Compiler.Runtime.Semantics
     runtimeFunctionArguments,
     runtimeIntMatchesTarget,
     integerValueMatchesTarget,
-    runtimeQualifiedMethodIsFullyApplied,
-    preferredRuntimeMethodCandidates,
-    preferredRuntimeMethodCandidatesForTypeHint,
     applyConstructor,
     evalNumericConversion,
     numericConversionBuiltinForTarget,
@@ -108,16 +105,12 @@ import Jazz.Compiler.Runtime.Types
     RuntimeEnv,
     RuntimeFloatMetadata (..),
     RuntimeIntMetadata (..),
-    RuntimeMethodCandidate (..),
-    RuntimeMethodCandidates,
     RuntimeValue (..),
     appendRuntimeAppliedArgument,
     attachRuntimeExplicitResultHints,
     constructorApplicationIsSaturated,
     constructorIsSaturated,
     emptyRuntimeAppliedArguments,
-    filterRuntimeMethodCandidates,
-    foldrRuntimeMethodCandidates,
     prependRuntimeExplicitResultHint,
     runtimeAppliedArgumentCount,
     runtimeAppliedArgumentsInOrder,
@@ -125,11 +118,9 @@ import Jazz.Compiler.Runtime.Types
     runtimeConstructorName,
     runtimeConstructorTypeName,
     runtimeConstructorTypeParameters,
-    runtimeMethodCandidatesInOrder,
-    runtimeMethodIsSelected,
     pattern VQualifiedMethodApplication,
   )
-import Jazz.Compiler.SemanticFacts (AnalyzedType, EvidenceReference (evidenceType), PatternFacts (patternResolution))
+import Jazz.Compiler.SemanticFacts (AnalyzedType, PatternFacts (patternResolution))
 import Jazz.Compiler.SourceUnitOwnership (SourceUnitOwner (..), sourceUnitOwnerOrigin)
 import Jazz.Compiler.TypeRepresentation
   ( InferenceVariable,
@@ -265,25 +256,8 @@ applyRuntimeTypeHint typeHint runtimeValue =
           Right runtimeValue
     VAnnotated _ innerValue ->
       applyRuntimeTypeHint typeHint innerValue
-    VQualifiedMethodApplication methodKey classParameter methodSignature candidates capturedArgs
-      | Foldable.null typeHint ->
-          Right
-            ( VAnnotated
-                (RuntimeTypeHint typeHint)
-                ( VQualifiedMethodApplication
-                    methodKey
-                    classParameter
-                    methodSignature
-                    ( preferredRuntimeMethodCandidatesForTypeHint
-                        typeHint
-                        classParameter
-                        methodSignature
-                        capturedArgs
-                        candidates
-                    )
-                    capturedArgs
-                )
-            )
+    VQualifiedMethodApplication {}
+      | Foldable.null typeHint -> Right (VAnnotated (RuntimeTypeHint typeHint) runtimeValue)
     _ ->
       case (typeHint, runtimeValue) of
         (SemanticInt, _) -> do
@@ -612,50 +586,6 @@ runtimeTypesCompatible _ _ = False
 compatibleElements :: [AnalyzedType] -> [AnalyzedType] -> Bool
 compatibleElements left right = length left == length right && and (zipWith runtimeTypesCompatible left right)
 
-runtimeQualifiedMethodIsFullyApplied ::
-  InferenceVariable ->
-  AnalyzedType ->
-  RuntimeAppliedArguments ->
-  RuntimeMethodCandidates ->
-  Bool
-runtimeQualifiedMethodIsFullyApplied classParameter methodSignature arguments candidates =
-  foldrRuntimeMethodCandidates
-    (\candidate fullyApplied -> candidateIsFullyApplied candidate || fullyApplied)
-    False
-    candidates
-  where
-    candidateIsFullyApplied (RuntimeMethodCandidate evidence _) =
-      let substitutedSignature = substituteRuntimeVariable classParameter (evidenceType evidence) methodSignature
-          (argumentTypes, _) = runtimeFunctionArguments substitutedSignature
-       in runtimeAppliedArgumentCount arguments >= length argumentTypes
-
-runtimeMethodCandidateExactlyMatches :: InferenceVariable -> AnalyzedType -> [RuntimeValue] -> RuntimeMethodCandidate -> Bool
-runtimeMethodCandidateExactlyMatches classParameter methodSignature arguments (RuntimeMethodCandidate evidence _) =
-  let substitutedSignature = substituteRuntimeVariable classParameter implTarget methodSignature
-      (genericArgumentTypes, _) = runtimeFunctionArguments methodSignature
-      (argumentTypes, _) = runtimeFunctionArguments substitutedSignature
-      suppliedArgumentCount = length arguments
-      suppliedGenericArgumentTypes = take suppliedArgumentCount genericArgumentTypes
-      suppliedArgumentTypes = take suppliedArgumentCount argumentTypes
-      targetArgumentPositions =
-        map (Foldable.elem classParameter) suppliedGenericArgumentTypes
-   in suppliedArgumentCount <= length genericArgumentTypes
-        && suppliedArgumentCount <= length argumentTypes
-        && or targetArgumentPositions
-        && and
-          ( zipWith3
-              runtimeExactCandidateArgumentMatches
-              targetArgumentPositions
-              suppliedArgumentTypes
-              arguments
-          )
-  where
-    implTarget = evidenceType evidence
-
-runtimeExactCandidateArgumentMatches :: Bool -> AnalyzedType -> RuntimeValue -> Bool
-runtimeExactCandidateArgumentMatches targetArgumentPosition signatureType runtimeValue =
-  not targetArgumentPosition || runtimeValueExactlyMatchesConstraint signatureType runtimeValue
-
 runtimeValueExactlyMatchesConstraint :: AnalyzedType -> RuntimeValue -> Bool
 runtimeValueExactlyMatchesConstraint signatureType runtimeValue =
   case runtimeValue of
@@ -713,15 +643,6 @@ runtimeValueExactlyMatchesConstraint signatureType runtimeValue =
           runtimeDataTypeApplicationMatches runtimeValueExactlyMatchesConstraint typeName typeArguments runtimeValue
         _ -> False
     _ -> False
-
-runtimeMethodCandidateMatches :: InferenceVariable -> AnalyzedType -> [RuntimeValue] -> RuntimeMethodCandidate -> Bool
-runtimeMethodCandidateMatches classParameter methodSignature arguments (RuntimeMethodCandidate evidence _) =
-  let substitutedSignature = substituteRuntimeVariable classParameter implTarget methodSignature
-      (argumentTypes, _) = runtimeFunctionArguments substitutedSignature
-   in length arguments <= length argumentTypes
-        && and (zipWith runtimeValueMatchesConstraint argumentTypes arguments)
-  where
-    implTarget = evidenceType evidence
 
 runtimeValueMatchesConstraint :: AnalyzedType -> RuntimeValue -> Bool
 runtimeValueMatchesConstraint signatureType runtimeValue =
@@ -1142,64 +1063,6 @@ isFunctionValue value =
     VQualifiedMethodApplication {} -> True
     VConstrained {} -> True
     _ -> False
-
-preferredRuntimeMethodCandidates ::
-  InferenceVariable ->
-  AnalyzedType ->
-  RuntimeAppliedArguments ->
-  RuntimeMethodCandidates ->
-  RuntimeMethodCandidates
-preferredRuntimeMethodCandidates _ _ _ candidates | runtimeMethodIsSelected candidates = candidates
-preferredRuntimeMethodCandidates classParameter methodSignature arguments candidates =
-  case runtimeMethodCandidatesInOrder exactMatchingCandidates of
-    [] -> matchingCandidates
-    _ -> exactMatchingCandidates
-  where
-    argumentsInOrder = runtimeAppliedArgumentsInOrder arguments
-    exactMatchingCandidates =
-      filterRuntimeMethodCandidates
-        (runtimeMethodCandidateExactlyMatches classParameter methodSignature argumentsInOrder)
-        matchingCandidates
-    matchingCandidates =
-      filterRuntimeMethodCandidates
-        (runtimeMethodCandidateMatches classParameter methodSignature argumentsInOrder)
-        candidates
-
-preferredRuntimeMethodCandidatesForTypeHint ::
-  AnalyzedType ->
-  InferenceVariable ->
-  AnalyzedType ->
-  RuntimeAppliedArguments ->
-  RuntimeMethodCandidates ->
-  RuntimeMethodCandidates
-preferredRuntimeMethodCandidatesForTypeHint _ _ _ _ candidates | runtimeMethodIsSelected candidates = candidates
-preferredRuntimeMethodCandidatesForTypeHint typeHint classParameter methodSignature arguments candidates =
-  case runtimeMethodCandidatesInOrder exactMatchingCandidates of
-    [] -> compatibleCandidates
-    _ -> exactMatchingCandidates
-  where
-    exactMatchingCandidates =
-      filterRuntimeMethodCandidates
-        ((== Just typeHint) . candidateRemainingType)
-        compatibleCandidates
-
-    compatibleCandidates =
-      filterRuntimeMethodCandidates
-        (maybe False (runtimeTypesCompatible typeHint) . candidateRemainingType)
-        candidates
-
-    candidateRemainingType (RuntimeMethodCandidate evidence _) =
-      dropFunctionArguments
-        (runtimeAppliedArgumentCount arguments)
-        (substituteRuntimeVariable classParameter (evidenceType evidence) methodSignature)
-
-    dropFunctionArguments remaining signatureType
-      | remaining <= 0 = Just signatureType
-      | otherwise =
-          case signatureType of
-            SemanticFunction _ resultType ->
-              dropFunctionArguments (remaining - 1) resultType
-            _ -> Nothing
 
 -- | Runtime-specific wrapper for canonical error construction.
 -- This alias exists solely to improve readability and make it clear that

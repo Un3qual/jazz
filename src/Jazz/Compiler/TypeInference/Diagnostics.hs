@@ -10,7 +10,6 @@ module Jazz.Compiler.TypeInference.Diagnostics
     annotateNewErrorsWithContext,
     mkAmbiguousDeferredConstraintError,
     mkAmbiguousQualifiedMethodBodyError,
-    mkAmbiguousQualifiedMethodBodyForArgumentsError,
     mkApplyTypeError,
     mkBinaryTypeError,
     mkBindingTypeMismatchError,
@@ -19,7 +18,6 @@ module Jazz.Compiler.TypeInference.Diagnostics
     mkDuplicateDataTypeDeclarationError,
     mkDuplicatePatternBinderError,
     mkEmptyOrPatternError,
-    mkExplicitConstraintArityError,
     mkInvalidExplicitTypeApplicationArgumentError,
     mkExplicitTypeApplicationTargetError,
     mkIfBranchTypeMismatchError,
@@ -29,12 +27,9 @@ module Jazz.Compiler.TypeInference.Diagnostics
     mkInvalidImplTargetError,
     mkInvalidCapabilityDeclarationError,
     mkInvalidSignatureTypeError,
-    mkInvalidQualifiedMethodSignatureError,
-    mkMethodLocalTypeVariableError,
     mkListElementTypeMismatchError,
     mkListPatternTypeMismatchError,
     mkMissingClassMethodError,
-    mkMissingExplicitConstraintClassError,
     mkMissingExplicitConstraintImplFactError,
     mkMissingImplMethodBodyError,
     mkMissingOperatorBindingError,
@@ -301,31 +296,10 @@ mkAmbiguousQualifiedMethodBodyError methodKey = withSubject key $ mkErrorDiagnos
   where
     key = renderCapabilityMethodKey methodKey
 
-mkNoMatchingQualifiedMethodBodyError, mkAmbiguousQualifiedMethodBodyForArgumentsError :: CapabilityMethodKey -> [ExpressionType] -> Diagnostic
+mkNoMatchingQualifiedMethodBodyError :: CapabilityMethodKey -> [ExpressionType] -> Diagnostic
 mkNoMatchingQualifiedMethodBodyError methodKey types = withSubject key $ mkInferenceTypeError E2015 (NoMatchingMethodArguments key types)
   where
     key = renderCapabilityMethodKey methodKey
-mkAmbiguousQualifiedMethodBodyForArgumentsError methodKey types = withSubject key $ mkInferenceTypeError E2015 (AmbiguousMethodArguments key types)
-  where
-    key = renderCapabilityMethodKey methodKey
-
-mkInvalidQualifiedMethodSignatureError :: Text -> SignaturePayload 'Resolved -> Diagnostic
-mkInvalidQualifiedMethodSignatureError key payload =
-  withSubject key $ mkErrorDiagnostic E2015 CompilationOrigin ("invalid or unsupported class method signature for '" <> key <> "': '" <> renderSignaturePayload payload <> "'")
-
-mkMethodLocalTypeVariableError :: Text -> Text -> SourceSpan -> Diagnostic
-mkMethodLocalTypeVariableError methodKey variableName methodSpan =
-  withSubject methodKey $
-    setDiagnosticPrimarySpan methodSpan $
-      mkErrorDiagnostic
-        E2009
-        CompilationOrigin
-        ( "class method '"
-            <> methodKey
-            <> "' uses unsupported method-local type variable '"
-            <> variableName
-            <> "'; only declared class parameters may appear"
-        )
 
 mkUndeclaredSignatureConstraintError :: Text -> Bool -> Text -> ExpressionType -> SourceSpan -> Diagnostic
 mkUndeclaredSignatureConstraintError bindingName primitive constraintName argumentType signatureSpan =
@@ -345,16 +319,6 @@ mkUnknownConstructorPayloadTypeError name = mkErrorDiagnostic E2013 CompilationO
 mkInvalidConstructorPayloadTypeError :: Text -> Diagnostic
 mkInvalidConstructorPayloadTypeError detail =
   mkErrorDiagnostic E2013 CompilationOrigin ("invalid constructor payload type: " <> detail)
-
-mkMissingExplicitConstraintClassError :: CapabilityId -> Diagnostic
-mkMissingExplicitConstraintClassError capability = mkErrorDiagnostic E2009 CompilationOrigin ("missing class declaration '" <> name <> "'")
-  where
-    name = renderCapabilityId capability
-
-mkExplicitConstraintArityError :: CapabilityId -> Int -> Diagnostic
-mkExplicitConstraintArityError capability arity = mkErrorDiagnostic E2009 CompilationOrigin ("constraint '" <> name <> "' expects " <> tshow arity <> " argument(s), got 1")
-  where
-    name = renderCapabilityId capability
 
 mkMissingExplicitConstraintImplFactError :: Text -> Diagnostic
 mkMissingExplicitConstraintImplFactError key = mkErrorDiagnostic E2009 CompilationOrigin ("missing impl fact '" <> key <> "'")

@@ -2,7 +2,7 @@
 {-# LANGUAGE TupleSections #-}
 
 -- | Declaration-local kind inference. Solved metadata never contains variables.
-module Jazz.Compiler.KindInference (inferDataKinds, inferSignatureKinds, inferSignatureKindsAt) where
+module Jazz.Compiler.KindInference (inferDataKinds, inferSignatureKindsAt) where
 
 import Control.Monad (foldM, replicateM, unless, zipWithM_)
 import Control.Monad.Trans.Class (lift)
@@ -76,9 +76,6 @@ typeKind constructors variables = infer
       SemanticTuple elements -> mapM_ complete elements >> pure TypeKind
       _ -> pure TypeKind
     complete expression = infer expression >>= unifyKinds TypeKind
-
-inferSignatureKinds :: (Ord variable) => Map ResolvedName (Kind Void) -> Map variable (Kind Void) -> [SemanticType ResolvedName variable] -> Either Text (Map variable (Kind Void))
-inferSignatureKinds constructors known = inferSignatureKindsAt constructors known . map (,TypeKind)
 
 inferSignatureKindsAt :: (Ord variable) => Map ResolvedName (Kind Void) -> Map variable (Kind Void) -> [(SemanticType ResolvedName variable, Kind Void)] -> Either Text (Map variable (Kind Void))
 inferSignatureKindsAt constructors known requirements = flip evalStateT (0, Map.empty) $ do

@@ -40,7 +40,6 @@ data TypeErrorCause typeValue
   | UnsatisfiedNumericConstraint typeValue
   | UnsatisfiedStrictEqualityConstraint typeValue
   | NoMatchingMethodArguments Text [typeValue]
-  | AmbiguousMethodArguments Text [typeValue]
   | UndeclaredSignatureConstraint Text Bool Text typeValue
   | AmbiguousDeferredConstraint Bool Text typeValue
   | PatternTypeMismatch typeValue typeValue
@@ -97,8 +96,6 @@ renderTypeErrorCause cause = renderCause (evalState (traverse (traverse rename) 
         "primitive strict equality constraint cannot be satisfied by " <> render found
       NoMatchingMethodArguments key arguments ->
         "no matching qualified method body '" <> key <> "' for argument types " <> renderTypes arguments
-      AmbiguousMethodArguments key arguments ->
-        "ambiguous qualified method body '" <> key <> "' for argument types " <> renderTypes arguments
       UndeclaredSignatureConstraint binding primitive name argument ->
         "signature for '"
           <> binding

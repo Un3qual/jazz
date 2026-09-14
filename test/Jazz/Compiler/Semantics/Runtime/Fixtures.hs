@@ -60,7 +60,6 @@ import Jazz.Compiler.AST
     SignatureType,
     Statement (..),
   )
-import Jazz.Compiler.CapabilityFacts (signaturePayloadConstraintType)
 import Jazz.Compiler.CoreIdentity (CoreBinderId (..), ResolvedReference (BuiltinOperatorReference), emptyResolvedNodeFacts, resolvedNodeReference)
 import Jazz.Compiler.Diagnostics (SourceSpan (..))
 import Jazz.Compiler.ModuleIdentity (SourceUnitOwner (StandaloneSourceUnit), standaloneModulePath)
@@ -346,9 +345,11 @@ statementClass spanValue name parameters methods =
   SClass (statementNode spanValue) (capabilityName name) (map typeName parameters) (map analyzedMethod methods) [] []
   where
     analyzedMethod (ClassMethodSignature node method signature) =
-      case signaturePayloadConstraintType signature of
-        Just signatureType ->
-          ClassMethodSignature
+      let signatureType = case signature of
+            TypeRepresentation.SignatureType result -> result
+            TypeRepresentation.ConstrainedSignature [] result -> result
+            _ -> error "runtime fixture requires a supported method signature"
+       in ClassMethodSignature
             node
               { coreNodeFacts =
                   (coreNodeFacts node)
@@ -358,7 +359,6 @@ statementClass spanValue name parameters methods =
               }
             method
             signature
-        Nothing -> error "runtime fixture requires a supported method signature"
 
 statementImpl :: SourceSpan -> UnresolvedName -> [SignatureType 'Analyzed] -> [ImplMethod 'Analyzed] -> Statement 'Analyzed
 statementImpl spanValue name targets methods =

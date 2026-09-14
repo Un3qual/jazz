@@ -260,7 +260,6 @@ testSemanticErrorReports = do
         ("numeric constraint", \n -> Inference.mkTypeSchemeNumericConstraintError AnyNumericConstraint (pair n)),
         ("equality constraint", \n -> Inference.mkTypeSchemeStrictEqualityConstraintError (pair n)),
         ("missing method match", \n -> Inference.mkNoMatchingQualifiedMethodBodyError (equalityCapability, mkIdentifier "equal") [pair n, variable (n + 1)]),
-        ("ambiguous method match", \n -> Inference.mkAmbiguousQualifiedMethodBodyForArgumentsError (equalityCapability, mkIdentifier "equal") [pair n, variable (n + 1)]),
         ("undeclared class constraint", \n -> Inference.mkUndeclaredSignatureConstraintError "f" False "Eq" (pair n) spanValue),
         ("undeclared primitive constraint", \n -> Inference.mkUndeclaredSignatureConstraintError "f" True "Numeric" (pair n) spanValue),
         ("ambiguous inferred constraint", \n -> Inference.mkAmbiguousDeferredConstraintError True equalityCapability (pair n)),

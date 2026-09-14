@@ -79,6 +79,8 @@ root-modules = []
 # result head, so a retained type in a constraint cannot root a new wrapper.
 # New types and source files require review before entering this baseline.
 root-instances = [
+  # RFC 0019 retains the shared Kind structural and traversal interfaces.
+  { module = '^src/Jazz/Compiler/TypeRepresentation\.hs$', instance = '(^|=> )(Eq|Ord|Show|Generic|NFData|Functor|Foldable|Traversable) (\(Kind variable\)|Kind)$' },
   # Persisted benchmark metadata readers are part of the artifact format API.
   { instance = '^FromJSON (BenchmarkBuildMode|BenchmarkTimeMode|BenchmarkEnvironment)$' },
   { instance = '^FromJSON value => FromJSON \(EnvironmentFact value\)$' },
