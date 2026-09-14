@@ -70,23 +70,19 @@ Each blocked item should answer these questions:
 
 ### JN-ABSTRACTION-SEMANTICS-PLAN-001
 
-- Accepted contract: [RFC 0019](../../rfcs/accepted/0019-generic-capabilities-and-library-names.md).
-  One-parameter generic classes, inferred constructor kinds, ordinary methods,
-  defaults, superclasses, and instance transport are implemented in the core
-  child through `6970d538`, with all required gates passing.
-- Smallest unblocker: complete the approved library migration, including the
-  183-export CSV, five behavior-named classes, collection instances, Text map,
-  explicit-import Reduce, consumers, and docs.
-- Decision needed: none; this scope is already approved.
-- Ready child: `JN-GENERIC-CAPABILITIES-LIBRARY-001`.
-- Candidate child: none while that child is ready.
-- Active plan: [generic capabilities library](../plans/2026-09-13-generic-capabilities-library.md).
-- Target paths: the ordered `target_paths` list in that ready plan.
-- Verification: the ordered `verification` list in that ready plan, including
-  execution of all four full parser-scale suites after library migration.
-- Not in scope: functional dependencies, associated types, multi-parameter
-  classes, automatic destination selection, Empty, parenthesized application
-  heads, new class selectors, or broader hosted compiler work.
+- Completed accepted contract: [RFC 0019](../../rfcs/accepted/0019-generic-capabilities-and-library-names.md), with compiler and library implementation through `99a15625`.
+- Retained baseline: one-parameter generic classes, inferred constructor kinds,
+  ordinary methods, defaults, superclasses, transitive instance transport,
+  bundled collection capabilities, all 183 public renames, Text mapping, and
+  explicit-import Reduce. All required verification gates passed.
+- Smallest unblocker: none; no source-backed next curation target remains.
+- Decision needed: a separate accepted contract for further capability work.
+- Ready child: none.
+- Candidate child: none.
+- Implementation receipt: [completed library plan](../plans/2026-09-13-generic-capabilities-library.md).
+- Deferred: functional dependencies, associated types, multi-parameter classes,
+  automatic destination selection, Empty, parenthesized application heads,
+  new class selectors, and broader hosted compiler work.
 
 ### JN-USER-DEFINED-OPERATORS-PLAN-001
 
@@ -138,16 +134,14 @@ Each blocked item should answer these questions:
 ### JN-TYPE-GRAMMAR-CLOSURE-PLAN-001
 
 - Retained baseline: ordinary schemes, inferred constraints, numeric defaulting,
-  explicit type application, and analyzed runtime evidence remain complete.
-- RFC 0019 constructor kinds, canonical semantic applications, generic heads,
-  prerequisite solving, rigid method checking, and superclass evidence are
-  implemented in `JN-GENERIC-CAPABILITIES-CORE-001` through `6970d538`.
-- Smallest unblocker: none independently; the ready abstraction library child
-  uses the completed compiler semantics.
-- Decision needed: a separate accepted contract for any further solver work.
+  explicit type application, analyzed runtime evidence, constructor kinds,
+  canonical applications, generic heads, prerequisite solving, rigid method
+  checking, and superclass evidence. RFC 0019 and its library integration are complete.
+- Smallest unblocker: none; no independently accepted solver child remains.
+- Decision needed: a separate accepted contract for further solver work.
 - Candidate child: none.
-- Not in scope: functional dependencies, associated types, higher-rank types,
-  numeric promotion changes, overlapping instances, or a speculative rewrite.
+- Deferred: functional dependencies, associated types, higher-rank types,
+  numeric promotion changes, overlapping instances, and speculative rewrites.
 
 ### JN-PATTERN-FUTURE-FORMS-PLAN-001
 

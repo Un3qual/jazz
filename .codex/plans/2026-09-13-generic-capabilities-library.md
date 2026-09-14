@@ -1,6 +1,6 @@
 ---
 id: JN-GENERIC-CAPABILITIES-LIBRARY-001
-status: ready
+status: complete
 priority: P1
 size: L
 kind: impl
@@ -173,7 +173,7 @@ verification:
   - bash scripts/check-execution-queue.sh
   - git diff --check
 deliverable: "Bundled generic capabilities, collection instances, all 183 public renames, Text mapping, Reduce, and migrated consumers and documentation."
-last_verified: 2026-09-13
+last_verified: 2026-09-14
 ---
 
 # Generic Capabilities Library Migration
@@ -189,7 +189,7 @@ documentation, and queue gates passed before this promotion.
 
 ## Implementation
 
-Create these new files with their owning module and registration changes:
+The implementation adds these files with their owning module and registration changes:
 `docs/standard-library/reduce.md`, `jazz/stdlib/Reduce.jz`, `test/Jazz/Compiler/Stdlib/GenericCapabilitiesTests.hs`, `test/fixtures/stdlib/generic/GenericLaws.jz`, `test/fixtures/stdlib/generic/GenericLibrary.jz`.
 
 Bundled capabilities, final library names, and consumers
@@ -222,7 +222,7 @@ public names, instances, consumers, and documentation together, using final
 names from the start. Generic Prelude methods remain distinct from specialized
 module values. There is no separate second pass to rename newly added adapters.
 
-- [ ] Reconcile the CSV with live exports before editing. Rename Eq/Ord to
+- [x] Reconcile the CSV with live exports before editing. Rename Eq/Ord to
       Equatable/Comparable with their compiler consumers, fixtures, and public
       documentation. Update the public builtin map binding and hardcoded class
       inventories with the Prelude classes/instances. Keep `Default` separate.
@@ -234,14 +234,14 @@ module values. There is no separate second pass to rename newly added adapters.
       constraint matching and diagnostics, preserving builtin structural `==`.
       Reuse the existing Prelude-loading, signed-equality, primitive-equality,
       and CLI cases listed above to check the renamed paths.
-- [ ] Work through modules in dependency order, keeping related modules together
+- [x] Work through modules in dependency order, keeping related modules together
       when needed for a compiling milestone. For each group, add behavioral
       fixtures with final names, implement its instances and renames, and update
       consumers and API docs before committing. Resolve references by module
       ownership; do not globally replace common names such as map or empty.
       Use `import List as List` and equivalent qualification to avoid collisions.
 
-- [ ] In module fixtures, use `import Queue as Queue.`, `import Maybe as Maybe.`,
+- [x] In module fixtures, use `import Queue as Queue.`, `import Maybe as Maybe.`,
       `import Text as Text.`, and `import Set as Set.` with this helper:
 
   ```jazz
@@ -258,21 +258,21 @@ module values. There is no separate second pass to rename newly added adapters.
   required. Add Result error preservation, NonEmpty, and Map/Dictionary key
   preservation cases, plus a collection absent from the stdlib.
 
-- [ ] Cover Text-to-integer mapping explicitly through `Text::toChars` and List
+- [x] Cover Text-to-integer mapping explicitly through `Text::toChars` and List
       map, and Set-to-List through `Set::toList`. Reject a non-Char Text callback,
       Set output without Comparable evidence, generic Mappable(Text/Set) uses,
       and an output annotation that changes a List map into a Queue. Verify Set
       remains Reducible without element ordering evidence; Text reduction goes
       through its character conversion.
-- [ ] Run `stdlib-spec` and `binding-signature-coherence-spec` to establish
+- [x] Run `stdlib-spec` and `binding-signature-coherence-spec` to establish
       failures in the new class and Text-map behavior before implementation.
-- [ ] Implement ordinary Jazz instances using existing traversals. Add the new
+- [x] Implement ordinary Jazz instances using existing traversals. Add the new
       function-first Text map with type `(Char -> Char) -> Text -> Text` and
       Unicode scalar coverage. Do not create a Mapping module or Empty class.
       Text implementation may use `toChars`, `Mappable::map`, and `fromChars`,
       with the existing linear cost and no new kernel operation. Qualify the
       generic map reference so Text's local `map` does not shadow it.
-- [ ] Implement collection equality through element `Equatable` methods, not
+- [x] Implement collection equality through element `Equatable` methods, not
       structural `==`. Queue compares FIFO contents using existing `toList`
       and list equality; do not change its representation or normalization.
       Check queues built with `fromList [1, 2]` and `enqueue (fromList [1]) 2`
@@ -281,10 +281,10 @@ module values. There is no separate second pass to rename newly added adapters.
       Prelude tuple instances for pairs and triples only, with one prerequisite
       per component. Preserve existing builtin tuple equality at every supported
       arity; add no variadic instances, generator, or deriving mechanism.
-- [ ] Implement the RFC's Reducible and Combinable families while migrating their
+- [x] Implement the RFC's Reducible and Combinable families while migrating their
       owning modules. Keep existing empty values. Check mapping identity/composition,
       FIFO/key order, and empty/NonEmpty behavior.
-- [ ] Keep `Reduce.jz` as a small explicit-import module after Maybe is available.
+- [x] Keep `Reduce.jz` as a small explicit-import module after Maybe is available.
       Implement `reduce :: @{Reducible(f)}: (a -> a -> a) -> f(a) -> Maybe(a)`
       once using `foldLeft` with a Maybe accumulator. Nothing takes the first
       element; Just combines the accumulator with the next element. Do not add
@@ -292,20 +292,46 @@ module values. There is no separate second pass to rename newly added adapters.
       Test empty and singleton inputs plus a non-associative callback that shows
       left-fold order on List and Queue through one generic helper. Register the
       module and its documentation in the authored module/API inventories.
-- [ ] Run `stdlib-spec`, `prelude-loading-spec`, `builtin-catalog-spec`,
+- [x] Run `stdlib-spec`, `prelude-loading-spec`, `builtin-catalog-spec`,
       `binding-signature-coherence-spec`, `primitive-semantics-spec`, `cli-spec`,
       `runtime-semantics-spec`, and `loader-spec`.
       Update public capability/stdlib documentation and commit.
 
-- [ ] Run `stdlib-spec`, `repository-audit-spec`, the complete retained hosted
+- [x] Run `stdlib-spec`, `repository-audit-spec`, the complete retained hosted
       parser/core suites, and the API-doc checker. Assert old public prefix names
       are absent from active exports and consumer code, allowing historical records
       and migration documentation. Add no compiler workaround unless a focused
       source case demonstrates a real required compatibility issue.
-- [ ] Run the complete frontmatter verification commands in pinned shells.
+- [x] Run the complete frontmatter verification commands in pinned shells.
       Record each command/result and any explicit new waiver. This includes
       full parser-scale coverage after migrating the library used by the hosted
       parser. No performance claim follows from functional tests.
-- [ ] Review the full RFC acceptance matrix against observed behavior. Update
+- [x] Review the full RFC acceptance matrix against observed behavior. Update
       shipped status and public API docs, close the library queue child, refresh
       curation/blocker state, and commit the completed migration.
+
+## Implementation and verification receipt
+
+The library implementation is committed through `99a15625`. Verification
+completed on 2026-09-14. All frontmatter commands passed, including the complete compiled test suite, all four
+full parser-scale executions, and both fresh Weeder graphs. No parser-scale or
+runtime-budget waiver was used. Examples, documentation, queue, and whitespace
+checks passed. The website production build, search, type links, navigation,
+and boundary checks also passed.
+
+All 183 CSV signatures retain argument order and return contracts after class
+renaming and type qualification. The acceptance fixtures cover all Mappable
+families, custom collections and element equality, FIFO/key/insertion fold
+orders, empty inputs, Text/Set restrictions, safe reduction, and combination.
+The authored Prelude matches the generated bundled source exactly. Core
+inference, evidence, module transport, defaults, and superclass coverage remain
+in the completed core child. RFC 0019 is complete.
+
+Full parser-scale observations, with the existing budgets unchanged:
+
+| Family       | Evaluator transitions | Applications | Maximum continuation depth | Maximum capture width |
+| ------------ | --------------------- | ------------ | -------------------------- | --------------------- |
+| expression   | 21,851,788            | 2,630,851    | 1,061                      | 41                    |
+| declarations | 9,654,992             | 1,152,167    | 1,074                      | 35                    |
+| control-flow | 42,053,435            | 5,080,620    | 1,096                      | 41                    |
+| operator     | 49,354,312            | 5,939,770    | 1,116                      | 41                    |

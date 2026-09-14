@@ -103,11 +103,11 @@ require_contract_pattern "docs/standard-library/queue.md" "peek worst-case norma
 require_contract_pattern "docs/standard-library/queue.md" "repeated peek cost" 'Because `peek` does not return the normalized[[:space:]]+queue, repeated peeks of the same front-empty value repeat that `O\(n\)` work\.'
 require_contract_pattern "docs/standard-library/queue.md" "dequeue amortization boundary" '`dequeue` is amortized `O\(1\)` only across a dequeue sequence that keeps using each returned queue\.'
 
-require_rendered_code_pattern "docs/standard-library/prelude.md" "map signature" 'map :: \(a -> b\) -> \[a\] -> \[b\]\.'
+require_rendered_code_pattern "docs/standard-library/prelude.md" "map signature" 'map :: \(a -> b\) -> f\(a\) -> f\(b\)\.'
 require_rendered_code_pattern "docs/standard-library/prelude.md" "filter signature" 'filter :: \(a -> Bool\) -> \[a\] -> \[a\]\.'
 require_rendered_code_pattern "docs/standard-library/prelude.md" "hd signature" 'hd :: \[a\] -> a\.'
 require_rendered_code_pattern "docs/standard-library/prelude.md" "tl signature" 'tl :: \[a\] -> \[a\]\.'
-require_contract_pattern "docs/standard-library/prelude.md" "map preserves order" '[Aa]pplies a function to every item and[[:space:]]+preserves order'
+require_contract_pattern "docs/standard-library/prelude.md" "map preserves collection structure" '[Aa]pplies a function to every element while preserving positions, absence, and[[:space:]]+errors\.'
 require_contract_pattern "docs/standard-library/prelude.md" "filter preserves matching items in order" '[Kk]eeps the items whose predicate is[[:space:]]+`True`, preserving order'
 require_contract_pattern "docs/standard-library/prelude.md" "partial hd and tl" '`hd` and `tl` are partial:[[:space:]]+an empty list fails fatally with `E3009` or `E3010`, respectively\.'
 require_contract_pattern "docs/standard-library/prelude.md" "stub-v1 print behavior" 'In stub-v1, evaluates and returns its argument without emitting output\.'

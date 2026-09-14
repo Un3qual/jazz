@@ -79,7 +79,7 @@ verification:
   - bash scripts/check-execution-queue.sh
   - git diff --check
 deliverable: "General generic capability dispatch, kind inference, ordinary method values, superclass/default evidence, and module transport through the analyzed interpreter."
-last_verified: 2026-09-13
+last_verified: 2026-09-14
 ---
 
 # Generic Capabilities and Library Names Implementation Plan
@@ -105,8 +105,8 @@ the repository-pinned Nix development/quality shells.
 The revised contract, initial simplifications, compiler-reuse requirements,
 and final correctness refinements are approved on 2026-09-13.
 The maintainer explicitly retained the Reduce module and safe seedless helper.
-Tasks 1-4 are implemented and verified. The dependent library migration is
-ready in [its child plan](2026-09-13-generic-capabilities-library.md).
+Tasks 1-5 are implemented and verified. The completed library migration and
+final verification receipt are in [its child plan](2026-09-13-generic-capabilities-library.md).
 
 ## Global constraints
 
@@ -136,15 +136,10 @@ ready in [its child plan](2026-09-13-generic-capabilities-library.md).
 
 ## Promotion and delivery
 
-RFC 0019 is accepted and the core child is complete. The queue row uses exactly this
-ordered target and verification list. The first queue child covers Tasks 1-4
-as one complete compiler deliverable; do not close it at parser-only support.
-
-Task 5 is the dependent library migration, child
-`JN-GENERIC-CAPABILITIES-LIBRARY-001`, promoted to Ready Now after verified core closeout, with its concrete stdlib,
-catalog, consumer, and test files named in the child plan. Continue to that
-approved milestone without reopening it for permission. The separate child is an integration/verification boundary, not a
-request to leave the rename undone.
+Tasks 1-4 completed the compiler core and its required verification before
+promotion of `JN-GENERIC-CAPABILITIES-LIBRARY-001`. Task 5 then completed the
+collection instances, all 183 renames, consumers, and documentation. Both
+milestones are complete; the child plan records final library verification.
 
 ## Implementation
 
@@ -493,7 +488,7 @@ public names, instances, consumers, and documentation together, using final
 names from the start. Generic Prelude methods remain distinct from specialized
 module values. There is no separate second pass to rename newly added adapters.
 
-- [ ] Reconcile the CSV with live exports before editing. Rename Eq/Ord to
+- [x] Reconcile the CSV with live exports before editing. Rename Eq/Ord to
       Equatable/Comparable with their compiler consumers, fixtures, and public
       documentation. Update the public builtin map binding and hardcoded class
       inventories with the Prelude classes/instances. Keep `Default` separate.
@@ -505,14 +500,14 @@ module values. There is no separate second pass to rename newly added adapters.
       constraint matching and diagnostics, preserving builtin structural `==`.
       Reuse the existing Prelude-loading, signed-equality, primitive-equality,
       and CLI cases listed above to check the renamed paths.
-- [ ] Work through modules in dependency order, keeping related modules together
+- [x] Work through modules in dependency order, keeping related modules together
       when needed for a compiling milestone. For each group, add behavioral
       fixtures with final names, implement its instances and renames, and update
       consumers and API docs before committing. Resolve references by module
       ownership; do not globally replace common names such as map or empty.
       Use `import List as List` and equivalent qualification to avoid collisions.
 
-- [ ] In module fixtures, use `import Queue as Queue.`, `import Maybe as Maybe.`,
+- [x] In module fixtures, use `import Queue as Queue.`, `import Maybe as Maybe.`,
       `import Text as Text.`, and `import Set as Set.` with this helper:
 
   ```jazz
@@ -529,21 +524,21 @@ module values. There is no separate second pass to rename newly added adapters.
   required. Add Result error preservation, NonEmpty, and Map/Dictionary key
   preservation cases, plus a collection absent from the stdlib.
 
-- [ ] Cover Text-to-integer mapping explicitly through `Text::toChars` and List
+- [x] Cover Text-to-integer mapping explicitly through `Text::toChars` and List
       map, and Set-to-List through `Set::toList`. Reject a non-Char Text callback,
       Set output without Comparable evidence, generic Mappable(Text/Set) uses,
       and an output annotation that changes a List map into a Queue. Verify Set
       remains Reducible without element ordering evidence; Text reduction goes
       through its character conversion.
-- [ ] Run `stdlib-spec` and `binding-signature-coherence-spec` to establish
+- [x] Run `stdlib-spec` and `binding-signature-coherence-spec` to establish
       failures in the new class and Text-map behavior before implementation.
-- [ ] Implement ordinary Jazz instances using existing traversals. Add the new
+- [x] Implement ordinary Jazz instances using existing traversals. Add the new
       function-first Text map with type `(Char -> Char) -> Text -> Text` and
       Unicode scalar coverage. Do not create a Mapping module or Empty class.
       Text implementation may use `toChars`, `Mappable::map`, and `fromChars`,
       with the existing linear cost and no new kernel operation. Qualify the
       generic map reference so Text's local `map` does not shadow it.
-- [ ] Implement collection equality through element `Equatable` methods, not
+- [x] Implement collection equality through element `Equatable` methods, not
       structural `==`. Queue compares FIFO contents using existing `toList`
       and list equality; do not change its representation or normalization.
       Check queues built with `fromList [1, 2]` and `enqueue (fromList [1]) 2`
@@ -552,10 +547,10 @@ module values. There is no separate second pass to rename newly added adapters.
       Prelude tuple instances for pairs and triples only, with one prerequisite
       per component. Preserve existing builtin tuple equality at every supported
       arity; add no variadic instances, generator, or deriving mechanism.
-- [ ] Implement the RFC's Reducible and Combinable families while migrating their
+- [x] Implement the RFC's Reducible and Combinable families while migrating their
       owning modules. Keep existing empty values. Check mapping identity/composition,
       FIFO/key order, and empty/NonEmpty behavior.
-- [ ] Keep `Reduce.jz` as a small explicit-import module after Maybe is available.
+- [x] Keep `Reduce.jz` as a small explicit-import module after Maybe is available.
       Implement `reduce :: @{Reducible(f)}: (a -> a -> a) -> f(a) -> Maybe(a)`
       once using `foldLeft` with a Maybe accumulator. Nothing takes the first
       element; Just combines the accumulator with the next element. Do not add
@@ -563,21 +558,21 @@ module values. There is no separate second pass to rename newly added adapters.
       Test empty and singleton inputs plus a non-associative callback that shows
       left-fold order on List and Queue through one generic helper. Register the
       module and its documentation in the authored module/API inventories.
-- [ ] Run `stdlib-spec`, `prelude-loading-spec`, `builtin-catalog-spec`,
+- [x] Run `stdlib-spec`, `prelude-loading-spec`, `builtin-catalog-spec`,
       `binding-signature-coherence-spec`, `primitive-semantics-spec`, `cli-spec`,
       `runtime-semantics-spec`, and `loader-spec`.
       Update public capability/stdlib documentation and commit.
 
-- [ ] Run `stdlib-spec`, `repository-audit-spec`, the complete retained hosted
+- [x] Run `stdlib-spec`, `repository-audit-spec`, the complete retained hosted
       parser/core suites, and the API-doc checker. Assert old public prefix names
       are absent from active exports and consumer code, allowing historical records
       and migration documentation. Add no compiler workaround unless a focused
       source case demonstrates a real required compatibility issue.
-- [ ] Run the complete frontmatter verification commands in pinned shells.
+- [x] Run the complete frontmatter verification commands in pinned shells.
       Record each command/result and any explicit new waiver. This includes
       full parser-scale coverage after migrating the library used by the hosted
       parser. No performance claim follows from functional tests.
-- [ ] Review the full RFC acceptance matrix against observed behavior. Update
+- [x] Review the full RFC acceptance matrix against observed behavior. Update
       shipped status and public API docs, close the library queue child, refresh
       curation/blocker state, and commit the completed migration.
 
@@ -586,8 +581,8 @@ module values. There is no separate second pass to rename newly added adapters.
 Use `/nix/var/nix/profiles/default/bin/nix --extra-experimental-features
 'nix-command flakes' develop --command ...` when Nix is absent from PATH.
 Use the quality shell selected by the repository for the Haskell quality gate.
-The receipt below records verification of the compiler core. The library child
-repeats the required gates after migration.
+The receipts record verification of both the compiler core and the dependent
+library migration with the required pinned tools and gates.
 
 ## Design review record
 
@@ -639,5 +634,5 @@ repeats the required gates after migration.
 Tasks 1-4 are committed through `6970d538`. All frontmatter commands passed on
 2026-09-13: build all, test all, execution of all four full parser-scale suites,
 the fresh Haskell quality gate, examples, docs, queue, and whitespace checks.
-No full-scale waiver was used. The library child is promoted and remains the
-next required milestone for RFC 0019.
+No full-scale waiver was used. The library child subsequently completed all Task 5 work and required gates;
+its receipt records the completed RFC 0019 implementation.
