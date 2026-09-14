@@ -10,7 +10,6 @@
 module Jazz.Compiler.Runtime.Types
   ( RuntimeFloatMetadata (..),
     RuntimeIntMetadata (..),
-    RuntimeMethodCandidate (..),
     RuntimeDictionary (..),
     DeferredHostScopeId (..),
     DeferredHostBindingKey (..),
@@ -39,23 +38,19 @@ module Jazz.Compiler.Runtime.Types
         VAnnotated,
         VDeferredHostBinding,
         VConstrained,
-        VEvidence
+        VEvidence,
+        VCapabilityMethod
       ),
-    pattern VQualifiedMethodApplication,
     prependRuntimeExplicitResultHint,
     attachRuntimeExplicitResultHints,
     runtimeExplicitResultHintsView,
     runtimeExplicitResultHintsInOrder,
     foldRuntimeExplicitResultHints,
     RuntimeAppliedArguments,
-    RuntimeMethodCandidates,
     RuntimeConstructorShape,
     emptyRuntimeAppliedArguments,
     appendRuntimeAppliedArgument,
     runtimeAppliedArgumentsInOrder,
-    emptyRuntimeMethodCandidates,
-    appendRuntimeMethodCandidate,
-    runtimeMethodCandidatesInOrder,
     constructorApplicationIsSaturated,
     foldrRuntimeAppliedArguments,
     runtimeAppliedArgumentCount,
@@ -108,8 +103,6 @@ newtype RuntimeIntMetadata = RuntimeIntMetadata
   { runtimeIntTargetType :: Maybe NumericType
   }
   deriving stock (Eq, Show)
-
-data RuntimeMethodCandidate = RuntimeMethodCandidate EvidenceReference (Either Diagnostic RuntimeValue)
 
 -- A dictionary closes over its selected method cells and prerequisite
 -- dictionaries, so a caller's instances remain available in imported closures.
@@ -168,10 +161,6 @@ data RuntimeConstructorShape = RuntimeConstructorShape ResolvedName [InferenceVa
 -- an invariant.
 newtype RuntimeAppliedArguments = RuntimeAppliedArguments (Seq RuntimeValue)
 
--- | Source-ordered declaration catalog for runtime inspection. Execution uses
--- the selected dictionary's method cells, independently of this catalog.
-newtype RuntimeMethodCandidates = RuntimeMethodCandidates (Seq RuntimeMethodCandidate)
-
 -- | Value-associated typing information survives storing and partially applying
 -- a callable. Operations that only inspect the payload can ignore its kind.
 data RuntimeAnnotation
@@ -194,7 +183,7 @@ data RuntimeValue
   | VSectionLeft Text RuntimeValue
   | VSectionRight Text RuntimeValue
   | VConstructorState RuntimeConstructorShape RuntimeAppliedArguments
-  | VQualifiedMethodState Text InferenceVariable AnalyzedType RuntimeMethodCandidates RuntimeAppliedArguments
+  | VCapabilityMethod Text
   | VAnnotatedState RuntimeAnnotation RuntimeValue
   | VConstrained DeferredHostScopeId CoreBinderId AnalyzedScheme ResolvedName (Maybe SourceUnitOwner) (Expr 'Analyzed) RuntimeEnv
   | VEvidence RuntimeDictionary
@@ -249,13 +238,7 @@ instance Show RuntimeValue where
           <> show (runtimeConstructorFieldTypes shape)
           <> " "
           <> show (runtimeAppliedArgumentsInOrder capturedArgs)
-      VQualifiedMethodState methodKey _ _ candidates capturedArgs ->
-        "VQualifiedMethod "
-          <> show methodKey
-          <> " "
-          <> show (runtimeMethodCandidatesInOrder candidates)
-          <> " "
-          <> show (runtimeAppliedArgumentsInOrder capturedArgs)
+      VCapabilityMethod methodKey -> "VCapabilityMethod " <> show methodKey
       VAnnotatedState (RuntimeTypeHint typeHint) innerValue ->
         "VTyped " <> show typeHint <> " " <> show innerValue
       VAnnotatedState (RuntimeTypeApplication typeHint) innerValue ->
@@ -288,11 +271,6 @@ pattern VConstructorApplication :: RuntimeConstructorShape -> RuntimeAppliedArgu
 pattern VConstructorApplication shape capturedArgs =
   VConstructorState shape capturedArgs
 
--- | Internal evaluator view retaining append-efficient ordered collections.
-pattern VQualifiedMethodApplication :: Text -> InferenceVariable -> AnalyzedType -> RuntimeMethodCandidates -> RuntimeAppliedArguments -> RuntimeValue
-pattern VQualifiedMethodApplication methodKey classParameter methodSignature candidates capturedArgs =
-  VQualifiedMethodState methodKey classParameter methodSignature candidates capturedArgs
-
 {-# COMPLETE
   VInt,
   VFloat,
@@ -307,7 +285,7 @@ pattern VQualifiedMethodApplication methodKey classParameter methodSignature can
   VSectionLeft,
   VSectionRight,
   VConstructorApplication,
-  VQualifiedMethodApplication,
+  VCapabilityMethod,
   VAnnotated,
   VDeferredHostBinding,
   VConstrained,
@@ -358,10 +336,6 @@ foldRuntimeExplicitResultHints ::
 foldRuntimeExplicitResultHints step initial (RuntimeExplicitResultHints hints) =
   Foldable.foldl' step initial hints
 
-instance Show RuntimeMethodCandidate where
-  show (RuntimeMethodCandidate evidence _) =
-    "RuntimeMethodCandidate " <> show evidence
-
 type RuntimeCell = Either Diagnostic RuntimeValue
 
 type RuntimeEnv = Map ResolvedReference RuntimeCell
@@ -406,15 +380,6 @@ foldrRuntimeAppliedArguments ::
   accumulator
 foldrRuntimeAppliedArguments step initial (RuntimeAppliedArguments capturedArgs) =
   Foldable.foldr step initial capturedArgs
-
-emptyRuntimeMethodCandidates :: RuntimeMethodCandidates
-emptyRuntimeMethodCandidates = RuntimeMethodCandidates Seq.empty
-
-appendRuntimeMethodCandidate :: RuntimeMethodCandidate -> RuntimeMethodCandidates -> RuntimeMethodCandidates
-appendRuntimeMethodCandidate candidate (RuntimeMethodCandidates candidates) = RuntimeMethodCandidates (candidates Seq.|> candidate)
-
-runtimeMethodCandidatesInOrder :: RuntimeMethodCandidates -> [RuntimeMethodCandidate]
-runtimeMethodCandidatesInOrder (RuntimeMethodCandidates candidates) = Foldable.toList candidates
 
 constructorApplicationIsSaturated :: RuntimeConstructorShape -> RuntimeAppliedArguments -> Bool
 constructorApplicationIsSaturated shape capturedArgs =

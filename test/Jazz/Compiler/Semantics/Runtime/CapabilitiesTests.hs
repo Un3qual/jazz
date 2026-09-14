@@ -23,7 +23,7 @@ import Jazz.Compiler.AST
     Literal (..),
     Statement (..),
   )
-import Jazz.Compiler.CoreIdentity (CapabilityId (..), ImplId (..), MethodId (..), ResolvedReference (..))
+import Jazz.Compiler.CoreIdentity (CapabilityId (..), ImplId (..), MethodId (..))
 import Jazz.Compiler.Diagnostics
   ( SourceSpan (..),
     isErrorDiagnostic,
@@ -47,21 +47,12 @@ import Jazz.Compiler.ModuleIdentity (SourceUnitOwner (..), mkModulePath, standal
 import Jazz.Compiler.ModuleResolver (resolveStandaloneExprNames)
 import Jazz.Compiler.Name (NameNamespace (ConstructorNamespace, TypeNamespace), ResolvedName, mkIdentifier, resolveDeclarationOwner, resolvedImportedName, resolvedLocalName)
 import Jazz.Compiler.Runtime
-  ( ModuleEvaluationMode (..),
-    RuntimeAnnotation (..),
+  ( RuntimeAnnotation (..),
     RuntimeValue (..),
-    ScopeResult (..),
-    evaluateModuleScopePure,
     evaluateRuntimeExpr,
-    renderRuntimeValue,
     runtimeValueExactlyMatchesConstraint,
   )
 import Jazz.Compiler.Runtime.Semantics (applyExplicitTypeApplicationResultHint, applyRuntimeTypeHint, runtimeValueMatchesConstraint)
-import Jazz.Compiler.Runtime.Types
-  ( RuntimeMethodCandidate (..),
-    runtimeMethodCandidatesInOrder,
-    pattern VQualifiedMethodApplication,
-  )
 import Jazz.Compiler.SemanticFacts
   ( AnalyzedType,
     EvidenceReference (..),
@@ -84,7 +75,6 @@ import Jazz.Compiler.WarningConfig
   )
 import Jazz.TestHarness
   ( NamedTest,
-    assertContains,
     assertEqual,
     assertSingleDiagnosticContains,
     failTest,
@@ -103,7 +93,6 @@ capabilityTests =
     ("runtime rejects qualified methods without checked evidence", testRuntimeFallbackRejectsQualifiedMethodStructuralEquality),
     ("scope with only capability declarations has no runtime output", testCapabilityDeclarationOnlyScopeHasNoOutput),
     ("capability declarations are inert at runtime", testCapabilityDeclarationsRuntimeInert),
-    ("qualified method candidates carry compiler-owned runtime evidence", testQualifiedMethodCandidateCarriesRuntimeEvidence),
     ("selected method evidence rejects a mismatched target type", testSelectedMethodRejectsMismatchedEvidence),
     ("runtime data constraints accept defining and importing views of one owner", testRuntimeDataConstraintsAcceptNominalViews),
     ("runtime data constraints reject identical names from different owners", testRuntimeDataConstraintsRejectDifferentOwners),
@@ -306,75 +295,6 @@ testSelectedMethodRejectsMismatchedEvidence = do
         assertRuntimeErrorContains "mismatched selected evidence" "inconsistent selected method evidence" (evaluateRuntimeExpr expression)
       _ -> failTest "expected terminal explicit method instantiation"
     _ -> failTest "expected analyzed block"
-
-testQualifiedMethodCandidateCarriesRuntimeEvidence :: IO ()
-testQualifiedMethodCandidateCarriesRuntimeEvidence =
-  case candidateValue of
-    Right (Just methodValue@(VQualifiedMethodApplication _ _ _ candidateSet _)) -> do
-      let candidates = runtimeMethodCandidatesInOrder candidateSet
-      assertEqual
-        "runtime candidate evidence target order"
-        [SemanticInt, SemanticBool]
-        [evidenceType evidence | RuntimeMethodCandidate evidence _ <- candidates]
-      assertContains
-        "runtime candidate evidence record"
-        "EvidenceReference"
-        (Text.pack (show methodValue))
-      assertContains
-        "runtime candidate evidence class"
-        "Equatable"
-        (Text.pack (show methodValue))
-      assertContains
-        "runtime candidate evidence target"
-        "Int"
-        (Text.pack (show methodValue))
-      assertEqual "runtime evidence stays non-user-visible" "<function>" (renderRuntimeValue methodValue)
-    Right otherValue ->
-      failTest ("expected qualified method runtime itemValue, got " <> Text.pack (show otherValue))
-    Left runtimeError ->
-      failTest ("expected qualified method runtime itemValue, got " <> renderDiagnostic runtimeError)
-  where
-    candidateValue = do
-      scope <- evaluateModuleScopePure EvaluateDependencyModule Map.empty (resolveRuntimeFixture qualifiedMethodEvidenceExpr)
-      case [cell | (CapabilityMethodReference {}, cell) <- Map.toList (scopeResultEnvironment scope)] of
-        [cell] -> Just <$> cell
-        _ -> error "expected one declared method"
-    qualifiedMethodEvidenceExpr =
-      expressionBlock
-        [ statementClass
-            (SourceSpan 1 1)
-            "Equatable"
-            ["a"]
-            [ classMethodSignature
-                "equals"
-                (SourceSpan 2 1)
-                ( ConstrainedSignature
-                    []
-                    ( TypeFunction
-                        (fixtureTypeVariable "a")
-                        (TypeFunction (fixtureTypeVariable "a") (TypeBool))
-                    )
-                )
-            ],
-          statementImpl
-            (SourceSpan 3 1)
-            "Equatable"
-            [TypeInt]
-            [ implMethod
-                "equals"
-                (SourceSpan 4 1)
-                (expressionLambda "left" (expressionLambda "right" (expressionLiteral (LBool True))))
-            ],
-          statementImpl
-            (SourceSpan 5 1)
-            "Equatable"
-            [TypeBool]
-            [ implMethod
-                "equals"
-                (SourceSpan 6 1)
-                (expressionLambda "left" (expressionLambda "right" (expressionLiteral (LBool True))))
-            ]
-        ]
 
 testQualifiedMethodApplicationPreservesArgumentOrder :: IO ()
 testQualifiedMethodApplicationPreservesArgumentOrder = do

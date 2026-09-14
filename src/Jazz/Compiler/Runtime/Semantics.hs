@@ -47,7 +47,7 @@ module Jazz.Compiler.Runtime.Semantics
   )
 where
 
-import Control.Monad (foldM, zipWithM)
+import Control.Monad (zipWithM)
 import Data.Bifunctor (bimap)
 import Data.Char
   ( isControl,
@@ -106,11 +106,9 @@ import Jazz.Compiler.Runtime.Types
     RuntimeFloatMetadata (..),
     RuntimeIntMetadata (..),
     RuntimeValue (..),
-    appendRuntimeAppliedArgument,
     attachRuntimeExplicitResultHints,
     constructorApplicationIsSaturated,
     constructorIsSaturated,
-    emptyRuntimeAppliedArguments,
     prependRuntimeExplicitResultHint,
     runtimeAppliedArgumentCount,
     runtimeAppliedArgumentsInOrder,
@@ -118,7 +116,6 @@ import Jazz.Compiler.Runtime.Types
     runtimeConstructorName,
     runtimeConstructorTypeName,
     runtimeConstructorTypeParameters,
-    pattern VQualifiedMethodApplication,
   )
 import Jazz.Compiler.SemanticFacts (AnalyzedType, PatternFacts (patternResolution))
 import Jazz.Compiler.SourceUnitOwnership (SourceUnitOwner (..), sourceUnitOwnerOrigin)
@@ -159,7 +156,7 @@ renderRuntimeValue value =
             (runtimeAppliedArgumentsInOrder capturedArgs)
       | otherwise ->
           "<function>"
-    VQualifiedMethodApplication {} -> "<function>"
+    VCapabilityMethod {} -> "<function>"
     VAnnotated _ innerValue -> renderRuntimeValue innerValue
     VDeferredHostBinding {} -> "<deferred-host-binding>"
     VConstrained {} -> "<function>"
@@ -256,7 +253,7 @@ applyRuntimeTypeHint typeHint runtimeValue =
           Right runtimeValue
     VAnnotated _ innerValue ->
       applyRuntimeTypeHint typeHint innerValue
-    VQualifiedMethodApplication {}
+    VCapabilityMethod {}
       | Foldable.null typeHint -> Right (VAnnotated (RuntimeTypeHint typeHint) runtimeValue)
     _ ->
       case (typeHint, runtimeValue) of
@@ -1030,9 +1027,6 @@ attachDefaultBindingIntegerTarget runtimeValue =
     VConstructor typeName typeParameters constructorName constructorArguments capturedArgs ->
       VConstructor typeName typeParameters constructorName constructorArguments
         <$> traverse attachDefaultBindingIntegerTarget capturedArgs
-    VQualifiedMethodApplication methodKey classParameter methodSignature candidates capturedArgs ->
-      VQualifiedMethodApplication methodKey classParameter methodSignature candidates
-        <$> foldM appendConvertedArgument emptyRuntimeAppliedArguments (runtimeAppliedArgumentsInOrder capturedArgs)
     VAnnotated (RuntimeTypeHint typeHint) innerValue
       | SemanticFunction {} <- typeHint ->
           Right (VAnnotated (RuntimeTypeHint typeHint) innerValue)
@@ -1044,10 +1038,6 @@ attachDefaultBindingIntegerTarget runtimeValue =
       attachRuntimeExplicitResultHints hints <$> attachDefaultBindingIntegerTarget innerValue
     _ ->
       Right runtimeValue
-  where
-    appendConvertedArgument arguments argumentValue =
-      (`appendRuntimeAppliedArgument` arguments)
-        <$> attachDefaultBindingIntegerTarget argumentValue
 
 isFunctionValue :: RuntimeValue -> Bool
 isFunctionValue value =
@@ -1060,7 +1050,7 @@ isFunctionValue value =
     VOperator {} -> True
     VConstructorApplication shape capturedArgs ->
       not (constructorApplicationIsSaturated shape capturedArgs)
-    VQualifiedMethodApplication {} -> True
+    VCapabilityMethod {} -> True
     VConstrained {} -> True
     _ -> False
 
@@ -1093,7 +1083,7 @@ renderRuntimeType value =
     VConstructorApplication shape capturedArgs
       | constructorApplicationIsSaturated shape capturedArgs -> "Data"
       | otherwise -> "Function"
-    VQualifiedMethodApplication {} -> "Function"
+    VCapabilityMethod {} -> "Function"
     VAnnotated _ innerValue -> renderRuntimeType innerValue
     VDeferredHostBinding {} -> "Deferred"
     VConstrained {} -> "Function"

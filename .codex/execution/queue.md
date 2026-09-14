@@ -8,15 +8,13 @@ public behavior.
 
 ## Ready Now
 
-Current executor status (`2026-09-14`): `Ready Now` is empty because all
-source-backed candidates are exhausted. RFC 0019 and its dependent library
-migration are complete. There is no source-backed next curation target and no
-named candidate currently.
+Current executor status (`2026-09-14`): executing the maintainer-approved RFC 0019 review fixes.
 
 `Ready Now` should contain implementation-first entries by default. `kind: docs` or `kind: coordination` items belong here only when they are the smallest verified unblocker for the next implementation batch.
 
 | id  | title | priority | size | kind | autonomous_ready | depends_on | plan | plan_section | target_paths | deliverable | verification | last_verified |
 | --- | ----- | -------- | ---- | ---- | ---------------- | ---------- | ---- | ------------ | ------------ | ----------- | ------------ | ------------- |
+| `JN-GENERIC-CAPABILITIES-REVIEW-001` | Generic capability review fixes | P2 | M | impl | yes | - | [review plan](../plans/2026-09-14-generic-capabilities-review.md) | Implementation | `src/Jazz/Compiler/Runtime/Engine.hs`, `src/Jazz/Compiler/Runtime/Types.hs`, `src/Jazz/Compiler/Runtime/Semantics.hs`, `src/Jazz/Compiler/TypeInference.hs`, `src/Jazz/Compiler/TypeInference/Capabilities.hs`, `src/Jazz/Compiler/TypeInference/Instantiation.hs`, `src/Jazz/Compiler/TypeInference/ImplChecking.hs`, `src/Jazz/Compiler/TypeInference/Scope.hs`, `src/Jazz/Compiler/TypeInference/Analyzed.hs`, `src/Jazz/Compiler/SemanticFacts.hs`, `test/Jazz/Compiler/Semantics/Runtime/CapabilitiesTests.hs`, `test/Jazz/Compiler/Stdlib/GenericCapabilitiesTests.hs`, `test/fixtures/stdlib/generic/GenericLibrary.jz`, `test/fixtures/stdlib/generic/GenericLaws.jz` | Remove redundant capability dispatch machinery, prepare evidence captures once, and make law failures identifiable. | `cabal test all -f-full-parser-scale --jobs=1 --test-show-details=failures`; `cabal build all -f-full-parser-scale --jobs=1`; `bash scripts/ci/haskell-quality.sh`; `bash scripts/check-docs.sh`; `bash scripts/check-execution-queue.sh`; `git diff --check` | `2026-09-14` |
 
 ## Next Curation Target
 
