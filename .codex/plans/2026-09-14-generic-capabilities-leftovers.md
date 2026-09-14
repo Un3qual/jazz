@@ -1,6 +1,6 @@
 ---
 id: JN-GENERIC-CAPABILITIES-LEFTOVERS-001
-status: ready
+status: complete
 priority: P2
 size: M
 kind: impl
@@ -8,6 +8,7 @@ autonomous_ready: yes
 depends_on: []
 plan_section: "Audit and cleanup"
 target_paths:
+  - src/Jazz/Compiler/CoreIdentity.hs
   - src/Jazz/Compiler/ModuleRuntime.hs
   - src/Jazz/Compiler/Runtime/Semantics.hs
   - src/Jazz/Compiler/SemanticDeclarations.hs
@@ -46,8 +47,8 @@ verified commits; do not add speculative abstractions or tests for simple deleti
       against their replacements; inspect retained roots and test-only APIs.
 - [x] Check all 183 library renames, public map replacement, hosted consumers,
       fixtures, docs, and unused private Jazz helpers outside Weeder coverage.
-- [ ] Remove confirmed leftovers, run appropriate verification, and commit.
-- [ ] Record findings, retained contracts, verification, and close the queue row.
+- [x] Remove confirmed leftovers, run appropriate verification, and commit.
+- [x] Record findings, retained contracts, verification, and close the queue row.
 
 ## Audit findings
 
@@ -114,5 +115,27 @@ including bounded parser scale, corpus budgets, stdlib performance, and hosted
 parity. The full command stopped after 27 passing suites on a missing import in
 the revised module-contract test. That test-only import was fixed and the 35
 remaining suites passed. No compiler source changed between those successful
-runs. The full regular build also passed. Clean final Weeder verification is
-still pending.
+runs. The full regular build also passed. Clean final Weeder verification completed successfully.
+
+## Final verification
+
+- Fresh production and whole-tree Weeder both pass, with policy self-tests,
+  whole-tree HLint, all component builds, and generated invariants.
+- The first final Weeder run exposed `capabilityExportName`, whose only caller
+  was the deleted duplicate runtime export path. Removed it and its unused name
+  imports, then reran the clean quality gate successfully. This final source
+  change has no callers and does not alter the behavior covered by the 62 regular
+  suites above.
+- Both full regular test inventory and successful test logs were compared by
+  suite name: all 62 passed. The four opt-in full-scale workloads were compiled
+  by the quality gate but were not rerun for this cleanup.
+- Final symbol scanning finds none of the 20 removed declarations in active
+  source, tests, HLint exemptions, or Weeder policies. Retained roots were checked
+  against actual source declarations. All 183 public library renames are complete.
+- Pinned Ormolu, documentation checks, queue checks, and `git diff --check` pass.
+- The cleanup removes a net 197 Haskell implementation lines, 9 Jazz implementation
+  lines, and 53 test lines. No dependencies or performance budgets changed.
+
+Verified implementation commits: `27364518` and `3a75cabd`. The closeout commit
+contains the final caller-free export helper deletion and this receipt. No further
+branch-related legacy or unused-code leftovers were found in the audit.
