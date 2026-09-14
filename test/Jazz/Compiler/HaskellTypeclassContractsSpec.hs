@@ -59,7 +59,7 @@ import Jazz.Compiler.StableSet
   )
 import Jazz.Compiler.TypeInference.Types
   ( ClassDefinition (..),
-    ClassMethodType (ClassMethodType),
+    ClassMethodType (ClassMethodScheme),
     DataTypeBinding (DataTypeBinding),
     ImplementationTemplate (..),
     ScopeCapabilityFacts (..),
@@ -241,7 +241,7 @@ testScopeCapabilityFacts = do
     (Map.lookup comparable (scopeClassFacts combined))
   assertEqual
     "method facts remain left-biased"
-    (Just (ClassMethodType "Left" TypeRepresentation.SemanticInt))
+    (Just (method "Left" TypeRepresentation.SemanticInt))
     (Map.lookup compareMethod (scopeClassMethodSignatures combined))
   assertEqual "distinct implementations are retained" 2 (Map.size (scopeImplementations combined))
   assertEqual
@@ -251,12 +251,13 @@ testScopeCapabilityFacts = do
   where
     comparable = CapabilityId (localCapabilityName "Comparable")
     compareMethod = (comparable, mkIdentifier "compare")
+    method parameter result = ClassMethodScheme parameter (SemanticScheme (quantifiedVariablesFromPreferred [parameter] (Set.singleton parameter)) [] [] mempty result)
     combined = first <> second
     first =
       mempty
         { scopeClassFacts = Map.singleton comparable (ClassDefinition TypeRepresentation.TypeKind [] Set.empty),
           scopeClassMethodSignatures =
-            Map.singleton compareMethod (ClassMethodType "Left" TypeRepresentation.SemanticInt),
+            Map.singleton compareMethod (method "Left" TypeRepresentation.SemanticInt),
           scopeImplementations =
             Map.singleton (fixtureImplId 0) (fixtureImplementation 0 comparable TypeRepresentation.SemanticInt)
         }
@@ -264,7 +265,7 @@ testScopeCapabilityFacts = do
       mempty
         { scopeClassFacts = Map.singleton comparable (ClassDefinition (TypeRepresentation.FunctionKind TypeRepresentation.TypeKind TypeRepresentation.TypeKind) [] Set.empty),
           scopeClassMethodSignatures =
-            Map.singleton compareMethod (ClassMethodType "Right" TypeRepresentation.SemanticBool),
+            Map.singleton compareMethod (method "Right" TypeRepresentation.SemanticBool),
           scopeImplementations =
             Map.singleton (fixtureImplId 1) (fixtureImplementation 1 comparable TypeRepresentation.SemanticBool)
         }
@@ -272,7 +273,7 @@ testScopeCapabilityFacts = do
       mempty
         { scopeClassFacts = Map.singleton comparable (ClassDefinition (TypeRepresentation.FunctionKind TypeRepresentation.TypeKind (TypeRepresentation.FunctionKind TypeRepresentation.TypeKind TypeRepresentation.TypeKind)) [] Set.empty),
           scopeClassMethodSignatures =
-            Map.singleton compareMethod (ClassMethodType "Third" TypeRepresentation.SemanticInt),
+            Map.singleton compareMethod (method "Third" TypeRepresentation.SemanticInt),
           scopeImplementations =
             Map.singleton (fixtureImplId 1) (fixtureImplementation 1 comparable TypeRepresentation.SemanticInt),
           scopeGeneratedEqualityClassFacts = Set.singleton (CapabilityId (localCapabilityName "Equatable"))
@@ -432,7 +433,6 @@ fixtureImplementation index capability target =
     identity
     capability
     (SemanticScheme (quantifiedVariablesFromPreferred [] Set.empty) [] [] mempty (fmap absurd target))
-    Map.empty
     (Map.singleton (mkIdentifier "compare") (MethodId (identity, mkIdentifier "compare")))
   where
     identity = fixtureImplId index

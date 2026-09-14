@@ -21,7 +21,6 @@ module Jazz.Compiler.Runtime.Semantics
     explicitTypeApplicationRuntimeValueHint,
     matchCaseArm,
     isFunctionValue,
-    runtimeValueExactlyMatchesConstraint,
     runtimeValueMatchesConstraint,
     runtimeTypesCompatible,
     substituteRuntimeVariable,
@@ -509,18 +508,14 @@ runtimeValueCanAcceptTypeHint typeHint runtimeValue =
         _ ->
           False
 
-explicitTypeApplicationRuntimeFunctionHint :: AnalyzedType -> RuntimeValue -> Maybe AnalyzedType
-explicitTypeApplicationRuntimeFunctionHint typeHint runtimeValue = do
-  explicitTypeApplicationRuntimeTemplateHint typeHint runtimeValue
-
 explicitTypeApplicationRuntimeValueHint :: AnalyzedType -> RuntimeValue -> Maybe AnalyzedType
 explicitTypeApplicationRuntimeValueHint typeHint runtimeValue =
-  case explicitTypeApplicationRuntimeTemplateHint typeHint runtimeValue of
+  case explicitTypeApplicationRuntimeFunctionHint typeHint runtimeValue of
     Just instantiatedTemplate -> Just instantiatedTemplate
     Nothing -> explicitTypeApplicationRuntimeShapeHint typeHint runtimeValue
 
-explicitTypeApplicationRuntimeTemplateHint :: AnalyzedType -> RuntimeValue -> Maybe AnalyzedType
-explicitTypeApplicationRuntimeTemplateHint typeHint runtimeValue = do
+explicitTypeApplicationRuntimeFunctionHint :: AnalyzedType -> RuntimeValue -> Maybe AnalyzedType
+explicitTypeApplicationRuntimeFunctionHint typeHint runtimeValue = do
   templateHint <- runtimeValueTypeHint runtimeValue
   variableName <- listToMaybe (Foldable.toList templateHint)
   pure (substituteRuntimeVariable variableName typeHint templateHint)
@@ -581,64 +576,6 @@ runtimeTypesCompatible _ _ = False
 
 compatibleElements :: [AnalyzedType] -> [AnalyzedType] -> Bool
 compatibleElements left right = length left == length right && and (zipWith runtimeTypesCompatible left right)
-
-runtimeValueExactlyMatchesConstraint :: AnalyzedType -> RuntimeValue -> Bool
-runtimeValueExactlyMatchesConstraint signatureType runtimeValue =
-  case runtimeValue of
-    VAnnotated (RuntimeMethodCall _) innerValue ->
-      runtimeValueExactlyMatchesConstraint signatureType innerValue
-    VAnnotated (RuntimeTypeApplication _) innerValue ->
-      runtimeValueExactlyMatchesConstraint signatureType innerValue
-    VAnnotated (RuntimeResultHints _) innerValue ->
-      runtimeValueExactlyMatchesConstraint signatureType innerValue
-    VAnnotated (RuntimeTypeHint typeHint) _ ->
-      typeHint == signatureType
-    VClosure closure ->
-      runtimeClosureTypeHint closure == Just signatureType
-    VInt _ metadata ->
-      case signatureType of
-        SemanticInt -> runtimeIntTargetType metadata == Nothing
-        SemanticNumeric numericType -> runtimeIntTargetType metadata == Just numericType
-        _ -> False
-    VFloat _ metadata ->
-      case signatureType of
-        SemanticFloat -> runtimeFloatTargetType metadata == Nothing
-        SemanticNumeric numericType -> runtimeFloatTargetType metadata == Just numericType
-        _ -> False
-    VChar {} ->
-      case signatureType of
-        SemanticChar -> True
-        _ -> False
-    VText {} ->
-      case signatureType of
-        SemanticText -> True
-        _ -> False
-    VBool {} ->
-      case signatureType of
-        SemanticBool -> True
-        _ -> False
-    VList _ (Just typeHint) ->
-      typeHint == signatureType
-    VList elements Nothing ->
-      case signatureType of
-        SemanticList elementType ->
-          not (null elements)
-            && all (runtimeValueExactlyMatchesConstraint elementType) elements
-        _ -> False
-    VTuple elements ->
-      case signatureType of
-        SemanticTuple elementTypes
-          | length elementTypes == length elements ->
-              and (zipWith runtimeValueExactlyMatchesConstraint elementTypes elements)
-        _ -> False
-    VConstructorApplication {} ->
-      case signatureType of
-        SemanticData typeName [] ->
-          runtimeValueExactlyMatchesDataTypeName typeName runtimeValue
-        SemanticData typeName typeArguments ->
-          runtimeDataTypeApplicationMatches runtimeValueExactlyMatchesConstraint typeName typeArguments runtimeValue
-        _ -> False
-    _ -> False
 
 runtimeValueMatchesConstraint :: AnalyzedType -> RuntimeValue -> Bool
 runtimeValueMatchesConstraint signatureType runtimeValue =

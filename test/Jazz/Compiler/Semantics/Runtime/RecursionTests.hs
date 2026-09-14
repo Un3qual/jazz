@@ -52,7 +52,6 @@ import Jazz.Compiler.Runtime
   ( RuntimeValue (..),
     renderRuntimeValue,
     runtimeExplicitResultHintsInOrder,
-    runtimeValueExactlyMatchesConstraint,
   )
 import Jazz.Compiler.Runtime.ScopePlan
   ( RuntimeScopePlan,
@@ -62,6 +61,7 @@ import Jazz.Compiler.Runtime.ScopePlan
     scopePlanModulePathForStatement,
   )
 import Jazz.Compiler.Runtime.Semantics (runtimeDefinitionName)
+import Jazz.Compiler.Runtime.Types (RuntimeIntMetadata (..))
 import Jazz.Compiler.RuntimeHost
   ( RuntimeHost (..),
     RuntimeHostExit (..),
@@ -263,14 +263,10 @@ testMixedExplicitResultHintsPreserveOrderAndMultiplicity = do
     _ -> failTest "expected pending result annotations on the callable"
   appliedValue <- requireRuntimeValue "mixed explicit result hint application" appliedExpression
   assertEqual "mixed explicit result hint application renders" "7" (renderRuntimeValue appliedValue)
-  assertEqual
-    "mixed explicit result hint application retains final UInt8 result"
-    True
-    (runtimeValueExactlyMatchesConstraint uint8 appliedValue)
-  assertEqual
-    "mixed explicit result hint application does not retain intermediate Int result"
-    False
-    (runtimeValueExactlyMatchesConstraint SemanticInt appliedValue)
+  case appliedValue of
+    VInt _ metadata ->
+      assertEqual "mixed explicit result hints retain final UInt8 representation" (Just NumericUInt8) (runtimeIntTargetType metadata)
+    _ -> failTest "mixed explicit result hints did not produce an integer"
 
 mixedExplicitlyHintedCallable :: Int -> Expr 'Analyzed
 mixedExplicitlyHintedCallable recursionDepth =

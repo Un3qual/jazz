@@ -1379,7 +1379,7 @@ testRuntimeModulePublishesPublicClassMethodsOnly = do
               publicExport _ = True
           assertEqual
             "public class includes its ordinary method, without private method names"
-            (Set.fromList [RuntimeBindingExport (ModuleExport ValueNamespace "equals"), RuntimeCapabilityMethodExport (CapabilityId (resolvedImportedName (nominalModulePath ("Lib" :| ["Facts"])) CapabilityNamespace (mkIdentifier "Equatable"))) (mkIdentifier "equals")])
+            (Set.singleton (RuntimeBindingExport (ModuleExport ValueNamespace "equals")))
             (Set.filter publicExport exports)
           assertEqual
             "both implementation cells survive name selection"
@@ -1480,7 +1480,6 @@ testModuleExportIdentityPreservesNamespaces = do
                     ( \runtimeExport _ ->
                         case runtimeExport of
                           RuntimeBindingExport moduleExport -> moduleExportName moduleExport == "Just"
-                          RuntimeCapabilityMethodExport {} -> False
                           RuntimeImplementationMethodExport {} -> False
                           RuntimeDefaultMethodExport {} -> False
                     )

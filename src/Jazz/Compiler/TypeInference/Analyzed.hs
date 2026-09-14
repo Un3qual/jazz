@@ -334,8 +334,8 @@ expressionEvidenceFacts nodeId state = traverse finalize
       Just selected@EvidenceReference {} -> finalize selected
       Just pending -> parameter pending
       Nothing -> parameter request
-    finalize (EvidenceReference capability implementation method target substitution prerequisites) =
-      EvidenceReference capability implementation method (resolveType state target) (fmap (resolveType state) substitution) <$> traverse finalize prerequisites
+    finalize (EvidenceReference capability implementation method target prerequisites) =
+      EvidenceReference capability implementation method (resolveType state target) <$> traverse finalize prerequisites
     finalize parameterReference@ParameterEvidence {} = pure (mapEvidenceTypes (resolveType state) parameterReference)
     parameter PendingEvidence {evidenceCapability = capability, evidenceMember = member, evidenceType = target} =
       case Map.lookup (capability, resolveType state target) (inferenceEvidenceParameters (inferModule state)) of

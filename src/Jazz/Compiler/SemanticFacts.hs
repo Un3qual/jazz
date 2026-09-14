@@ -62,7 +62,6 @@ data EvidenceReference
         evidenceImplementation :: ImplId,
         evidenceMethod :: Maybe MethodId,
         evidenceType :: AnalyzedType,
-        evidenceSubstitution :: Map Text AnalyzedType,
         evidencePrerequisites :: [EvidenceReference]
       }
   | PendingEvidence
@@ -86,7 +85,6 @@ mapEvidenceTypes transform reference = case reference of
   EvidenceReference {} ->
     reference
       { evidenceType = transform (evidenceType reference),
-        evidenceSubstitution = fmap transform (evidenceSubstitution reference),
         evidencePrerequisites = map (mapEvidenceTypes transform) (evidencePrerequisites reference)
       }
   _ -> reference {evidenceType = transform (evidenceType reference)}

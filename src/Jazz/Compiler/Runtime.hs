@@ -1,10 +1,8 @@
 {-# LANGUAGE DataKinds #-}
-{-# LANGUAGE ExplicitNamespaces #-}
-{-# LANGUAGE PatternSynonyms #-}
 
 -- | Stable runtime façade. Evaluation implementation lives in
--- 'Jazz.Compiler.Runtime.Engine'; this module retains the actively used
--- compatibility conveniences and value re-exports.
+-- 'Jazz.Compiler.Runtime.Engine'; this module provides evaluation entry points
+-- and value re-exports.
 module Jazz.Compiler.Runtime
   ( ModuleEvaluationMode (..),
     RuntimeCell,
@@ -28,7 +26,6 @@ module Jazz.Compiler.Runtime
     runRuntimeHostEvaluation,
     runRuntimeHostEvaluationWithObservation,
     runtimeExprRequiresHost,
-    runtimeValueExactlyMatchesConstraint,
     renderRuntimeValue,
     untypedIntMetadata,
   )
@@ -48,7 +45,6 @@ import Jazz.Compiler.Runtime.Engine
     prepareRuntimeScope,
     renderRuntimeValue,
     runtimeExprRequiresHost,
-    runtimeValueExactlyMatchesConstraint,
     untypedIntMetadata,
   )
 import Jazz.Compiler.Runtime.HostEvaluation

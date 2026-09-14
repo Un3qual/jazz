@@ -14,7 +14,6 @@ module Jazz.Compiler.Runtime.Engine
     evaluateRuntimeScopePureRequest,
     prepareRuntimeScope,
     runtimeExprRequiresHost,
-    runtimeValueExactlyMatchesConstraint,
     renderRuntimeValue,
     untypedIntMetadata,
   )
@@ -167,7 +166,6 @@ import Jazz.Compiler.Runtime.Semantics
     runtimeDefinitionNameIn,
     runtimeDiagnostic,
     runtimeFunctionArguments,
-    runtimeValueExactlyMatchesConstraint,
     untypedIntMetadata,
   )
 import Jazz.Compiler.Runtime.Types

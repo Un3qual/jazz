@@ -92,7 +92,7 @@ publishModuleInterface requested typeDefinitions declarations =
   public
     { interfaceValueBindings = Map.map (\binding -> binding {interfaceBindingType = publishBindingNames (interfaceBindingType binding)}) (interfaceValueBindings public),
       interfaceDataTypes = Map.mapKeys publishedName (Map.map publishDataNames (reachableTypes roots)),
-      interfaceCapabilities = publishCapabilityNames publicCapabilities
+      interfaceCapabilities = publishCapabilityNames capabilities
     }
   where
     available = declaredInterfaceInventory declarations
@@ -100,17 +100,15 @@ publishModuleInterface requested typeDefinitions declarations =
     public =
       declarations
         { interfacePublicExports = exports,
-          interfaceValueBindings = Map.filterWithKey (\name _ -> inventoryHasExport name exports) (interfaceValueBindings declarations),
-          interfaceCapabilities = publicCapabilities
+          interfaceValueBindings = Map.filterWithKey (\name _ -> inventoryHasExport name exports) (interfaceValueBindings declarations)
         }
     capabilities = interfaceCapabilities declarations
-    publicCapabilities = capabilities
     roots =
       Set.unions
         [ Map.keysSet (Map.filterWithKey (\name _ -> inventoryHasExport (ModuleExport TypeNamespace (renderName name)) exports) (interfaceDataTypes declarations)),
           foldMap (bindingNames . interfaceBindingType) (interfaceValueBindings public),
-          foldMap (schemeNames . classMethodScheme) (scopeClassMethodSignatures publicCapabilities),
-          foldMap (schemeNames . implementationScheme) (scopeImplementations publicCapabilities)
+          foldMap (schemeNames . classMethodScheme) (scopeClassMethodSignatures capabilities),
+          foldMap (schemeNames . implementationScheme) (scopeImplementations capabilities)
         ]
     reachableTypes = visitTypes Set.empty
     visitTypes seen pending = case Set.minView pending of
@@ -129,6 +127,7 @@ publishModuleInterface requested typeDefinitions declarations =
       OperatorAliasSchemeTypeBinding _ scheme -> schemeNames scheme
       ConstructorTypeBinding name _ fields -> Set.insert name (foldMap fieldNames fields)
       _ -> Set.empty
+    schemeNames :: SemanticScheme variable -> Set ResolvedName
     schemeNames scheme =
       Set.unions
         [ typeNames (schemeResultType scheme),
@@ -136,7 +135,7 @@ publishModuleInterface requested typeDefinitions declarations =
           foldMap (foldMap typeNames) (schemePrimitiveConstraints scheme),
           let facts = schemeDefiningCapabilities scheme
            in foldMap (typeNames . implementationTarget) (scopeImplementations facts)
-                <> foldMap (\(ClassMethodType _ value) -> typeNames value) (scopeClassMethodSignatures facts)
+                <> foldMap (schemeNames . classMethodScheme) (scopeClassMethodSignatures facts)
         ]
 
 declaredInterfaceInventory :: ModuleInterface -> ModuleExportInventory

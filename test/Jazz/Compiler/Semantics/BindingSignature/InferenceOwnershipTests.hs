@@ -704,7 +704,7 @@ testOperatorRulePresenceAndSectionSupport = do
 testImplChecksPreserveRollback :: IO ()
 testImplChecksPreserveRollback = do
   let (variable, allocated) = freshTypeVar initialInferState
-      signature = ClassMethodType "a" (SemanticTuple [SemanticInt, SemanticInt])
+      signature = ClassMethodScheme "a" (SemanticScheme (quantifiedVariablesFromPreferred ["a"] (Set.singleton "a")) [] [] mempty (SemanticTuple [SemanticInt, SemanticInt]))
       inferBody _ current expected expression =
         case expression of
           ELit _ _ -> ((Just (SemanticTuple [variable, SemanticBool]), resolveType current variable), current)

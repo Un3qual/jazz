@@ -11,7 +11,6 @@ module Jazz.Compiler.TypeInference.State
     SolverState (..),
     inferClassFacts,
     inferClassMethodSignatures,
-    inferConcreteImplFacts,
     inferConstructorWitnessNames,
     inferCurrentModuleLocalCapabilityFacts,
     inferCurrentModulePath,
@@ -54,7 +53,7 @@ import Jazz.Compiler.Diagnostics (Diagnostic)
 import Jazz.Compiler.ModuleIdentity (ModulePath)
 import Jazz.Compiler.Name (ResolvedName, UnresolvedName)
 import Jazz.Compiler.PatternCoverage (PatternCoverageSite)
-import Jazz.Compiler.SemanticDeclarations (ClassDefinition, ConcreteImplFact, DeclarationVariable)
+import Jazz.Compiler.SemanticDeclarations (ClassDefinition, DeclarationVariable)
 import Jazz.Compiler.SemanticFacts (EvidenceReference (..))
 import Jazz.Compiler.TypeInference.Types
   ( ClassMethodType,
@@ -66,7 +65,6 @@ import Jazz.Compiler.TypeInference.Types
     TypeEnv,
     TypeSchemeConstraint,
     emptyScopeCapabilityFacts,
-    scopeConcreteImplFacts,
   )
 
 data SolverState = SolverState
@@ -207,9 +205,6 @@ inferDataTypes = declarationDataTypes . inferDeclarations
 
 inferClassFacts :: InferState -> Map CapabilityId ClassDefinition
 inferClassFacts = scopeClassFacts . declarationCapabilities . inferDeclarations
-
-inferConcreteImplFacts :: InferState -> Set ConcreteImplFact
-inferConcreteImplFacts = scopeConcreteImplFacts . declarationCapabilities . inferDeclarations
 
 inferClassMethodSignatures :: InferState -> Map CapabilityMethodKey ClassMethodType
 inferClassMethodSignatures = scopeClassMethodSignatures . declarationCapabilities . inferDeclarations

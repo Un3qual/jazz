@@ -9,7 +9,6 @@ module Jazz.Compiler.TypeInference.Types
     ExpressionType,
     ImplementationTemplate (..),
     implementationTarget,
-    scopeConcreteImplFacts,
     InferenceVariable (..),
     IntegerLiteralRange (..),
     NumericConstraint (..),
@@ -61,7 +60,6 @@ import Jazz.Compiler.SemanticDeclarations
     quantifiedVariablesFromPreferred,
     quantifiedVariablesMembershipSet,
     quantifiedVariablesOrderedList,
-    scopeConcreteImplFacts,
   )
 import Jazz.Compiler.TypeRepresentation (InferenceVariable (..), SemanticType (..))
 

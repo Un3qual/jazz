@@ -3,10 +3,9 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE PatternSynonyms #-}
 
--- | Shared helpers for the first class/impl environment-validation slice.
+-- | Nominal declaration keys and source signature variable discovery.
 module Jazz.Compiler.CapabilityFacts
   ( ConcreteImplFact (..),
-    concreteConstraintArgument,
     concreteImplFact,
     constraintSignatureTypeVariableNamesInOrder,
     identifierLooksLikeTypeVariable,
@@ -67,22 +66,6 @@ splitQualifiedMethodKey nameText =
       where
         capabilityName = Text.dropEnd 2 capabilityNameWithSeparator
     _ -> Nothing
-
-concreteConstraintArgument :: SignatureType -> Bool
-concreteConstraintArgument signatureType =
-  case signatureType of
-    TypeVariable {} -> False
-    TypeName name ->
-      not (identifierLooksLikeTypeVariable name)
-    TypeApplication name arguments ->
-      not (identifierLooksLikeTypeVariable name) && all concreteConstraintArgument arguments
-    TypeList innerType ->
-      concreteConstraintArgument innerType
-    TypeTuple elementTypes ->
-      all concreteConstraintArgument elementTypes
-    TypeFunction {} ->
-      False
-    _ -> True
 
 constraintSignatureTypeVariableNamesInOrder :: SignatureType -> [Text]
 constraintSignatureTypeVariableNamesInOrder =

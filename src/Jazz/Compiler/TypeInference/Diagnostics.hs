@@ -65,11 +65,9 @@ module Jazz.Compiler.TypeInference.Diagnostics
   )
 where
 
-import Data.Bifoldable (bifoldMap)
 import Data.Bifunctor (first)
 import Data.Foldable (asum)
 import qualified Data.Map.Strict as Map
-import Data.Monoid (Any (..))
 import Data.Set (Set)
 import qualified Data.Set as Set
 import Data.Text (Text)
@@ -85,12 +83,6 @@ import Jazz.Compiler.AST
 import Jazz.Compiler.BuiltinCatalog
   ( numericTypeFloatMax,
     renderNumericTypeName,
-  )
-import Jazz.Compiler.CapabilityFacts
-  ( concreteConstraintArgument,
-    concreteImplFact,
-    identifierLooksLikeTypeVariable,
-    renderConcreteImplFact,
   )
 import Jazz.Compiler.CoreIdentity (CapabilityId (..), CapabilityMethodKey, renderCapabilityId, renderCapabilityMethodKey)
 import Jazz.Compiler.DiagnosticCatalog
@@ -125,7 +117,6 @@ import Jazz.Compiler.TypeInference.State
   ( InferState (..),
     InferenceOutput (..),
     inferClassFacts,
-    inferConcreteImplFacts,
     inferErrorCount,
     inferErrorsRev,
     modifyInferenceOutput,
@@ -485,12 +476,10 @@ invalidSignatureSummary state symbol signaturePayload =
     reason = case signaturePayloadNamedTypeFailure state signaturePayload of
       Just failure -> failure
       Nothing -> case signaturePayload of
-        ConstrainedSignature constraints signatureType
+        ConstrainedSignature constraints _
           | Just duplicateName <- Signature.duplicateConstraintName constraints ->
               "duplicate constraint '" <> duplicateName <> "' in " <> quotedPayload
-          | constrainedSignatureHasTypeVariable constraints signatureType ->
-              "type-variable constrained signatures require every constrained variable to appear in the signature body before inference can accept " <> quotedPayload
-          | Just failure <- concreteConstraintFailureSummary state constraints ->
+          | Just failure <- signatureConstraintFailureSummary state constraints ->
               failure <> " in " <> quotedPayload
         _ -> quotedPayload
 
@@ -532,8 +521,8 @@ declarationSignatureTypeFailureSummary state signatureType =
     Left failure -> Just (Signature.renderSignatureTypeFailure failure)
     Right () -> Nothing
 
-concreteConstraintFailureSummary :: InferState -> [SignatureConstraint 'Resolved] -> Maybe Text
-concreteConstraintFailureSummary state constraints
+signatureConstraintFailureSummary :: InferState -> [SignatureConstraint 'Resolved] -> Maybe Text
+signatureConstraintFailureSummary state constraints
   | null constraints = Nothing
   | otherwise = asum (map constraintFailureSummary constraints)
   where
@@ -550,29 +539,11 @@ concreteConstraintFailureSummary state constraints
                 <> " argument(s), got "
                 <> Text.pack (show (length arguments))
             )
-      | [argument] <- arguments,
-        concreteConstraintArgument argument,
-        Just implFact <- concreteImplFact constraintName [argument],
-        Set.notMember implFact (inferConcreteImplFacts state) =
-          Just ("missing impl fact '" <> renderConcreteImplFact implFact <> "'")
       | otherwise =
           Nothing
       where
         constraintNameText = identifierText constraintName
         maybeClassArity = 1 <$ Map.lookup (CapabilityId constraintName) (inferClassFacts state)
-
-constrainedSignatureHasTypeVariable :: [SignatureConstraint 'Resolved] -> SignatureType 'Resolved -> Bool
-constrainedSignatureHasTypeVariable constraints signatureType =
-  any constraintHasTypeVariable constraints
-    || constraintTypeHasTypeVariable signatureType
-
-constraintHasTypeVariable :: SignatureConstraint 'Resolved -> Bool
-constraintHasTypeVariable (SignatureConstraint _ arguments) =
-  any constraintTypeHasTypeVariable arguments
-
-constraintTypeHasTypeVariable :: SignatureType 'Resolved -> Bool
-constraintTypeHasTypeVariable signatureType =
-  getAny (bifoldMap (Any . identifierLooksLikeTypeVariable) (const (Any True)) signatureType)
 
 mkInvalidCapabilityDeclarationError :: SourceSpan -> Text -> Diagnostic
 mkInvalidCapabilityDeclarationError spanValue message =

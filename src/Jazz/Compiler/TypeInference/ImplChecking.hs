@@ -105,8 +105,8 @@ checkImplMethodBodies inferExpected resultType env initialState (CapabilityId ca
 checkImplementationSuperclasses :: ImplementationTemplate -> InferState -> InferState
 checkImplementationSuperclasses template initialState = case Trial.runStateT (freshImplementation template) initialState of
   Nothing -> initialState
-  Just ((target, bindings, assumptions), allocated) ->
-    let rigid = Set.fromList (concatMap toList (Map.elems bindings))
+  Just ((target, assumptions), allocated) ->
+    let rigid = Set.fromList (toList target)
         before = allocated {inferSolver = (inferSolver allocated) {solverRigidTypeVars = inferRigidTypeVars allocated <> rigid}}
         checked = foldl' (check target assumptions) before parents
      in checked {inferSolver = (inferSolver checked) {solverRigidTypeVars = inferRigidTypeVars initialState}}

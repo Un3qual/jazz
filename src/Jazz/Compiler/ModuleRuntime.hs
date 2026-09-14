@@ -32,7 +32,7 @@ import Jazz.Compiler.AST
   ( CorePhase (..),
     Expr,
   )
-import Jazz.Compiler.CoreIdentity (CapabilityId, MethodId (..), ResolvedReference (..), capabilityExportName)
+import Jazz.Compiler.CoreIdentity (CapabilityId, MethodId (..), ResolvedReference (..))
 import Jazz.Compiler.Diagnostics
   ( Diagnostic,
   )
@@ -64,10 +64,7 @@ import Jazz.Compiler.ModuleInterface
   ( ModuleInterface (..),
     ModuleValueBinding (..),
   )
-import Jazz.Compiler.Name
-  ( Identifier,
-    NameNamespace (..),
-  )
+import Jazz.Compiler.Name (Identifier)
 import Jazz.Compiler.Runtime
   ( ModuleEvaluationMode (..),
     RuntimeCell,
@@ -97,18 +94,13 @@ import Jazz.Compiler.RuntimeHost
   ( RuntimeHost,
     disabledRuntimeHost,
   )
-import Jazz.Compiler.SemanticDeclarations (ScopeCapabilityFacts (scopeClassMethodSignatures))
 
--- | Runtime-facing exports keep capability methods structurally distinct from
--- ordinary values instead of encoding their owner in a value-name string.
+-- | Public values use the checked interface binding identity. Implementation
+-- and default method cells travel independently of public name selection.
 data RuntimeExport
   = RuntimeBindingExport ModuleExport
   | RuntimeImplementationMethodExport MethodId
   | RuntimeDefaultMethodExport CapabilityId Identifier
-  | RuntimeCapabilityMethodExport
-      { runtimeExportCapability :: CapabilityId,
-        runtimeExportMethod :: Identifier
-      }
   deriving (Eq, Ord, Show)
 
 data RuntimeModule = RuntimeModule
@@ -372,19 +364,15 @@ exportReference :: ModuleInterface -> RuntimeExport -> Maybe ResolvedReference
 exportReference interface runtimeExport = case runtimeExport of
   RuntimeBindingExport export ->
     interfaceBindingReference <$> Map.lookup export (interfaceValueBindings interface)
-  RuntimeCapabilityMethodExport capability method ->
-    Just (CapabilityMethodReference capability method)
   RuntimeImplementationMethodExport identity -> Just (ImplementationMethodReference identity)
   RuntimeDefaultMethodExport capability member -> Just (DefaultMethodReference capability member)
 
 interfaceExports :: ModuleInterface -> [RuntimeExport]
 interfaceExports interface =
   map RuntimeBindingExport (Map.keys (interfaceValueBindings interface))
-    <> [RuntimeCapabilityMethodExport capability member | (capability, member) <- Map.keys (scopeClassMethodSignatures (interfaceCapabilities interface)), Set.member (ModuleExport CapabilityNamespace (capabilityExportName capability)) (exportInventoryEntries (interfacePublicExports interface))]
 
 runtimeExportSelected :: Set ModuleExport -> RuntimeExport -> Bool
 runtimeExportSelected visibleExports runtimeExport = case runtimeExport of
   RuntimeImplementationMethodExport {} -> True
   RuntimeDefaultMethodExport {} -> True
   RuntimeBindingExport binding -> Set.member binding visibleExports
-  RuntimeCapabilityMethodExport capability _ -> Set.member (ModuleExport CapabilityNamespace (capabilityExportName capability)) visibleExports

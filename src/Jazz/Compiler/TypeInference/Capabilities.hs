@@ -57,9 +57,6 @@ import qualified Control.Monad.Trans.State.Strict as Trial
 import Data.Foldable
   ( toList,
   )
-import Data.Map.Strict
-  ( Map,
-  )
 import qualified Data.Map.Strict as Map
 import Data.Maybe (isJust, isNothing)
 import qualified Data.Sequence as Seq
@@ -297,7 +294,7 @@ registerImplementation :: ImplementationTemplate -> InferState -> InferState
 registerImplementation template = modifyCapabilityFacts $ \facts ->
   facts {scopeImplementations = Map.insert (implementationIdentity template) template (scopeImplementations facts)}
 
-freshImplementation :: ImplementationTemplate -> Trial.StateT InferState Maybe (ExpressionType, Map Text ExpressionType, [TypeSchemeConstraint])
+freshImplementation :: ImplementationTemplate -> Trial.StateT InferState Maybe (ExpressionType, [TypeSchemeConstraint])
 freshImplementation template = do
   let scheme = implementationScheme template
       parameters = quantifiedVariablesOrderedList (schemeQuantifiedVariables scheme)
@@ -305,7 +302,7 @@ freshImplementation template = do
   let bindings = Map.fromList (zip parameters variables)
   target <- Trial.StateT (\state -> (,state) <$> instantiateDeclarationType bindings (implementationTarget template))
   prerequisites <- Trial.StateT (\state -> (,state) <$> traverse (traverse (instantiateDeclarationType bindings)) (schemeClassConstraints scheme))
-  pure (target, bindings, prerequisites)
+  pure (target, prerequisites)
 
 implementationsOverlap :: InferState -> ImplementationTemplate -> ImplementationTemplate -> Bool
 implementationsOverlap state left right =
@@ -313,8 +310,8 @@ implementationsOverlap state left right =
     && isJust (Trial.execStateT trial state)
   where
     trial = do
-      (leftTarget, _, _) <- freshImplementation left
-      (rightTarget, _, _) <- freshImplementation right
+      (leftTarget, _) <- freshImplementation left
+      (rightTarget, _) <- freshImplementation right
       Trial.StateT (fmap ((),) . unifyTypesExactly leftTarget rightTarget)
 
 validateImplementationCoherence :: InferState -> InferState
@@ -615,14 +612,14 @@ resolveCapabilityEvidence assumptions facts capability member argument state
   | otherwise = case preferred of
       [] | not (Set.null unresolvedTargetVariables) -> Left ambiguous
       [] -> Left (mkMissingExplicitConstraintImplFactError (renderCapabilityId capability <> "(" <> renderSemanticTypeWith (const "_") (defaultLiteralTypes state target) <> ")"))
-      [(template, headTarget, substitution, prerequisites, matched)] -> do
+      [(template, headTarget, prerequisites, matched)] -> do
         selectedMethod <- case member of
           Nothing -> Right Nothing
           Just method -> maybe (Left (mkMissingImplMethodBodyError (capability, method))) (Right . Just) (Map.lookup method (implementationMethods template))
         let superclasses = maybe [] classSuperclasses (Map.lookup capability (scopeClassFacts facts))
             requirements = prerequisites <> [TypeSchemeConstraint superclass headTarget | superclass <- superclasses]
         (arguments, checked) <- foldl' solvePrerequisite (Right ([], matched)) requirements
-        Right (EvidenceReference capability (implementationIdentity template) selectedMethod (resolveType checked headTarget) (fmap (resolveType checked) substitution) arguments, checked)
+        Right (EvidenceReference capability (implementationIdentity template) selectedMethod (resolveType checked headTarget) arguments, checked)
       _ -> Left ambiguous
   where
     target = resolveType state argument
@@ -635,17 +632,17 @@ resolveCapabilityEvidence assumptions facts capability member argument state
       Nothing -> mkAmbiguousDeferredConstraintError False capability target
     templates = filter ((== capability) . implementationCapability) (Map.elems (scopeImplementations facts))
     candidates candidateTarget exact =
-      [ (template, headTarget, substitution, prerequisites, matched)
+      [ (template, headTarget, prerequisites, matched)
       | template <- templates,
-        Just ((headTarget, substitution, prerequisites), matched) <- [Trial.runStateT (trial candidateTarget exact template) state]
+        Just ((headTarget, prerequisites), matched) <- [Trial.runStateT (trial candidateTarget exact template) state]
       ]
     trial candidateTarget exact template = do
       Trial.modify' (\current -> current {inferSolver = (inferSolver current) {solverRigidTypeVars = inferRigidTypeVars current <> unresolvedTargetVariables}})
-      (headTarget, substitution, prerequisites) <- freshImplementation template
+      (headTarget, prerequisites) <- freshImplementation template
       Trial.StateT (fmap ((),) . (if exact then unifyTypesExactly else unifyTypes) headTarget candidateTarget)
       Trial.StateT (fmap ((),) . unifyTypes headTarget target)
       Trial.modify' (\current -> current {inferSolver = (inferSolver current) {solverRigidTypeVars = inferRigidTypeVars state}})
-      pure (headTarget, substitution, prerequisites)
+      pure (headTarget, prerequisites)
     preferred = case candidates (defaultLiteralTypes state target) True of
       [] -> case candidates target True of [] -> candidates target False; exact -> exact
       exact -> exact

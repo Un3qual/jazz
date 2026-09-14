@@ -11,7 +11,6 @@ import Control.Exception
     try,
   )
 import qualified Data.List.NonEmpty as NonEmpty
-import qualified Data.Map.Strict as Map
 import qualified Data.Text as Text
 import Jazz.Compiler.AST
   ( CaseArm (..),
@@ -49,7 +48,6 @@ import Jazz.Compiler.Runtime
   ( RuntimeAnnotation (..),
     RuntimeValue (..),
     evaluateRuntimeExpr,
-    runtimeValueExactlyMatchesConstraint,
   )
 import Jazz.Compiler.Runtime.Semantics (applyExplicitTypeApplicationResultHint, applyRuntimeTypeHint, runtimeValueMatchesConstraint)
 import Jazz.Compiler.SemanticFacts
@@ -134,7 +132,6 @@ capabilityTests =
     ("qualified method dispatch preserves bound nested list runtime hints", testQualifiedMethodDispatchPreservesBoundNestedListRuntimeHint),
     ("qualified method dispatch instantiates explicit empty list type application hints", testQualifiedMethodDispatchInstantiatesExplicitEmptyListTypeApplicationHint),
     ("qualified method dispatch infers nested list helper targets", testQualifiedMethodDispatchInfersNestedListHelperExactSelection),
-    ("qualified method dispatch does not exact-match untyped empty list literals", testQualifiedMethodDispatchDoesNotExactMatchUntypedEmptyListLiteral),
     ("qualified method dispatch prefers constructor alias body for direct constructor literals", testQualifiedMethodDispatchPrefersConstructorAliasBodyForDirectLiteral),
     ("qualified method dispatch uses structured constructor payloads for exact selection", testQualifiedMethodDispatchUsesStructuredConstructorPayloadForExactSelection),
     ("qualified method dispatch preserves the inferred Int type through applications", testQualifiedMethodDispatchPreservesInferredIntegerType),
@@ -266,9 +263,9 @@ testExplicitResultHintsPreserveUnrelatedPhantomArguments = do
           (RuntimeTypeHint (SemanticData local [SemanticBool]))
           (VConstructor local [InferenceVariable 0] (resolvedLocalName ConstructorNamespace (mkIdentifier "Wrap")) [] [])
   case applyExplicitTypeApplicationResultHint (SemanticData unrelated [SemanticBool]) value of
-    Right hinted -> do
-      assertEqual "existing phantom Bool argument still matches" True (runtimeValueExactlyMatchesConstraint (SemanticData local [SemanticBool]) hinted)
-      assertEqual "unrelated hint does not erase the phantom argument" False (runtimeValueExactlyMatchesConstraint (SemanticData local [SemanticInt]) hinted)
+    Right (VAnnotated (RuntimeTypeHint actual) _) ->
+      assertEqual "unrelated hint preserves the phantom Bool argument" (SemanticData local [SemanticBool]) actual
+    Right _ -> failTest "unrelated hint erased the phantom type annotation"
     Left diagnostic -> failTest ("unrelated explicit result hint: " <> renderDiagnostic diagnostic)
 
 runtimeNominalTypeViews :: (ResolvedName, ResolvedName, ResolvedName)
@@ -541,7 +538,6 @@ testNullaryMethodSelectionRecordsCanonicalAnalyzedEvidence = do
         { evidenceCapability = CapabilityId capabilityName,
           evidenceImplementation = implementationId,
           evidenceMethod = Just (MethodId (implementationId, mkIdentifier "defaultValue")),
-          evidenceSubstitution = Map.empty,
           evidencePrerequisites = [],
           evidenceType = targetType
         }
@@ -1182,13 +1178,6 @@ testQualifiedMethodDispatchInfersNestedListHelperExactSelection = do
   assertEqual "compile errors" [] (runCompileErrors result)
   assertEqual "runtime errors" [] (runRuntimeErrors result)
   assertEqual "runtime output" (Just "True") (runOutput result)
-
-testQualifiedMethodDispatchDoesNotExactMatchUntypedEmptyListLiteral :: IO ()
-testQualifiedMethodDispatchDoesNotExactMatchUntypedEmptyListLiteral =
-  assertEqual
-    "untyped empty list exact match"
-    False
-    (runtimeValueExactlyMatchesConstraint (SemanticList (SemanticInt)) (VList [] Nothing))
 
 testQualifiedMethodDispatchPrefersConstructorAliasBodyForDirectLiteral :: IO ()
 testQualifiedMethodDispatchPrefersConstructorAliasBodyForDirectLiteral = do

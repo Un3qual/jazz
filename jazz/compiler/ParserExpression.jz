@@ -763,15 +763,6 @@ module ParserExpression (
     })
     peekCaseArmPatternPrefix.
 
-  stopsAtPipeOr :: ([CanonicalToken] -> Bool) -> [CanonicalToken] -> Bool.
-  stopsAtPipeOr = \(outerStop, tokens) -> if outerStop tokens then True else case tokens {
-    | [token | rest] -> case canonicalTokenKind token {
-      | OperatorKind "|" -> True
-      | other -> False
-    }
-    | [] -> False
-  }.
-
   stopsAtCaseBodyTerminator :: [CanonicalToken] -> Bool.
   stopsAtCaseBodyTerminator = \(tokens) -> case tokens {
     | [token | rest] -> case canonicalTokenKind token {

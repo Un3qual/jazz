@@ -56,8 +56,8 @@ import Jazz.Compiler.Runtime
     prependRuntimeExplicitResultHint,
     renderRuntimeValue,
     runRuntimeHostEvaluation,
-    runtimeValueExactlyMatchesConstraint,
   )
+import Jazz.Compiler.Runtime.Types (RuntimeIntMetadata (..))
 import Jazz.Compiler.RuntimeHost
   ( HostIOCategory (..),
     HostIOFailure (..),
@@ -446,11 +446,8 @@ testHostScopePreservesBindingSignatureHints = do
       (result, calls) = runState (evaluateFixtureWithHost statefulHost expression) []
   assertEqual "signature host call" [WriteStdoutCall "once"] calls
   case result of
-    Right (Just itemValue) ->
-      assertEqual
-        "host scope keeps Int8 runtime hint"
-        True
-        (runtimeValueExactlyMatchesConstraint (SemanticNumeric NumericInt8) itemValue)
+    Right (Just (VInt _ metadata)) ->
+      assertEqual "host scope keeps Int8 representation" (Just NumericInt8) (runtimeIntTargetType metadata)
     _ -> assertEqual "host scope produces signed itemValue" True False
 
 testHostDependencyScopeKeepsUnusedBindingLazy :: IO ()
@@ -672,15 +669,9 @@ testStackedResultObligationsPreserveRecursiveUnwindOrder = do
   case result of
     Right scopeResult ->
       case scopeResultValue scopeResult of
-        Just itemValue -> do
-          assertEqual
-            "outer result hint applies after inner result hint"
-            True
-            (runtimeValueExactlyMatchesConstraint SemanticInt itemValue)
-          assertEqual
-            "inner result hint does not escape the outer result hint"
-            False
-            (runtimeValueExactlyMatchesConstraint (SemanticNumeric NumericUInt8) itemValue)
+        Just (VAnnotated (RuntimeTypeHint actual) _) ->
+          assertEqual "outer result hint applies after inner result hint" SemanticInt actual
+        Just _ -> failTest "stacked result obligations lost the outer type annotation"
         Nothing -> assertEqual "stacked result obligations produce a itemValue" True False
     Left _ -> assertEqual "stacked result obligations evaluate" True False
 
@@ -727,11 +718,9 @@ testHostDependencyBindingRetainsRuntimeFacts = do
   case result of
     Right scopeResult ->
       case scopeResultValue scopeResult of
-        Just itemValue ->
-          assertEqual
-            "dependency keeps UInt8 result representation"
-            True
-            (runtimeValueExactlyMatchesConstraint (SemanticNumeric NumericUInt8) itemValue)
+        Just (VInt _ metadata) ->
+          assertEqual "dependency keeps UInt8 result representation" (Just NumericUInt8) (runtimeIntTargetType metadata)
+        Just _ -> failTest "dependency did not produce an integer"
         Nothing -> assertEqual "dependency produces a hinted itemValue" True False
     Left _ -> assertEqual "dependency hint evaluation succeeds" True False
 

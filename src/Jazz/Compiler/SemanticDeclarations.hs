@@ -8,7 +8,7 @@
 
 -- | Validated declaration templates, independent of a checker's solver state.
 module Jazz.Compiler.SemanticDeclarations
-  ( ClassMethodType (.., ClassMethodType),
+  ( ClassMethodType (..),
     ClassDefinition (..),
     ConstructorArgumentType (..),
     ConcreteImplFact (..),
@@ -20,7 +20,6 @@ module Jazz.Compiler.SemanticDeclarations
     normalizeSignatureStructure,
     ImplementationTemplate (..),
     implementationTarget,
-    scopeConcreteImplFacts,
     SignatureTypeFailure (..),
     DeclarationVariable (..),
     IntegerLiteralRange (..),
@@ -72,16 +71,6 @@ data ClassMethodType = ClassMethodScheme
   deriving stock (Eq, Generic, Show)
   deriving anyclass (NFData)
 
-pattern ClassMethodType :: Text -> SemanticType ResolvedName Text -> ClassMethodType
-pattern ClassMethodType parameter result <- ClassMethodScheme parameter (SemanticScheme {schemeResultType = result})
-  where
-    ClassMethodType parameter result =
-      ClassMethodScheme
-        parameter
-        (SemanticScheme (quantifiedVariablesFromPreferred (parameter : toList result) (Set.insert parameter (Set.fromList (toList result)))) [] [] emptyScopeCapabilityFacts result)
-
-{-# COMPLETE ClassMethodType #-}
-
 data ClassDefinition = ClassDefinition
   { classParameterKind :: Kind Void,
     classSuperclasses :: [CapabilityId],
@@ -99,7 +88,6 @@ data ImplementationTemplate = ImplementationTemplate
   { implementationIdentity :: ImplId,
     implementationCapability :: CapabilityId,
     implementationScheme :: SemanticScheme Text,
-    implementationParameterKinds :: Map Text (Kind Void),
     implementationMethods :: Map Identifier MethodId
   }
   deriving stock (Eq, Generic, Show)
@@ -349,16 +337,6 @@ instance Semigroup ScopeCapabilityFacts where
 
 instance Monoid ScopeCapabilityFacts where
   mempty = ScopeCapabilityFacts Map.empty Set.empty Map.empty Map.empty
-
--- Concrete views serve the existing structural-equality diagnostics during
--- inference. Instance declarations themselves have only one stored catalog.
-scopeConcreteImplFacts :: ScopeCapabilityFacts -> Set ConcreteImplFact
-scopeConcreteImplFacts facts =
-  Set.fromList
-    [ ConcreteImplFact (implementationCapability template) target
-    | template <- Map.elems (scopeImplementations facts),
-      Just target <- [traverse (const Nothing) (implementationTarget template)]
-    ]
 
 emptyScopeCapabilityFacts :: ScopeCapabilityFacts
 emptyScopeCapabilityFacts = mempty

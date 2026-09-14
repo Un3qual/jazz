@@ -1,7 +1,5 @@
 # Reviewed GHC 9.14 baseline; keep new unreachable declarations visible.
 roots = [
-  # Exact representation inspection used by numeric and nominal runtime tests.
-  '^Jazz\.Compiler\.Runtime\.Semantics\.runtimeValueExactlyMatchesConstraint$',
   '^Main\.main$',
   # Explicit compiler inspection/testing API; retained migration baseline.
   # src/Jazz/CLI/Main.hs

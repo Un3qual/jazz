@@ -8,15 +8,15 @@ public behavior.
 
 ## Ready Now
 
-Current executor status (`2026-09-14`): `Ready Now` is empty because all
-source-backed candidates are exhausted. RFC 0019, its dependent library
-migration, and the approved review fixes are complete. There is no source-backed
-next curation target and no named candidate currently.
+Current executor status (`2026-09-14`): executing the maintainer-requested
+RFC 0019 legacy and unused-code audit, starting with fresh Weeder checks and
+then an independent source review.
 
 `Ready Now` should contain implementation-first entries by default. `kind: docs` or `kind: coordination` items belong here only when they are the smallest verified unblocker for the next implementation batch.
 
-| id  | title | priority | size | kind | autonomous_ready | depends_on | plan | plan_section | target_paths | deliverable | verification | last_verified |
-| --- | ----- | -------- | ---- | ---- | ---------------- | ---------- | ---- | ------------ | ------------ | ----------- | ------------ | ------------- |
+| id                                      | title                               | priority | size | kind | autonomous_ready | depends_on | plan                                                                    | plan_section      | target_paths                                      | deliverable                                                          | verification                                   | last_verified |
+| --------------------------------------- | ----------------------------------- | -------- | ---- | ---- | ---------------- | ---------- | ----------------------------------------------------------------------- | ----------------- | ------------------------------------------------- | -------------------------------------------------------------------- | ---------------------------------------------- | ------------- |
+| `JN-GENERIC-CAPABILITIES-LEFTOVERS-001` | Remove confirmed RFC 0019 leftovers | P2 | M | impl | yes | - | [legacy cleanup](../plans/2026-09-14-generic-capabilities-leftovers.md) | Audit and cleanup | `src/Jazz/Compiler/ModuleRuntime.hs`, `src/Jazz/Compiler/Runtime/Semantics.hs`, `src/Jazz/Compiler/SemanticDeclarations.hs`, `src/Jazz/Compiler/SemanticFacts.hs`, `src/Jazz/Compiler/TypeInference/Scope.hs`, `src/Jazz/Compiler/TypeInference/Analyzed.hs`, `src/Jazz/Compiler/TypeInference/Diagnostics.hs`, `jazz/compiler/ParserExpression.jz`, `test/Jazz/Compiler/Modules/ModulePipelineContractSpec.hs`, `test/Jazz/Compiler/Semantics/Runtime/CapabilitiesTests.hs`, `weeder-production.toml`, `weeder.toml`, `.hlint.yaml` | Weeder and independent source audit with confirmed leftovers removed | `cabal test all -f-full-parser-scale --jobs=1 --test-show-details=failures`; `bash scripts/ci/haskell-quality.sh`; `bash scripts/check-docs.sh`; `bash scripts/check-execution-queue.sh`; `git diff --check` | `2026-09-14` |
 
 ## Next Curation Target
 

@@ -274,7 +274,7 @@ checkImplementationTemplate state node capabilityName arguments prerequisites me
   target <- first (mkInvalidImplTargetError spanValue) (normalizeSignatureTypeAt (inferDataTypes state) variables (classParameterKind definition) signature)
   if supportedHead target then Right () else Left (invalid "impl declarations require a constructor-headed target with distinct variables")
   constraints <- traverse (checkPrerequisite variables) prerequisites
-  kinds <- first (mkInvalidImplTargetError spanValue) (signatureVariableKindsAt (inferDataTypes state) Map.empty ((target, classParameterKind definition) : [(argument, classParameterKind owner) | TypeSchemeConstraint name argument <- constraints, Just owner <- [Map.lookup name (inferClassFacts state)]]))
+  _ <- first (mkInvalidImplTargetError spanValue) (signatureVariableKindsAt (inferDataTypes state) Map.empty ((target, classParameterKind definition) : [(argument, classParameterKind owner) | TypeSchemeConstraint name argument <- constraints, Just owner <- [Map.lookup name (inferClassFacts state)]]))
   let declaredMethods = Map.keysSet (Map.filterWithKey (\(name, _) _ -> name == capability) (scopeClassMethodSignatures (capabilityFactsFromState state)))
       members = Set.map snd declaredMethods
       provided = Set.fromList [mkIdentifier (identifierText name) | ImplMethod _ name _ <- methods]
@@ -284,7 +284,6 @@ checkImplementationTemplate state node capabilityName arguments prerequisites me
           identity
           capability
           (SemanticScheme (quantifiedVariablesFromPreferred parameterNames (Map.keysSet variables)) constraints [] mempty target)
-          kinds
           (Map.fromSet (\member -> MethodId (identity, member)) (members <> provided))
   case Set.lookupMin missingMethods of
     Just method -> Left (setDiagnosticPrimarySpan spanValue (mkMissingImplMethodBodyError (capability, method)))
@@ -718,7 +717,6 @@ inferScopeTypeInternal
                 recursiveGroupPreviewCache = scopeWalkRecursiveGroupPreviewCache walkState
                 moduleBaselineFacts = scopeWalkModuleBaselineFacts walkState
                 state = scopeWalkInferState walkState
-                stateForSource = state
              in case statement of
                   SModule moduleNode _ ->
                     let next = enterModuleCapabilityScope moduleBaselineFacts (sourceUnitOwnerModulePath (resolvedNodeOwner (coreNodeFacts moduleNode))) state
@@ -728,9 +726,9 @@ inferScopeTypeInternal
                      in go (retainStatement statementIndex statement env next Nothing [] walkState {scopeWalkRecursiveGroupPreviewCache = Map.empty}) rest
                   SClass _ capabilityName parameters _ _ defaults ->
                     let registeredState = case Map.lookup statementIndex (preparedDeclarations scopePreparation) of
-                          Just (Left diagnostic) -> addTypeError stateForSource diagnostic
-                          Just (Right (PreparedClassMethods methods)) -> registerClassDeclaration stateForSource capabilityName methods
-                          _ -> stateForSource -- The owned declaration draft rejects missing preparation.
+                          Just (Left diagnostic) -> addTypeError state diagnostic
+                          Just (Right (PreparedClassMethods methods)) -> registerClassDeclaration state capabilityName methods
+                          _ -> state -- The owned declaration draft rejects missing preparation.
                         (methodEnv, methodState) =
                           foldl'
                             publishMethod
@@ -783,10 +781,10 @@ inferScopeTypeInternal
                           _ -> Nothing
                         (nextState, methodChecks) =
                           case checkedTargets of
-                            Nothing -> (stateForSource, []) -- Rejected by the declaration draft.
-                            Just (Left diagnostic) -> (addTypeError stateForSource diagnostic, [])
+                            Nothing -> (state, []) -- Rejected by the declaration draft.
+                            Just (Left diagnostic) -> (addTypeError state diagnostic, [])
                             Just (Right targets) ->
-                              let implSeededState = checkImplementationSuperclasses targets (registerImplementation targets stateForSource)
+                              let implSeededState = checkImplementationSuperclasses targets (registerImplementation targets state)
                                in checkImplMethodBodies
                                     (inferExprTypeWithExpectedMode inferExpression mode)
                                     checkedExprType
@@ -887,7 +885,7 @@ inferScopeTypeInternal
                         nameText = identifierText name
                         bindingSpan = coreNodeSpan bindingNode
                         (envForStatement, stateForStatement, recursiveGroupPreviewCacheForStatement) =
-                          exposeVisibleRecursiveGroupSchemes statementIndex env envFreeVariables stateForSource recursiveGroupPreviewCache
+                          exposeVisibleRecursiveGroupSchemes statementIndex env envFreeVariables state recursiveGroupPreviewCache
                         recursiveGroupStartStatesForStatement =
                           rememberRecursiveGroupStart statementIndex stateForStatement recursiveGroupStartStates
                         matchingPendingSignature =
@@ -1123,7 +1121,7 @@ inferScopeTypeInternal
                   SExpr exprNode expr ->
                     let exprSpan = coreNodeSpan exprNode
                         (envForStatement, stateForStatement, _) =
-                          exposeVisibleRecursiveGroupSchemes statementIndex env envFreeVariables stateForSource recursiveGroupPreviewCache
+                          exposeVisibleRecursiveGroupSchemes statementIndex env envFreeVariables state recursiveGroupPreviewCache
                         (exprResult, rawStateAfterExpr) = inferExpression mode envForStatement stateForStatement expr
                         exprType = checkedExprType exprResult
                         stateAfterExpr =

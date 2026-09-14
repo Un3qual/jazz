@@ -68,7 +68,7 @@ import Jazz.Compiler.Profiling
 import Jazz.Compiler.Runtime.Types (RuntimeValue (VConstructor))
 import Jazz.Compiler.TypeInference.Result (InferenceResult (..))
 import Jazz.Compiler.TypeInference.Types
-  ( ClassMethodType (ClassMethodType),
+  ( ClassMethodType (ClassMethodScheme),
     ConstructorArgumentType (ConstructorArgumentType),
     DataTypeBinding (DataTypeBinding),
     ImplementationTemplate (..),
@@ -213,7 +213,7 @@ testDeepModuleInterfaceForcing =
                 { scopeClassMethodSignatures =
                     Map.singleton
                       (CapabilityId (resolvedLocalName CapabilityNamespace (mkIdentifier "Capability")), mkIdentifier "method")
-                      (ClassMethodType "Capability" (SemanticList (throw (userError "nested signature type was forced"))))
+                      (ClassMethodScheme "Capability" (SemanticScheme (quantifiedVariablesFromPreferred ["Capability"] (Set.singleton "Capability")) [] [] mempty (SemanticList (throw (userError "nested signature type was forced")))))
                 }
           }
       ),
@@ -231,7 +231,6 @@ testDeepModuleInterfaceForcing =
                               identity
                               capability
                               (SemanticScheme (quantifiedVariablesFromPreferred [] Set.empty) [] [] mempty (SemanticList (throw (userError "nested signature type was forced"))))
-                              Map.empty
                               (Map.singleton (mkIdentifier "method") (MethodId (identity, mkIdentifier "method")))
                           )
                 }
