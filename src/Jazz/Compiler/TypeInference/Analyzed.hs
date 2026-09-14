@@ -15,7 +15,6 @@ module Jazz.Compiler.TypeInference.Analyzed
     constrainBindingRuntimeResult,
     refineListPrependDraft,
     finalizeCheckedExpression,
-    projectAnalyzedMethodSignature,
     withEvidenceParameters,
     withRecursiveBindingEvidence,
     retainCheckedEvidence,
@@ -27,7 +26,6 @@ import Data.List.NonEmpty (NonEmpty)
 import qualified Data.Map.Strict as Map
 import qualified Data.Sequence as Seq
 import qualified Data.Set as Set
-import Data.Text (Text)
 import Jazz.Compiler.AST
   ( CaseArm (..),
     CoreNode (..),
@@ -42,8 +40,7 @@ import Jazz.Compiler.CoreIdentity (CapabilityId (..), CoreBinderId (..), CoreNod
 import Jazz.Compiler.Name (ResolvedName, identifierText)
 import Jazz.Compiler.SemanticDeclarations (instantiateDeclarationType)
 import Jazz.Compiler.SemanticFacts
-  ( AnalyzedMethodSignature (..),
-    AnalyzedNumericConstraint (..),
+  ( AnalyzedNumericConstraint (..),
     AnalyzedPrimitiveConstraint (..),
     AnalyzedScheme (..),
     AnalyzedSchemeConstraint (..),
@@ -72,7 +69,6 @@ import Jazz.Compiler.TypeInference.State
 import Jazz.Compiler.TypeInference.TypeOps (freeTypeVariables)
 import Jazz.Compiler.TypeInference.Types
   ( ClassDefinition (..),
-    ClassMethodType (..),
     ConstructorArgumentType (..),
     ExpressionType,
     ImplementationTemplate (..),
@@ -399,7 +395,7 @@ mapExpressionFacts update expression =
 projectStatementBinding :: InferState -> CoreNodeId -> ResolvedNodeFacts -> Maybe TypeBinding -> StatementDeclarationFact -> Attachment StatementFacts
 projectStatementBinding _ nodeId resolution _ (ValueDeclaration _)
   | Nothing <- resolvedNodeBinder resolution = missing (MissingStatementBinder nodeId)
-projectStatementBinding _ nodeId resolution _ (MethodDeclaration _ _)
+projectStatementBinding _ nodeId resolution _ MethodDeclaration {}
   | Nothing <- resolvedNodeReference resolution = missing (MissingStatementFacts nodeId)
 projectStatementBinding state nodeId resolution maybeBinding declaration =
   case maybeBinding of
@@ -484,12 +480,3 @@ projectNumericConstraint constraint =
     RuntimeComparisonNumericConstraint -> AnalyzedRuntimeComparisonNumericConstraint
     IntegralNumericConstraint -> AnalyzedIntegralNumericConstraint
     IntegralLiteralNumericConstraint (IntegerLiteralRange lower upper) -> AnalyzedIntegralLiteralNumericConstraint lower upper
-
-projectAnalyzedMethodSignature :: Text -> ClassMethodType -> Either SemanticFactInvariantFailure AnalyzedMethodSignature
-projectAnalyzedMethodSignature methodName (ClassMethodScheme parameter scheme) =
-  case (Map.lookup parameter variables, instantiateDeclarationType variables (schemeResultType scheme)) of
-    (Just (SemanticVariable parameterId), Just signature) -> Right (AnalyzedMethodSignature parameterId signature)
-    _ -> Left (InvalidAnalyzedMethodSignature methodName)
-  where
-    order = quantifiedVariablesOrderedList (schemeQuantifiedVariables scheme)
-    variables = Map.fromList (zip order (map SemanticVariable [0 ..]))

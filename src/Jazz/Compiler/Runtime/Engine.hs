@@ -798,7 +798,7 @@ prepareRuntimeCells storage initialEnv preparedScope =
               methodName' = resolvedValueReference (statementResolution (coreNodeFacts node)) methodName
               methodValue = case statementDeclarationFact (coreNodeFacts node) of
                 MethodDeclaration {} -> Right (VCapabilityMethod methodKey)
-                _ -> Left (runtimeDiagnostic E3021 "runtime method is missing its analyzed signature")
+                _ -> Left (runtimeDiagnostic E3021 "runtime method is missing its checked declaration")
            in Map.insertWith (\_ existing -> existing) methodName' methodValue envAcc
 
     insertImplMethods :: Maybe SourceUnitOwner -> CoreNode 'Analyzed 'StatementSort -> ResolvedName -> [ImplMethod 'Analyzed] -> RuntimeEnv -> RuntimeEnv

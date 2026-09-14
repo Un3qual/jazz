@@ -16,7 +16,6 @@ module Jazz.Compiler.TypeInference.Scope
   )
 where
 
-import Control.Monad (zipWithM)
 import Data.Bifunctor (first)
 import Data.Either (fromRight)
 import qualified Data.Foldable as Foldable
@@ -93,7 +92,7 @@ import Jazz.Compiler.SemanticFacts
   ( SemanticFactInvariantFailure (..),
     StatementDeclarationFact (..),
   )
-import Jazz.Compiler.TypeInference.Analyzed (constrainBindingRuntimeResult, draftExpressionNode, draftLambda, draftStatementNode, projectAnalyzedMethodSignature, retainCheckedEvidence, withEvidenceParameters, withRecursiveBindingEvidence)
+import Jazz.Compiler.TypeInference.Analyzed (constrainBindingRuntimeResult, draftExpressionNode, draftLambda, draftStatementNode, retainCheckedEvidence, withEvidenceParameters, withRecursiveBindingEvidence)
 import Jazz.Compiler.TypeInference.Capabilities
   ( TypeEnvFreeVariables,
     addUnpreservedInferredMethodConstraintErrors,
@@ -531,7 +530,7 @@ inferScopeTypeInternal
         SData node name parameters constructors -> SData <$> facts node Nothing (DataDeclaration name [constructorName | DataConstructor _ constructorName _ <- constructors]) <*> pure name <*> pure parameters <*> traverse constructor constructors
         SClass node name parameters signatures context defaults ->
           let checkedSignatures = case Map.lookup index (preparedDeclarations scopePreparation) of
-                Just (Right (PreparedClassMethods (_, checkedMethods))) -> zipWithM classMethod signatures checkedMethods
+                Just (Right PreparedClassMethods {}) -> traverse classMethod signatures
                 _ -> rejectedDraft (MissingStatementFacts (coreNodeId node))
            in SClass <$> facts node Nothing (CapabilityDeclaration name parameters) <*> pure name <*> pure parameters <*> checkedSignatures <*> pure context <*> traverse implMethod (zip [0 ..] defaults)
         SImpl node name arguments declarations context -> SImpl <$> implementationNode node name <*> pure name <*> pure arguments <*> traverse implMethod (zip [0 ..] declarations) <*> pure context
@@ -561,14 +560,10 @@ inferScopeTypeInternal
             ]
           makeLet name node value = SLet node name (constrainBindingRuntimeResult (coreNodeFacts node) value)
           constructor (DataConstructor node name arguments) = DataConstructor <$> facts node (bindingFor node name) (ValueDeclaration name) <*> pure name <*> pure arguments
-          classMethod (ClassMethodSignature node name signature) (_, _, methodType) = case projectAnalyzedMethodSignature (identifierText name) methodType of
-            Right analyzed -> ClassMethodSignature <$> facts node Nothing (MethodDeclaration name analyzed) <*> pure name <*> pure signature
-            Left failure -> rejectedDraft failure
+          classMethod (ClassMethodSignature node name signature) =
+            ClassMethodSignature <$> facts node Nothing (MethodDeclaration name) <*> pure name <*> pure signature
           implementationNode node name = case Map.lookup index (preparedDeclarations scopePreparation) of
-            Just (Right (PreparedImplementationTemplate template)) ->
-              case reindexDeclarationScheme (implementationScheme template) of
-                Just scheme -> facts node Nothing (ImplementationDeclaration name [schemeResultType scheme])
-                Nothing -> rejectedDraft (MissingStatementFacts (coreNodeId node))
+            Just (Right PreparedImplementationTemplate {}) -> facts node Nothing (ImplementationDeclaration name)
             _ -> rejectedDraft (MissingStatementFacts (coreNodeId node))
           implMethod (methodIndex, ImplMethod node name value) =
             let checked = case (resolvedNodeBinder (coreNodeFacts node), lookup methodIndex methods) of

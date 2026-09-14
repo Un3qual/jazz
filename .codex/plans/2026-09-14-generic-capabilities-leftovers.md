@@ -42,9 +42,9 @@ verified commits; do not add speculative abstractions or tests for simple deleti
 ## Audit and cleanup
 
 - [x] Run fresh production and whole-tree Weeder checks before source cleanup.
-- [ ] Trace the old capability, method, type-application, and instance-import paths
+- [x] Trace the old capability, method, type-application, and instance-import paths
       against their replacements; inspect retained roots and test-only APIs.
-- [ ] Check all 183 library renames, public map replacement, hosted consumers,
+- [x] Check all 183 library renames, public map replacement, hosted consumers,
       fixtures, docs, and unused private Jazz helpers outside Weeder coverage.
 - [ ] Remove confirmed leftovers, run appropriate verification, and commit.
 - [ ] Record findings, retained contracts, verification, and close the queue row.
@@ -76,6 +76,16 @@ The independent source pass identified these reachable or non-Haskell leftovers:
 6. `stopsAtPipeOr` in the hosted parser has no caller or export. Delete it along
    with two stale HLint exemptions and pass-through aliases left by the migration.
 
+7. Analyzed method signatures and implementation target copies were only read
+   by old projection tests. The dictionary evaluator uses neither. Remove the
+   extra analyzed type, projection function, invariant variant, and copied target
+   payload; retain checked declaration identities and preparation validation.
+   Move the method-parameter test to the authoritative checked scheme, and remove
+   the synthetic test for the deleted projection boundary. Remove the obsolete
+   type from both Weeder retention policies. The final policy scan also removed
+   stale entries for `ExpressionEvidenceSeed` and `ModuleImportMode`, which have
+   no definitions anywhere in maintained Haskell sources.
+
 ## Retained contracts
 
 - `__kernel_map` is used by `Mappable(List)` and by direct kernel tests.
@@ -96,3 +106,13 @@ runtime observation, module pipeline contracts, binding/signature coherence,
 Haskell typeclass contracts, profiling, and hosted parser control flow/patterns.
 Changed-file Ormolu and HLint passed. Compiler warnings exposed two newly unused
 imports during cleanup; both were removed before the successful run.
+
+First verified cleanup commit: `27364518`.
+
+All 62 regular suites have now passed against the completed compiler cleanup,
+including bounded parser scale, corpus budgets, stdlib performance, and hosted
+parity. The full command stopped after 27 passing suites on a missing import in
+the revised module-contract test. That test-only import was fixed and the 35
+remaining suites passed. No compiler source changed between those successful
+runs. The full regular build also passed. Clean final Weeder verification is
+still pending.

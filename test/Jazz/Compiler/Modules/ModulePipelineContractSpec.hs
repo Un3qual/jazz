@@ -143,8 +143,7 @@ import Jazz.Compiler.RuntimeHost
     productionRuntimeHost,
   )
 import Jazz.Compiler.SemanticFacts
-  ( AnalyzedMethodSignature (..),
-    AnalyzedNumericConstraint (..),
+  ( AnalyzedNumericConstraint (..),
     AnalyzedPrimitiveConstraint (..),
     AnalyzedScheme (..),
     BinaryOperandTyping (..),
@@ -162,7 +161,7 @@ import Jazz.Compiler.SemanticFacts
   )
 import Jazz.Compiler.SourceProgram (parseAndLowerStandaloneSource)
 import Jazz.Compiler.TypeInference (CheckedExpr (..), InferenceInputs (..), inferExpressionWork)
-import Jazz.Compiler.TypeInference.Analyzed (draftExpressionNode, draftStatementNode, finalizeCheckedExpression, projectAnalyzedMethodSignature)
+import Jazz.Compiler.TypeInference.Analyzed (draftExpressionNode, draftStatementNode, finalizeCheckedExpression)
 import Jazz.Compiler.TypeInference.Result (inferredDiagnostics)
 import Jazz.Compiler.TypeInference.Solver (freshIntegerLiteralType)
 import Jazz.Compiler.TypeInference.State
@@ -177,6 +176,7 @@ import Jazz.Compiler.TypeInference.Types
     IntegerLiteralRange (..),
     NumericConstraint (..),
     SchemePrimitiveConstraint (..),
+    ScopeCapabilityFacts (scopeClassMethodSignatures),
     SemanticBinding (..),
     SemanticScheme (..),
     SemanticType (..),
@@ -214,8 +214,7 @@ tests =
     ("analyzed expressions preserve literal-range constraints for numeric specialization", testAnalyzedLiteralRangeFacts),
     ("checked subtrees own their facts before finalization", testCheckedSubtreeOwnership),
     ("successful inference attaches complete analyzed facts", testAnalyzedProgramFactsAreComplete),
-    ("analyzed methods identify used and unused class parameters", testAnalyzedMethodParameterIdentity),
-    ("method projection rejects variables outside the declared scheme", testAnalyzedMethodParameterBoundary),
+    ("checked method schemes identify used and unused class parameters", testCheckedMethodParameterIdentity),
     ("checked-tree finalization rejects incomplete semantic nodes", testAnalyzedFactInvariantFailures),
     ("dependency expressions are checked but not executed", testDependencyExpressionContract),
     ("analyzed interfaces expose only declared exports", testAnalyzedInterfacesExposeOnlyDeclaredExports),
@@ -550,8 +549,8 @@ assertAnalyzedProgramFacts resolvedProgram analyzedProgram = do
               assertEqual "import target survives checking" (Just target) (resolvedNodeImportTarget (statementResolution facts))
             declarationFact -> fail ("unexpected analyzed import declaration fact: " <> show declarationFact)
 
-testAnalyzedMethodParameterIdentity :: IO ()
-testAnalyzedMethodParameterIdentity = do
+testCheckedMethodParameterIdentity :: IO ()
+testCheckedMethodParameterIdentity = do
   (_, analyzed) <-
     analyzeFixtureProgram
       ( Map.singleton
@@ -561,38 +560,20 @@ testAnalyzedMethodParameterIdentity = do
   let methods =
         Map.fromList
           [ (identifierText name, signature)
-          | SClass _ _ _ declarations _ _ <- coreModuleStatements (NonEmpty.head (coreProgramModules analyzed)),
-            ClassMethodSignature node name _ <- declarations,
-            MethodDeclaration _ signature <- [statementDeclarationFact (coreNodeFacts node)]
+          | ((_, name), signature) <- Map.toList (scopeClassMethodSignatures (interfaceCapabilities (analyzedInterface (NonEmpty.head (coreProgramModules analyzed)))))
           ]
   case (Map.lookup "nested" methods, Map.lookup "constant" methods) of
     (Just nested, Just constant) -> do
-      let parameter = SemanticVariable (analyzedMethodClassParameter nested)
+      let parameter = SemanticVariable (classMethodParameter nested)
       assertEqual
         "nested occurrences refer to the explicit class parameter"
         (SemanticFunction (SemanticList parameter) (SemanticList parameter))
-        (analyzedMethodType nested)
+        (schemeResultType (classMethodScheme nested))
       assertEqual
         "a method can leave its class parameter unused"
         (SemanticFunction SemanticInt SemanticBool)
-        (analyzedMethodType constant)
+        (schemeResultType (classMethodScheme constant))
     _ -> fail "missing analyzed Probe methods"
-
-testAnalyzedMethodParameterBoundary :: IO ()
-testAnalyzedMethodParameterBoundary =
-  mapM_
-    checkRejected
-    [ SemanticFunction foreignVariable foreignVariable,
-      SemanticFunction classVariable foreignVariable
-    ]
-  where
-    classVariable = SemanticVariable "a"
-    foreignVariable = SemanticVariable "b"
-    checkRejected signatureType =
-      assertEqual
-        "an unexpected variable fails projection instead of dropping or guessing the binder"
-        (Left (InvalidAnalyzedMethodSignature "Probe::bad"))
-        (projectAnalyzedMethodSignature "Probe::bad" (ClassMethodScheme "a" (SemanticScheme (quantifiedVariablesFromPreferred ["a"] (Set.singleton "a")) [] [] emptyScopeCapabilityFacts signatureType)))
 
 -- Finalization may read the solver, but the checker must already own the tree
 -- and its decisions. Erasing all output facts must leave that tree intact.
@@ -952,8 +933,8 @@ assertStatementFacts statement = do
           mapM_ assertClassMethodFacts methods
         SImpl _ name _ methods _ -> do
           case statementDeclarationFact facts of
-            ImplementationDeclaration factName [_] -> assertEqual "implementation declaration identity" name factName
-            other -> fail ("missing analyzed implementation target: " <> show other)
+            ImplementationDeclaration factName -> assertEqual "implementation declaration identity" name factName
+            other -> fail ("missing checked implementation declaration: " <> show other)
           mapM_ assertImplMethodFacts methods
         SModule _ path -> case statementDeclarationFact facts of
           ModuleDeclaration target -> assertEqual "module declaration fact" path (NonEmpty.toList (modulePathTextSegments target))
@@ -974,8 +955,8 @@ assertStatementFacts statement = do
     assertConstructorFacts (DataConstructor (CoreNode _ _ facts) name _) = assertBindingStatement (ValueDeclaration name) facts
     assertClassMethodFacts (ClassMethodSignature (CoreNode _ _ facts) name _) =
       case statementDeclarationFact facts of
-        MethodDeclaration factName _ -> assertEqual "class method declaration identity" name factName
-        other -> fail ("missing analyzed method signature: " <> show other)
+        MethodDeclaration factName -> assertEqual "class method declaration identity" name factName
+        other -> fail ("missing checked method declaration: " <> show other)
     assertImplMethodFacts (ImplMethod (CoreNode _ _ facts) name body) = do
       assertEqual "impl method declaration fact" (ValueDeclaration name) (statementDeclarationFact facts)
       assertExprFacts body

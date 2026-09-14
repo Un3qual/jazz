@@ -80,8 +80,7 @@ import Jazz.Compiler.Name
   )
 import Jazz.Compiler.Parser.Operator (isBuiltinOperatorSymbol)
 import Jazz.Compiler.SemanticFacts
-  ( AnalyzedMethodSignature (..),
-    AnalyzedScheme (..),
+  ( AnalyzedScheme (..),
     ExpressionFacts (..),
     InstantiationTarget (..),
     PatternConstructorFact (PatternHasNoConstructor),
@@ -346,20 +345,15 @@ statementClass spanValue name parameters methods =
   SClass (statementNode spanValue) (capabilityName name) (map typeName parameters) (map analyzedMethod methods) [] []
   where
     analyzedMethod (ClassMethodSignature node method signature) =
-      let signatureType = case signature of
-            TypeRepresentation.SignatureType result -> result
-            TypeRepresentation.ConstrainedSignature [] result -> result
-            _ -> error "runtime fixture requires a supported method signature"
-       in ClassMethodSignature
-            node
-              { coreNodeFacts =
-                  (coreNodeFacts node)
-                    { statementDeclarationFact =
-                        MethodDeclaration method (AnalyzedMethodSignature (TypeRepresentation.InferenceVariable 0) (fixtureSemanticType signatureType))
-                    }
-              }
-            method
-            signature
+      ClassMethodSignature
+        node
+          { coreNodeFacts =
+              (coreNodeFacts node)
+                { statementDeclarationFact = MethodDeclaration method
+                }
+          }
+        method
+        signature
 
 statementImpl :: SourceSpan -> UnresolvedName -> [SignatureType 'Analyzed] -> [ImplMethod 'Analyzed] -> Statement 'Analyzed
 statementImpl spanValue name targets methods =
@@ -368,7 +362,7 @@ statementImpl spanValue name targets methods =
       { coreNodeFacts =
           (coreNodeFacts node)
             { statementDeclarationFact =
-                ImplementationDeclaration (capabilityName name) (map fixtureSemanticType targets)
+                ImplementationDeclaration (capabilityName name)
             }
       }
     (capabilityName name)

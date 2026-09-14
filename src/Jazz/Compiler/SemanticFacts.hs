@@ -6,7 +6,6 @@
 -- neutral vocabulary; checking constructs the facts and execution consumes them.
 module Jazz.Compiler.SemanticFacts
   ( AnalyzedType,
-    AnalyzedMethodSignature (..),
     AnalyzedNumericConstraint (..),
     AnalyzedPrimitiveConstraint (..),
     AnalyzedScheme (..),
@@ -160,8 +159,8 @@ data StatementDeclarationFact
   | SignatureDeclaration ResolvedName
   | DataDeclaration ResolvedName [ResolvedName]
   | CapabilityDeclaration ResolvedName [ResolvedName]
-  | MethodDeclaration ResolvedName AnalyzedMethodSignature
-  | ImplementationDeclaration ResolvedName [AnalyzedType]
+  | MethodDeclaration ResolvedName
+  | ImplementationDeclaration ResolvedName
   | ModuleDeclaration ModulePath
   | ImportDeclaration ModulePath
   | ExpressionDeclaration
@@ -185,7 +184,6 @@ data SemanticFactInvariantFailure
   | MissingStatementBinder CoreNodeId
   | MissingStatementScheme CoreNodeId CoreBinderId
   | AnalyzedModuleRootNotBlock CoreNodeId
-  | InvalidAnalyzedMethodSignature Text
   deriving stock (Eq, Generic, Ord, Show)
   deriving anyclass (NFData)
 
@@ -220,12 +218,5 @@ data AnalyzedNumericConstraint
   | AnalyzedRuntimeComparisonNumericConstraint
   | AnalyzedIntegralNumericConstraint
   | AnalyzedIntegralLiteralNumericConstraint Integer Integer
-  deriving stock (Eq, Generic, Ord, Show)
-  deriving anyclass (NFData)
-
-data AnalyzedMethodSignature = AnalyzedMethodSignature
-  { analyzedMethodClassParameter :: InferenceVariable,
-    analyzedMethodType :: AnalyzedType
-  }
   deriving stock (Eq, Generic, Ord, Show)
   deriving anyclass (NFData)
