@@ -5,6 +5,7 @@
 -- Declaration and expression builders retain their checked children.
 module Jazz.Compiler.TypeInference.Analyzed
   ( draftExpressionNode,
+    draftLambda,
     draftOperationNode,
     ExpressionDecision (..),
     noExpressionDecision,
@@ -28,13 +29,16 @@ import qualified Data.Sequence as Seq
 import qualified Data.Set as Set
 import Data.Text (Text)
 import Jazz.Compiler.AST
-  ( CoreNode (..),
+  ( CaseArm (..),
+    CoreNode (..),
     CorePhase (..),
     CoreSort (..),
     Expr (..),
+    ImplMethod (..),
+    Statement (..),
     expressionNode,
   )
-import Jazz.Compiler.CoreIdentity (CoreBinderId (..), CoreNodeId, ResolvedNodeFacts (..), ResolvedReference (..))
+import Jazz.Compiler.CoreIdentity (CapabilityId (..), CoreBinderId (..), CoreNodeId, ResolvedNodeFacts (..), ResolvedReference (..))
 import Jazz.Compiler.Name (ResolvedName, identifierText)
 import Jazz.Compiler.SemanticDeclarations (instantiateDeclarationType)
 import Jazz.Compiler.SemanticFacts
@@ -67,9 +71,11 @@ import Jazz.Compiler.TypeInference.State
   )
 import Jazz.Compiler.TypeInference.TypeOps (freeTypeVariables)
 import Jazz.Compiler.TypeInference.Types
-  ( ClassMethodType (..),
+  ( ClassDefinition (..),
+    ClassMethodType (..),
     ConstructorArgumentType (..),
     ExpressionType,
+    ImplementationTemplate (..),
     IntegerLiteralRange (..),
     NumericConstraint (..),
     SchemeConstraint (..),
@@ -126,6 +132,59 @@ draftDecidedExpressionNode decision result expression =
     node = expressionNode expression
     nodeId = coreNodeId node
     resolution = coreNodeFacts node
+
+-- Finish children first so an enclosing lambda reuses nested capture sets.
+-- Checked declaration identities supply complete dictionaries, including defaults.
+draftLambda :: ScopeCapabilityFacts -> Draft (CoreNode 'Analyzed 'ExpressionSort) -> ResolvedName -> Draft (Expr 'Analyzed) -> Draft (Expr 'Analyzed)
+draftLambda declarations node name body = Draft $ \solved ->
+  case (,) <$> runDraft node solved <*> runDraft body solved of
+    Attached (analyzedNode, analyzedBody) ->
+      case requiredEvidenceReferences declarations analyzedBody of
+        Left failure -> missing failure
+        Right captures -> pure (ELambda (analyzedNode {coreNodeFacts = (coreNodeFacts analyzedNode) {expressionEvidenceCaptures = captures}}) name analyzedBody)
+    AttachmentFailed failure failures -> AttachmentFailed failure failures
+
+requiredEvidenceReferences :: ScopeCapabilityFacts -> Expr 'Analyzed -> Either SemanticFactInvariantFailure (Set.Set ResolvedReference)
+requiredEvidenceReferences declarations = expression
+  where
+    expression :: Expr 'Analyzed -> Either SemanticFactInvariantFailure (Set.Set ResolvedReference)
+    expression expr = do
+      let node = expressionNode expr
+      direct <- mconcat <$> traverse (evidence (coreNodeId node)) (expressionEvidence (coreNodeFacts node))
+      children <- case expr of
+        ELambda {} -> pure (expressionEvidenceCaptures (coreNodeFacts node))
+        EList _ values -> expressions values
+        ETuple _ values -> expressions values
+        EApply _ function argument -> expressions [function, argument]
+        ETypeApplication _ function _ _ -> expression function
+        EIf _ condition yes no -> expressions [condition, yes, no]
+        EPatternCase _ scrutinee arms -> (<>) <$> expression scrutinee <*> (mconcat <$> traverse arm arms)
+        EBinary _ _ left right -> expressions [left, right]
+        ESectionLeft _ left _ -> expression left
+        ESectionRight _ _ right -> expression right
+        EBlock _ statements -> mconcat <$> traverse statement statements
+        _ -> pure Set.empty
+      pure (direct <> children)
+    expressions = fmap mconcat . traverse expression
+    arm (CaseArm _ _ guard body) = (<>) . Foldable.fold <$> traverse expression guard <*> expression body
+    statement value = case value of
+      SLet _ _ body -> expression body
+      SExpr _ body -> expression body
+      SClass _ _ _ _ _ defaults -> mconcat <$> traverse method defaults
+      SImpl _ capability _ methods _ ->
+        let defaults = maybe Set.empty (Set.map (DefaultMethodReference (CapabilityId capability)) . classDefaultMethods) (Map.lookup (CapabilityId capability) (scopeClassFacts declarations))
+         in (defaults <>) . mconcat <$> traverse method methods
+      _ -> pure Set.empty
+    method (ImplMethod _ _ body) = expression body
+    evidence nodeId reference = case reference of
+      ParameterEvidence owner index _ _ _ _ -> pure (Set.singleton (EvidenceParameterReference owner index))
+      EvidenceReference {evidenceImplementation = implementation, evidencePrerequisites = prerequisites} ->
+        case Map.lookup implementation (scopeImplementations declarations) of
+          Nothing -> Left (MissingExpressionEvidence nodeId)
+          Just template ->
+            let methods = Set.fromList (map ImplementationMethodReference (Map.elems (implementationMethods template)))
+             in (methods <>) . mconcat <$> traverse (evidence nodeId) prerequisites
+      PendingEvidence {} -> Left (MissingExpressionEvidence nodeId)
 
 draftCaseArmNode :: Maybe ExpressionType -> CoreNode 'Resolved 'ExpressionSort -> Draft (CoreNode 'Analyzed 'ExpressionSort)
 draftCaseArmNode result node =
@@ -189,6 +248,7 @@ finalizeExpressionNode state payload (CoreNode nodeId spanValue resolution) =
             expressionNumericConstraints = Map.map projectNumericConstraint (Map.restrictKeys (inferNumericVars state) (freeTypeVariables semanticType <> operandVariables)),
             expressionInstantiations = map (\instantiation -> instantiation {instantiatedTypes = fmap (resolveType state) (instantiatedTypes instantiation)}) explicitFacts,
             expressionEvidence = evidence,
+            expressionEvidenceCaptures = Set.empty,
             expressionResultRepresentation = resultRepresentation semanticType
           }
 

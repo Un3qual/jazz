@@ -30,9 +30,10 @@ where
 import Control.DeepSeq (NFData)
 import Data.List.NonEmpty (NonEmpty)
 import Data.Map.Strict (Map)
+import Data.Set (Set)
 import Data.Text (Text)
 import GHC.Generics (Generic)
-import Jazz.Compiler.CoreIdentity (CapabilityId, CapabilityMethodKey, CoreBinderId, CoreNodeId, ImplId, MethodId, ResolvedNodeFacts)
+import Jazz.Compiler.CoreIdentity (CapabilityId, CapabilityMethodKey, CoreBinderId, CoreNodeId, ImplId, MethodId, ResolvedNodeFacts, ResolvedReference)
 import Jazz.Compiler.ModuleIdentity (ModulePath)
 import Jazz.Compiler.Name (Identifier, ResolvedName)
 import Jazz.Compiler.TypeRepresentation
@@ -115,6 +116,8 @@ data ExpressionFacts = ExpressionFacts
     expressionNumericConstraints :: Map InferenceVariable AnalyzedNumericConstraint,
     expressionInstantiations :: [SemanticInstantiation],
     expressionEvidence :: [EvidenceReference],
+    -- | Dictionary cells needed by a lambda body, prepared during analysis.
+    expressionEvidenceCaptures :: Set ResolvedReference,
     -- | Closed representation enforced on return. Generalized definitions may
     -- suppress this even when a particular checked use has a concrete type.
     expressionResultRepresentation :: Maybe AnalyzedType

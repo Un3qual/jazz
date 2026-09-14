@@ -8,6 +8,7 @@ autonomous_ready: yes
 depends_on: []
 plan_section: "Implementation"
 target_paths:
+  - weeder-production.toml
   - src/Jazz/Compiler/Runtime/Engine.hs
   - src/Jazz/Compiler/Runtime/Types.hs
   - src/Jazz/Compiler/Runtime/Semantics.hs
@@ -51,7 +52,7 @@ remains the public contract; this work preserves behavior.
       pass-through import filtering parameters; visibility stays in resolution.
 - [x] Narrow scheme conversion and method-checker inputs to the data consumed;
       stop fabricating class and implementation records for adapters.
-- [ ] Finalize evidence capture requirements once on analyzed lambdas. Reuse
+- [x] Finalize evidence capture requirements once on analyzed lambdas. Reuse
       checked dictionary identities and the existing draft finalization path;
       runtime capture uses Map.restrictKeys. Preserve dictionary completeness,
       defaults, recursive forwarding, and lexical ownership. Do not add an IR,
@@ -79,3 +80,11 @@ obsolete catalog inspection test was removed; behavioral tests remain.
 Ordinary method inference, direct scheme conversion, checker inputs, and import
 API cleanup: binding-signature-coherence-spec, runtime-semantics-spec, and
 module-pipeline-contract-spec pass with serialized pinned Cabal.
+
+Lambda capture preparation: runtime-semantics-spec, runtime-observation-spec,
+module-pipeline-contract-spec, and binding-signature-coherence-spec pass.
+Changed compiler modules have no HLint hints. Capture sets are finalized by the
+existing lambda drafts using their checked declaration facts; nested lambdas
+reuse completed sets. The runtime no longer walks bodies or scans environments
+to discover evidence captures. Removed the deleted catalog type from Weeder
+policy as well.

@@ -78,7 +78,7 @@ import Jazz.Compiler.SemanticFacts
   ( BinaryOperation (..),
     SemanticFactInvariantFailure (MissingExpressionFacts, MissingScopeFacts),
   )
-import Jazz.Compiler.TypeInference.Analyzed (ExpressionDecision (..), draftDecidedExpressionNode, draftExpressionNode, draftOperationNode, noExpressionDecision, refineListPrependDraft)
+import Jazz.Compiler.TypeInference.Analyzed (ExpressionDecision (..), draftDecidedExpressionNode, draftExpressionNode, draftLambda, draftOperationNode, noExpressionDecision, refineListPrependDraft)
 import Jazz.Compiler.TypeInference.Capabilities
 import Jazz.Compiler.TypeInference.Diagnostics
 import Jazz.Compiler.TypeInference.Draft (CheckedExpr (..), CheckedScope (..), Draft, rejectedDraft)
@@ -347,7 +347,7 @@ inferExprTypeDetailed env state expr = case expr of
     let (parameterType, stateAfterParameter) = freshTypeVar state
         (bodyCheck, finalState) = inferExprTypeDetailed (insertResolvedTypeBinding (coreNodeFacts node) name (PlainTypeBinding parameterType) env) stateAfterParameter body
         result = SemanticFunction (resolveType finalState parameterType) <$> checkedExprType bodyCheck
-     in finish result finalState (\facts -> ELambda <$> facts <*> pure name <*> checkedExprTree bodyCheck)
+     in finish result finalState (\facts -> draftLambda (capabilityFactsFromState finalState) facts name (checkedExprTree bodyCheck))
   EBlock {} -> inferExprTypeWithMode InferConcreteFunctions env state expr
   where
     leaf make =

@@ -93,7 +93,7 @@ import Jazz.Compiler.SemanticFacts
   ( SemanticFactInvariantFailure (..),
     StatementDeclarationFact (..),
   )
-import Jazz.Compiler.TypeInference.Analyzed (constrainBindingRuntimeResult, draftExpressionNode, draftStatementNode, projectAnalyzedMethodSignature, retainCheckedEvidence, withEvidenceParameters, withRecursiveBindingEvidence)
+import Jazz.Compiler.TypeInference.Analyzed (constrainBindingRuntimeResult, draftExpressionNode, draftLambda, draftStatementNode, projectAnalyzedMethodSignature, retainCheckedEvidence, withEvidenceParameters, withRecursiveBindingEvidence)
 import Jazz.Compiler.TypeInference.Capabilities
   ( TypeEnvFreeVariables,
     addUnpreservedInferredMethodConstraintErrors,
@@ -238,7 +238,7 @@ inferExprTypeWithExpectedMode inferExpression mode env state expectedType expr =
             InferenceOnly -> checkedExprType bodyCheck
             InferConcreteFunctions -> Just (fromMaybe resultType (checkedExprType bodyCheck))
           result = SemanticFunction (resolveType afterBody argumentType) <$> bodyType
-       in finish result afterBody (\facts -> ELambda <$> facts <*> pure parameterName <*> checkedExprTree bodyCheck)
+       in finish result afterBody (\facts -> draftLambda (capabilityFactsFromState afterBody) facts parameterName (checkedExprTree bodyCheck))
     (SemanticNumeric _, literal@(ELit _ LInt {}))
       | mode == InferConcreteFunctions ->
           let (checked, next) = inferExpression mode env state literal

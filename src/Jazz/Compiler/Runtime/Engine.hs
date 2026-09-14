@@ -2,7 +2,6 @@
 {-# LANGUAGE ExplicitNamespaces #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE PatternSynonyms #-}
 
 -- | The mutually recursive evaluator machine, scope, forcing, and callable
 -- application engine. These responsibilities stay together because each can
@@ -1064,11 +1063,9 @@ stepEvaluationMachine observeStatistics observeProfile host machine =
           do
             let capturedNames =
                   Set.fromList (map fst (resolvedNodeCaptures (expressionResolution (coreNodeFacts node))))
-                    <> requiredEvidenceReferences (evaluationEnvironment context) bodyExpr
+                    <> expressionEvidenceCaptures (coreNodeFacts node)
                 capturedEnvironment =
-                  Map.filterWithKey
-                    (\reference _ -> Set.member reference capturedNames)
-                    (evaluationEnvironment context)
+                  Map.restrictKeys (evaluationEnvironment context) capturedNames
             recordRuntimeStatisticWhen
               observeStatistics
               (recordRuntimeClosureCreation (Map.size capturedEnvironment))
@@ -1626,45 +1623,6 @@ applyRuntimeInstantiation typeHint runtimeValue
       applyRuntimeTypeHint
         (fromMaybe typeHint (explicitTypeApplicationRuntimeValueHint typeHint runtimeValue))
         runtimeValue
-
--- Closure capture consumes the already-selected evidence on checked nodes.
--- A dictionary retains all methods of its selected implementation, including
--- methods used by a default, but unrelated implementations stay outside it.
-requiredEvidenceReferences :: RuntimeEnv -> Expr 'Analyzed -> Set ResolvedReference
-requiredEvidenceReferences env = expression
-  where
-    expression expr =
-      foldMap evidence (expressionEvidence (coreNodeFacts (expressionNode expr))) <> case expr of
-        ELambda _ _ body -> expression body
-        EList _ values -> foldMap expression values
-        ETuple _ values -> foldMap expression values
-        EApply _ function argument -> expression function <> expression argument
-        ETypeApplication _ function _ _ -> expression function
-        EIf _ condition yes no -> foldMap expression [condition, yes, no]
-        EPatternCase _ scrutinee arms -> expression scrutinee <> foldMap arm arms
-        EBinary _ _ left right -> expression left <> expression right
-        ESectionLeft _ left _ -> expression left
-        ESectionRight _ _ right -> expression right
-        EBlock _ statements -> foldMap statement statements
-        _ -> Set.empty
-    arm (CaseArm _ _ guard body) = foldMap expression guard <> expression body
-    statement value = case value of
-      SLet _ _ body -> expression body
-      SExpr _ body -> expression body
-      SClass _ _ _ _ _ defaults -> foldMap method defaults
-      SImpl _ capability _ methods _ ->
-        foldMap method methods <> Map.keysSet (Map.filterWithKey (defaultFor (CapabilityId capability)) env)
-      _ -> Set.empty
-    method (ImplMethod _ _ body) = expression body
-    defaultFor capability (DefaultMethodReference owner _) _ = capability == owner
-    defaultFor _ _ _ = False
-    evidence reference = case reference of
-      ParameterEvidence owner index _ _ _ _ -> Set.singleton (EvidenceParameterReference owner index)
-      EvidenceReference {evidenceImplementation = implementation, evidencePrerequisites = prerequisites} ->
-        Map.keysSet (Map.filterWithKey (methodFor implementation) env) <> foldMap evidence prerequisites
-      PendingEvidence {} -> Set.empty
-    methodFor implementation (ImplementationMethodReference (MethodId (owner, _))) _ = implementation == owner
-    methodFor _ _ _ = False
 
 resolveRuntimeEvidence :: RuntimeEnv -> EvidenceReference -> Either Diagnostic RuntimeDictionary
 resolveRuntimeEvidence env reference = case reference of

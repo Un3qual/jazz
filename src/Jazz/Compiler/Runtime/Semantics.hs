@@ -1,7 +1,6 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE ExplicitNamespaces #-}
 {-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE PatternSynonyms #-}
 
 -- | Pure runtime value semantics. Evaluator control, callable execution, host
 -- effects, continuations, and recursive scope forcing remain in the Runtime
