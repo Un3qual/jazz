@@ -8,15 +8,15 @@ public behavior.
 
 ## Ready Now
 
-Current executor status (`2026-09-14`): `Ready Now` is empty because all
-source-backed candidates are exhausted. RFC 0019, its dependent library migration,
-the approved review fixes, and the legacy/unused-code audit are complete. There is
-no source-backed next curation target and no named candidate currently.
+Current executor status (`2026-09-14`): implementing the maintainer-approved
+Boolean not and operator-as-function semantics. The current row is the
+source-backed implementation target.
 
 `Ready Now` should contain implementation-first entries by default. `kind: docs` or `kind: coordination` items belong here only when they are the smallest verified unblocker for the next implementation batch.
 
 | id  | title | priority | size | kind | autonomous_ready | depends_on | plan | plan_section | target_paths | deliverable | verification | last_verified |
 | --- | ----- | -------- | ---- | ---- | ---------------- | ---------- | ---- | ------------ | ------------ | ----------- | ------------ | ------------- |
+| `JN-OPERATORS-AS-FUNCTIONS-001` | Make operators ordinary function notation | P1 | L | impl | yes | - | [operators as functions](../plans/2026-09-14-operators-as-functions.md) | Implementation | `jazz/stdlib/Prelude.jz`, `src/Jazz/Compiler/ModuleResolver/Names.hs`, `src/Jazz/Compiler/TypeInference.hs`, `src/Jazz/Compiler/Runtime/Primitives.hs`, `test/Jazz/Compiler/Stdlib/FoundationsTests.hs` | Boolean not and one function path for operators | `cabal test all -f-full-parser-scale --jobs=1 --test-show-details=failures`; `bash scripts/ci/haskell-quality.sh`; `bash scripts/check-docs.sh` | `2026-09-14` |
 
 ## Next Curation Target
 

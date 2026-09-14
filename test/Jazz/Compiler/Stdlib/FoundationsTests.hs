@@ -29,7 +29,8 @@ import Jazz.TestHarness
 
 foundationTests :: [NamedTest]
 foundationTests =
-  [ ("list shape and slicing operations are total", runStdlibFixtureExpecting ["Stdlib", "Foundations", "ListShape"] "stdlib/foundations/ListShape.jz" expectedListShape),
+  [ ("Boolean not is an ordinary function", testBooleanNot),
+    ("list shape and slicing operations are total", runStdlibFixtureExpecting ["Stdlib", "Foundations", "ListShape"] "stdlib/foundations/ListShape.jz" expectedListShape),
     ("list transformations and folds preserve order", runStdlibFixtureExpecting ["Stdlib", "Foundations", "ListTransform"] "stdlib/foundations/ListTransform.jz" expectedListTransform),
     ("list operations define empty and clamped boundaries", runStdlibFixtureExpecting ["Stdlib", "Foundations", "ListBoundaries"] "stdlib/foundations/ListBoundaries.jz" expectedListBoundaries),
     ("list equality and ordering operations are deterministic", runStdlibFixtureExpecting ["Stdlib", "Foundations", "ListNormalize"] "stdlib/foundations/ListNormalize.jz" expectedListNormalize),
@@ -38,6 +39,19 @@ foundationTests =
     ("Maybe and Result helpers preserve alternate branches", runStdlibFixtureExpecting ["Stdlib", "Foundations", "MaybeResultBranches"] "stdlib/foundations/MaybeResultBranches.jz" expectedMaybeResultBranches),
     ("NonEmpty keeps its head-tail invariant", runStdlibFixtureExpecting ["Stdlib", "Foundations", "NonEmpty"] "stdlib/foundations/NonEmpty.jz" expectedNonEmpty)
   ]
+
+testBooleanNot :: IO ()
+testBooleanNot = do
+  result <-
+    runStdlibSource
+      ["Stdlib", "Foundations", "BooleanNot"]
+      """
+      module Stdlib::Foundations::BooleanNot {
+        flipped = map not [True, False].
+        (not True, not False, not (not True), flipped).
+      }
+      """
+  assertSuccessfulStdlibOutput "(False, True, True, [False, True])" result
 
 foundationPerformanceTests :: [NamedTest]
 foundationPerformanceTests =

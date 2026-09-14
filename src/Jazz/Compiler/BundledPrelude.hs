@@ -38,7 +38,12 @@ bundledPreludeIdentity =
 bundledPreludeSource :: Text
 bundledPreludeSource =
   Text.unlines $
-    ["data Ordering = LT | EQ | GT.", ""]
+    [ "data Ordering = LT | EQ | GT.",
+      "",
+      "not :: Bool -> Bool.",
+      "not = \\(condition) -> if condition then False else True.",
+      ""
+    ]
       <> map renderCapabilityClass canonicalCapabilityClasses
       <> ["", compareTextBinding]
       <> [""]
@@ -113,7 +118,7 @@ renderCapabilityClass capabilityClass =
         [ "class Equatable(a) {",
           "equals :: a -> a -> Bool.",
           "differs :: a -> a -> Bool.",
-          "differs = \\(left, right) -> if equals left right then False else True.",
+          "differs = \\(left, right) -> not (equals left right).",
           "}."
         ]
     OrderingClass ->

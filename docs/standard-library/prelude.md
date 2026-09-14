@@ -8,6 +8,18 @@ The Prelude is loaded automatically for ordinary compilation and execution. It
 defines the core capability vocabulary and a small compatibility surface; no
 import is required.
 
+## Booleans
+
+### `not`
+
+```jazz jazz-signature
+not :: Bool -> Bool.
+```
+
+Negates a Boolean: `not True` is `False`, and `not False` is `True`.
+It is an ordinary function and can be passed to other functions, for example
+`map not [True, False]`.
+
 ## Ordering
 
 ### `Ordering`
@@ -38,7 +50,7 @@ The left value follows the right value.
 class Equatable(a) {
   equals :: a -> a -> Bool.
   differs :: a -> a -> Bool.
-  differs = \(left, right) -> if equals left right then False else True.
+  differs = \(left, right) -> not (equals left right).
 }.
 ```
 

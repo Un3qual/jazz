@@ -82,7 +82,7 @@ module Set (
   intersection = \(left, right) -> filter left (\(item) -> contains right item).
 
   difference :: @{Comparable(a)}: Set(a) -> Set(a) -> Set(a).
-  difference = \(left, right) -> filter left (\(item) -> if contains right item then False else True).
+  difference = \(left, right) -> filter left (\(item) -> not (contains right item)).
 
   isSubset :: @{Comparable(a)}: Set(a) -> Set(a) -> Bool.
   isSubset = \(subset, superset) -> foldLeft subset True (\(result, item) ->
