@@ -124,8 +124,7 @@ import Jazz.Compiler.Runtime.Outcome
     runtimeControlOutcome,
   )
 import Jazz.Compiler.Runtime.Primitives
-  ( evalBinary,
-    evalBuiltin,
+  ( evalBuiltin,
   )
 import Jazz.Compiler.Runtime.Request
   ( RuntimeScopeRequest (..),
@@ -348,10 +347,6 @@ data EvaluationFrame
   | EvaluateIfBranch EvaluationContext (Expr 'Analyzed) (Expr 'Analyzed)
   | EvaluateCaseArms EvaluationContext [CaseArm 'Analyzed]
   | EvaluateCaseGuard EvaluationContext RuntimeValue RuntimeEnv (Expr 'Analyzed) [CaseArm 'Analyzed]
-  | EvaluateBuiltinRightOperand EvaluationContext Text (Expr 'Analyzed)
-  | ApplyBuiltinBinary Text RuntimeValue
-  | EvaluateLeftSection Text
-  | EvaluateRightSection Text
   | FinishTypeApplication RuntimeEnv (Maybe SourceUnitOwner) [SemanticInstantiation] [EvidenceReference]
   | ApplyRemainingArguments [RuntimeValue]
 
@@ -1024,8 +1019,6 @@ stepEvaluationMachine observeStatistics observeProfile host machine =
         EvaluationContinuation parentPolicy frame : rest ->
           resumeEvaluationFrame
             observeStatistics
-            observeProfile
-            host
             machine
               { evaluationContinuations = rest,
                 evaluationContinuationDepth = evaluationContinuationDepth machine - 1,
@@ -1039,9 +1032,6 @@ stepEvaluationMachine observeStatistics observeProfile host machine =
         ELit _ literal -> do
           value <- liftRuntimeResult (specializeAnalyzedLiteral facts literal)
           continueWith (ReturnRuntimeValue value) expressionMachine
-        EVar node _
-          | Just (BuiltinOperatorReference symbol) <- resolvedNodeReference (expressionResolution (coreNodeFacts node)) ->
-              continueWith (ReturnRuntimeValue (VOperator symbol [])) expressionMachine
         EVar node name ->
           case Map.lookup (resolvedValueReference (expressionResolution (coreNodeFacts node)) name) (evaluationEnvironment context) of
             Just runtimeCell -> do
@@ -1130,19 +1120,14 @@ stepEvaluationMachine observeStatistics observeProfile host machine =
             expressionMachine
             (EvaluateCaseArms context caseArms)
             (EvaluateExpression context scrutineeExpr)
-        EBinary _ operatorSymbol leftExpr rightExpr ->
-          suspendEvaluation
-            expressionMachine
-            (EvaluateBuiltinRightOperand context operatorSymbol rightExpr)
-            (EvaluateExpression context leftExpr)
-        ESectionLeft _ leftExpr operatorSymbol ->
-          suspendEvaluation expressionMachine (EvaluateLeftSection operatorSymbol) (EvaluateExpression context leftExpr)
-        ESectionRight _ operatorSymbol rightExpr ->
-          suspendEvaluation expressionMachine (EvaluateRightSection operatorSymbol) (EvaluateExpression context rightExpr)
+        EBinary {} -> unresolvedOperator
+        ESectionLeft {} -> unresolvedOperator
+        ESectionRight {} -> unresolvedOperator
         EBlock _ statements -> do
           prepared <- liftRuntimeResult (prepareRuntimeScope expression)
           stepBlock expressionMachine context prepared statements
       where
+        unresolvedOperator = throwRuntimeDiagnostic (runtimeDiagnostic E3021 "analyzed expression contains unresolved operator syntax")
         modulePath = evaluationModulePath context
         facts = coreNodeFacts (expressionNode expression)
         resultMachine = appendCheckedResult modulePath (expressionResultRepresentation facts) machine
@@ -1249,20 +1234,6 @@ stepEvaluationMachine observeStatistics observeProfile host machine =
           continueWith
             (ApplyCallable innerFunctionValue hintedArgumentValue)
             (appendFunctionResultHint typeHint machine)
-        VSectionLeft operatorSymbol leftValue
-          | operatorSymbol == "$" ->
-              continueWith (ApplyCallable leftValue argumentValue) profiledMachine
-          | otherwise -> do
-              resultValue <-
-                evalBinaryWithHost host operatorSymbol leftValue argumentValue
-              continueWith (ReturnRuntimeValue resultValue) profiledMachine
-        VSectionRight operatorSymbol rightValue
-          | operatorSymbol == "$" ->
-              continueWith (ApplyCallable argumentValue rightValue) profiledMachine
-          | otherwise -> do
-              resultValue <-
-                evalBinaryWithHost host operatorSymbol argumentValue rightValue
-              continueWith (ReturnRuntimeValue resultValue) profiledMachine
         VClosure closure -> do
           hintedArgumentValue <-
             case runtimeClosureTypeHint closure of
@@ -1298,26 +1269,6 @@ stepEvaluationMachine observeStatistics observeProfile host machine =
               builtinFunction
               (capturedArgs <> [argumentValue])
           continueWith (ReturnRuntimeValue resultValue) profiledMachine
-        VOperator operatorSymbol capturedArgs ->
-          case capturedArgs <> [argumentValue] of
-            [leftValue] ->
-              continueWith
-                (ReturnRuntimeValue (VOperator operatorSymbol [leftValue]))
-                profiledMachine
-            [leftValue, rightValue]
-              | operatorSymbol == "$" ->
-                  continueWith (ApplyCallable leftValue rightValue) profiledMachine
-              | otherwise -> do
-                  resultValue <-
-                    evalBinaryWithHost
-                      host
-                      operatorSymbol
-                      leftValue
-                      rightValue
-                  continueWith (ReturnRuntimeValue resultValue) profiledMachine
-            _ ->
-              throwRuntimeDiagnostic
-                (runtimeDiagnostic E3016 ("runtime primitive '" <> operatorSymbol <> "' received invalid arguments"))
         VConstructorApplication shape capturedArgs -> do
           let arguments = appendRuntimeAppliedArgument argumentValue capturedArgs
           resultValue <-
@@ -1340,9 +1291,6 @@ runtimeApplicationKind runtimeValue =
   case runtimeValue of
     VClosure {} -> Just ClosureApplication
     VBuiltin {} -> Just BuiltinApplication
-    VOperator {} -> Just OperatorApplication
-    VSectionLeft {} -> Just OperatorApplication
-    VSectionRight {} -> Just OperatorApplication
     VConstructorApplication {} -> Just ConstructorApplication
     VAnnotated (RuntimeMethodCall _) _ -> Just MethodApplication
     VCapabilityMethod {} -> Just MethodApplication
@@ -1354,9 +1302,6 @@ runtimeCallableIdentity runtimeValue =
     VClosure closure -> Just (runtimeClosureCallableIdentity closure)
     VBuiltin builtinFunction _ ->
       Just (BuiltinCallable (builtinSymbolName builtinFunction))
-    VOperator operatorSymbol _ -> Just (OperatorCallable operatorSymbol)
-    VSectionLeft operatorSymbol _ -> Just (OperatorCallable operatorSymbol)
-    VSectionRight operatorSymbol _ -> Just (OperatorCallable operatorSymbol)
     VConstructorApplication shape _ ->
       Just (ConstructorCallable (renderName (runtimeConstructorName shape)))
     VAnnotated (RuntimeMethodCall methodKey) _ -> Just (MethodCallable methodKey)
@@ -1366,13 +1311,11 @@ runtimeCallableIdentity runtimeValue =
 resumeEvaluationFrame ::
   (Monad m) =>
   Bool ->
-  Bool ->
-  RuntimeHost (RuntimeHostEvaluationT m) ->
   EvaluationMachine ->
   EvaluationFrame ->
   RuntimeValue ->
   ExceptT RuntimeControl (RuntimeHostEvaluationT m) EvaluationProgress
-resumeEvaluationFrame observeStatistics observeProfile host machine frame runtimeValue =
+resumeEvaluationFrame observeStatistics machine frame runtimeValue =
   case frame of
     EvaluateApplicationArgument context argumentExpr ->
       suspendEvaluation
@@ -1416,30 +1359,6 @@ resumeEvaluationFrame observeStatistics observeProfile host machine frame runtim
       if condition
         then continueWith (EvaluateExpression context {evaluationEnvironment = armEnv} bodyExpr) machine
         else continueCaseEvaluation observeStatistics machine context scrutineeValue remainingArms
-    EvaluateBuiltinRightOperand context operatorSymbol rightExpr ->
-      suspendEvaluation
-        machine
-        (ApplyBuiltinBinary operatorSymbol runtimeValue)
-        (EvaluateExpression context rightExpr)
-    ApplyBuiltinBinary operatorSymbol leftValue
-      | operatorSymbol == "$" ->
-          continueWith (ApplyCallable leftValue runtimeValue) machine
-      | otherwise -> do
-          recordRuntimeStatisticWhen observeStatistics (recordRuntimeApplication OperatorApplication)
-          recordRuntimeProfileOpenWhen observeProfile (OperatorCallable operatorSymbol)
-          resultValue <-
-            evalBinaryWithHost
-              host
-              operatorSymbol
-              leftValue
-              runtimeValue
-          continueWith
-            (ReturnRuntimeValue resultValue)
-            (closeRuntimeProfileOnReturn observeProfile machine)
-    EvaluateLeftSection operatorSymbol ->
-      continueWith (ReturnRuntimeValue (VSectionLeft operatorSymbol runtimeValue)) machine
-    EvaluateRightSection operatorSymbol ->
-      continueWith (ReturnRuntimeValue (VSectionRight operatorSymbol runtimeValue)) machine
     FinishTypeApplication env modulePath instantiations evidence -> do
       prepared <- liftRuntimeResult (prepareCheckedCallable env modulePath instantiations evidence runtimeValue)
       continueWith (ReturnRuntimeValue prepared) machine
@@ -1658,10 +1577,10 @@ applyDictionaries :: [RuntimeDictionary] -> RuntimeValue -> Either Diagnostic Ru
 applyDictionaries dictionaries runtimeValue = case runtimeValue of
   VAnnotated annotation inner -> VAnnotated annotation <$> applyDictionaries dictionaries inner
   VConstrained scopeId owner scheme name modulePath expression captured
-    | let indices = runtimeEvidenceIndices scheme,
-      length dictionaries >= length indices ->
-        let arguments = take (length indices) dictionaries
-            extended = Map.fromList [(EvidenceParameterReference owner index, Right (VEvidence dictionary)) | (index, dictionary) <- zip indices arguments] <> captured
+    | let count = length (analyzedSchemeConstraints scheme),
+      length dictionaries >= count ->
+        let arguments = take count dictionaries
+            extended = Map.fromList [(EvidenceParameterReference owner index, Right (VEvidence dictionary)) | (index, dictionary) <- zip [0 ..] arguments] <> captured
          in Right (VDeferredHostBinding (DictionaryBindingKey scopeId owner name (map runtimeDictionaryEvidence arguments)) (runtimeDiagnostic E3021 "runtime recursive dictionary binding has no concrete value") modulePath expression extended)
     | otherwise -> Left inconsistentEvidence
   VCapabilityMethod methodKey -> case dictionaries of
@@ -1679,16 +1598,11 @@ applyDictionaries dictionaries runtimeValue = case runtimeValue of
     [] -> Left inconsistentEvidence
   _ -> Right runtimeValue
 
-runtimeEvidenceIndices :: AnalyzedScheme -> [Int]
-runtimeEvidenceIndices scheme =
-  [index | (index, constraint) <- zip [0 ..] (analyzedSchemeConstraints scheme), case constraint of AnalyzedInferredCapabilityConstraint {} -> False; _ -> True]
-
 constrainedCell :: ScopeCellStorage -> CoreNode 'Analyzed 'StatementSort -> ResolvedName -> Maybe SourceUnitOwner -> Expr 'Analyzed -> RuntimeEnv -> Maybe RuntimeCell
 constrainedCell storage node name modulePath expression env = do
   (owner, scheme) <- statementBinding (coreNodeFacts node)
-  let indices = runtimeEvidenceIndices scheme
-      scopeId = case storage of DeferredScopeCells identity -> identity; LazyScopeCells -> DeferredHostScopeId 0
-  if null indices then Nothing else Just (Right (VConstrained scopeId owner scheme name modulePath expression env))
+  let scopeId = case storage of DeferredScopeCells identity -> identity; LazyScopeCells -> DeferredHostScopeId 0
+  if null (analyzedSchemeConstraints scheme) then Nothing else Just (Right (VConstrained scopeId owner scheme name modulePath expression env))
 
 evalValueWithHost ::
   (Monad m) =>
@@ -1935,6 +1849,13 @@ runtimeHostOperationName hostOperationKind =
 runtimeBuiltinKind :: BuiltinSymbol -> RuntimeBuiltinKind
 runtimeBuiltinKind builtinFunction =
   case builtinFunction of
+    BuiltinAdd -> NumericBuiltinCall
+    BuiltinSubtract -> NumericBuiltinCall
+    BuiltinMultiply -> NumericBuiltinCall
+    BuiltinDivide -> NumericBuiltinCall
+    BuiltinEquals -> OtherBuiltinCall
+    BuiltinLessThan -> NumericBuiltinCall
+    BuiltinGreaterThan -> NumericBuiltinCall
     BuiltinMap -> CollectionBuiltinCall
     BuiltinFilter -> CollectionBuiltinCall
     BuiltinHd -> CollectionBuiltinCall
@@ -2032,18 +1953,3 @@ runtimeHostExitStatus runtimeValue =
     VInt status _ -> Just status
     VAnnotated _ innerValue -> runtimeHostExitStatus innerValue
     _ -> Nothing
-
-evalBinaryWithHost ::
-  (Monad m) =>
-  RuntimeHost (RuntimeHostEvaluationT m) ->
-  Text ->
-  RuntimeValue ->
-  RuntimeValue ->
-  ExceptT RuntimeControl (RuntimeHostEvaluationT m) RuntimeValue
-evalBinaryWithHost host operatorSymbol leftValue rightValue =
-  evalBinary
-    RuntimeDiagnostic
-    (applyRuntimeFunctionWithHost host)
-    operatorSymbol
-    leftValue
-    rightValue

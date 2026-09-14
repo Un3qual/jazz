@@ -10,6 +10,7 @@ module GenericLibrary {
   import Reduce as Reduce.
 
   data Crate a = Crate a.
+  impl @{Equatable(a)}: Equatable(Crate(a)) { equals = \(Crate left, Crate right) -> equals left right. }.
   impl Mappable(Crate) { map = \(change, Crate x) -> Crate (change x). }.
   convert = \(change, values) -> map change values.
   change = \(x) -> x == 1.

@@ -257,7 +257,6 @@ publishResolvedCaptures = snd . expression
         let (free, checked) = unzip (map statement statements)
          in (without (foldMap statementBinders statements) (mconcat free), EBlock node checked)
     reference node name = case resolvedNodeReference (coreNodeFacts node) of
-      Just (BuiltinOperatorReference _) -> mempty
       Just target -> stableSetSingleton (target, name)
       Nothing -> mempty
     binder node = maybe Set.empty (Set.singleton . LexicalReference) (resolvedNodeBinder (coreNodeFacts node))

@@ -68,7 +68,6 @@ newtype MethodId = MethodId (ImplId, Identifier)
 data ResolvedReference
   = LexicalReference CoreBinderId
   | BuiltinReference Identifier
-  | BuiltinOperatorReference Text
   | CapabilityMethodReference CapabilityId Identifier
   | DefaultMethodReference CapabilityId Identifier
   | ImplementationMethodReference MethodId

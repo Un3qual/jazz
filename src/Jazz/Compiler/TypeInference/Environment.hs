@@ -133,10 +133,7 @@ freeTypeVariablesInBindingRaw binding =
       freeTypeVariables expressionType
     SchemeTypeBinding typeScheme ->
       freeTypeVariablesInSchemeRaw typeScheme
-    OperatorAliasSchemeTypeBinding _ typeScheme ->
-      freeTypeVariablesInSchemeRaw typeScheme
     BuiltinAliasTypeBinding {} -> Set.empty
-    BuiltinOperatorAliasTypeBinding {} -> Set.empty
     ConstructorTypeBinding {} -> Set.empty
 
 freeTypeVariablesInSchemeRaw :: TypeScheme -> Set InferenceVariable

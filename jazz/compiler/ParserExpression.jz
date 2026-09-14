@@ -528,7 +528,7 @@ module ParserExpression (
   guardTokensEndAtArrow :: [CanonicalToken] -> Bool.
   guardTokensEndAtArrow = \(tokens) ->
     if hasTopLevelArrowBeforeTerminator tokens then
-      if hasTopLevelElseBeforeArrow tokens then False else True
+      not (hasTopLevelElseBeforeArrow tokens)
       else False.
 
   hasTopLevelArmArrowFrom :: [CanonicalToken] -> Int -> Int -> Int -> Bool.
@@ -688,7 +688,7 @@ module ParserExpression (
       | other -> True
     }.
     if minimum < pipePrecedence then
-      if leftHasBoundaryPrecedenceRoot then False else True
+      not (leftHasBoundaryPrecedenceRoot)
       else if minimum == pipePrecedence then
         samePrecedencePipeCanBind
         else False.
@@ -697,7 +697,7 @@ module ParserExpression (
   parsedPatternStartsArmBoundary :: ParserContext -> Maybe::Maybe(Text) -> Int -> SurfaceExpr -> SurfacePattern -> Bool.
   parsedPatternStartsArmBoundary = \(context, parentOperator, minimum, left, pattern) -> case pattern {
     | OrPattern alternatives -> if List::all patternIsLiteral alternatives then
-      if casePipeCanContinueExpression context parentOperator minimum left then False else True
+      not (casePipeCanContinueExpression context parentOperator minimum left)
       else orPatternStartsDefiniteArmBoundary alternatives
     | other -> True
   }.
@@ -751,7 +751,7 @@ module ParserExpression (
         | [first | rest] -> case canonicalTokenKind first {
           | PunctuationKind ArrowPunctuation -> tokenSucceed
             (if guardBoundaryPatternIsDefinite pattern then
-              if casePipeCanContinueExpression context parentOperator minimum left then False else True
+              not (casePipeCanContinueExpression context parentOperator minimum left)
               else False)
           | KeywordKind IfKeyword -> tokenSucceed
             (if guardBoundaryPatternIsDefinite pattern then guardTokensEndAtArrow rest else False)

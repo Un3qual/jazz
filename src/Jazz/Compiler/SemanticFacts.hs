@@ -10,8 +10,6 @@ module Jazz.Compiler.SemanticFacts
     AnalyzedPrimitiveConstraint (..),
     AnalyzedScheme (..),
     AnalyzedSchemeConstraint (..),
-    BinaryOperation (..),
-    BinaryOperandTyping (..),
     EvidenceReference (..),
     mapEvidenceTypes,
     ExpressionFacts (..),
@@ -30,7 +28,6 @@ import Control.DeepSeq (NFData)
 import Data.List.NonEmpty (NonEmpty)
 import Data.Map.Strict (Map)
 import Data.Set (Set)
-import Data.Text (Text)
 import GHC.Generics (Generic)
 import Jazz.Compiler.CoreIdentity (CapabilityId, CapabilityMethodKey, CoreBinderId, CoreNodeId, ImplId, MethodId, ResolvedNodeFacts, ResolvedReference)
 import Jazz.Compiler.ModuleIdentity (ModulePath)
@@ -88,28 +85,9 @@ mapEvidenceTypes transform reference = case reference of
       }
   _ -> reference {evidenceType = transform (evidenceType reference)}
 
--- | The primitive operation selected by inference, including the original
--- operand identities when application syntax or an alias selected the operator.
--- This is a decision attached to the existing tree, not a second expression.
-data BinaryOperation = BinaryOperation
-  { binaryOperationSymbol :: Text,
-    binaryOperationOperandTyping :: BinaryOperandTyping,
-    binaryOperationLeftOperand :: CoreNodeId,
-    binaryOperationRightOperand :: CoreNodeId
-  }
-  deriving stock (Eq, Generic, Show)
-  deriving anyclass (NFData)
-
-data BinaryOperandTyping
-  = UniformBinaryOperands AnalyzedType
-  | Float64PromotedOperands
-  deriving stock (Eq, Generic, Show)
-  deriving anyclass (NFData)
-
 data ExpressionFacts = ExpressionFacts
   { expressionResolution :: ResolvedNodeFacts,
     expressionSemanticType :: AnalyzedType,
-    expressionBinaryOperation :: Maybe BinaryOperation,
     expressionNumericConstraints :: Map InferenceVariable AnalyzedNumericConstraint,
     expressionInstantiations :: [SemanticInstantiation],
     expressionEvidence :: [EvidenceReference],
@@ -201,7 +179,6 @@ data AnalyzedScheme = AnalyzedScheme
 
 data AnalyzedSchemeConstraint
   = AnalyzedExplicitCapabilityConstraint CapabilityId AnalyzedType
-  | AnalyzedInferredCapabilityConstraint CapabilityId AnalyzedType
   | AnalyzedMethodCapabilityConstraint CapabilityId CapabilityMethodKey AnalyzedType
   deriving stock (Eq, Generic, Ord, Show)
   deriving anyclass (NFData)

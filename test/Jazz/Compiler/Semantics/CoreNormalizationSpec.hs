@@ -25,7 +25,7 @@ import Jazz.Compiler.ModuleAnalysis
   )
 import Jazz.Compiler.ModuleExports (exportInventory)
 import Jazz.Compiler.ModuleResolver (resolveStandaloneExprNames)
-import Jazz.Compiler.Name (operatorBindingName)
+import Jazz.Compiler.Name (identifierText)
 import Jazz.Compiler.Parser (parseSurfaceProgram)
 import Jazz.Compiler.Parser.Lower (lowerSurfaceExpr)
 import Jazz.Compiler.WarningConfig (defaultWarningSettings)
@@ -43,7 +43,7 @@ main = runTestSuite "CoreNormalization" tests
 tests :: [NamedTest]
 tests =
   [ ("analyzed if remains the canonical boolean conditional", testIfRemainsCanonicalIf),
-    ("dollar lowers directly to application", testDollarLowersToApplication),
+    ("dollar resolves through its ordinary function", testDollarLowersToApplication),
     ("operator values resolve to callable references", testOperatorValuesResolveToReferences),
     ("declared sections and binary operators resolve to applications", testDeclaredOperatorsResolveToApplications),
     ("lowering assigns deterministic pre-order node identities", testDeterministicNodeIdentities),
@@ -64,10 +64,10 @@ testIfRemainsCanonicalIf =
 testDollarLowersToApplication :: IO ()
 testDollarLowersToApplication =
   assertRight "parse dollar" (parseSurfaceProgram "f $ x.") $ \surface ->
-    case lowerSurfaceExpr surface of
-      EBlock _ [SExpr statementNode (EApply _ (EVar _ "f") (EVar _ "x"))]
-        | coreNodeSpan statementNode == SourceRange 1 1 1 2 -> pure ()
-      lowered -> assertEqual "canonical dollar shape" "application block" (show lowered)
+    case resolveStandaloneExprNames (exportInventory []) (lowerSurfaceExpr surface) of
+      EBlock _ [SExpr _ (EApply _ (EApply _ (EVar _ applyName) (EVar _ functionName)) (EVar _ argumentName))] ->
+        assertEqual "ordinary application names" ["apply", "f", "x"] (map identifierText [applyName, functionName, argumentName])
+      resolved -> failTest ("dollar did not resolve to apply: " <> Text.pack (show resolved))
 
 testOperatorValuesResolveToReferences :: IO ()
 testOperatorValuesResolveToReferences =
@@ -77,8 +77,8 @@ testOperatorValuesResolveToReferences =
         let resolved = resolveStandaloneExprNames (exportInventory []) lowered
          in case resolved of
               EBlock _ [SExpr _ (EVar node name)] -> do
-                assertEqual "callable name" (operatorBindingName "+") name
-                assertEqual "builtin operator target" (Just (BuiltinOperatorReference "+")) (resolvedNodeReference (coreNodeFacts node))
+                assertEqual "callable name" "add" (identifierText name)
+                assertEqual "ordinary function target" (Just (UnresolvedReference name)) (resolvedNodeReference (coreNodeFacts node))
                 assertEqual "operator identity" (coreNodeId sourceNode) (coreNodeId node)
                 assertEqual "authored operator span" (coreNodeSpan sourceNode) (coreNodeSpan node)
               _ -> assertEqual "resolved operator shape" "callable reference" (show resolved)

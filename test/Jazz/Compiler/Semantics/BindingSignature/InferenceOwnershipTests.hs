@@ -40,10 +40,6 @@ import Jazz.Compiler.TypeInference.Capabilities
   )
 import Jazz.Compiler.TypeInference.Diagnostics (addTypeError)
 import Jazz.Compiler.TypeInference.ImplChecking (checkImplMethodBodies)
-import Jazz.Compiler.TypeInference.Operator
-  ( builtinSectionOperatorSymbol,
-    hasOperatorRule,
-  )
 import qualified Jazz.Compiler.TypeInference.Scope as TypeInferenceScope
 import Jazz.Compiler.TypeInference.Signature
   ( SignaturePayloadType (..),
@@ -153,8 +149,7 @@ inferenceOwnershipTests =
     ("recursive previews refresh after semantic solver changes", testRecursivePreviewRefreshesAfterSolverChange),
     ("recursive previews refresh after numeric-constraint changes", testRecursivePreviewRefreshesAfterNumericConstraintChange),
     ("recursive previews refresh after strict-equality-constraint changes", testRecursivePreviewRefreshesAfterStrictEqualityConstraintChange),
-    ("recursive previews are reused at an unchanged group frontier", testRecursivePreviewReuseAtSameFrontier),
-    ("operator rule presence remains distinct from section support", testOperatorRulePresenceAndSectionSupport)
+    ("recursive previews are reused at an unchanged group frontier", testRecursivePreviewReuseAtSameFrontier)
   ]
 
 testDuplicateConstraintsReportFirstRepeatedName :: IO ()
@@ -225,7 +220,7 @@ testInferenceOutputConstraintCursors = do
         initialInferState
     firstDeferred = deferredConstraint "Equatable" SemanticInt
     secondDeferred = deferredConstraint "Show" SemanticText
-    firstInferred = TypeSchemeInferredConstraint (CapabilityId (capabilityName "Equatable")) SemanticInt
+    firstInferred = TypeSchemeConstraint (CapabilityId (capabilityName "Equatable")) SemanticInt
     secondInferred = TypeSchemeMethodConstraint (CapabilityId (capabilityName "Show")) (CapabilityId (capabilityName "Show"), mkIdentifier "show") SemanticText
 
 deferredConstraint :: Text -> ExpressionType -> DeferredExplicitConstraint
@@ -235,8 +230,7 @@ deferredConstraint constraintName argumentType =
       deferredMethodKey = Nothing,
       deferredWasInferred = False,
       deferredArgumentType = argumentType,
-      deferredVisibleFacts = emptyFacts,
-      deferredStructuralFacts = emptyFacts
+      deferredVisibleFacts = emptyFacts
     }
   where
     emptyFacts :: ScopeCapabilityFacts
@@ -250,7 +244,7 @@ testSchemeConstraintDeduplicationOrder =
     (dedupeTypeSchemeConstraints [repeatedConstraint, middleConstraint, repeatedConstraint])
   where
     repeatedConstraint = TypeSchemeConstraint (CapabilityId (capabilityName "Equatable")) (SemanticVariable 0)
-    middleConstraint = TypeSchemeInferredConstraint (CapabilityId (capabilityName "Comparable")) (SemanticVariable 1)
+    middleConstraint = TypeSchemeConstraint (CapabilityId (capabilityName "Comparable")) (SemanticVariable 1)
 
 testEmptySchemeConstraintsSkipCapabilityFacts :: IO ()
 testEmptySchemeConstraintsSkipCapabilityFacts =
@@ -684,19 +678,6 @@ inferenceOnlyResult mode expressionType state =
     InferenceOnly -> (syntheticChecked expressionType, state)
     InferConcreteFunctions ->
       error "expected inference-only callback invocation"
-
-testOperatorRulePresenceAndSectionSupport :: IO ()
-testOperatorRulePresenceAndSectionSupport = do
-  mapM_
-    (assertEqual "operator rule" True . hasOperatorRule)
-    ["+", "-", "*", "/", "<", "<=", ">", ">=", "==", "!=", "$"]
-  mapM_ (assertEqual "missing operator rule" False . hasOperatorRule) ["|", "%%"]
-  mapM_
-    (assertEqual "section support" True . builtinSectionOperatorSymbol)
-    ["+", "-", "*", "/", "<", "<=", ">", ">=", "==", "!="]
-  mapM_
-    (assertEqual "unsupported section" False . builtinSectionOperatorSymbol)
-    ["$", "|", "%%"]
 
 -- The first tuple unification would bind a variable before failing on Bool.
 -- The next body must still see that variable unbound, while retaining the

@@ -20,8 +20,7 @@ import Jazz.Compiler.WarningConfig
   ( defaultWarningSettings,
   )
 import Jazz.TestCore
-  ( loweredBinary,
-    loweredBlock,
+  ( loweredBlock,
     loweredExpression,
     loweredIf,
     loweredLiteral,
@@ -68,15 +67,15 @@ testRejectsNonBoolCondition = do
 
 testAcceptsEqualityCondition :: IO ()
 testAcceptsEqualityCondition = do
-  result <- compileExpr defaultWarningSettings equalityConditionProgram
+  result <- compileSource defaultWarningSettings "if 1 == 1 then 2 else 3."
   assertEqual "compile errors" [] (compileErrors result)
 
 testRejectsInvalidEqualityCondition :: IO ()
 testRejectsInvalidEqualityCondition = do
-  result <- compileExpr defaultWarningSettings invalidEqualityConditionProgram
+  result <- compileSource defaultWarningSettings "if 1 == True then 2 else 3."
   assertSingleDiagnosticContains
     "strict equality condition type error"
-    "E2004"
+    "E2006"
     (compileErrors result)
 
 testRejectsMismatchedBranchTypes :: IO ()
@@ -104,14 +103,6 @@ nonBoolConditionProgram :: Expr 'Lowered
 nonBoolConditionProgram =
   mkProgram (loweredIf (loweredLiteral (LInt 1)) (loweredLiteral (LInt 2)) (loweredLiteral (LInt 3)))
 
-equalityConditionProgram :: Expr 'Lowered
-equalityConditionProgram =
-  mkProgram (loweredIf (loweredBinary "==" (loweredLiteral (LInt 1)) (loweredLiteral (LInt 2))) (loweredLiteral (LInt 2)) (loweredLiteral (LInt 3)))
-
-invalidEqualityConditionProgram :: Expr 'Lowered
-invalidEqualityConditionProgram =
-  mkProgram (loweredIf (loweredBinary "==" (loweredLiteral (LInt 1)) (loweredLiteral (LBool True))) (loweredLiteral (LInt 2)) (loweredLiteral (LInt 3)))
-
 mismatchedBranchProgram :: Expr 'Lowered
 mismatchedBranchProgram =
   mkProgram (loweredIf (loweredLiteral (LBool True)) (loweredLiteral (LInt 1)) (loweredLiteral (LBool False)))
@@ -122,15 +113,11 @@ validIfProgram =
 
 testRejectsBinaryTypeMismatch :: IO ()
 testRejectsBinaryTypeMismatch = do
-  result <- compileExpr defaultWarningSettings binaryTypeMismatchProgram
+  result <- compileSource defaultWarningSettings "1 + True."
   assertSingleDiagnosticContains
     "binary type error"
-    "cannot apply operator '+'"
+    "cannot apply function"
     (compileErrors result)
-
-binaryTypeMismatchProgram :: Expr 'Lowered
-binaryTypeMismatchProgram =
-  mkProgram (loweredBinary "+" (loweredLiteral (LInt 1)) (loweredLiteral (LBool True)))
 
 testSourcePipelineAcceptsWellTypedIf :: IO ()
 testSourcePipelineAcceptsWellTypedIf = do

@@ -44,7 +44,7 @@
     within: ["Jazz.Compiler.Runtime.Engine.evaluateRuntimeScopePureRequest", "Jazz.Compiler.Semantics.BindingSignature.InferenceOwnershipTests.testRecursivePreviewRefreshesAfterSolverChange", "Jazz.Compiler.TypeInference.inferExpressionWork"]
 - ignore:
     name: "Replace case with maybe"
-    within: ["Jazz.CLI.Main.parseCliOptions", "Jazz.Compiler.Prelude.resolvedExplicitPrelude", "Jazz.Compiler.Runtime.Engine.stepEvaluationMachine", "Jazz.Compiler.Runtime.Primitives.renderFloatOperandTarget", "Jazz.Compiler.Runtime.Primitives.renderIntegerOperandTarget", "Jazz.Compiler.Runtime.Primitives.runtimeIntMetadataIsIntegral", "Jazz.Compiler.Runtime.Semantics.renderRuntimeType", "Jazz.Compiler.TypeInference.literalExpressionType"]
+    within: ["Jazz.CLI.Main.parseCliOptions", "Jazz.Compiler.Prelude.resolvedExplicitPrelude", "Jazz.Compiler.Runtime.Engine.stepEvaluationMachine", "Jazz.Compiler.Runtime.Primitives.renderFloatOperandTarget", "Jazz.Compiler.Runtime.Primitives.renderIntegerOperandTarget", "Jazz.Compiler.Runtime.Semantics.renderRuntimeType", "Jazz.Compiler.TypeInference.literalExpressionType"]
 - ignore:
     name: "Unused LANGUAGE pragma"
     within: ["Jazz.Compiler.AST", "Jazz.Compiler.ModuleExports", "Jazz.Compiler.ModuleGraph", "Jazz.Compiler.Name", "Jazz.Compiler.Parser.AdtPattern.Shared", "Jazz.Compiler.Parser.Foundation.Shared", "Jazz.Compiler.RecursiveBindings", "Jazz.Compiler.Runtime.Primitives", "Jazz.Compiler.Runtime.ScopePlan", "Jazz.Compiler.Semantics.BindingSignature.BasicsTests", "Jazz.Compiler.Semantics.BindingSignature.ConstraintsTests", "Jazz.Compiler.SourceProgram", "Jazz.Compiler.Stdlib.OrderedCollectionsTests", "Jazz.Compiler.TypeInference.Solver", "Jazz.Compiler.TypeRepresentation"]
@@ -78,7 +78,7 @@
     within: ["Jazz.Compiler.Runtime.Primitives.runtimeValueHasTargetedNumericMetadata"]
 - ignore:
     name: "Use isNothing"
-    within: ["Jazz.CLI.Main.parseCliOptions", "Jazz.Compiler.Analyzer.analysisBindingToVisibleBinding", "Jazz.Compiler.ModuleResolver.Names.resolveExprNames", "Jazz.Compiler.Parser.Lexer.unicodeScalarEscape", "Jazz.Compiler.Runtime.Semantics.attachDefaultBindingIntegerTarget", "Jazz.Compiler.TypeInference.Capabilities.inferredEqualityConstraintCanUseStructuralRuntimeEquality"]
+    within: ["Jazz.CLI.Main.parseCliOptions", "Jazz.Compiler.Analyzer.analysisBindingToVisibleBinding", "Jazz.Compiler.ModuleResolver.Names.resolveExprNames", "Jazz.Compiler.Parser.Lexer.unicodeScalarEscape", "Jazz.Compiler.Runtime.Semantics.attachDefaultBindingIntegerTarget"]
 - ignore:
     name: "Use list literal pattern"
     within: ["Jazz.CLI.Main.parseCliOptions", "Main.testMinusAdjacency"]

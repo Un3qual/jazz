@@ -55,9 +55,9 @@ or conversions where they relied on the deliberately removed behavior.
 ## Implementation
 
 - [x] Add and verify not, including higher-order use; simplify Boolean negations.
-- [ ] Add ordinary operator functions and primitive implementations; desugar all
+- [x] Add ordinary operator functions and primitive implementations; desugar all
       executable operators through normal resolution and evidence.
-- [ ] Remove replaced operator-only inference, runtime, and metadata paths.
-- [ ] Migrate maintained consumers, tests and public contracts.
+- [x] Remove replaced operator-only inference, runtime, and metadata paths.
+- [x] Migrate maintained consumers, tests and public contracts.
 - [ ] Verify focused behavior, full regular suites, clean quality gate and docs;
       commit coherent batches and close the queue row.

@@ -10,9 +10,6 @@ module Jazz.Compiler.Semantics.Runtime.Shared
     runtimeExpr,
     closureValue,
     builtinValue,
-    operatorValue,
-    leftSectionValue,
-    rightSectionValue,
     targetedFloat,
     targetedInt,
     untypedFloatOne,
@@ -105,11 +102,11 @@ qualifiedMethodStructuralEqualityExpr =
         [ implMethod
             "equals"
             (SourceSpan 4 1)
-            (expressionLambda "left" (expressionLambda "right" (expressionBinary "==" (expressionVariable "left") (expressionVariable "right"))))
+            (expressionLambda "left" (expressionLambda "right" (expressionKernelBinary "==" (expressionVariable "left") (expressionVariable "right"))))
         ],
       statementExpression
         (SourceSpan 5 1)
-        ( expressionBinary
+        ( expressionKernelBinary
             "=="
             (expressionList [expressionVariable (qualifiedName "RuntimeEq" "equals")])
             (expressionList [expressionVariable (qualifiedName "RuntimeEq" "equals")])
@@ -153,7 +150,7 @@ runtimeEqSource =
   equals :: a -> a -> Bool.
   }.
   impl RuntimeEq(Int) {
-  equals = \\(left, right) -> left == right.
+  equals = __kernel_equals.
   }.
 
   """
@@ -173,18 +170,6 @@ closureValue =
 builtinValue :: Expr 'Analyzed
 builtinValue =
   expressionVariable "__kernel_hd"
-
-operatorValue :: Expr 'Analyzed
-operatorValue =
-  expressionOperatorValue "+"
-
-leftSectionValue :: Expr 'Analyzed
-leftSectionValue =
-  expressionSectionLeft (expressionLiteral (LInt 1)) "+"
-
-rightSectionValue :: Expr 'Analyzed
-rightSectionValue =
-  expressionSectionRight "+" (expressionLiteral (LInt 1))
 
 targetedFloat :: UnresolvedName -> Expr 'Analyzed
 targetedFloat conversionName =

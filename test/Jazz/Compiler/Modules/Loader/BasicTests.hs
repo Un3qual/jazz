@@ -202,7 +202,7 @@ testRunModuleGraphIgnoresDependencyExpressions = do
             """
             module Lib::Util {
             util = 1.
-            1 / 0.
+            __kernel_divide 1 0.
             }
             """
           )
@@ -403,7 +403,7 @@ testRunModuleGraphSkipsUnusedDependencyBindingsDuringEvaluation = do
             """
             module Lib::Util {
             util = 1.
-            bomb = 1 / 0.
+            bomb = __kernel_divide 1 0.
             }
             """
           )

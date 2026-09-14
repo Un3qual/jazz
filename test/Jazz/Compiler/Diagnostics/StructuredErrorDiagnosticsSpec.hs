@@ -253,11 +253,7 @@ testSemanticErrorReports = do
     name = resolvedLocalName ValueNamespace (mkIdentifier "item")
     spanValue = SourceRangeIn "src/Lib/Check.jz" 3 4 3 12
     cases =
-      [ ("binary", \n -> Inference.mkBinaryTypeError "+" (pair n) (variable (n + 1))),
-        ("strict equality", \n -> Inference.mkStrictEqualityTypeError "==" (pair n) (variable (n + 1))),
-        ("unsupported equality", \n -> Inference.mkStrictEqualityUnsupportedTypeError "==" (SemanticFunction (variable n) (variable n))),
-        ("numeric section", \n -> Inference.mkNumericSectionOperandTypeError "+" (pair n)),
-        ("numeric constraint", \n -> Inference.mkTypeSchemeNumericConstraintError AnyNumericConstraint (pair n)),
+      [ ("numeric constraint", \n -> Inference.mkTypeSchemeNumericConstraintError AnyNumericConstraint (pair n)),
         ("equality constraint", \n -> Inference.mkTypeSchemeStrictEqualityConstraintError (pair n)),
         ("missing method match", \n -> Inference.mkNoMatchingQualifiedMethodBodyError (equalityCapability, mkIdentifier "equal") [pair n, variable (n + 1)]),
         ("undeclared class constraint", \n -> Inference.mkUndeclaredSignatureConstraintError "f" False "Equatable" (pair n) spanValue),

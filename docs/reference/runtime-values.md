@@ -80,7 +80,9 @@ rounding.
 
 ### `Float64`
 
-`Float64` uses IEEE binary64 storage and deterministic target rounding.
+`Float64` uses IEEE binary64 storage and deterministic target rounding. Arithmetic overflow is checked at runtime with
+`E3025`, including operations whose operands are both literals. Literal operands
+outside the expected type's range are rejected during type checking.
 
 ### Tuples
 
@@ -92,26 +94,19 @@ proceed element by element.
 Unit is the zero-element tuple `()`. It carries no information and renders as
 the same `()` spelling.
 
-## Numeric values, promotion, and conversion
+## Numeric values and conversion
 
 Integers use arbitrary-size runtime storage until a concrete numeric target
 applies. Width-specific integral operations enforce their ranges. Same-width
 `Float16`, `Float32`, and `Float64` arithmetic preserves that width, with
-deterministic target rounding.
+deterministic target rounding. Arithmetic overflow is checked at runtime with
+`E3025`, including operations whose operands are both literals. Literal operands
+outside the expected type's range are rejected during type checking.
 
-The direct built-in operators `+`, `-`, `*`, `/`, `<`, `<=`, `>`, `>=`, `==`,
-and `!=` have one mixed-domain exception: exactly one operand may be a concrete
-integral value and the other may be default `Float` or explicit `Float64`.
-Arithmetic returns the peer float type; comparison and equality return `Bool`.
-An uncommitted integer literal can use the same rule when its range fits the
-finite `Float64` integer domain.
-
-Immediately applied built-in operator-value and section spellings use that
-same direct rule, and aliases of built-in operator values retain it. A mixed
-numeric section stored as a first-class value before application does not;
-convert its captured operand explicitly. The exception also does not apply to
-`Float16` or `Float32`, mixed concrete float widths, non-literal integral
-results awaiting later inference, or user-defined operators.
+Operators and named functions use the same argument rules. Concrete operands of
+different numeric types require explicit conversion. An uncommitted literal can
+be inferred at the required type under the ordinary literal rules. Infix syntax,
+operator values, sections and aliases have no separate promotion exceptions.
 
 The bundled Prelude exposes `toInt8`, `toInt16`, `toInt32`, `toInt64`,
 `toUInt8`, `toUInt16`, `toUInt32`, `toUInt64`, `toFloat16`, `toFloat32`, and
@@ -127,10 +122,10 @@ Division by integer zero or either signed floating zero is a runtime error.
 
 ## Equality
 
-Strict equality requires compatible same-type operands except for the direct
-`Float64`-domain integral rule above. It supports booleans, characters, text,
-numeric values, and structural lists, tuples, and ADTs whose contents support
-equality. Callable equality is rejected.
+Equality notation calls `equals` or `differs` through the selected `Equatable`
+implementation. The Prelude supplies primitive scalar implementations and
+collection implementations using element evidence. ADTs require an explicit
+implementation; callable types have no bundled equality implementation.
 
 ## Runtime failures
 

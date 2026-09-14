@@ -50,9 +50,9 @@ import Jazz.Compiler.Name
 import Jazz.Compiler.Semantics.Runtime.Fixtures
   ( expressionApply,
     expressionBlock,
+    expressionKernelFunction,
     expressionList,
     expressionLiteral,
-    expressionSectionLeft,
     expressionVariable,
     statementExpression,
   )
@@ -103,7 +103,14 @@ tests =
 
 expectedBuiltins :: [(BuiltinSymbol, Text, Int, BuiltinOwnership)]
 expectedBuiltins =
-  [ (BuiltinMap, "map", 2, KernelIntrinsic),
+  [ (BuiltinAdd, "add", 2, KernelIntrinsic),
+    (BuiltinSubtract, "subtract", 2, KernelIntrinsic),
+    (BuiltinMultiply, "multiply", 2, KernelIntrinsic),
+    (BuiltinDivide, "divide", 2, KernelIntrinsic),
+    (BuiltinEquals, "equals", 2, KernelIntrinsic),
+    (BuiltinLessThan, "lessThan", 2, KernelIntrinsic),
+    (BuiltinGreaterThan, "greaterThan", 2, KernelIntrinsic),
+    (BuiltinMap, "map", 2, KernelIntrinsic),
     (BuiltinFilter, "filter", 2, PreludeTarget),
     (BuiltinHd, "hd", 1, PreludeTarget),
     (BuiltinTl, "tl", 1, PreludeTarget),
@@ -284,7 +291,7 @@ testBundledPreludeIncludesEqFloat64EqualsMethodBody =
     "bundled prelude renders Equatable(Float64).equals body"
     ( """
       impl Equatable(Float64) {
-      equals = \\(left, right) -> left == right.
+      equals = __kernel_equals.
       }.
 
       """
@@ -375,14 +382,14 @@ overAppliedBuiltinExpr name =
       "map" ->
         expressionApply
           ( expressionApply
-              (expressionApply (expressionVariable "__kernel_map") (expressionSectionLeft (expressionLiteral (LInt 1)) "+"))
+              (expressionApply (expressionVariable "__kernel_map") (expressionApply (expressionKernelFunction "+") (expressionLiteral (LInt 1))))
               (expressionList [expressionLiteral (LInt 2)])
           )
           (expressionLiteral (LInt 3))
       "filter" ->
         expressionApply
           ( expressionApply
-              (expressionApply (expressionVariable "__kernel_filter") (expressionSectionLeft (expressionLiteral (LInt 1)) "<"))
+              (expressionApply (expressionVariable "__kernel_filter") (expressionApply (expressionKernelFunction "<") (expressionLiteral (LInt 1))))
               (expressionList [expressionLiteral (LInt 2), expressionLiteral (LInt 3)])
           )
           (expressionLiteral (LInt 4))

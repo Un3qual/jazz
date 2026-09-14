@@ -124,7 +124,6 @@ publishModuleInterface requested typeDefinitions declarations =
     bindingNames binding = case binding of
       PlainTypeBinding value -> typeNames value
       SchemeTypeBinding scheme -> schemeNames scheme
-      OperatorAliasSchemeTypeBinding _ scheme -> schemeNames scheme
       ConstructorTypeBinding name _ fields -> Set.insert name (foldMap fieldNames fields)
       _ -> Set.empty
     schemeNames :: SemanticScheme variable -> Set ResolvedName
@@ -178,7 +177,6 @@ publishBindingNames :: SemanticBinding variable -> SemanticBinding variable
 publishBindingNames binding = case binding of
   PlainTypeBinding value -> PlainTypeBinding (first publishedName value)
   SchemeTypeBinding scheme -> SchemeTypeBinding (publishSchemeNames scheme)
-  OperatorAliasSchemeTypeBinding symbol scheme -> OperatorAliasSchemeTypeBinding symbol (publishSchemeNames scheme)
   ConstructorTypeBinding name parameters fields -> ConstructorTypeBinding (publishedName name) parameters (map publishFieldNames fields)
   _ -> binding
 
@@ -193,14 +191,12 @@ publishSchemeNames scheme =
   where
     publishConstraint constraint = case constraint of
       TypeSchemeConstraint capability value -> TypeSchemeConstraint (publishedCapability capability) (first publishedName value)
-      TypeSchemeInferredConstraint capability value -> TypeSchemeInferredConstraint (publishedCapability capability) (first publishedName value)
       TypeSchemeMethodConstraint capability method value -> TypeSchemeMethodConstraint (publishedCapability capability) (publishedMethod method) (first publishedName value)
 
 publishCapabilityNames :: ScopeCapabilityFacts -> ScopeCapabilityFacts
 publishCapabilityNames facts =
   ScopeCapabilityFacts
     { scopeClassFacts = Map.mapKeys publishedCapability (Map.map (\definition -> definition {classSuperclasses = map publishedCapability (classSuperclasses definition)}) (scopeClassFacts facts)),
-      scopeGeneratedEqualityClassFacts = Set.map publishedCapability (scopeGeneratedEqualityClassFacts facts),
       scopeClassMethodSignatures = Map.mapKeys publishedMethod (Map.map publishMethodType (scopeClassMethodSignatures facts)),
       scopeImplementations = Map.map publishImplementation (scopeImplementations facts)
     }
@@ -224,7 +220,6 @@ publishDeclarationScheme scheme =
   where
     publishConstraint constraint = case constraint of
       TypeSchemeConstraint capability target -> TypeSchemeConstraint (publishedCapability capability) (first publishedName target)
-      TypeSchemeInferredConstraint capability target -> TypeSchemeInferredConstraint (publishedCapability capability) (first publishedName target)
       TypeSchemeMethodConstraint capability method target -> TypeSchemeMethodConstraint (publishedCapability capability) (publishedMethod method) (first publishedName target)
 
 publishFieldNames :: ConstructorArgumentType -> ConstructorArgumentType

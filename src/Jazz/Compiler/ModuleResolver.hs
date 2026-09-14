@@ -169,6 +169,7 @@ import Jazz.Compiler.Parser.AST
 import Jazz.Compiler.Parser.Lower
   ( lowerSurfaceModule,
   )
+import Jazz.Compiler.Parser.Operator (builtinOperatorFunction)
 import Jazz.Compiler.SourceProgram (standaloneSourceModule)
 import Jazz.Compiler.TypeRepresentation
   ( pattern ConstrainedSignature,
@@ -790,7 +791,7 @@ collectExprReferenceFacts boundNames surfaceExpr facts =
         (\current clause -> collectPatternLambdaClauseReferenceFacts boundNames clause current)
         facts
         (NonEmpty.toList clauses)
-    SEOperatorValue _ -> facts
+    SEOperatorValue symbol -> operatorFacts symbol
     SEList items -> collectExprReferenceFactList boundNames items facts
     SETuple items -> collectExprReferenceFactList boundNames items facts
     SEApply function argument ->
@@ -809,14 +810,18 @@ collectExprReferenceFacts boundNames surfaceExpr facts =
         (\current arm -> collectCaseArmReferenceFacts boundNames arm current)
         (collectExprReferenceFacts boundNames scrutinee facts)
         arms
-    SEBinary _ left right ->
+    SEBinary symbol left right ->
       collectExprReferenceFacts
         boundNames
         right
-        (collectExprReferenceFacts boundNames left facts)
-    SESectionLeft left _ -> collectExprReferenceFacts boundNames left facts
-    SESectionRight _ right -> collectExprReferenceFacts boundNames right facts
+        (collectExprReferenceFacts boundNames left (operatorFacts symbol))
+    SESectionLeft left symbol -> collectExprReferenceFacts boundNames left (operatorFacts symbol)
+    SESectionRight symbol right -> collectExprReferenceFacts boundNames right (operatorFacts symbol)
     SEBlock statements -> collectBlockReferenceFacts boundNames statements facts
+  where
+    operatorFacts symbol = case builtinOperatorFunction symbol of
+      Just name | Set.notMember name boundNames -> facts {referenceFactUnqualified = Set.insert name (referenceFactUnqualified facts)}
+      _ -> facts
 
 collectExprReferenceFactList :: Set Text -> [SurfaceExpr] -> ReferenceInventory -> ReferenceInventory
 collectExprReferenceFactList boundNames expressions initialFacts =

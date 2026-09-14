@@ -33,10 +33,6 @@ data TypeErrorCause typeValue
   | ApplicationTypeMismatch typeValue typeValue
   | ListElementTypeMismatch typeValue typeValue
   | IfBranchTypeMismatch typeValue typeValue
-  | BinaryOperandTypeMismatch Text typeValue typeValue
-  | StrictEqualityTypeMismatch Text typeValue typeValue
-  | UnsupportedStrictEqualityType Text typeValue
-  | NumericSectionOperandType Text typeValue
   | UnsatisfiedNumericConstraint typeValue
   | UnsatisfiedStrictEqualityConstraint typeValue
   | NoMatchingMethodArguments Text [typeValue]
@@ -78,18 +74,6 @@ renderTypeErrorCause cause = renderCause (evalState (traverse (traverse rename) 
         "list literal elements must have matching types, found " <> render expected <> " and " <> render actual
       IfBranchTypeMismatch expected actual ->
         "if branches must have matching types, found " <> render expected <> " and " <> render actual
-      BinaryOperandTypeMismatch symbol left right ->
-        "cannot apply operator '" <> symbol <> "' to operands of type " <> render left <> " and " <> render right
-      StrictEqualityTypeMismatch symbol left right ->
-        "strict equality operator '" <> symbol <> "' requires operands of the same type, found " <> render left <> " and " <> render right
-      UnsupportedStrictEqualityType symbol found ->
-        "strict equality operator '"
-          <> symbol
-          <> "' is only supported for Bool, Char, Text, integral numeric, Float/Float16/Float32/Float64, lists and tuples containing equality-supported elements, and ADTs containing equality-supported constructor payloads, found "
-          <> render found
-          <> (if typeContainsFunction found then "; callable values are not equality-supported" else "")
-      NumericSectionOperandType symbol found ->
-        "operator section '" <> symbol <> "' requires a numeric operand, found " <> render found
       UnsatisfiedNumericConstraint found ->
         "primitive numeric constraint cannot be satisfied by " <> render found
       UnsatisfiedStrictEqualityConstraint found ->
@@ -154,12 +138,3 @@ renderDiagnosticType = render
     renderAtom typeValue = case typeValue of
       SemanticFunction {} -> "(" <> render typeValue <> ")"
       _ -> render typeValue
-
-typeContainsFunction :: SemanticType name variable -> Bool
-typeContainsFunction expressionType =
-  case expressionType of
-    SemanticFunction {} -> True
-    SemanticList elementType -> typeContainsFunction elementType
-    SemanticTuple elementTypes -> any typeContainsFunction elementTypes
-    SemanticData _ typeArguments -> any typeContainsFunction typeArguments
-    _ -> False

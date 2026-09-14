@@ -41,12 +41,12 @@ import Jazz.Compiler.Driver
     runRuntimeValue,
     runSource,
     runSourceObserved,
+    runSourceWithResolvedPreludeAndHostObserved,
   )
 import Jazz.Compiler.ModuleResolver (ModuleResolutionConfig (..))
 import Jazz.Compiler.Name
   ( Name (BuiltinName),
     mkIdentifier,
-    operatorBindingName,
   )
 import Jazz.Compiler.Runtime
   ( ModuleEvaluationMode (EvaluateEntryModule),
@@ -89,14 +89,13 @@ import Jazz.Compiler.Semantics.Runtime.Fixtures
   ( caseArm,
     dataConstructor,
     expressionApply,
-    expressionBinary,
     expressionBlock,
     expressionConstructor,
+    expressionKernelBinary,
     expressionLambda,
     expressionList,
     expressionLiteral,
     expressionPatternCase,
-    expressionSectionRight,
     expressionTuple,
     expressionVariable,
     patternLiteral,
@@ -128,7 +127,7 @@ tests =
     ("closure application records forcing and continuation depth", testClosureApplication),
     ("nested evaluator machines preserve outer continuation depth", testNestedContinuationDepth),
     ("builtin application is classified independently", testBuiltinApplication),
-    ("infix operator evaluation is classified independently", testOperatorApplication),
+    ("arithmetic uses ordinary builtin calls", testArithmeticBuiltinApplication),
     ("constructor application is classified independently", testConstructorApplication),
     ("closures capture only the bindings their bodies reference", testClosureCaptureWidths),
     ("declared right sections capture only their generated operands", testDeclaredRightSectionCaptureWidth),
@@ -315,12 +314,12 @@ testBuiltinApplication = do
   assertEqual "closure applications" 0 (runtimeClosureApplications statistics)
   assertEqual "total applications" 1 (runtimeApplications statistics)
 
-testOperatorApplication :: IO ()
-testOperatorApplication = do
-  statistics <- statisticsFor (expressionBinary "+" (expressionLiteral (LInt 1)) (expressionLiteral (LInt 2)))
-  assertEqual "operator applications" 1 (runtimeOperatorApplications statistics)
-  assertEqual "operator total applications" 1 (runtimeApplications statistics)
-  assertEqual "operator builtin calls" 0 (runtimeBuiltinCalls statistics)
+testArithmeticBuiltinApplication :: IO ()
+testArithmeticBuiltinApplication = do
+  statistics <- statisticsFor (expressionKernelBinary "+" (expressionLiteral (LInt 1)) (expressionLiteral (LInt 2)))
+  assertEqual "arithmetic builtin applications" 2 (runtimeBuiltinApplications statistics)
+  assertEqual "arithmetic total applications" 2 (runtimeApplications statistics)
+  assertEqual "arithmetic builtin calls" 1 (runtimeBuiltinCalls statistics)
 
 testConstructorApplication :: IO ()
 testConstructorApplication = do
@@ -383,17 +382,16 @@ testClosureCaptureWidths = do
 
 testDeclaredRightSectionCaptureWidth :: IO ()
 testDeclaredRightSectionCaptureWidth = do
-  statistics <-
-    statisticsFor
-      ( expressionBlock
-          [ statementLet "unused" (SourceSpan 1 1) (expressionLiteral (LInt 0)),
-            statementLet
-              (operatorBindingName "%%")
-              (SourceSpan 2 1)
-              (expressionLambda "left" (expressionLambda "right" (expressionVariable "left"))),
-            statementExpression (SourceSpan 3 1) (expressionSectionRight "%%" (expressionLiteral (LInt 2)))
-          ]
-      )
+  result <-
+    runSourceWithResolvedPreludeAndHostObserved
+      RuntimeObservationStatistics
+      disabledRuntimeHost
+      defaultWarningSettings
+      PreludeAbsent
+      "operator %% tier 2. unused = 0. (%%) = \\(left, right) -> left. (%% 2)."
+  assertEqual "section compile errors" [] (runCompileErrors result)
+  assertEqual "section runtime errors" [] (runRuntimeErrors result)
+  statistics <- runtimeObservationStatistics <$> requireReport result
   assertEqual "right-section maximum capture width" 2 (runtimeMaximumCaptureWidth statistics)
 
 testSourceConstructions :: IO ()
@@ -518,7 +516,7 @@ testJsonRenderer :: IO ()
 testJsonRenderer = do
   let encoded = encodeRuntimeObservationJson zeroReport
   assertEqual "JSON round trip" (Right zeroReport) (decodeRuntimeObservationJson encoded)
-  assertLazyBytesContain "JSON schema version" "\"schemaVersion\":1" encoded
+  assertLazyBytesContain "JSON schema version" "\"schemaVersion\":2" encoded
   assertLazyBytesContain "JSON explicit zero" "\"closuresCreated\":0" encoded
   assertEqual "compact JSON" False (LazyByteString.elem '\n' encoded)
 

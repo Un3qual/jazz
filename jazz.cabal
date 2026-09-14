@@ -177,7 +177,6 @@ library jazz-internal
       Jazz.Compiler.TypeInference.Interface
       Jazz.Compiler.TypeInference.Instantiation
       Jazz.Compiler.TypeInference.ImplChecking
-      Jazz.Compiler.TypeInference.Operator
       Jazz.Compiler.TypeInference.Pattern
       Jazz.Compiler.TypeInference.Result
       Jazz.Compiler.TypeInference.Scope
@@ -429,7 +428,8 @@ test-suite stdlib-spec
   main-is: Jazz/Compiler/Stdlib/StdlibSpec.hs
   other-modules:
       Jazz.Compiler.Stdlib.FoundationsTests
-    Jazz.Compiler.Stdlib.GenericCapabilitiesTests
+      Jazz.Compiler.Stdlib.GenericCapabilitiesTests
+      Jazz.Compiler.Stdlib.OperatorFunctionsTests
       Jazz.Compiler.Stdlib.LinearCollectionsTests
       Jazz.Compiler.Stdlib.OrderedCollectionsTests
       Jazz.Compiler.Stdlib.Shared

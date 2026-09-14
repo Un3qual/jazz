@@ -531,12 +531,7 @@ module CoreLower (
       | (leftRequired, loweredLeft) -> case lowerProfiledExpression right {
         | (rightRequired, loweredRight) -> {
           childrenRequired = maximumProfile leftRequired rightRequired.
-          if symbol == "$" then
-            ( maximumProfile SignaturesDeclarationsOperatorsProfile childrenRequired,
-              CoreApplyExpression loweredLeft loweredRight
-            )
-          else
-            (childrenRequired, CoreBinaryExpression symbol loweredLeft loweredRight).
+          (childrenRequired, CoreBinaryExpression symbol loweredLeft loweredRight).
         }
       }
     }

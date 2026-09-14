@@ -90,12 +90,12 @@ tests =
 
 testCompileWithPreludeBindingVisibility :: IO ()
 testCompileWithPreludeBindingVisibility = do
-  result <- compileSourceWithPrelude defaultWarningSettings (Just "seed = 41.") "seed + 1."
+  result <- compileSourceWithPrelude defaultWarningSettings (Just "seed = 41.") "__kernel_add seed 1."
   assertEqual "compile errors" [] (compileErrors result)
 
 testRunWithPreludeSectionFunction :: IO ()
 testRunWithPreludeSectionFunction = do
-  result <- runSourceWithPrelude defaultWarningSettings (Just "inc = (+ 1).") "inc 2."
+  result <- runSourceWithPrelude defaultWarningSettings (Just "add = __kernel_add. inc = (+ 1).") "inc 2."
   assertEqual "compile errors" [] (runCompileErrors result)
   assertEqual "runtime errors" [] (runRuntimeErrors result)
   assertEqual "runtime output" (Just "3") (runOutput result)
@@ -145,10 +145,10 @@ testPreludeFailurePreservesSourceDiagnostics = do
     "independent source-unit diagnostics"
     ["error: E1001: unbound variable 'missingPrelude'", "error: E1001: unbound variable 'missingSource'"]
     (map renderDiagnostic (compileErrors result))
-  mixed <- compileSourceWithPrelude defaultWarningSettings (Just "bad = True + 1.") "missingSource."
+  mixed <- compileSourceWithPrelude defaultWarningSettings (Just "bad = __kernel_add True 1.") "missingSource."
   assertEqual
     "scope errors precede type errors across source units"
-    ["E1001", "E2003"]
+    ["E1001", "E2006"]
     (map (diagnosticCodeText . diagnosticCode) (compileErrors mixed))
 
 testPreludeParseDiagnostic :: IO ()
@@ -988,7 +988,7 @@ testCompileWithoutPreludeKeepsKernelBridgeNamesAvailable = do
 
 testCompileWithoutPreludeStillFailsMissingBinding :: IO ()
 testCompileWithoutPreludeStillFailsMissingBinding = do
-  result <- compileSourceWithPrelude defaultWarningSettings Nothing "seed + 1."
+  result <- compileSourceWithPrelude defaultWarningSettings Nothing "__kernel_add seed 1."
   assertSingleErrorContains
     "missing prelude binding still reports unbound variable"
     "E1001"

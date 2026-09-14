@@ -6,8 +6,6 @@
 module Jazz.Compiler.TypeInference.Capabilities
   ( TypeEnvFreeVariables,
     applyCapabilityFacts,
-    addInferredEqualityClassConstraintIfVisible,
-    addUnpreservedInferredMethodConstraintErrors,
     applyTypeSchemePrimitiveConstraints,
     typeSchemePrimitiveConstraints,
     checkMethodPrimitiveConstraints,
@@ -17,7 +15,7 @@ module Jazz.Compiler.TypeInference.Capabilities
     deferExplicitConstraintsWithFacts,
     enterModuleCapabilityScope,
     finalizeDeferredExplicitConstraintsAt,
-    finalizeDeferredExplicitConstraintsAtWithEntailments,
+    finalizeBindingConstraintsAt,
     flushCurrentModuleCapabilityFacts,
     freeTypeVariablesInEnv,
     importModuleCapabilityFacts,
@@ -43,7 +41,6 @@ module Jazz.Compiler.TypeInference.Capabilities
     resolveCapabilityEvidence,
     typeSchemeDefiningFactsFromState,
     typeSchemeReferencedCapabilityFacts,
-    structuralRuntimeEqualityType,
     typeEnvFreeVariables,
     updateRootModuleBaselineFacts,
   )
@@ -57,6 +54,7 @@ import qualified Control.Monad.Trans.State.Strict as Trial
 import Data.Foldable
   ( toList,
   )
+import Data.List (partition)
 import qualified Data.Map.Strict as Map
 import Data.Maybe (isJust, isNothing)
 import qualified Data.Sequence as Seq
@@ -79,10 +77,7 @@ import Jazz.Compiler.Diagnostics
 import Jazz.Compiler.ModuleIdentity (ModulePath)
 import Jazz.Compiler.Name
   ( Identifier,
-    Name (..),
     ResolvedName,
-    ResolvedNameOrigin (..),
-    ResolvedUserName (..),
     identifierText,
   )
 import Jazz.Compiler.SignatureRendering
@@ -113,7 +108,7 @@ import Jazz.Compiler.TypeInference.Environment
   )
 import Jazz.Compiler.TypeInference.Solver
   ( addStrictEqualityTypeVarConstraint,
-    constrainNumericOperatorType,
+    constrainNumericType,
     freshTypeVars,
     integerLiteralRangeFor,
     resolveType,
@@ -146,8 +141,7 @@ import Jazz.Compiler.TypeInference.State
     modifyModuleInferenceState,
   )
 import Jazz.Compiler.TypeInference.TypeOps
-  ( dedupeTypeSchemeConstraints,
-    freeTypeVariables,
+  ( freeTypeVariables,
   )
 import Jazz.Compiler.TypeInference.Types
   ( ClassDefinition (..),
@@ -176,23 +170,9 @@ capabilityFactsFromState = declarationCapabilities . inferDeclarations
 
 typeSchemeDefiningFactsFromState :: InferState -> [TypeSchemeConstraint] -> ScopeCapabilityFacts
 typeSchemeDefiningFactsFromState state schemeConstraints =
-  capturedFacts
-    { scopeGeneratedEqualityClassFacts =
-        Set.union
-          inferredStructuralEqualityClasses
-          (scopeGeneratedEqualityClassFacts capturedFacts)
-    }
-  where
-    capturedFacts =
-      case inferCurrentModulePath state of
-        Just _ -> typeSchemeReferencedCapabilityFacts schemeConstraints (capabilityFactsFromState state)
-        Nothing -> capabilityFactsFromState state
-    inferredStructuralEqualityClasses =
-      Set.fromList
-        [ capabilityName
-        | TypeSchemeInferredConstraint capabilityName _ <- schemeConstraints,
-          activeEqualityClassName state == Just capabilityName
-        ]
+  case inferCurrentModulePath state of
+    Just _ -> typeSchemeReferencedCapabilityFacts schemeConstraints (capabilityFactsFromState state)
+    Nothing -> capabilityFactsFromState state
 
 typeSchemeReferencedCapabilityFacts :: [TypeSchemeConstraint] -> ScopeCapabilityFacts -> ScopeCapabilityFacts
 typeSchemeReferencedCapabilityFacts [] _ = emptyScopeCapabilityFacts
@@ -200,8 +180,6 @@ typeSchemeReferencedCapabilityFacts schemeConstraints facts =
   facts
     { scopeClassFacts =
         Map.restrictKeys (scopeClassFacts facts) referencedCapabilityNames,
-      scopeGeneratedEqualityClassFacts =
-        Set.intersection (scopeGeneratedEqualityClassFacts facts) referencedCapabilityNames,
       scopeClassMethodSignatures =
         Map.filterWithKey
           (\methodKey _ -> methodKeyReferencesCapturedCapability methodKey)
@@ -222,7 +200,6 @@ typeSchemeConstraintCapabilityName :: TypeSchemeConstraint -> CapabilityId
 typeSchemeConstraintCapabilityName constraint =
   case constraint of
     TypeSchemeConstraint constraintName _ -> constraintName
-    TypeSchemeInferredConstraint constraintName _ -> constraintName
     TypeSchemeMethodConstraint constraintName _ _ -> constraintName
 
 applyCapabilityFacts :: ScopeCapabilityFacts -> InferState -> InferState
@@ -383,33 +360,6 @@ instantiateQualifiedMethodTypeWithExplicitTarget instantiate methodKey explicitT
   where
     rejected next = (MethodSelection Nothing [], addTypeError next (mkNoMatchingQualifiedMethodBodyError methodKey [explicitTarget]))
 
-addUnpreservedInferredMethodConstraintErrors ::
-  SourceSpan ->
-  Set InferenceVariable ->
-  InferState ->
-  InferState ->
-  ExpressionType ->
-  Set InferenceVariable ->
-  InferState
-addUnpreservedInferredMethodConstraintErrors spanValue environmentVariables statementStartState state statementResultType schemeVariables
-  | inferErrorCount state > inferErrorCount statementStartState = state
-  | otherwise = foldl' check state droppedConstraints
-  where
-    droppedConstraints =
-      dedupeTypeSchemeConstraints
-        [ constraint
-        | constraint@(TypeSchemeInferredConstraint _ argumentType) <- newInferredClassConstraints statementStartState state,
-          not (inferredConstraintTargetPreserved state schemeVariables argumentType),
-          not (inferredConstraintTargetStillVisibleInEnv state environmentVariables argumentType),
-          inferredConstraintTargetConcrete state argumentType
-            || (inferErrorCount state == inferErrorCount statementStartState && inferredConstraintTargetEscapesResult state statementResultType argumentType)
-        ]
-    check current constraint =
-      annotateNewErrorsWithPrimarySpan
-        spanValue
-        current
-        (resolveDeferredExplicitConstraint current (typeSchemeConstraintToDeferredExplicitConstraint (capabilityFactsFromState state) (capabilityFactsFromState state) constraint))
-
 newInferredClassConstraints :: InferState -> InferState -> [TypeSchemeConstraint]
 newInferredClassConstraints previousState state =
   take newConstraintCount (inferInferredClassConstraints state)
@@ -417,32 +367,6 @@ newInferredClassConstraints previousState state =
     previousConstraintCount = inferInferredClassConstraintCount previousState
     currentConstraintCount = inferInferredClassConstraintCount state
     newConstraintCount = max 0 (currentConstraintCount - previousConstraintCount)
-
-inferredConstraintTargetPreserved :: InferState -> Set InferenceVariable -> ExpressionType -> Bool
-inferredConstraintTargetPreserved state schemeVariables argumentType =
-  let targetType = resolveType state argumentType
-      targetVariables = freeTypeVariables targetType
-   in not (Set.null targetVariables)
-        && targetVariables `Set.isSubsetOf` schemeVariables
-
-inferredConstraintTargetConcrete :: InferState -> ExpressionType -> Bool
-inferredConstraintTargetConcrete state argumentType =
-  let resolvedArgumentType = defaultLiteralTypes state (resolveType state argumentType)
-   in Set.null (freeTypeVariables resolvedArgumentType)
-
-inferredConstraintTargetStillVisibleInEnv :: InferState -> Set InferenceVariable -> ExpressionType -> Bool
-inferredConstraintTargetStillVisibleInEnv state environmentVariables argumentType =
-  let targetType = resolveType state argumentType
-      targetVariables = freeTypeVariables targetType
-   in not (Set.null targetVariables)
-        && targetVariables `Set.isSubsetOf` environmentVariables
-
-inferredConstraintTargetEscapesResult :: InferState -> ExpressionType -> ExpressionType -> Bool
-inferredConstraintTargetEscapesResult state statementResultType argumentType =
-  let targetVariables = freeTypeVariables (resolveType state argumentType)
-      resultVariables = freeTypeVariables (resolveType state statementResultType)
-   in not (Set.null targetVariables)
-        && not (Set.null (Set.intersection targetVariables resultVariables))
 
 resolveTypeSchemeConstraint :: InferState -> TypeSchemeConstraint -> TypeSchemeConstraint
 resolveTypeSchemeConstraint state = fmap (resolveType state)
@@ -454,7 +378,7 @@ applyTypeSchemePrimitiveConstraints primitiveConstraints state =
     applyPrimitiveConstraint stateAcc primitiveConstraint =
       case primitiveConstraint of
         TypeSchemeNumericConstraint numericConstraint argumentType ->
-          case constrainNumericOperatorType numericConstraint argumentType stateAcc of
+          case constrainNumericType numericConstraint argumentType stateAcc of
             Just nextState -> nextState
             Nothing ->
               addTypeError
@@ -470,8 +394,8 @@ applyTypeSchemePrimitiveConstraints primitiveConstraints state =
               | otherwise ->
                   addTypeError stateAcc (mkTypeSchemeStrictEqualityConstraintError resolvedType)
 
-deferExplicitConstraintsWithFacts :: ScopeCapabilityFacts -> ScopeCapabilityFacts -> [TypeSchemeConstraint] -> InferState -> InferState
-deferExplicitConstraintsWithFacts facts structuralFacts explicitConstraints state
+deferExplicitConstraintsWithFacts :: ScopeCapabilityFacts -> [TypeSchemeConstraint] -> InferState -> InferState
+deferExplicitConstraintsWithFacts facts explicitConstraints state
   | null explicitConstraints = state
   | otherwise =
       modifyInferenceOutput
@@ -479,13 +403,13 @@ deferExplicitConstraintsWithFacts facts structuralFacts explicitConstraints stat
             output
               { outputDeferredConstraints =
                   outputDeferredConstraints output
-                    Seq.>< Seq.fromList (map (typeSchemeConstraintToDeferredExplicitConstraint facts structuralFacts) explicitConstraints)
+                    Seq.>< Seq.fromList (map (typeSchemeConstraintToDeferredExplicitConstraint facts) explicitConstraints)
               }
         )
         state
 
-typeSchemeConstraintToDeferredExplicitConstraint :: ScopeCapabilityFacts -> ScopeCapabilityFacts -> TypeSchemeConstraint -> DeferredExplicitConstraint
-typeSchemeConstraintToDeferredExplicitConstraint facts structuralFacts constraint =
+typeSchemeConstraintToDeferredExplicitConstraint :: ScopeCapabilityFacts -> TypeSchemeConstraint -> DeferredExplicitConstraint
+typeSchemeConstraintToDeferredExplicitConstraint facts constraint =
   case constraint of
     TypeSchemeConstraint constraintName argumentType ->
       DeferredExplicitConstraint
@@ -493,17 +417,7 @@ typeSchemeConstraintToDeferredExplicitConstraint facts structuralFacts constrain
           deferredMethodKey = Nothing,
           deferredWasInferred = False,
           deferredArgumentType = argumentType,
-          deferredVisibleFacts = facts,
-          deferredStructuralFacts = structuralFacts
-        }
-    TypeSchemeInferredConstraint constraintName argumentType ->
-      DeferredExplicitConstraint
-        { deferredConstraintName = constraintName,
-          deferredMethodKey = Nothing,
-          deferredWasInferred = True,
-          deferredArgumentType = argumentType,
-          deferredVisibleFacts = facts,
-          deferredStructuralFacts = structuralFacts
+          deferredVisibleFacts = facts
         }
     TypeSchemeMethodConstraint constraintName methodKey argumentType ->
       DeferredExplicitConstraint
@@ -511,24 +425,23 @@ typeSchemeConstraintToDeferredExplicitConstraint facts structuralFacts constrain
           deferredMethodKey = Just methodKey,
           deferredWasInferred = True,
           deferredArgumentType = argumentType,
-          deferredVisibleFacts = facts,
-          deferredStructuralFacts = structuralFacts
+          deferredVisibleFacts = facts
         }
 
 finalizeDeferredExplicitConstraintsAt :: SourceSpan -> InferState -> InferState -> InferState
 finalizeDeferredExplicitConstraintsAt spanValue statementStartState state =
-  finalizeDeferredExplicitConstraintsAtWithEntailments spanValue [] statementStartState state
+  finalizeBindingConstraintsAt spanValue [] Set.empty statementStartState state
 
-finalizeDeferredExplicitConstraintsAtWithEntailments :: SourceSpan -> [TypeSchemeConstraint] -> InferState -> InferState -> InferState
-finalizeDeferredExplicitConstraintsAtWithEntailments spanValue entailingConstraints statementStartState state =
+finalizeBindingConstraintsAt :: SourceSpan -> [TypeSchemeConstraint] -> Set InferenceVariable -> InferState -> InferState -> InferState
+finalizeBindingConstraintsAt spanValue entailingConstraints environmentVariables statementStartState state =
   annotateNewErrorsWithPrimarySpan
     spanValue
     state
-    (resolveStatementDeferredExplicitConstraints spanValue entailingConstraints statementStartState state)
+    (resolveStatementDeferredExplicitConstraints spanValue entailingConstraints environmentVariables statementStartState state)
 
-resolveStatementDeferredExplicitConstraints :: SourceSpan -> [TypeSchemeConstraint] -> InferState -> InferState -> InferState
-resolveStatementDeferredExplicitConstraints spanValue entailingConstraints statementStartState state =
-  foldl' resolveWithContext stateWithoutStatementConstraints statementConstraints
+resolveStatementDeferredExplicitConstraints :: SourceSpan -> [TypeSchemeConstraint] -> Set InferenceVariable -> InferState -> InferState -> InferState
+resolveStatementDeferredExplicitConstraints spanValue entailingConstraints environmentVariables statementStartState state =
+  foldl' resolveWithContext stateWithoutStatementConstraints localConstraints
   where
     resolveWithContext before constraint
       | inferErrorCount before > inferErrorCount statementStartState = before
@@ -542,11 +455,17 @@ resolveStatementDeferredExplicitConstraints spanValue entailingConstraints state
     currentConstraints = outputDeferredConstraints (inferOutput state)
     priorConstraints = Seq.take priorConstraintCount currentConstraints
     statementConstraints = toList (Seq.drop priorConstraintCount currentConstraints)
+    (capturedConstraints, localConstraints) = partition capturedByEnvironment statementConstraints
+    -- Constraints on an enclosing binding must survive until that binding is
+    -- generalized or made concrete; a nested let cannot supply its evidence.
+    capturedByEnvironment constraint =
+      not (Set.disjoint environmentVariables (freeTypeVariables (resolveType state (deferredArgumentType constraint))))
+        && not (deferredConstraintIsEntailed state entailingConstraints constraint)
     stateWithoutStatementConstraints =
       modifyInferenceOutput
         ( \output ->
             output
-              { outputDeferredConstraints = priorConstraints
+              { outputDeferredConstraints = priorConstraints Seq.>< Seq.fromList capturedConstraints
               }
         )
         state
@@ -569,7 +488,6 @@ superclassPath facts from to = visit Set.empty from
 constraintIdentity :: TypeSchemeConstraint -> (CapabilityId, ExpressionType)
 constraintIdentity constraint = case constraint of
   TypeSchemeConstraint capability target -> (capability, target)
-  TypeSchemeInferredConstraint capability target -> (capability, target)
   TypeSchemeMethodConstraint capability _ target -> (capability, target)
 
 deferredConstraintIsEntailed :: InferState -> [TypeSchemeConstraint] -> DeferredExplicitConstraint -> Bool
@@ -581,17 +499,12 @@ deferredConstraintIsEntailed state assumptions constraint = any entails assumpti
             && not (Set.null (freeTypeVariables (resolveType state target)))
             && isJust (superclassPath (deferredVisibleFacts constraint) capability (deferredConstraintName constraint))
 
-resolveDeferredExplicitConstraint :: InferState -> DeferredExplicitConstraint -> InferState
-resolveDeferredExplicitConstraint = resolveDeferredExplicitConstraintWithEntailments []
-
 resolveDeferredExplicitConstraintWithEntailments :: [TypeSchemeConstraint] -> InferState -> DeferredExplicitConstraint -> InferState
 resolveDeferredExplicitConstraintWithEntailments assumptions state constraint
   | Map.member request (outputEvidence (inferOutput state)) = state
   | otherwise = case resolution of
       Right (evidence, next) -> remember evidence next
-      Left diagnostic
-        | deferredWasInferred constraint && inferredEqualityConstraintCanUseStructuralRuntimeEquality state (deferredStructuralFacts constraint) (deferredMethodKey constraint) capability (resolveType state argument) -> state
-        | otherwise -> remember request (addTypeError state (if isNothing member && deferredWasInferred constraint && not (Set.null (freeTypeVariables (resolveType state argument))) then mkAmbiguousDeferredConstraintError True capability (resolveType state argument) else diagnostic))
+      Left diagnostic -> remember request (addTypeError state (if isNothing member && deferredWasInferred constraint && not (Set.null (freeTypeVariables (resolveType state argument))) then mkAmbiguousDeferredConstraintError True capability (resolveType state argument) else diagnostic))
   where
     resolution
       | deferredConstraintIsEntailed state assumptions constraint = Right (PendingEvidence capability member (resolveType state argument), state)
@@ -652,34 +565,6 @@ resolveCapabilityEvidence assumptions facts capability member argument state
       (selected, after) <- resolveCapabilityEvidence assumptions facts owner Nothing required before
       Right (evidence <> [selected], after)
 
-inferredEqualityConstraintCanUseStructuralRuntimeEquality :: InferState -> ScopeCapabilityFacts -> Maybe CapabilityMethodKey -> CapabilityId -> ExpressionType -> Bool
-inferredEqualityConstraintCanUseStructuralRuntimeEquality state facts maybeMethodKey constraintName argumentType =
-  maybeMethodKey == Nothing
-    && equalityConstraintNameCanUseStructuralRuntimeEquality state facts constraintName
-    && structuralRuntimeEqualityType state argumentType
-
-equalityConstraintNameCanUseStructuralRuntimeEquality :: InferState -> ScopeCapabilityFacts -> CapabilityId -> Bool
-equalityConstraintNameCanUseStructuralRuntimeEquality state facts constraintName =
-  activeEqualityClassName state == Just constraintName
-    || generatedHiddenEqualityClassFact constraintName facts
-
-generatedHiddenEqualityClassFact :: CapabilityId -> ScopeCapabilityFacts -> Bool
-generatedHiddenEqualityClassFact constraintName facts =
-  Set.member constraintName (scopeGeneratedEqualityClassFacts facts)
-    && Map.member constraintName (scopeClassFacts facts)
-
-structuralRuntimeEqualityType :: InferState -> ExpressionType -> Bool
-structuralRuntimeEqualityType state argumentType =
-  case resolveType state argumentType of
-    SemanticList elementType ->
-      supportsRuntimeEqualityType state elementType
-    SemanticTuple elementTypes ->
-      all (supportsRuntimeEqualityType state) elementTypes
-    SemanticData typeName typeArguments ->
-      supportsRuntimeEqualityType state (SemanticData typeName typeArguments)
-    _ ->
-      False
-
 defaultLiteralTypes :: InferState -> ExpressionType -> ExpressionType
 defaultLiteralTypes state =
   defaultLiteralTypesWith state SemanticInt
@@ -707,28 +592,6 @@ addInferredConstraint constraint state =
           }
     )
     state
-
-addInferredEqualityClassConstraintIfVisible :: ExpressionType -> InferState -> InferState
-addInferredEqualityClassConstraintIfVisible argumentType state =
-  case activeEqualityClassName state of
-    Just equalityClassName -> addInferredConstraint (TypeSchemeInferredConstraint equalityClassName argumentType) state
-    Nothing -> state
-
-activeEqualityClassName :: InferState -> Maybe CapabilityId
-activeEqualityClassName state =
-  case filter (unqualifiedEqualityClass . fst) classes of
-    (capability, _) : _ -> Just capability
-    _ -> case filter importedEqualityClass classes of
-      [(capability, _)] -> Just capability
-      _ -> Nothing
-  where
-    classes = Map.toList (inferClassFacts state)
-    unqualifiedEqualityClass (CapabilityId name) = case name of
-      UserName (ResolvedUserName ImportedModule {} _ _) -> False
-      _ -> identifierText name == "Equatable"
-    importedEqualityClass (CapabilityId (UserName (ResolvedUserName ImportedModule {} _ member)), _) =
-      identifierText member == "Equatable"
-    importedEqualityClass _ = False
 
 typeSchemePrimitiveConstraints :: InferState -> Set InferenceVariable -> [TypeSchemePrimitiveConstraint]
 typeSchemePrimitiveConstraints state schemeVariables =

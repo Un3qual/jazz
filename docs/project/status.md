@@ -12,6 +12,7 @@ from partial areas and planned work.
 | Area                                                                  | Status      | Evidence                                                              |
 | --------------------------------------------------------------------- | ----------- | --------------------------------------------------------------------- |
 | Source, literals, bindings, lambdas, blocks, and operators            | Implemented | [Language overview](../language/overview.md)                          |
+| Operator functions and Boolean `not`                                  | Implemented | [Operators](../language/operators.md)                                 |
 | ADTs, typed patterns, ordered cases, and guards                       | Implemented | [ADTs and patterns](../language/algebraic-data-types-and-patterns.md) |
 | Static exhaustiveness and unreachable-arm analysis                    | Implemented | [Control flow](../language/control-flow.md)                           |
 | Type inference, signatures, generic named types, and numeric widths   | Implemented | [Types and signatures](../language/types-and-signatures.md)           |

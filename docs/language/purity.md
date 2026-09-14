@@ -21,4 +21,5 @@ naming contract.
 **Partial:** this is direct-call analysis, not an effect type system. It does
 not prove the purity of unknown higher-order callables, propagate effects
 polymorphically, analyze a cross-module call graph, or enforce purity at
-runtime. Those areas remain [planned](../project/roadmap.md).
+runtime. Because `$` calls the ordinary higher-order function `apply`, it follows
+these same limits. Those areas remain [planned](../project/roadmap.md).

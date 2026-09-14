@@ -53,8 +53,9 @@ import Jazz.Compiler.RecursiveBindings
     preparedRecursiveScopeFacts,
     preparedRecursiveScopeStatements,
   )
-import Jazz.Compiler.SemanticFacts (StatementFacts (statementResolution))
+import Jazz.Compiler.SemanticFacts (ExpressionFacts (expressionSemanticType), StatementFacts (statementResolution))
 import Jazz.Compiler.SourceUnitOwnership (SourceUnitOwner (..))
+import Jazz.Compiler.TypeRepresentation (SemanticType (..))
 
 data RuntimeScopePlan = RuntimeScopePlan
   { runtimeScopePlanIndexedStatements :: [(Int, Statement 'Analyzed)],
@@ -187,6 +188,14 @@ exprDefinitelyNotFunctionValue expr =
     EList {} -> True
     ETuple {} -> True
     EBinary {} -> True
+    EApply node _ _ -> case expressionSemanticType (coreNodeFacts node) of
+      SemanticInt -> True
+      SemanticFloat -> True
+      SemanticNumeric {} -> True
+      SemanticBool -> True
+      SemanticChar -> True
+      SemanticText -> True
+      _ -> False
     ETypeApplication _ functionExpr _ _ ->
       exprDefinitelyNotFunctionValue functionExpr
     EIf _ _ thenExpr elseExpr ->

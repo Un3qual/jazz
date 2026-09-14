@@ -363,7 +363,7 @@ testQualifiedMethodDispatchExecutesSameImplQualifiedMethodCall = do
         notEquals :: a -> a -> Bool.
         }.
         impl RuntimeEq(Int) {
-        equals = \\(left, right) -> left == right.
+        equals = __kernel_equals.
         notEquals = \\(left, right) -> RuntimeEq::equals left right != True.
         }.
         RuntimeEq::notEquals 1 2.
@@ -831,7 +831,7 @@ testQualifiedMethodDispatchMirrorsRuntimeFloat64DomainArithmetic = do
         }.
         floating :: Float64.
         floating = toFloat64 2.
-        (RuntimeFlag::flag) (1.5 + floating).
+        (RuntimeFlag::flag) ((toFloat64 1.5) + floating).
         """
       )
   assertEqual "compile errors" [] (runCompileErrors result)
@@ -848,7 +848,7 @@ testQualifiedMethodDispatchExecutesFloatEqualityBody = do
         equals :: a -> a -> Bool.
         }.
         impl RuntimeEq(Float) {
-        equals = \\(left, right) -> left == right.
+        equals = __kernel_equals.
         }.
         left :: Float.
         left = 1.5.
@@ -873,7 +873,7 @@ testQualifiedMethodDispatchExecutesFloat16EqualityBody = do
         equals :: a -> a -> Bool.
         }.
         impl RuntimeEq(Float16) {
-        equals = \\(left, right) -> left == right.
+        equals = __kernel_equals.
         }.
         left :: Float16.
         left = 1.5.
@@ -898,7 +898,7 @@ testQualifiedMethodDispatchExecutesFloat32EqualityBody = do
         equals :: a -> a -> Bool.
         }.
         impl RuntimeEq(Float32) {
-        equals = \\(left, right) -> left == right.
+        equals = __kernel_equals.
         }.
         left :: Float32.
         left = 1.5.
@@ -923,7 +923,7 @@ testQualifiedMethodDispatchExecutesFloat64EqualityBody = do
         equals :: a -> a -> Bool.
         }.
         impl RuntimeEq(Float64) {
-        equals = \\(left, right) -> left == right.
+        equals = __kernel_equals.
         }.
         left :: Float64.
         left = toFloat64 1.
@@ -2366,7 +2366,7 @@ testSuperclassAndAliasEvidence = do
       """
       data Box a = Box a.
       class Parent(a) { parentSame :: a -> a -> Bool. }.
-      impl Parent(Int) { parentSame = \\(x, y) -> x == y. }.
+      impl Parent(Int) { parentSame = \\(x, y) -> __kernel_equals x y. }.
       impl @{Parent(a)}: Parent(Box(a)) { parentSame = \\(Box x, Box y) -> parentSame x y. }.
       class @{Parent(a)}: Child(a) {
         childSame :: a -> a -> Bool.
@@ -2379,7 +2379,7 @@ testSuperclassAndAliasEvidence = do
       class Transforming(f) { transform :: (a -> b) -> f(a) -> f(b). }.
       impl Transforming(Box) { transform = \\(change, Box x) -> Box (change x). }.
       saved = transform.
-      (check (Box 1) (Box 1), check (Box 1) (Box 2), saved @Box (\\(x) -> x == 1) (Box 1)).
+      (check (Box 1) (Box 1), check (Box 1) (Box 2), saved @Box (\\(x) -> __kernel_equals x 1) (Box 1)).
       """
   assertEqual "compile errors" [] (runCompileErrors result)
   assertEqual "runtime errors" [] (runRuntimeErrors result)
@@ -2422,7 +2422,7 @@ testMethodLocalTraversal = do
       impl Traversing(Box) {
         traverse = \\(change, Box x) -> transform Box (change x).
       }.
-      (traverse (\\(x) -> Wrap (x == 1)) (Box 1),
+      (traverse (\\(x) -> Wrap (__kernel_equals x 1)) (Box 1),
        traverse (\\(x) -> Wrap [x]) (Box True)).
       """
   assertEqual "compile errors" [] (runCompileErrors result)

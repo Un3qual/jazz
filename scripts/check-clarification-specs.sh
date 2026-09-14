@@ -95,9 +95,8 @@ require_pattern "docs/language/operators.md" "built-in precedence" '^## Built-in
 require_pattern "docs/language/operators.md" "operator values and sections" '^## Operator values and sections$'
 require_pattern "docs/language/operators.md" "source-local declarations" '^## Source-local declarations$'
 require_contract_pattern "docs/language/operators.md" "pipe is not Boolean OR and is rejected with E2003" '`\|` participates in pattern alternatives and list patterns; it is not Boolean[[:space:]]+OR\.[[:space:]]+`True \| False` is rejected with `E2003`\.'
-require_contract_pattern "docs/language/operators.md" "executable built-ins are callable values" 'An executable built-in can be used as a callable value\.'
-require_contract_pattern "docs/language/operators.md" "supported built-in section families" 'Sections are available[[:space:]]+for arithmetic `\+`, `-`, `\*`, `/`; ordering `<`, `<=`, `>`, `>=`; and equality[[:space:]]+`==`, `!=`\.'
-require_contract_pattern "docs/language/operators.md" "dollar is callable but not sectionable" '`\$` is[[:space:]]+callable but not sectionable\.'
+require_contract_pattern "docs/language/operators.md" "operators use ordinary functions" 'Operators are notation for ordinary functions\.'
+require_contract_pattern "docs/language/operators.md" "all executable operators support values and sections" 'Every executable operator can be used as a function value or a section\.'
 
 require_contract_pattern "docs/standard-library/queue.md" "peek worst-case normalization" '`peek` is `O\(1\)` when the front is populated and `O\(n\)` when it must[[:space:]]+reverse a non-empty rear to find the oldest value\.'
 require_contract_pattern "docs/standard-library/queue.md" "repeated peek cost" 'Because `peek` does not return the normalized[[:space:]]+queue, repeated peeks of the same front-empty value repeat that `O\(n\)` work\.'

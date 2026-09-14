@@ -6,6 +6,7 @@ module Jazz.Compiler.Modules.Loader.OperatorsTests
 where
 
 import qualified Data.Map.Strict as Map
+import Jazz.Compiler.BundledPrelude (bundledPreludeSource)
 import Jazz.Compiler.Diagnostics.Render
   ( renderDiagnostic,
   )
@@ -28,7 +29,8 @@ import Jazz.TestHarness
 
 operatorTests :: [NamedTest]
 operatorTests =
-  [ ("run module graph retains local operator binding needed by exported binding", testRunModuleGraphRetainsLocalOperatorBindingNeededByExportedBinding),
+  [ ("operator notation retains imported function dependencies", testImportedOperatorFunction),
+    ("run module graph retains local operator binding needed by exported binding", testRunModuleGraphRetainsLocalOperatorBindingNeededByExportedBinding),
     ("run module graph retains local operator signature needed by exported binding", testRunModuleGraphRetainsLocalOperatorSignatureNeededByExportedBinding),
     ("run module graph retains local operator binding needed by explicit imported export", testRunModuleGraphRetainsLocalOperatorBindingNeededByExplicitImportedExport),
     ("run module graph does not leak retained operator binding into importer", testRunModuleGraphDoesNotLeakRetainedOperatorBindingIntoImporter),
@@ -41,7 +43,7 @@ testRunModuleGraphRetainsLocalOperatorBindingNeededByExportedBinding = do
   result <-
     runModuleGraphWithPrelude
       defaultWarningSettings
-      Nothing
+      (Just bundledPreludeSource)
       resolverConfig
       ["App", "Main"]
       lookupSource
@@ -76,7 +78,7 @@ testRunModuleGraphRetainsLocalOperatorSignatureNeededByExportedBinding = do
   result <-
     runModuleGraphWithPrelude
       defaultWarningSettings
-      Nothing
+      (Just bundledPreludeSource)
       resolverConfig
       ["App", "Main"]
       lookupSource
@@ -112,7 +114,7 @@ testRunModuleGraphRetainsLocalOperatorBindingNeededByExplicitImportedExport = do
   result <-
     runModuleGraphWithPrelude
       defaultWarningSettings
-      Nothing
+      (Just bundledPreludeSource)
       resolverConfig
       ["App", "Main"]
       lookupSource
@@ -147,7 +149,7 @@ testRunModuleGraphDoesNotLeakRetainedOperatorBindingIntoImporter = do
   result <-
     runModuleGraphWithPrelude
       defaultWarningSettings
-      Nothing
+      (Just bundledPreludeSource)
       resolverConfig
       ["App", "Main"]
       lookupSource
@@ -189,7 +191,7 @@ testRunModuleGraphImportedRightOperatorSectionCapturesRightOperand = do
   result <-
     runModuleGraphWithPrelude
       defaultWarningSettings
-      Nothing
+      (Just bundledPreludeSource)
       resolverConfig
       ["App", "Main"]
       lookupSource
@@ -229,7 +231,7 @@ testRunModuleGraphIgnoresHiddenOperatorBindingCollisions = do
   result <-
     runModuleGraphWithPrelude
       defaultWarningSettings
-      Nothing
+      (Just bundledPreludeSource)
       resolverConfig
       ["App", "Main"]
       lookupSource
@@ -268,3 +270,36 @@ testRunModuleGraphIgnoresHiddenOperatorBindingCollisions = do
           )
         ]
     lookupSource path = pure (Map.lookup path sourceMap)
+
+-- The wrapper exports only its callers, so retaining add depends on the
+-- operator reference inventory, including first-class values and sections.
+testImportedOperatorFunction :: IO ()
+testImportedOperatorFunction = do
+  result <- runModuleGraphWithPrelude defaultWarningSettings Nothing resolverConfig ["App", "Main"] (lookupSourceIn sources)
+  assertEqual "imported operator compile errors" [] (runCompileErrors result)
+  assertEqual "imported operator runtime errors" [] (runRuntimeErrors result)
+  assertEqual "imported operator output" (Just "(5, 5, 5, 5)") (runOutput result)
+  where
+    sources =
+      Map.fromList
+        [ ( "src/App/Main.jz",
+            """
+            module App::Main {
+              import Lib::Wrapper (direct, aliased, left, right).
+              (direct 9 4, aliased 9 4, left 4, right 9).
+            }
+            """
+          ),
+          ( "src/Lib/Wrapper.jz",
+            """
+            module Lib::Wrapper (direct, aliased, left, right) {
+              import Lib::Operations (add).
+              direct = \\(a, b) -> a + b.
+              aliased = (+).
+              left = (9 +).
+              right = (+ 4).
+            }
+            """
+          ),
+          ("src/Lib/Operations.jz", "module Lib::Operations (add) { add = __kernel_subtract. }")
+        ]

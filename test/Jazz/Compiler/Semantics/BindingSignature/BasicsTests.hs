@@ -49,7 +49,7 @@ basicTests =
     ("source pipeline accepts adjacent signature and binding", testSourceAcceptsSignatureAdjacency),
     ("source pipeline accepts Char and Text signatures", testSourceAcceptsCharTextSignatures),
     ("source pipeline preserves numeric defaults through final solver phase", testSourcePreservesNumericDefaultsThroughFinalSolverPhase),
-    ("source pipeline preserves Float alias hint across numeric operator dispatch", testSourcePreservesFloatAliasHintAcrossNumericOperatorDispatch),
+    ("source pipeline preserves Float alias hint across kernel arithmetic", testSourcePreservesFloatAliasHintAcrossKernelArithmetic),
     ("source pipeline uses binding signatures to contextualize RHS lambdas", testSourceUsesBindingSignaturesToContextualizeRhsLambdas),
     ("compiler keeps nested capability facts scoped", testSourceKeepsNestedCapabilityFactsScoped),
     ("compiler hides alias-only imported capability facts in signatures", testCompilerHidesAliasOnlyImportedCapabilityFactsInSignatures),
@@ -142,8 +142,8 @@ testSourcePreservesNumericDefaultsThroughFinalSolverPhase =
     result.
     """
 
-testSourcePreservesFloatAliasHintAcrossNumericOperatorDispatch :: IO ()
-testSourcePreservesFloatAliasHintAcrossNumericOperatorDispatch = do
+testSourcePreservesFloatAliasHintAcrossKernelArithmetic :: IO ()
+testSourcePreservesFloatAliasHintAcrossKernelArithmetic = do
   result <-
     runSourceWithPrelude
       defaultWarningSettings
@@ -163,7 +163,7 @@ testSourcePreservesFloatAliasHintAcrossNumericOperatorDispatch = do
         right :: Float.
         right = 2.25.
         result :: Bool.
-        result = RuntimeFlag::flag (left + right).
+        result = RuntimeFlag::flag (__kernel_add left right).
         result.
         """
       )

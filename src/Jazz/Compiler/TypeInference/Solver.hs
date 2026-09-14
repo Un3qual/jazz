@@ -7,7 +7,7 @@ module Jazz.Compiler.TypeInference.Solver
     applySubstitution,
     bindTypeVar,
     combineIntegerLiteralRanges,
-    constrainNumericOperatorType,
+    constrainNumericType,
     freshTypeVar,
     freshTypeVars,
     freshTypeVariable,
@@ -301,8 +301,8 @@ applyNumericConstraintToReplacement numericConstraint replacementType
   | typeSatisfiesNumericConstraint numericConstraint replacementType = Just replacementType
   | otherwise = Nothing
 
-constrainNumericOperatorType :: NumericConstraint -> ExpressionType -> InferState -> Maybe InferState
-constrainNumericOperatorType numericConstraint expressionType state =
+constrainNumericType :: NumericConstraint -> ExpressionType -> InferState -> Maybe InferState
+constrainNumericType numericConstraint expressionType state =
   case resolveType state expressionType of
     SemanticVariable typeVar -> Just (addNumericTypeVarConstraint typeVar numericConstraint state)
     resolvedType

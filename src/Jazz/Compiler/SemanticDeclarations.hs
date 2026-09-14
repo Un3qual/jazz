@@ -272,8 +272,6 @@ data SemanticBinding variable
   = PlainTypeBinding (SemanticType ResolvedName variable)
   | SchemeTypeBinding (SemanticScheme variable)
   | BuiltinAliasTypeBinding BuiltinSymbol
-  | BuiltinOperatorAliasTypeBinding Text
-  | OperatorAliasSchemeTypeBinding Text (SemanticScheme variable)
   | ConstructorTypeBinding ResolvedName [ResolvedName] [ConstructorArgumentType]
   deriving stock (Eq, Generic, Show)
   deriving anyclass (NFData)
@@ -312,14 +310,12 @@ data SchemePrimitiveConstraint typeValue
 
 data SchemeConstraint typeValue
   = TypeSchemeConstraint CapabilityId typeValue
-  | TypeSchemeInferredConstraint CapabilityId typeValue
   | TypeSchemeMethodConstraint CapabilityId CapabilityMethodKey typeValue
   deriving stock (Eq, Foldable, Functor, Generic, Ord, Show, Traversable)
   deriving anyclass (NFData)
 
 data ScopeCapabilityFacts = ScopeCapabilityFacts
   { scopeClassFacts :: Map CapabilityId ClassDefinition,
-    scopeGeneratedEqualityClassFacts :: Set CapabilityId,
     scopeClassMethodSignatures :: Map CapabilityMethodKey ClassMethodType,
     scopeImplementations :: Map ImplId ImplementationTemplate
   }
@@ -330,13 +326,12 @@ instance Semigroup ScopeCapabilityFacts where
   leftFacts <> rightFacts =
     ScopeCapabilityFacts
       { scopeClassFacts = Map.union (scopeClassFacts leftFacts) (scopeClassFacts rightFacts),
-        scopeGeneratedEqualityClassFacts = Set.union (scopeGeneratedEqualityClassFacts leftFacts) (scopeGeneratedEqualityClassFacts rightFacts),
         scopeClassMethodSignatures = Map.union (scopeClassMethodSignatures leftFacts) (scopeClassMethodSignatures rightFacts),
         scopeImplementations = Map.union (scopeImplementations leftFacts) (scopeImplementations rightFacts)
       }
 
 instance Monoid ScopeCapabilityFacts where
-  mempty = ScopeCapabilityFacts Map.empty Set.empty Map.empty Map.empty
+  mempty = ScopeCapabilityFacts Map.empty Map.empty Map.empty
 
 emptyScopeCapabilityFacts :: ScopeCapabilityFacts
 emptyScopeCapabilityFacts = mempty
@@ -351,9 +346,7 @@ traverseBindingTypes :: (Applicative f, Ord target) => (variable -> f target) ->
 traverseBindingTypes variable expression binding = case binding of
   PlainTypeBinding value -> PlainTypeBinding <$> expression value
   SchemeTypeBinding scheme -> SchemeTypeBinding <$> traverseScheme scheme
-  OperatorAliasSchemeTypeBinding symbol scheme -> OperatorAliasSchemeTypeBinding symbol <$> traverseScheme scheme
   BuiltinAliasTypeBinding symbol -> pure (BuiltinAliasTypeBinding symbol)
-  BuiltinOperatorAliasTypeBinding symbol -> pure (BuiltinOperatorAliasTypeBinding symbol)
   ConstructorTypeBinding name parameters fields -> pure (ConstructorTypeBinding name parameters fields)
   where
     traverseScheme scheme =
@@ -368,14 +361,12 @@ traverseBindingTypes variable expression binding = case binding of
 bindingQuantifiedVariables :: SemanticBinding variable -> [variable]
 bindingQuantifiedVariables binding = case binding of
   SchemeTypeBinding scheme -> quantifiedVariablesOrderedList (schemeQuantifiedVariables scheme)
-  OperatorAliasSchemeTypeBinding _ scheme -> quantifiedVariablesOrderedList (schemeQuantifiedVariables scheme)
   _ -> []
 
 bindingVariableOrder :: SemanticBinding variable -> [variable]
 bindingVariableOrder binding = case binding of
   PlainTypeBinding value -> toList value
   SchemeTypeBinding scheme -> schemeVariables scheme
-  OperatorAliasSchemeTypeBinding _ scheme -> schemeVariables scheme
   _ -> []
   where
     schemeVariables scheme =

@@ -24,21 +24,36 @@ precedence makes it useful for avoiding parentheses around the argument.
 `|` participates in pattern alternatives and list patterns; it is not Boolean
 OR. `True | False` is rejected with `E2003`.
 
-## Executable built-ins
+## Functions behind operator notation
 
-Arithmetic on operands of the same numeric type returns that type. Built-in
-arithmetic also accepts one integral operand with `Float` or `Float64`; the
-integral operand is converted and the result has the float operand's type.
-Other width changes require explicit conversion. Ordering and equality produce
-`Bool`. See [Runtime values](../reference/runtime-values.md) for the supported
-numeric domains.
+Operators are notation for ordinary functions. `left == right` means
+`equals left right`, including lexical scope, type inference and implementation
+selection. The parser supplies grouping; functions supply behavior.
+
+| Operators            | Functions                                                          |
+| -------------------- | ------------------------------------------------------------------ |
+| `+`, `-`, `*`, `/`   | `add`, `subtract`, `multiply`, `divide`                            |
+| `==`, `!=`           | `equals`, `differs`                                                |
+| `<`, `<=`, `>`, `>=` | `lessThan`, `lessThanOrEqual`, `greaterThan`, `greaterThanOrEqual` |
+| `$`                  | `apply`                                                            |
+
+The Prelude defines arithmetic through `Num`, equality through `Equatable`,
+and ordering through `Comparable::compare`. A user-defined implementation works
+for both the named function and its operator spelling. Local bindings and
+imports of those function names also affect operator notation.
+
+Arithmetic operands have the same type. Convert concrete mixed numeric operands
+explicitly; operators have no additional coercion rules. Equality requires
+`Equatable`, including for ADTs. There is no implicit structural ADT equality.
+See [Prelude](../standard-library/prelude.md) for the functions and capabilities.
+
+Boolean negation is the ordinary function `not`: write `not condition`.
 
 ## Operator values and sections
 
-An executable built-in can be used as a callable value. Sections are available
-for arithmetic `+`, `-`, `*`, `/`; ordering `<`, `<=`, `>`, `>=`; and equality
-`==`, `!=`. A section captures one operand and returns a function. `$` is
-callable but not sectionable.
+Every executable operator can be used as a function value or a section. A section
+captures one operand and returns a function. For example, `($ True) not` evaluates
+to `False`.
 
 Left and right sections capture one operand. Their argument order is exact:
 

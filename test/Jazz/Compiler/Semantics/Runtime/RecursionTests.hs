@@ -184,11 +184,11 @@ testExplicitlyHintedTailRecursionPreservesResultObligations :: IO ()
 testExplicitlyHintedTailRecursionPreservesResultObligations = do
   let recursionDepth :: Int
       recursionDepth = 1000
-      isZero = expressionBinary "==" (expressionVariable "remaining") (expressionLiteral (LInt 0))
+      isZero = expressionKernelBinary "==" (expressionVariable "remaining") (expressionLiteral (LInt 0))
       recurse =
         expressionApply
           (expressionTypeApplication (expressionVariable "collect") (SourceSpan 2 20) TypeInt)
-          (expressionBinary "-" (expressionVariable "remaining") (expressionLiteral (LInt 1)))
+          (expressionKernelBinary "-" (expressionVariable "remaining") (expressionLiteral (LInt 1)))
       expression =
         expressionBlock
           [ statementLet
@@ -271,8 +271,8 @@ testMixedExplicitResultHintsPreserveOrderAndMultiplicity = do
 mixedExplicitlyHintedCallable :: Int -> Expr 'Analyzed
 mixedExplicitlyHintedCallable recursionDepth =
   let uint8 = TypeNumeric NumericUInt8
-      isZero = expressionBinary "==" (expressionVariable "remaining") (expressionLiteral (LInt 0))
-      decrement = expressionBinary "-" (expressionVariable "remaining") (expressionLiteral (LInt 1))
+      isZero = expressionKernelBinary "==" (expressionVariable "remaining") (expressionLiteral (LInt 0))
+      decrement = expressionKernelBinary "-" (expressionVariable "remaining") (expressionLiteral (LInt 1))
       hintedCall functionName line typeHint =
         expressionApply
           (expressionTypeApplication (expressionVariable functionName) (SourceSpan line 20) typeHint)
@@ -293,11 +293,11 @@ mixedExplicitlyHintedCallable recursionDepth =
 
 explicitlyHintedCallable :: Int -> Expr 'Analyzed
 explicitlyHintedCallable recursionDepth =
-  let isZero = expressionBinary "==" (expressionVariable "remaining") (expressionLiteral (LInt 0))
+  let isZero = expressionKernelBinary "==" (expressionVariable "remaining") (expressionLiteral (LInt 0))
       recurse =
         expressionApply
           (expressionTypeApplication (expressionVariable "collect") (SourceSpan 2 20) TypeInt)
-          (expressionBinary "-" (expressionVariable "remaining") (expressionLiteral (LInt 1)))
+          (expressionKernelBinary "-" (expressionVariable "remaining") (expressionLiteral (LInt 1)))
    in expressionBlock
         [ statementLet
             "collect"
@@ -535,7 +535,7 @@ testPatternCaseBinderPreservesAliasDefinitionRecursiveVisibility = do
   assertEqual "runtime output" (Just "0") (runOutput result)
   where
     executableWitnessSource =
-      "f = { target = \\(x) -> if x == 0 then 0 else f (x - 1). alias = target. case True { | target -> alias }. }. f 1."
+      "f = { target = \\(x) -> if __kernel_equals x 0 then 0 else f (__kernel_subtract x 1). alias = target. case True { | target -> alias }. }. f 1."
 
 testBuiltinNameDoesNotGainSelfRecursiveVisibility :: IO ()
 testBuiltinNameDoesNotGainSelfRecursiveVisibility = do
@@ -679,7 +679,7 @@ testNestedRecursiveForwardAliasRuntimeSuccess = do
   assertEqual "runtime output" (Just "0") (runOutput result)
   where
     source =
-      "f = { a = b. b = if False then a else \\(x) -> if x == 0 then 0 else f (x - 1). a. }. f 3."
+      "f = { a = b. b = if False then a else \\(x) -> if __kernel_equals x 0 then 0 else f (__kernel_subtract x 1). a. }. f 3."
 
 testRecursiveDeclaredUserOperatorRuntimeSuccess :: IO ()
 testRecursiveDeclaredUserOperatorRuntimeSuccess = do

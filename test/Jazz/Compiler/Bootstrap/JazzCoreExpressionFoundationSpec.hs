@@ -155,7 +155,6 @@ unsupportedExpressions =
     seCase (seVar "value") [],
     seIf (seLit (LBool True)) (seInt 1) (seInt 0),
     seTypeApplication (seVar "identity") span1 TypeInt,
-    seBinary "$" (seVar "f") (seInt 1),
     seBlock [SSSignature "value" span1 (SignatureType TypeInt)],
     seBlock [SSData span1 "Thing" [] []],
     seBlock [SSClass span1 "Show" ["a"] [] [] []],

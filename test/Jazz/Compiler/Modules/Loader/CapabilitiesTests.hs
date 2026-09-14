@@ -44,7 +44,7 @@ capabilitiesTests =
     ("compile module graph keeps module ADT impl facts distinct", testCompileModuleGraphKeepsModuleAdtImplFactsDistinct),
     ("compile module graph preserves constrained schemes through export bridges", testCompileModuleGraphPreservesConstrainedSchemesThroughExportBridges),
     ("run module graph retains local capabilities needed by inferred equality export", testRunModuleGraphRetainsLocalCapabilitiesNeededByInferredEqualityExport),
-    ("run module graph allows structural equality through hidden inferred equality export", testRunModuleGraphAllowsStructuralEqualityThroughHiddenInferredEqualityExport),
+    ("run module graph uses explicit list equality through hidden inferred equality export", testRunModuleGraphAllowsStructuralEqualityThroughHiddenInferredEqualityExport),
     ("run module graph keeps inferred equality export facts scoped to hidden capability", testRunModuleGraphKeepsInferredEqualityExportFactsScopedToHiddenCapability),
     ("run module graph keeps helper-only inferred equality hidden despite direct sibling import", testRunModuleGraphKeepsHelperOnlyInferredEqualityHiddenDespiteDirectSiblingImport),
     ("compile module graph keeps inferred equality export facts scoped to hidden capability", testCompileModuleGraphKeepsInferredEqualityExportFactsScopedToHiddenCapability),
@@ -199,7 +199,7 @@ testCompileModuleGraphKeepsAliasQualifiedAdtEqualityDistinct = do
     [err] ->
       assertContains
         "alias-qualified ADT equality mismatch"
-        "E2004"
+        "E2006"
         (renderDiagnostic err)
     _ -> failTest "expected exactly one alias-qualified ADT equality mismatch"
   where
@@ -211,6 +211,7 @@ testCompileModuleGraphKeepsAliasQualifiedAdtEqualityDistinct = do
             data Box a = Box a.
             left = L::Box 1.
             right = Box 1.
+            equals = __kernel_equals.
             same = left == right.
             """
           ),
@@ -386,8 +387,8 @@ testRunModuleGraphRetainsLocalCapabilitiesNeededByInferredEqualityExport = do
           ( "src/Lib/Poly.jz",
             """
             module Lib::Poly {
-            class Equatable(a) { }.
-            impl Equatable(Int) { }.
+            class Equatable(a) { equals :: a -> a -> Bool. }.
+            impl Equatable(Int) { equals = __kernel_equals. }.
             same = \\(x) -> x == x.
             }
             """
@@ -422,7 +423,8 @@ testRunModuleGraphAllowsStructuralEqualityThroughHiddenInferredEqualityExport = 
           ( "src/Lib/Poly.jz",
             """
             module Lib::Poly {
-            class Equatable(a) { }.
+            class Equatable(a) { equals :: a -> a -> Bool. }.
+            impl Equatable([Int]) { equals = __kernel_equals. }.
             same = \\(xs) -> xs == xs.
             }
             """
@@ -475,10 +477,10 @@ testRunModuleGraphKeepsInferredEqualityExportFactsScopedToHiddenCapability =
       -- Explicit fragments are intentional: these programs embed test-specific declarations.
       Map.fromList
         [ ( "src/App/Main.jz",
-            "module App::Main {\nimport Lib::Poly (same).\nclass Equatable(a) { }.\nimpl Equatable(Bool) { }.\n" <> appUse <> "\n}"
+            "module App::Main {\nimport Lib::Poly (same).\nclass Equatable(a) { equals :: a -> a -> Bool. }.\nimpl Equatable(Bool) { equals = __kernel_equals. }.\n" <> appUse <> "\n}"
           ),
           ( "src/Lib/Poly.jz",
-            "module Lib::Poly {\nclass Equatable(a) { }.\nimpl Equatable(Int) { }.\n" <> sameDefinition <> "\n}"
+            "module Lib::Poly {\nclass Equatable(a) { equals :: a -> a -> Bool. }.\nimpl Equatable(Int) { equals = __kernel_equals. }.\n" <> sameDefinition <> "\n}"
           )
         ]
 
@@ -531,8 +533,8 @@ testRunModuleGraphKeepsHelperOnlyInferredEqualityHiddenDespiteDirectSiblingImpor
             """
             module App::HelperOnly {
             import Lib::Poly (same).
-            class Equatable(a) { }.
-            impl Equatable(Bool) { }.
+            class Equatable(a) { equals :: a -> a -> Bool. }.
+            impl Equatable(Bool) { equals = __kernel_equals. }.
             helperResult = same True.
             }
             """
@@ -540,8 +542,8 @@ testRunModuleGraphKeepsHelperOnlyInferredEqualityHiddenDespiteDirectSiblingImpor
           ( "src/Lib/Poly.jz",
             """
             module Lib::Poly {
-            class Equatable(a) { }.
-            impl Equatable(Int) { }.
+            class Equatable(a) { equals :: a -> a -> Bool. }.
+            impl Equatable(Int) { equals = __kernel_equals. }.
             same = \\(x) -> x == x.
             }
             """
@@ -576,8 +578,8 @@ testCompileModuleGraphKeepsInferredEqualityExportFactsScopedToHiddenCapability =
             """
             module App::Main {
             import Lib::Poly (same).
-            class Equatable(a) { }.
-            impl Equatable(Bool) { }.
+            class Equatable(a) { equals :: a -> a -> Bool. }.
+            impl Equatable(Bool) { equals = __kernel_equals. }.
             result = same True.
             }
             """
@@ -585,8 +587,8 @@ testCompileModuleGraphKeepsInferredEqualityExportFactsScopedToHiddenCapability =
           ( "src/Lib/Poly.jz",
             """
             module Lib::Poly {
-            class Equatable(a) { }.
-            impl Equatable(Int) { }.
+            class Equatable(a) { equals :: a -> a -> Bool. }.
+            impl Equatable(Int) { equals = __kernel_equals. }.
             same = \\(x) -> x == x.
             }
             """
@@ -621,8 +623,8 @@ testCompileModuleGraphRetainsImportedCapabilityFactsReferencedByInferredExport =
           ( "src/Lib/Facts.jz",
             """
             module Lib::Facts {
-            class Equatable(a) { }.
-            impl Equatable(Int) { }.
+            class Equatable(a) { equals :: a -> a -> Bool. }.
+            impl Equatable(Int) { equals = __kernel_equals. }.
             }
             """
           ),
@@ -664,7 +666,7 @@ testRunModuleGraphKeepsImportedClassImplVisibleWhenHelperIsSelected = do
           ( "src/Lib/Facts.jz",
             """
             module Lib::Facts {
-            class Equatable(a) { }.
+            class Equatable(a) { equals :: a -> a -> Bool. }.
             }
             """
           ),
@@ -672,7 +674,7 @@ testRunModuleGraphKeepsImportedClassImplVisibleWhenHelperIsSelected = do
             """
             module Lib::Wrapper {
             import Lib::Facts (Equatable).
-            impl Equatable(Int) { }.
+            impl Equatable(Int) { equals = __kernel_equals. }.
             same = \\(x) -> x == x.
             }
             """
@@ -840,7 +842,7 @@ testRunModuleGraphAllowsImportedClassQualifiedMethodLookup = do
             equals :: a -> a -> Bool.
             }.
             impl Equatable(Int) {
-            equals = \\(left, right) -> left == right.
+            equals = __kernel_equals.
             }.
             }
             """
@@ -882,7 +884,7 @@ testCompileModuleGraphRejectsAliasOnlyImportedClassQualifiedMethodLookup = do
             equals :: a -> a -> Bool.
             }.
             impl Equatable(Int) {
-            equals = \\(left, right) -> left == right.
+            equals = __kernel_equals.
             }.
             }
             """
@@ -919,7 +921,7 @@ testRunModuleGraphAllowsImportedPreModuleClassQualifiedMethodLookup = do
             equals :: a -> a -> Bool.
             }.
             impl Equatable(Int) {
-            equals = \\(left, right) -> left == right.
+            equals = __kernel_equals.
             }.
             """
           )
@@ -1762,7 +1764,7 @@ testRunModuleGraphRebasesDependencyClassMethodResultHints = do
             """
             module App::Main {
             import Lib::Factory.
-            (\\(Box item) -> item + 255) (Make::make 0).
+            (\\(Box item) -> __kernel_add item 255) (Make::make 0).
             }
             """
           ),
@@ -1812,7 +1814,7 @@ testRunModuleGraphRebasesImportedClassMethodResultHintsFromClassOrigin = do
             impl Make(Int) {
             make = \\(candidate) -> Box 1.
             }.
-            (\\(Box item) -> item + 255) (Make::make 0).
+            (\\(Box item) -> __kernel_add item 255) (Make::make 0).
             }
             """
           ),
@@ -1983,7 +1985,7 @@ testRunModuleGraphPublishesExplicitlyExportedClass = do
             }.
             class Hidden(a) { }.
             impl Equatable(Int) {
-            equals = \\(left, right) -> left == right.
+            equals = __kernel_equals.
             }.
             }
             """
@@ -2018,7 +2020,7 @@ testCompileModuleGraphRejectsPrivateExplicitClassImport = do
             }.
             class Hidden(a) { }.
             impl Equatable(Int) {
-            equals = \\(left, right) -> left == right.
+            equals = __kernel_equals.
             }.
             }
             """
@@ -2077,7 +2079,7 @@ testGenericInstanceImports = mapM_ check ["import Lib::Instances.", "import Lib:
                   module Lib::Instances () {
                     import Lib::Class.
                     helper = \\(answer) -> False.
-                    impl Same(Int) { same = \\(left, right) -> left == right. }.
+                    impl Same(Int) { same = __kernel_equals. }.
                     impl @{Same(a)}: Same([a]) {
                       same = \\(left, right) -> case (left, right) {
                         | ([], []) -> True

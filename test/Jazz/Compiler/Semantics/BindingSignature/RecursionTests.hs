@@ -246,7 +246,7 @@ testSourceKeepsLaterRebindingOverRecursiveScheme =
     left = \\(x) -> x + 1.
     bad = left True.
     """
-    "cannot apply function of type Int64 -> Int64 to argument of type Bool"
+    "cannot apply function of type Int -> Int to argument of type Bool"
 
 testSourceRejectsInterleavedUseConstrainedByLaterRecursiveMember :: IO ()
 testSourceRejectsInterleavedUseConstrainedByLaterRecursiveMember =
@@ -354,4 +354,4 @@ testSourceReportsSignedRecursiveRhsTypeError =
     x :: Bool.
     x = x + 1.
     """
-    "E2003"
+    "E2006"

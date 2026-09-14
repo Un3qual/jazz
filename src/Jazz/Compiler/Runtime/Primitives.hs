@@ -3,13 +3,11 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE PatternSynonyms #-}
 
--- | Builtin and operator dispatch over pure runtime values. The only evaluator
--- capability admitted here is explicit callable application for map, filter,
--- and dollar application.
+-- | Kernel primitives over runtime values. Collection primitives receive an
+-- evaluator callback for applying their function arguments.
 module Jazz.Compiler.Runtime.Primitives
   ( RuntimeApplication,
     evalBuiltin,
-    evalBinary,
   )
 where
 
@@ -41,20 +39,17 @@ import Jazz.Compiler.BuiltinCatalog
     builtinSymbolName,
     builtinSymbolNumericConversionTarget,
     numericTypeIntegerBounds,
-    numericTypeIsIntegral,
     renderNumericTypeName,
   )
 import Jazz.Compiler.DiagnosticCatalog (ErrorCode (..))
 import Jazz.Compiler.Diagnostics (Diagnostic)
 import Jazz.Compiler.Runtime.Semantics
   ( applyRuntimeTypeHint,
-    convertIntegerToFloatTarget,
     evalNumericConversion,
     exceedsFloatTarget,
     integerValueMatchesTarget,
     integerValueWithinBounds,
     isFunctionValue,
-    numericConversionFloatOverflowDiagnostic,
     renderRuntimeType,
     renderRuntimeValue,
     roundFloatTarget,
@@ -154,6 +149,13 @@ evalBuiltinPure builtinFunction arguments =
     (_, [value])
       | Just targetType <- builtinSymbolNumericConversionTarget builtinFunction ->
           evalNumericConversion builtinFunction targetType value
+    (BuiltinAdd, [left, right]) -> evalKernelBinary builtinFunction left right
+    (BuiltinSubtract, [left, right]) -> evalKernelBinary builtinFunction left right
+    (BuiltinMultiply, [left, right]) -> evalKernelBinary builtinFunction left right
+    (BuiltinDivide, [left, right]) -> evalKernelBinary builtinFunction left right
+    (BuiltinEquals, [left, right]) -> evalKernelBinary builtinFunction left right
+    (BuiltinLessThan, [left, right]) -> evalKernelBinary builtinFunction left right
+    (BuiltinGreaterThan, [left, right]) -> evalKernelBinary builtinFunction left right
     (BuiltinHd, [VList [] _]) ->
       Left (runtimeDiagnostic E3009 "runtime primitive 'hd' failed: empty list")
     (BuiltinHd, [VList (headValue : _) maybeTypeHint]) ->
@@ -421,137 +423,100 @@ runtimeBuiltinMapResultElementType mapper maybeCollectionTypeHint =
     _ ->
       Nothing
 
--- | Evaluate the builtin operator subset supported by the runtime.
-evalBinary ::
-  (Monad m) =>
-  (Diagnostic -> failure) ->
-  RuntimeApplication failure m ->
-  Text ->
-  RuntimeValue ->
-  RuntimeValue ->
-  ExceptT failure m RuntimeValue
-evalBinary injectDiagnostic applyRuntimeValue operatorSymbol leftValue rightValue
-  | operatorSymbol == "$" = applyRuntimeValue leftValue rightValue
-  | otherwise = liftRuntimeResult injectDiagnostic (evalBinaryPure operatorSymbol leftValue rightValue)
-
-evalBinaryPure :: Text -> RuntimeValue -> RuntimeValue -> Either Diagnostic RuntimeValue
-evalBinaryPure operatorSymbol leftValue rightValue
-  | isStrictEqualityOperator operatorSymbol,
+-- | Arithmetic and comparison semantics shared by the binary kernel functions.
+evalKernelBinary :: BuiltinSymbol -> RuntimeValue -> RuntimeValue -> Either Diagnostic RuntimeValue
+evalKernelBinary primitive leftValue rightValue
+  | primitive == BuiltinEquals,
     isFunctionValue leftValue || isFunctionValue rightValue =
-      Left (runtimeCallableEqualityDiagnostic operatorSymbol leftValue rightValue)
+      Left (runtimeCallableEqualityDiagnostic leftValue rightValue)
   | otherwise =
       case (leftValue, rightValue) of
         (VAnnotated (RuntimeTypeHint leftTypeHint) leftInnerValue, _)
-          | isStrictEqualityOperator operatorSymbol,
+          | primitive == BuiltinEquals,
             runtimeTypeHintRequiresStructuralEquality leftTypeHint ->
-              evalStructuralEquality operatorSymbol leftValue rightValue
+              evalStructuralEquality leftValue rightValue
           | otherwise ->
-              preserveLeftTypedNumericOperatorResult operatorSymbol leftTypeHint
-                =<< evalBinaryPure operatorSymbol leftInnerValue rightValue
+              preserveLeftTypedNumericResult primitive leftTypeHint
+                =<< evalKernelBinary primitive leftInnerValue rightValue
         (_, VAnnotated (RuntimeTypeHint rightTypeHint) rightInnerValue)
-          | isStrictEqualityOperator operatorSymbol,
+          | primitive == BuiltinEquals,
             runtimeTypeHintRequiresStructuralEquality rightTypeHint ->
-              evalStructuralEquality operatorSymbol leftValue rightValue
+              evalStructuralEquality leftValue rightValue
           | otherwise ->
-              preserveRightTypedNumericOperatorResult operatorSymbol leftValue rightTypeHint
-                =<< evalBinaryPure operatorSymbol leftValue rightInnerValue
+              preserveRightTypedNumericResult primitive leftValue rightTypeHint
+                =<< evalKernelBinary primitive leftValue rightInnerValue
         (VInt leftInt leftMetadata, VInt rightInt rightMetadata)
-          | Just arithmetic <- arithmeticOperation div operatorSymbol ->
-              if operatorSymbol == "/" && rightInt == 0
+          | Just arithmetic <- arithmeticOperation div primitive ->
+              if primitive == BuiltinDivide && rightInt == 0
                 then divisionByZero
-                else evalIntegerArithmetic operatorSymbol leftMetadata rightMetadata (arithmetic leftInt rightInt)
-          | Just predicate <- comparisonOperation operatorSymbol ->
-              evalIntegerPredicate operatorSymbol leftInt leftMetadata rightInt rightMetadata (predicate leftInt rightInt)
+                else evalIntegerArithmetic primitive leftMetadata rightMetadata (arithmetic leftInt rightInt)
+          | Just predicate <- comparisonOperation primitive ->
+              evalIntegerPredicate primitive leftInt leftMetadata rightInt rightMetadata (predicate leftInt rightInt)
         (VFloat leftFloat leftMetadata, VFloat rightFloat rightMetadata)
-          | Just arithmetic <- arithmeticOperation (/) operatorSymbol ->
-              if operatorSymbol == "/" && floatIsZero rightFloat
+          | Just arithmetic <- arithmeticOperation (/) primitive ->
+              if primitive == BuiltinDivide && floatIsZero rightFloat
                 then divisionByZero
-                else evalFloatArithmetic operatorSymbol leftMetadata rightMetadata (arithmetic leftFloat rightFloat)
-          | Just predicate <- comparisonOperation operatorSymbol ->
-              evalFloatPredicate operatorSymbol leftMetadata rightMetadata (predicate leftFloat rightFloat)
-        (VInt leftInt leftMetadata, VFloat rightFloat rightMetadata)
-          | runtimeIntFloat64PromotionAccepted leftMetadata rightMetadata,
-            Just arithmetic <- arithmeticOperation (/) operatorSymbol ->
-              if operatorSymbol == "/" && floatIsZero rightFloat
-                then divisionByZero
-                else evalIntegerFloat64Arithmetic operatorSymbol rightMetadata leftInt rightFloat arithmetic
-          | runtimeIntFloat64PromotionAccepted leftMetadata rightMetadata,
-            Just predicate <- comparisonOperation operatorSymbol ->
-              evalIntegerFloat64Predicate leftInt rightFloat predicate
-        (VFloat leftFloat leftMetadata, VInt rightInt rightMetadata)
-          | runtimeIntFloat64PromotionAccepted rightMetadata leftMetadata,
-            Just arithmetic <- arithmeticOperation (/) operatorSymbol ->
-              if operatorSymbol == "/" && rightInt == 0
-                then divisionByZero
-                else evalIntegerFloat64Arithmetic operatorSymbol leftMetadata rightInt leftFloat (flip arithmetic)
-          | runtimeIntFloat64PromotionAccepted rightMetadata leftMetadata,
-            Just predicate <- comparisonOperation operatorSymbol ->
-              evalIntegerFloat64Predicate rightInt leftFloat (flip predicate)
+                else evalFloatArithmetic primitive leftMetadata rightMetadata (arithmetic leftFloat rightFloat)
+          | Just predicate <- comparisonOperation primitive ->
+              evalFloatPredicate primitive leftMetadata rightMetadata (predicate leftFloat rightFloat)
         (VBool leftBool, VBool rightBool)
-          | isStrictEqualityOperator operatorSymbol -> scalarEquality (leftBool == rightBool)
+          | primitive == BuiltinEquals -> scalarEquality (leftBool == rightBool)
         (VChar leftChar, VChar rightChar)
-          | isStrictEqualityOperator operatorSymbol -> scalarEquality (leftChar == rightChar)
+          | primitive == BuiltinEquals -> scalarEquality (leftChar == rightChar)
         (VText leftText, VText rightText)
-          | isStrictEqualityOperator operatorSymbol -> scalarEquality (leftText == rightText)
+          | primitive == BuiltinEquals -> scalarEquality (leftText == rightText)
         (VList {}, VList {})
-          | isStrictEqualityOperator operatorSymbol -> evalStructuralEquality operatorSymbol leftValue rightValue
+          | primitive == BuiltinEquals -> evalStructuralEquality leftValue rightValue
         (VTuple {}, VTuple {})
-          | isStrictEqualityOperator operatorSymbol -> evalStructuralEquality operatorSymbol leftValue rightValue
+          | primitive == BuiltinEquals -> evalStructuralEquality leftValue rightValue
         (VConstructorApplication {}, VConstructorApplication {})
-          | isStrictEqualityOperator operatorSymbol -> evalStructuralEquality operatorSymbol leftValue rightValue
-        _ -> Left (invalidBinaryOperands operatorSymbol leftValue rightValue)
+          | primitive == BuiltinEquals -> evalStructuralEquality leftValue rightValue
+        _ -> Left (invalidBinaryOperands primitive leftValue rightValue)
   where
-    divisionByZero = Left (runtimeDiagnostic E3001 "runtime primitive '/' failed: division by zero")
-    scalarEquality equal = Right (VBool (if operatorSymbol == "!=" then not equal else equal))
+    divisionByZero = Left (runtimeDiagnostic E3001 "runtime primitive 'divide' failed: division by zero")
+    scalarEquality = Right . VBool
 
-arithmeticOperation :: (Num value) => (value -> value -> value) -> Text -> Maybe (value -> value -> value)
-arithmeticOperation divide operatorSymbol =
-  case operatorSymbol of
-    "+" -> Just (+)
-    "-" -> Just (-)
-    "*" -> Just (*)
-    "/" -> Just divide
+arithmeticOperation :: (Num value) => (value -> value -> value) -> BuiltinSymbol -> Maybe (value -> value -> value)
+arithmeticOperation divide primitive =
+  case primitive of
+    BuiltinAdd -> Just (+)
+    BuiltinSubtract -> Just (-)
+    BuiltinMultiply -> Just (*)
+    BuiltinDivide -> Just divide
     _ -> Nothing
 
-comparisonOperation :: (Ord value) => Text -> Maybe (value -> value -> Bool)
-comparisonOperation operatorSymbol =
-  case operatorSymbol of
-    "<" -> Just (<)
-    "<=" -> Just (<=)
-    ">" -> Just (>)
-    ">=" -> Just (>=)
-    "==" -> Just (==)
-    "!=" -> Just (/=)
+comparisonOperation :: (Ord value) => BuiltinSymbol -> Maybe (value -> value -> Bool)
+comparisonOperation primitive =
+  case primitive of
+    BuiltinLessThan -> Just (<)
+    BuiltinGreaterThan -> Just (>)
+    BuiltinEquals -> Just (==)
     _ -> Nothing
 
-invalidBinaryOperands :: Text -> RuntimeValue -> RuntimeValue -> Diagnostic
-invalidBinaryOperands operatorSymbol leftValue rightValue =
+invalidBinaryOperands :: BuiltinSymbol -> RuntimeValue -> RuntimeValue -> Diagnostic
+invalidBinaryOperands primitive leftValue rightValue =
   runtimeDiagnostic
     E3007
     ( "runtime primitive '"
-        <> operatorSymbol
+        <> builtinSymbolName primitive
         <> "' cannot be applied to "
         <> renderRuntimeType leftValue
         <> " and "
         <> renderRuntimeType rightValue
     )
 
-isStrictEqualityOperator :: Text -> Bool
-isStrictEqualityOperator operatorSymbol =
-  operatorSymbol == "==" || operatorSymbol == "!="
-
-preserveLeftTypedNumericOperatorResult :: Text -> AnalyzedType -> RuntimeValue -> Either Diagnostic RuntimeValue
-preserveLeftTypedNumericOperatorResult operatorSymbol typeHint runtimeValue
-  | numericArithmeticOperator operatorSymbol,
+preserveLeftTypedNumericResult :: BuiltinSymbol -> AnalyzedType -> RuntimeValue -> Either Diagnostic RuntimeValue
+preserveLeftTypedNumericResult primitive typeHint runtimeValue
+  | numericArithmeticPrimitive primitive,
     numericAliasTypeHint typeHint,
     runtimeValueMatchesConstraint typeHint runtimeValue =
       applyRuntimeTypeHint typeHint runtimeValue
   | otherwise =
       Right runtimeValue
 
-preserveRightTypedNumericOperatorResult :: Text -> RuntimeValue -> AnalyzedType -> RuntimeValue -> Either Diagnostic RuntimeValue
-preserveRightTypedNumericOperatorResult operatorSymbol leftValue typeHint runtimeValue
-  | numericArithmeticOperator operatorSymbol,
+preserveRightTypedNumericResult :: BuiltinSymbol -> RuntimeValue -> AnalyzedType -> RuntimeValue -> Either Diagnostic RuntimeValue
+preserveRightTypedNumericResult primitive leftValue typeHint runtimeValue
+  | numericArithmeticPrimitive primitive,
     numericAliasTypeHint typeHint,
     not (runtimeValueHasTargetedNumericMetadata leftValue),
     runtimeValueMatchesConstraint typeHint runtimeValue =
@@ -559,9 +524,9 @@ preserveRightTypedNumericOperatorResult operatorSymbol leftValue typeHint runtim
   | otherwise =
       Right runtimeValue
 
-numericArithmeticOperator :: Text -> Bool
-numericArithmeticOperator operatorSymbol =
-  operatorSymbol == "+" || operatorSymbol == "-" || operatorSymbol == "*" || operatorSymbol == "/"
+numericArithmeticPrimitive :: BuiltinSymbol -> Bool
+numericArithmeticPrimitive primitive =
+  primitive == BuiltinAdd || primitive == BuiltinSubtract || primitive == BuiltinMultiply || primitive == BuiltinDivide
 
 numericAliasTypeHint :: AnalyzedType -> Bool
 numericAliasTypeHint typeHint =
@@ -589,40 +554,38 @@ runtimeTypeHintRequiresStructuralEquality signatureType =
     SemanticTuple {} -> True
     _ -> False
 
-runtimeCallableEqualityDiagnostic :: Text -> RuntimeValue -> RuntimeValue -> Diagnostic
-runtimeCallableEqualityDiagnostic operatorSymbol leftValue rightValue =
+runtimeCallableEqualityDiagnostic :: RuntimeValue -> RuntimeValue -> Diagnostic
+runtimeCallableEqualityDiagnostic leftValue rightValue =
   runtimeDiagnostic
     E3007
-    ( "runtime primitive '"
-        <> operatorSymbol
-        <> "' cannot compare callable values; callable values are not equality-supported, found "
+    ( "runtime primitive 'equals' cannot compare callable values; callable values are not equality-supported, found "
         <> renderRuntimeType leftValue
         <> " and "
         <> renderRuntimeType rightValue
     )
 
 evalIntegerArithmetic ::
-  Text ->
+  BuiltinSymbol ->
   RuntimeIntMetadata ->
   RuntimeIntMetadata ->
   Integer ->
   Either Diagnostic RuntimeValue
-evalIntegerArithmetic operatorSymbol leftMetadata rightMetadata result = do
-  targetType <- selectIntegerBinaryTarget operatorSymbol leftMetadata rightMetadata
-  evalIntegerBinary operatorSymbol targetType result
+evalIntegerArithmetic primitive leftMetadata rightMetadata result = do
+  targetType <- selectIntegerBinaryTarget primitive leftMetadata rightMetadata
+  evalIntegerBinary primitive targetType result
 
-selectIntegerBinaryTarget :: Text -> RuntimeIntMetadata -> RuntimeIntMetadata -> Either Diagnostic (Maybe NumericType)
-selectIntegerBinaryTarget operatorSymbol leftMetadata rightMetadata =
+selectIntegerBinaryTarget :: BuiltinSymbol -> RuntimeIntMetadata -> RuntimeIntMetadata -> Either Diagnostic (Maybe NumericType)
+selectIntegerBinaryTarget primitive leftMetadata rightMetadata =
   case (runtimeIntTargetType leftMetadata, runtimeIntTargetType rightMetadata) of
     (Just leftTarget, Just rightTarget)
       | leftTarget == rightTarget -> Right (Just leftTarget)
-      | otherwise -> Left (mixedIntegerArithmeticDiagnostic operatorSymbol (Just leftTarget) (Just rightTarget))
+      | otherwise -> Left (mixedIntegerArithmeticDiagnostic primitive (Just leftTarget) (Just rightTarget))
     (Just leftTarget, Nothing) -> Right (Just leftTarget)
     (Nothing, Just rightTarget) -> Right (Just rightTarget)
     _ -> Right Nothing
 
-evalIntegerBinary :: Text -> Maybe NumericType -> Integer -> Either Diagnostic RuntimeValue
-evalIntegerBinary operatorSymbol maybeTarget result =
+evalIntegerBinary :: BuiltinSymbol -> Maybe NumericType -> Integer -> Either Diagnostic RuntimeValue
+evalIntegerBinary primitive maybeTarget result =
   case maybeTarget of
     Just targetType ->
       case numericTypeIntegerBounds targetType of
@@ -630,18 +593,18 @@ evalIntegerBinary operatorSymbol maybeTarget result =
           | integerValueWithinBounds result bounds ->
               Right (VInt result (targetedIntMetadata targetType))
           | otherwise ->
-              Left (runtimeIntegerArithmeticOverflowDiagnostic operatorSymbol targetType result bounds)
+              Left (runtimeIntegerArithmeticOverflowDiagnostic primitive targetType result bounds)
         Nothing ->
           Right (VInt result (targetedIntMetadata targetType))
     Nothing ->
       Right (VInt result untypedIntMetadata)
 
-mixedIntegerArithmeticDiagnostic :: Text -> Maybe NumericType -> Maybe NumericType -> Diagnostic
-mixedIntegerArithmeticDiagnostic operatorSymbol leftTarget rightTarget =
+mixedIntegerArithmeticDiagnostic :: BuiltinSymbol -> Maybe NumericType -> Maybe NumericType -> Diagnostic
+mixedIntegerArithmeticDiagnostic primitive leftTarget rightTarget =
   runtimeDiagnostic
     E3007
     ( "runtime primitive '"
-        <> operatorSymbol
+        <> builtinSymbolName primitive
         <> "' cannot mix "
         <> renderIntegerOperandTarget leftTarget
         <> " and "
@@ -654,12 +617,12 @@ renderIntegerOperandTarget maybeTarget =
     Just targetType -> renderNumericTypeName targetType
     Nothing -> "Int"
 
-runtimeIntegerArithmeticOverflowDiagnostic :: Text -> NumericType -> Integer -> (Integer, Integer) -> Diagnostic
-runtimeIntegerArithmeticOverflowDiagnostic operatorSymbol targetType result (lowerBound, upperBound) =
+runtimeIntegerArithmeticOverflowDiagnostic :: BuiltinSymbol -> NumericType -> Integer -> (Integer, Integer) -> Diagnostic
+runtimeIntegerArithmeticOverflowDiagnostic primitive targetType result (lowerBound, upperBound) =
   runtimeDiagnostic
     E3025
     ( "runtime primitive '"
-        <> operatorSymbol
+        <> builtinSymbolName primitive
         <> "' failed: integer value "
         <> Text.pack (show result)
         <> " outside "
@@ -677,83 +640,48 @@ floatIsZero value =
   value == 0
 
 evalFloatArithmetic ::
-  Text ->
+  BuiltinSymbol ->
   RuntimeFloatMetadata ->
   RuntimeFloatMetadata ->
   Double ->
   Either Diagnostic RuntimeValue
-evalFloatArithmetic operatorSymbol leftMetadata rightMetadata result = do
-  targetType <- selectFloatBinaryTarget operatorSymbol leftMetadata rightMetadata
-  evalFloatBinary operatorSymbol targetType result
+evalFloatArithmetic primitive leftMetadata rightMetadata result = do
+  targetType <- selectFloatBinaryTarget primitive leftMetadata rightMetadata
+  evalFloatBinary primitive targetType result
 
-selectFloatBinaryTarget :: Text -> RuntimeFloatMetadata -> RuntimeFloatMetadata -> Either Diagnostic (Maybe NumericType)
-selectFloatBinaryTarget operatorSymbol leftMetadata rightMetadata =
+selectFloatBinaryTarget :: BuiltinSymbol -> RuntimeFloatMetadata -> RuntimeFloatMetadata -> Either Diagnostic (Maybe NumericType)
+selectFloatBinaryTarget primitive leftMetadata rightMetadata =
   case (runtimeFloatTargetType leftMetadata, runtimeFloatTargetType rightMetadata) of
     (Just leftTarget, Just rightTarget)
       | leftTarget == rightTarget -> Right (Just leftTarget)
-      | otherwise -> Left (mixedFloatArithmeticDiagnostic operatorSymbol (Just leftTarget) (Just rightTarget))
+      | otherwise -> Left (mixedFloatArithmeticDiagnostic primitive (Just leftTarget) (Just rightTarget))
     (Just NumericFloat64, Nothing) -> Right (Just NumericFloat64)
     (Nothing, Just NumericFloat64) -> Right (Just NumericFloat64)
-    (Just targetType, Nothing) -> Left (mixedFloatArithmeticDiagnostic operatorSymbol (Just targetType) Nothing)
-    (Nothing, Just targetType) -> Left (mixedFloatArithmeticDiagnostic operatorSymbol Nothing (Just targetType))
+    (Just targetType, Nothing) -> Left (mixedFloatArithmeticDiagnostic primitive (Just targetType) Nothing)
+    (Nothing, Just targetType) -> Left (mixedFloatArithmeticDiagnostic primitive Nothing (Just targetType))
     (Nothing, Nothing) -> Right Nothing
 
-evalFloatBinary :: Text -> Maybe NumericType -> Double -> Either Diagnostic RuntimeValue
-evalFloatBinary operatorSymbol targetType result
+evalFloatBinary :: BuiltinSymbol -> Maybe NumericType -> Double -> Either Diagnostic RuntimeValue
+evalFloatBinary primitive targetType result
   | isNaN result || isInfinite result =
       Left
         ( runtimeDiagnostic
             E3025
-            ("runtime primitive '" <> operatorSymbol <> "' failed: non-finite Float result")
+            ("runtime primitive '" <> builtinSymbolName primitive <> "' failed: non-finite Float result")
         )
   | Just floatTarget <- targetType,
     exceedsFloatTarget floatTarget result =
-      Left (runtimeFloatArithmeticOverflowDiagnostic operatorSymbol floatTarget)
+      Left (runtimeFloatArithmeticOverflowDiagnostic primitive floatTarget)
   | Just floatTarget <- targetType =
       Right (VFloat (roundFloatTarget floatTarget result) (targetedFloatMetadata floatTarget))
   | otherwise = Right (VFloat result (untypedFloatMetadata Nothing))
 
-runtimeIntFloat64PromotionAccepted :: RuntimeIntMetadata -> RuntimeFloatMetadata -> Bool
-runtimeIntFloat64PromotionAccepted intMetadata floatMetadata =
-  runtimeIntMetadataIsIntegral intMetadata
-    && runtimeFloatMetadataIsFloat64Domain floatMetadata
-
-runtimeIntMetadataIsIntegral :: RuntimeIntMetadata -> Bool
-runtimeIntMetadataIsIntegral intMetadata =
-  case runtimeIntTargetType intMetadata of
-    Just numericType -> numericTypeIsIntegral numericType
-    Nothing -> True
-
-runtimeFloatMetadataIsFloat64Domain :: RuntimeFloatMetadata -> Bool
-runtimeFloatMetadataIsFloat64Domain floatMetadata =
-  case runtimeFloatTargetType floatMetadata of
-    Just NumericFloat64 -> True
-    Nothing -> True
-    Just _ -> False
-
-evalIntegerFloat64Arithmetic :: Text -> RuntimeFloatMetadata -> Integer -> Double -> (Double -> Double -> Double) -> Either Diagnostic RuntimeValue
-evalIntegerFloat64Arithmetic operatorSymbol floatMetadata integerValue floatValue combine = do
-  integerFloat <- promotedIntegerFloat64Operand integerValue
-  evalFloatBinary operatorSymbol (runtimeFloatTargetType floatMetadata) (combine integerFloat floatValue)
-
-evalIntegerFloat64Predicate :: Integer -> Double -> (Double -> Double -> Bool) -> Either Diagnostic RuntimeValue
-evalIntegerFloat64Predicate integerValue floatValue predicate = do
-  integerFloat <- promotedIntegerFloat64Operand integerValue
-  pure (VBool (predicate integerFloat floatValue))
-
-promotedIntegerFloat64Operand :: Integer -> Either Diagnostic Double
-promotedIntegerFloat64Operand integerValue =
-  case convertIntegerToFloatTarget BuiltinToFloat64 NumericFloat64 integerValue of
-    Right (VFloat floatValue _) -> Right floatValue
-    Right _ -> Left (numericConversionFloatOverflowDiagnostic BuiltinToFloat64 NumericFloat64)
-    Left diagnostic -> Left diagnostic
-
-mixedFloatArithmeticDiagnostic :: Text -> Maybe NumericType -> Maybe NumericType -> Diagnostic
-mixedFloatArithmeticDiagnostic operatorSymbol leftTarget rightTarget =
+mixedFloatArithmeticDiagnostic :: BuiltinSymbol -> Maybe NumericType -> Maybe NumericType -> Diagnostic
+mixedFloatArithmeticDiagnostic primitive leftTarget rightTarget =
   runtimeDiagnostic
     E3007
     ( "runtime primitive '"
-        <> operatorSymbol
+        <> builtinSymbolName primitive
         <> "' cannot mix "
         <> renderFloatOperandTarget leftTarget
         <> " and "
@@ -766,30 +694,23 @@ renderFloatOperandTarget maybeTarget =
     Just targetType -> renderNumericTypeName targetType
     Nothing -> "Float"
 
-runtimeFloatArithmeticOverflowDiagnostic :: Text -> NumericType -> Diagnostic
-runtimeFloatArithmeticOverflowDiagnostic operatorSymbol targetType =
+runtimeFloatArithmeticOverflowDiagnostic :: BuiltinSymbol -> NumericType -> Diagnostic
+runtimeFloatArithmeticOverflowDiagnostic primitive targetType =
   runtimeDiagnostic
     E3025
     ( "runtime primitive '"
-        <> operatorSymbol
+        <> builtinSymbolName primitive
         <> "' failed: value cannot be represented as finite "
         <> renderNumericTypeName targetType
     )
 
-evalStructuralEquality :: Text -> RuntimeValue -> RuntimeValue -> Either Diagnostic RuntimeValue
-evalStructuralEquality operatorSymbol leftValue rightValue =
+evalStructuralEquality :: RuntimeValue -> RuntimeValue -> Either Diagnostic RuntimeValue
+evalStructuralEquality leftValue rightValue =
   if runtimeValueContainsFunction leftValue || runtimeValueContainsFunction rightValue
-    then Left (runtimeCallableEqualityDiagnostic operatorSymbol leftValue rightValue)
+    then Left (runtimeCallableEqualityDiagnostic leftValue rightValue)
     else case runtimeStructuralEquality leftValue rightValue of
-      Just equalityResult ->
-        Right
-          ( VBool
-              ( if operatorSymbol == "!="
-                  then not equalityResult
-                  else equalityResult
-              )
-          )
-      Nothing -> Left (invalidBinaryOperands operatorSymbol leftValue rightValue)
+      Just equalityResult -> Right (VBool equalityResult)
+      Nothing -> Left (invalidBinaryOperands BuiltinEquals leftValue rightValue)
 
 runtimeValueContainsFunction :: RuntimeValue -> Bool
 runtimeValueContainsFunction value =
@@ -866,8 +787,8 @@ structuralElementEquality leftElements rightElements
         and
         (traverse (uncurry runtimeStructuralEquality) (zip leftElements rightElements))
 
-evalIntegerPredicate :: Text -> Integer -> RuntimeIntMetadata -> Integer -> RuntimeIntMetadata -> Bool -> Either Diagnostic RuntimeValue
-evalIntegerPredicate operatorSymbol leftInt leftMetadata rightInt rightMetadata predicateResult =
+evalIntegerPredicate :: BuiltinSymbol -> Integer -> RuntimeIntMetadata -> Integer -> RuntimeIntMetadata -> Bool -> Either Diagnostic RuntimeValue
+evalIntegerPredicate primitive leftInt leftMetadata rightInt rightMetadata predicateResult =
   case runtimeIntegerMetadataCompatible leftInt leftMetadata rightInt rightMetadata of
     True ->
       Right (VBool predicateResult)
@@ -876,7 +797,7 @@ evalIntegerPredicate operatorSymbol leftInt leftMetadata rightInt rightMetadata 
         ( runtimeDiagnostic
             E3007
             ( "runtime primitive '"
-                <> operatorSymbol
+                <> builtinSymbolName primitive
                 <> "' cannot compare "
                 <> renderIntegerOperandTarget (runtimeIntTargetType leftMetadata)
                 <> " and "
@@ -884,8 +805,8 @@ evalIntegerPredicate operatorSymbol leftInt leftMetadata rightInt rightMetadata 
             )
         )
 
-evalFloatPredicate :: Text -> RuntimeFloatMetadata -> RuntimeFloatMetadata -> Bool -> Either Diagnostic RuntimeValue
-evalFloatPredicate operatorSymbol leftMetadata rightMetadata predicateResult =
+evalFloatPredicate :: BuiltinSymbol -> RuntimeFloatMetadata -> RuntimeFloatMetadata -> Bool -> Either Diagnostic RuntimeValue
+evalFloatPredicate primitive leftMetadata rightMetadata predicateResult =
   if runtimeFloatMetadataCompatible leftMetadata rightMetadata
     then Right (VBool predicateResult)
     else
@@ -893,7 +814,7 @@ evalFloatPredicate operatorSymbol leftMetadata rightMetadata predicateResult =
         ( runtimeDiagnostic
             E3007
             ( "runtime primitive '"
-                <> operatorSymbol
+                <> builtinSymbolName primitive
                 <> "' cannot compare "
                 <> renderFloatOperandTarget (runtimeFloatTargetType leftMetadata)
                 <> " and "

@@ -109,7 +109,7 @@ runProgram body additional =
           """
           module Lib::Facts (class Equatable, type OnlyType) {
             class Equatable(a) { equals :: a -> a -> Bool. }.
-            impl Equatable(Int) { equals = \\(left, right) -> left == right. }.
+            impl Equatable(Int) { equals = __kernel_equals. }.
             class Hidden(a) { hidden :: a -> a. }.
             impl Hidden(Int) { hidden = \\(item) -> item. }.
             data OnlyType = OnlyType.

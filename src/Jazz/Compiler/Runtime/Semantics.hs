@@ -144,9 +144,6 @@ renderRuntimeValue value =
       "(" <> Text.intercalate ", " (map renderRuntimeValue elements) <> ")"
     VClosure {} -> "<function>"
     VBuiltin _ _ -> "<function>"
-    VOperator {} -> "<function>"
-    VSectionLeft {} -> "<function>"
-    VSectionRight {} -> "<function>"
     VConstructorApplication shape capturedArgs
       | constructorApplicationIsSaturated shape capturedArgs ->
           renderConstructorValue
@@ -954,12 +951,6 @@ attachDefaultBindingIntegerTarget runtimeValue =
       VTuple <$> traverse attachDefaultBindingIntegerTarget elements
     VBuiltin builtinSymbol capturedArgs ->
       VBuiltin builtinSymbol <$> traverse attachDefaultBindingIntegerTarget capturedArgs
-    VOperator operatorSymbol capturedArgs ->
-      VOperator operatorSymbol <$> traverse attachDefaultBindingIntegerTarget capturedArgs
-    VSectionLeft operatorSymbol operand ->
-      VSectionLeft operatorSymbol <$> attachDefaultBindingIntegerTarget operand
-    VSectionRight operatorSymbol operand ->
-      VSectionRight operatorSymbol <$> attachDefaultBindingIntegerTarget operand
     VConstructor typeName typeParameters constructorName constructorArguments capturedArgs ->
       VConstructor typeName typeParameters constructorName constructorArguments
         <$> traverse attachDefaultBindingIntegerTarget capturedArgs
@@ -979,11 +970,8 @@ isFunctionValue :: RuntimeValue -> Bool
 isFunctionValue value =
   case value of
     VAnnotated _ innerValue -> isFunctionValue innerValue
-    VSectionLeft {} -> True
-    VSectionRight {} -> True
     VClosure {} -> True
     VBuiltin {} -> True
-    VOperator {} -> True
     VConstructorApplication shape capturedArgs ->
       not (constructorApplicationIsSaturated shape capturedArgs)
     VCapabilityMethod {} -> True
@@ -1011,11 +999,8 @@ renderRuntimeType value =
     VText {} -> "Text"
     VList {} -> "List"
     VTuple {} -> "Tuple"
-    VSectionLeft {} -> "Function"
-    VSectionRight {} -> "Function"
     VClosure {} -> "Function"
     VBuiltin {} -> "Function"
-    VOperator {} -> "Function"
     VConstructorApplication shape capturedArgs
       | constructorApplicationIsSaturated shape capturedArgs -> "Data"
       | otherwise -> "Function"

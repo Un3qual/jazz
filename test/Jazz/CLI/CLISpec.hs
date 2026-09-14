@@ -1586,7 +1586,7 @@ runtimeHdEmptySource :: Text
 runtimeHdEmptySource = "hd []."
 
 preludeSource :: Text
-preludeSource = "inc = (+ 1)."
+preludeSource = "add = __kernel_add. inc = (+ 1)."
 
 bundledPreludeConsumerSource :: Text
 bundledPreludeConsumerSource = "map @List."

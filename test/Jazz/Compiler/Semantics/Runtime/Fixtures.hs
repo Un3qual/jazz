@@ -6,7 +6,7 @@ module Jazz.Compiler.Semantics.Runtime.Fixtures
     classMethodSignature,
     dataConstructor,
     expressionApply,
-    expressionBinary,
+    expressionKernelBinary,
     expressionBlock,
     expressionConstructor,
     expressionConstrainedAs,
@@ -14,11 +14,9 @@ module Jazz.Compiler.Semantics.Runtime.Fixtures
     expressionLambda,
     expressionList,
     expressionLiteral,
-    expressionOperatorValue,
+    expressionKernelFunction,
     expressionPatternCase,
     expressionQualifiedMethod,
-    expressionSectionLeft,
-    expressionSectionRight,
     expressionTuple,
     expressionTypeApplication,
     expressionVariable,
@@ -54,31 +52,29 @@ import Jazz.Compiler.AST
     DataConstructor (..),
     Expr (..),
     ImplMethod (..),
-    Literal,
+    Literal (..),
     Pattern (..),
     SignaturePayload,
     SignatureType,
     Statement (..),
   )
-import Jazz.Compiler.CoreIdentity (CoreBinderId (..), ResolvedReference (BuiltinOperatorReference), emptyResolvedNodeFacts, resolvedNodeReference)
+import Jazz.Compiler.CoreIdentity (CoreBinderId (..), ResolvedReference (BuiltinReference), emptyResolvedNodeFacts, resolvedNodeReference)
 import Jazz.Compiler.Diagnostics (SourceSpan (..))
 import Jazz.Compiler.ModuleIdentity (SourceUnitOwner (StandaloneSourceUnit), standaloneModulePath)
 import Jazz.Compiler.Name
-  ( GeneratedNameKind (..),
-    Name (BuiltinName),
+  ( Name (BuiltinName),
     NameNamespace (CapabilityNamespace, ConstructorNamespace, TypeNamespace, ValueNamespace),
     ResolvedName,
     ResolvedNameOrigin (CurrentModule),
     ResolvedUserName (ResolvedUserName),
     UnresolvedName,
     UserNameLike (renderUserName),
-    generatedName,
     identifierText,
     mkIdentifier,
     operatorBindingName,
     qualifiedMemberName,
   )
-import Jazz.Compiler.Parser.Operator (isBuiltinOperatorSymbol)
+import Jazz.Compiler.Parser.Operator (builtinOperatorFunction)
 import Jazz.Compiler.SemanticFacts
   ( AnalyzedScheme (..),
     ExpressionFacts (..),
@@ -102,7 +98,6 @@ expressionNode =
     ( ExpressionFacts
         (emptyResolvedNodeFacts (StandaloneSourceUnit standaloneModulePath))
         (TypeRepresentation.SemanticVariable (TypeRepresentation.InferenceVariable 0))
-        Nothing
         Map.empty
         []
         []
@@ -192,11 +187,26 @@ mapExpressionNode update expression =
 expressionLambda :: UnresolvedName -> Expr 'Analyzed -> Expr 'Analyzed
 expressionLambda name body = ELambda expressionNode (valueName name) body
 
-expressionOperatorValue :: Text -> Expr 'Analyzed
-expressionOperatorValue symbol =
-  EVar (expressionNode {coreNodeFacts = facts {expressionResolution = (expressionResolution facts) {resolvedNodeReference = if isBuiltinOperatorSymbol symbol then Just (BuiltinOperatorReference symbol) else Nothing}}}) (operatorBindingName symbol)
+expressionKernelFunction :: Text -> Expr 'Analyzed
+expressionKernelFunction symbol = case symbol of
+  "$" -> expressionLambda "function" (expressionLambda "argument" (expressionApply (expressionVariable "function") (expressionVariable "argument")))
+  "!=" -> negated "=="
+  "<=" -> negated ">"
+  ">=" -> negated "<"
+  _ -> case builtinOperatorFunction symbol of
+    Just function ->
+      let name = mkIdentifier ("__kernel_" <> function)
+       in EVar (expressionNode {coreNodeFacts = facts {expressionResolution = (expressionResolution facts) {resolvedNodeReference = Just (BuiltinReference name)}}}) (BuiltinName name)
+    Nothing -> EVar expressionNode (operatorBindingName symbol)
   where
     facts = coreNodeFacts expressionNode
+    negated positive =
+      expressionLambda
+        "left"
+        ( expressionLambda
+            "right"
+            (expressionIf (expressionKernelBinary positive (expressionVariable "left") (expressionVariable "right")) (expressionLiteral (LBool False)) (expressionLiteral (LBool True)))
+        )
 
 expressionList :: [Expr 'Analyzed] -> Expr 'Analyzed
 expressionList = EList expressionNode
@@ -252,40 +262,8 @@ expressionIf = EIf expressionNode
 expressionPatternCase :: Expr 'Analyzed -> [CaseArm 'Analyzed] -> Expr 'Analyzed
 expressionPatternCase = EPatternCase expressionNode
 
-expressionBinary :: Text -> Expr 'Analyzed -> Expr 'Analyzed -> Expr 'Analyzed
-expressionBinary = EBinary expressionNode
-
-expressionSectionLeft :: Expr 'Analyzed -> Text -> Expr 'Analyzed
-expressionSectionLeft left symbol
-  | isBuiltinOperatorSymbol symbol = ESectionLeft expressionNode left symbol
-  | otherwise =
-      expressionApply (expressionLambda captured (expressionApply (expressionOperatorValue symbol) (expressionVariable captured))) left
-  where
-    captured = generatedName (OperatorSectionLeft 0)
-
-expressionSectionRight :: Text -> Expr 'Analyzed -> Expr 'Analyzed
-expressionSectionRight symbol right
-  | isBuiltinOperatorSymbol symbol = ESectionRight expressionNode symbol right
-  | otherwise =
-      expressionApply
-        ( expressionLambda
-            capturedRight
-            ( expressionApply
-                ( expressionLambda
-                    capturedFunction
-                    ( expressionLambda
-                        left
-                        (expressionApply (expressionApply (expressionVariable capturedFunction) (expressionVariable left)) (expressionVariable capturedRight))
-                    )
-                )
-                (expressionOperatorValue symbol)
-            )
-        )
-        right
-  where
-    capturedRight = generatedName (OperatorSectionRight 0)
-    capturedFunction = generatedName (OperatorSectionFunction 0)
-    left = generatedName (OperatorSectionLeft 0)
+expressionKernelBinary :: Text -> Expr 'Analyzed -> Expr 'Analyzed -> Expr 'Analyzed
+expressionKernelBinary symbol left right = expressionApply (expressionApply (expressionKernelFunction symbol) left) right
 
 expressionBlock :: [Statement 'Analyzed] -> Expr 'Analyzed
 expressionBlock = EBlock expressionNode

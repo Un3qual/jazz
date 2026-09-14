@@ -128,8 +128,7 @@ data DeferredExplicitConstraint = DeferredExplicitConstraint
     deferredMethodKey :: Maybe CapabilityMethodKey,
     deferredWasInferred :: Bool,
     deferredArgumentType :: ExpressionType,
-    deferredVisibleFacts :: ScopeCapabilityFacts,
-    deferredStructuralFacts :: ScopeCapabilityFacts
+    deferredVisibleFacts :: ScopeCapabilityFacts
   }
   deriving (Eq, Show)
 

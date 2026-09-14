@@ -30,9 +30,6 @@ module Jazz.Compiler.Runtime.Types
         VTuple,
         VClosure,
         VBuiltin,
-        VOperator,
-        VSectionLeft,
-        VSectionRight,
         VConstructor,
         VConstructorApplication,
         VAnnotated,
@@ -178,9 +175,6 @@ data RuntimeValue
   | VTuple [RuntimeValue]
   | VClosure RuntimeClosure
   | VBuiltin BuiltinSymbol [RuntimeValue]
-  | VOperator Text [RuntimeValue]
-  | VSectionLeft Text RuntimeValue
-  | VSectionRight Text RuntimeValue
   | VConstructorState RuntimeConstructorShape RuntimeAppliedArguments
   | VCapabilityMethod Text
   | VAnnotatedState RuntimeAnnotation RuntimeValue
@@ -222,12 +216,6 @@ instance Show RuntimeValue where
           <> show (runtimeClosureModulePath closure)
       VBuiltin builtinSymbol capturedArgs ->
         "VBuiltin " <> show builtinSymbol <> " " <> show capturedArgs
-      VOperator operatorSymbol capturedArgs ->
-        "VOperator " <> show operatorSymbol <> " " <> show capturedArgs
-      VSectionLeft operatorSymbol operand ->
-        "VSectionLeft " <> show operatorSymbol <> " " <> show operand
-      VSectionRight operatorSymbol operand ->
-        "VSectionRight " <> show operatorSymbol <> " " <> show operand
       VConstructorState shape capturedArgs ->
         "VConstructor "
           <> show (runtimeConstructorTypeName shape)
@@ -280,9 +268,6 @@ pattern VConstructorApplication shape capturedArgs =
   VTuple,
   VClosure,
   VBuiltin,
-  VOperator,
-  VSectionLeft,
-  VSectionRight,
   VConstructorApplication,
   VCapabilityMethod,
   VAnnotated,

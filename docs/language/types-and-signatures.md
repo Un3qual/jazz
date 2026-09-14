@@ -10,13 +10,11 @@ satisfy it. Type variables allow one definition to work uniformly across
 several concrete types, while capability constraints require specific
 operations from those types.
 
-Numeric operations normally require one concrete width; `Int` and `Float` are
-the default-width aliases. The only implicit mixed-domain rule is the direct
-built-in integral-to-`Float` or `Float64` exception. It does not widen to
-`Float16` or `Float32`, combine concrete float widths, or apply to user-defined
-operators. Use the target-named conversion functions for every other width
-change. [Runtime values](../reference/runtime-values.md) lists the built-in
-types and their exact promotion behavior.
+Numeric operations require matching operand types; `Int` and `Float` are the
+default-width aliases. Operators call ordinary functions and have the same
+argument rules, including when used as values or sections. Use the target-named
+conversion functions for mixed concrete types. [Runtime values](../reference/runtime-values.md)
+lists the built-in types and their conversion behavior.
 
 Named types can carry type parameters:
 

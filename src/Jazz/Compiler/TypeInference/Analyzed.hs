@@ -6,7 +6,6 @@
 module Jazz.Compiler.TypeInference.Analyzed
   ( draftExpressionNode,
     draftLambda,
-    draftOperationNode,
     ExpressionDecision (..),
     noExpressionDecision,
     draftDecidedExpressionNode,
@@ -44,8 +43,6 @@ import Jazz.Compiler.SemanticFacts
     AnalyzedPrimitiveConstraint (..),
     AnalyzedScheme (..),
     AnalyzedSchemeConstraint (..),
-    BinaryOperandTyping (..),
-    BinaryOperation (..),
     EvidenceReference (..),
     ExpressionFacts (..),
     InstantiationTarget (..),
@@ -95,25 +92,20 @@ finalizeCheckedExpression solved checked = finalizeDraft solved (checkedExprTree
 
 data ExpressionNodeDraft = ExpressionNodeDraft
   { draftNodeType :: !(Maybe ExpressionType),
-    draftNodeOperation :: !(Maybe BinaryOperation),
     draftNodeEvidence :: !([EvidenceReference]),
     draftNodeInstantiation :: !(Attachment [SemanticInstantiation])
   }
 
 data ExpressionDecision = ExpressionDecision
-  { decisionOperation :: Maybe BinaryOperation,
-    decisionEvidence :: [EvidenceReference],
+  { decisionEvidence :: [EvidenceReference],
     decisionInstantiation :: Maybe ExplicitInstantiationSeed
   }
 
 noExpressionDecision :: ExpressionDecision
-noExpressionDecision = ExpressionDecision Nothing [] Nothing
+noExpressionDecision = ExpressionDecision [] Nothing
 
 draftExpressionNode :: Maybe ExpressionType -> Expr 'Resolved -> Draft (CoreNode 'Analyzed 'ExpressionSort)
 draftExpressionNode = draftDecidedExpressionNode noExpressionDecision
-
-draftOperationNode :: Maybe BinaryOperation -> Maybe ExpressionType -> Expr 'Resolved -> Draft (CoreNode 'Analyzed 'ExpressionSort)
-draftOperationNode operation = draftDecidedExpressionNode (noExpressionDecision {decisionOperation = operation})
 
 draftDecidedExpressionNode :: ExpressionDecision -> Maybe ExpressionType -> Expr 'Resolved -> Draft (CoreNode 'Analyzed 'ExpressionSort)
 draftDecidedExpressionNode decision result expression =
@@ -203,7 +195,6 @@ prepareExpressionNode :: ExpressionDecision -> Maybe (Expr 'Resolved) -> Maybe E
 prepareExpressionNode decision expression result nodeId =
   ExpressionNodeDraft
     { draftNodeType = result,
-      draftNodeOperation = decisionOperation decision,
       draftNodeEvidence = evidence,
       draftNodeInstantiation = explicitInstantiationFacts nodeId expression (decisionInstantiation decision) evidence
     }
@@ -223,16 +214,6 @@ finalizeExpressionNode state payload (CoreNode nodeId spanValue resolution) =
             (selected, _) -> selected
        in makeNode semanticType <$> evidence <*> draftNodeInstantiation payload
   where
-    operation = resolveOperation <$> draftNodeOperation payload
-    resolveOperation selected =
-      selected
-        { binaryOperationOperandTyping = case binaryOperationOperandTyping selected of
-            UniformBinaryOperands operandType -> UniformBinaryOperands (resolveType state operandType)
-            Float64PromotedOperands -> Float64PromotedOperands
-        }
-    operandVariables = case binaryOperationOperandTyping <$> operation of
-      Just (UniformBinaryOperands operandType) -> freeTypeVariables operandType
-      _ -> Set.empty
     makeNode semanticType evidence explicitFacts =
       CoreNode
         nodeId
@@ -240,8 +221,7 @@ finalizeExpressionNode state payload (CoreNode nodeId spanValue resolution) =
         ExpressionFacts
           { expressionResolution = resolution,
             expressionSemanticType = semanticType,
-            expressionBinaryOperation = operation,
-            expressionNumericConstraints = Map.map projectNumericConstraint (Map.restrictKeys (inferNumericVars state) (freeTypeVariables semanticType <> operandVariables)),
+            expressionNumericConstraints = Map.map projectNumericConstraint (Map.restrictKeys (inferNumericVars state) (freeTypeVariables semanticType)),
             expressionInstantiations = map (\instantiation -> instantiation {instantiatedTypes = fmap (resolveType state) (instantiatedTypes instantiation)}) explicitFacts,
             expressionEvidence = evidence,
             expressionEvidenceCaptures = Set.empty,
@@ -307,7 +287,6 @@ withRecursiveBindingEvidence bindings (Draft build) = Draft $ \solved ->
       evidence constraint = case constraint of
         TypeSchemeConstraint capability target -> [PendingEvidence capability Nothing target]
         TypeSchemeMethodConstraint capability (_, member) target -> [PendingEvidence capability (Just member) target]
-        TypeSchemeInferredConstraint {} -> []
    in build solved {inferModule = (inferModule solved) {inferenceRecursiveEvidence = recursiveEvidence <> inferenceRecursiveEvidence (inferModule solved)}}
 
 withEvidenceParameters :: CoreBinderId -> ScopeCapabilityFacts -> TypeScheme -> Draft value -> Draft value
@@ -316,7 +295,7 @@ withEvidenceParameters owner facts scheme (Draft build) = Draft $ \solved ->
         Map.fromList
           [ ((capability, resolveType solved target), (owner, index, path))
           | (index, constraint) <- zip [0 ..] (schemeClassConstraints scheme),
-            (source, target) <- case constraint of TypeSchemeConstraint name argument -> [(name, argument)]; TypeSchemeMethodConstraint name _ argument -> [(name, argument)]; _ -> [],
+            (source, target) <- case constraint of TypeSchemeConstraint name argument -> [(name, argument)]; TypeSchemeMethodConstraint name _ argument -> [(name, argument)],
             capability <- source : Map.keys (scopeClassFacts facts),
             Just path <- [superclassPath facts source capability]
           ]
@@ -413,10 +392,8 @@ projectTypeBinding state binderId@(CoreBinderId (_, nodeId)) binding =
   case binding of
     PlainTypeBinding expressionType -> Right (monomorphicScheme state expressionType)
     SchemeTypeBinding scheme -> Right (projectScheme state scheme)
-    OperatorAliasSchemeTypeBinding _ scheme -> Right (projectScheme state scheme)
     ConstructorTypeBinding {} -> maybe missingScheme Right (projectConstructorBinding binding)
     BuiltinAliasTypeBinding {} -> missingScheme
-    BuiltinOperatorAliasTypeBinding {} -> missingScheme
   where
     missingScheme = Left (MissingStatementScheme nodeId binderId)
 
@@ -461,7 +438,6 @@ projectSchemeConstraint :: InferState -> TypeSchemeConstraint -> AnalyzedSchemeC
 projectSchemeConstraint state constraint =
   case constraint of
     TypeSchemeConstraint name expressionType -> AnalyzedExplicitCapabilityConstraint name (resolveType state expressionType)
-    TypeSchemeInferredConstraint name expressionType -> AnalyzedInferredCapabilityConstraint name (resolveType state expressionType)
     TypeSchemeMethodConstraint name method expressionType -> AnalyzedMethodCapabilityConstraint name method (resolveType state expressionType)
 
 projectPrimitiveConstraint :: InferState -> TypeSchemePrimitiveConstraint -> AnalyzedPrimitiveConstraint

@@ -177,7 +177,7 @@ testSourceAppliesExplicitTypeApplicationToInferredTypeOrder = do
       Nothing
       ( """
         flip = \\(f, x, y) -> f y x.
-        candidate = flip @Int (\\(left, right) -> left + 1) True 2.
+        candidate = flip @Int (\\(left, right) -> __kernel_add left 1) True 2.
         candidate.
         """
       )
@@ -192,7 +192,7 @@ testSourceRejectsPrimitiveIncompatibleExplicitTypeApplication =
     class Num(a) { }.
     impl Num(Bool) { }.
     addSelf :: @{Num(a)}: a -> a.
-    addSelf = \\(x) -> x + x.
+    addSelf = \\(x) -> __kernel_add x x.
     bad = addSelf @Bool True.
     """
     "primitive numeric constraint"

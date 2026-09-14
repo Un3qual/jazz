@@ -1002,7 +1002,7 @@ module ParserDeclaration (
   concreteImplType :: SurfaceSignatureType -> Bool.
   concreteImplType = \(signatureType) -> case signatureType {
     | TypeVariable name -> False
-    | NamedType name -> if identifierStartsLower (terminalTypeName name) then False else True
+    | NamedType name -> not (identifierStartsLower (terminalTypeName name))
     | AppliedType name arguments -> if identifierStartsLower (terminalTypeName name) then False else List::all concreteImplType arguments
     | ListType element -> concreteImplType element
     | TupleType elements -> List::all concreteImplType elements

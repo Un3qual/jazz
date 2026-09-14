@@ -146,8 +146,6 @@ import Jazz.Compiler.SemanticFacts
   ( AnalyzedNumericConstraint (..),
     AnalyzedPrimitiveConstraint (..),
     AnalyzedScheme (..),
-    BinaryOperandTyping (..),
-    BinaryOperation (..),
     EvidenceReference (..),
     ExpressionFacts (..),
     InstantiationTarget (..),
@@ -184,7 +182,7 @@ import Jazz.Compiler.TypeInference.Types
     quantifiedVariablesFromPreferred,
   )
 import Jazz.Compiler.TypeRepresentation
-  ( NumericType (NumericFloat64, NumericInt8),
+  ( NumericType (NumericInt8),
     SignaturePayload (..),
     SignatureType (..),
   )
@@ -209,8 +207,7 @@ tests =
     ("imported monomorphic aliases retain declaration sharing", testImportedMonomorphicAliasSharing),
     ("nominal types retain identity across their module boundary", testNominalTypeIdentity),
     ("runtime consumes analyzed declarations after source types are erased", testRuntimeUsesAnalyzedDeclarations),
-    ("operation facts retain the numeric rule decision across equivalent aliases", testBinaryOperandAliasSelection),
-    ("analyzed operations retain operand typing and alias selection", testAnalyzedBinaryOperations),
+    ("analyzed operators use ordinary calls and checked types", testAnalyzedOperatorFunctions),
     ("analyzed expressions preserve literal-range constraints for numeric specialization", testAnalyzedLiteralRangeFacts),
     ("checked subtrees own their facts before finalization", testCheckedSubtreeOwnership),
     ("successful inference attaches complete analyzed facts", testAnalyzedProgramFactsAreComplete),
@@ -319,7 +316,7 @@ testSingleModuleAnalysis = do
     sources =
       Map.fromList
         [ ("src/App/Main.jz", "module App::Main (result) { import Lib::Facts as Facts. import Lib::Facts (Box). result = Facts::identity @Int (case Facts::Box 1 { | Box item -> if Facts::Equatable::equals item 1 then item else 0 }). result. }"),
-          ("src/Lib/Facts.jz", "module Lib::Facts (identity, type Box(Box), Equatable) { import Lib::Hidden. privateHelper = \\(item) -> item. identity :: a -> a. identity = \\(item) -> privateHelper item. data Box a = Box a. data Unused = Unused. class Equatable(a) { equals :: a -> a -> Bool. }. impl Equatable(Int) { equals = \\(left, right) -> left == right + hiddenZero. }. }"),
+          ("src/Lib/Facts.jz", "module Lib::Facts (identity, type Box(Box), Equatable) { import Lib::Hidden. privateHelper = \\(item) -> item. identity :: a -> a. identity = \\(item) -> privateHelper item. data Box a = Box a. data Unused = Unused. class Equatable(a) { equals :: a -> a -> Bool. }. impl Equatable(Int) { equals = \\(left, right) -> __kernel_equals left (__kernel_add right hiddenZero). }. }"),
           ("src/Lib/Hidden.jz", "module Lib::Hidden { hiddenZero = 0. }")
         ]
     dependencyInterface scope interfaces importDecl =
@@ -374,92 +371,25 @@ testNominalTypeIdentity = do
       binding <- maybe (fail "missing exported value") pure (Map.lookup (ModuleExport ValueNamespace name) (interfaceValueBindings (analyzedInterface checked)))
       pure (interfaceBindingType binding)
 
-testBinaryOperandAliasSelection :: IO ()
-testBinaryOperandAliasSelection = do
+testAnalyzedOperatorFunctions :: IO ()
+testAnalyzedOperatorFunctions = do
   (_, analyzed) <-
     analyzeFixtureProgram
-      ( Map.singleton
-          "src/App/Main.jz"
-          "module App::Main { a :: Float. a = 1.0. b :: Float64. b = 2.0. a + b. }"
-      )
+      (Map.singleton "src/App/Main.jz" "module App::Main { add = __kernel_add. equals = __kernel_equals. x :: Int8. x = 1. x == 2. x + 3. }")
   coreModule <-
     maybe
       (fail "missing analyzed module")
       pure
       (lookupCoreModule (nominalModulePath ("App" :| ["Main"])) analyzed)
   case coreModuleExpr coreModule of
-    EBlock _ statements -> case [coreNodeFacts node | SExpr _ (EBinary node _ _ _) <- statements] of
-      [facts] -> do
-        assertEqual
-          "numeric rule selects the concrete alias"
-          (SemanticNumeric NumericFloat64)
-          (expressionSemanticType facts)
-        assertEqual
-          "operand fact preserves that exact decision"
-          (Just (UniformBinaryOperands (SemanticNumeric NumericFloat64)))
-          (binaryOperationOperandTyping <$> expressionBinaryOperation facts)
-      _ -> fail "missing binary operation"
-    _ -> fail "expected analyzed block"
-
-testAnalyzedBinaryOperations :: IO ()
-testAnalyzedBinaryOperations = do
-  (_, analyzed) <-
-    analyzeFixtureProgram
-      ( Map.singleton
-          "src/App/Main.jz"
-          "module App::Main { add = (+). x :: Int8. x = 1. x == 2. add x 3. 1 + 2.0. }"
-      )
-  coreModule <-
-    maybe
-      (fail "missing analyzed module")
-      pure
-      (lookupCoreModule (nominalModulePath ("App" :| ["Main"])) analyzed)
-  case coreModuleExpr coreModule of
-    EBlock _ statements ->
-      case [expression | SExpr _ expression <- statements] of
-        [ EBinary comparisonNode _ (EVar leftNode _) (ELit rightNode _),
-          EApply applicationNode (EApply _ _ (EVar aliasLeftNode _)) (ELit aliasRightNode _),
-          EBinary promotionNode _ (ELit promotionLeftNode _) (ELit promotionRightNode _)
-          ] -> do
-            assertEqual
-              "comparison result remains Bool"
-              SemanticBool
-              (expressionSemanticType (coreNodeFacts comparisonNode))
-            assertEqual
-              "comparison operands use the signed context"
-              ( Just
-                  ( BinaryOperation
-                      "=="
-                      (UniformBinaryOperands (SemanticNumeric NumericInt8))
-                      (coreNodeId leftNode)
-                      (coreNodeId rightNode)
-                  )
-              )
-              (expressionBinaryOperation (coreNodeFacts comparisonNode))
-            assertEqual
-              "operator alias retains its selected primitive and original operands"
-              ( Just
-                  ( BinaryOperation
-                      "+"
-                      (UniformBinaryOperands (SemanticNumeric NumericInt8))
-                      (coreNodeId aliasLeftNode)
-                      (coreNodeId aliasRightNode)
-                  )
-              )
-              (expressionBinaryOperation (coreNodeFacts applicationNode))
-            assertEqual
-              "implicit promotion is distinct from uniform operand typing"
-              ( Just
-                  ( BinaryOperation
-                      "+"
-                      Float64PromotedOperands
-                      (coreNodeId promotionLeftNode)
-                      (coreNodeId promotionRightNode)
-                  )
-              )
-              (expressionBinaryOperation (coreNodeFacts promotionNode))
-        expressions -> fail ("unexpected operation fixture: " <> show expressions)
-    expression -> fail ("expected analyzed block: " <> show expression)
+    EBlock _ statements -> case [body | SExpr _ body <- statements] of
+      [EApply comparison (EApply _ (EVar _ equalityName) _) _, EApply addition (EApply _ (EVar _ additionName) _) _] -> do
+        assertEqual "comparison function" "equals" (identifierText equalityName)
+        assertEqual "arithmetic function" "add" (identifierText additionName)
+        assertEqual "comparison call result" SemanticBool (expressionSemanticType (coreNodeFacts comparison))
+        assertEqual "arithmetic call preserves numeric width" (SemanticNumeric NumericInt8) (expressionSemanticType (coreNodeFacts addition))
+      other -> fail ("expected ordinary calls: " <> show other)
+    other -> fail ("expected checked block: " <> show other)
 
 testAnalyzedLiteralRangeFacts :: IO ()
 testAnalyzedLiteralRangeFacts = do
@@ -584,7 +514,7 @@ testCheckedSubtreeOwnership = do
         EIf
           (node 1)
           (ELit (node 2) (LBool True))
-          (ETuple (node 3) [EList (node 4) [ELit (node 5) (LInt 1)], EBinary (node 11) "==" (ELit (node 12) (LBool True)) (ELit (node 6) (LBool True))])
+          (ETuple (node 3) [EList (node 4) [ELit (node 5) (LInt 1)], EIf (node 11) (ELit (node 12) (LBool True)) (ELit (node 6) (LBool True)) (ELit (node 13) (LBool False))])
           (ETuple (node 7) [EList (node 8) [ELit (node 9) (LInt 2)], ELit (node 10) (LBool False)])
       inputs = InferenceInputs Nothing defaultWarningSettings Set.empty Map.empty Map.empty Map.empty emptyScopeCapabilityFacts Set.empty Nothing
       (checked, state, _) = inferExpressionWork inputs expression
@@ -594,16 +524,13 @@ testCheckedSubtreeOwnership = do
   assertEqual "owned checked subtree survives output erasure" expected actual
   mapM_
     (assertOwned inputs)
-    [ "(\\(x) -> x) (1 + 2)",
-      "(+) 1 1.5",
-      "($) (1 +) 1.5",
-      "($) (+ 1.5) 1",
-      "case (1, [2]) { | (item, [other]) | (other, [item]) if item > 0 -> item + other | _ -> 0 }"
+    [ "(\\(x) -> x) (__kernel_add 1 2)",
+      "case (1, [2]) { | (item, [other]) | (other, [item]) if __kernel_greaterThan item 0 -> __kernel_add item other | _ -> 0 }"
     ]
   mapM_
     (assertOwnedBlock inputs)
     [ "identity :: a -> a. identity = \\(item) -> item. first = identity @Int 1. identity = True. (first, identity).",
-      "data Box a = Box a. class Equatable(a) { equals :: a -> a -> Bool. }. impl Equatable(Int) { equals = \\(left, right) -> left == right. }. result = case Box 1 { | Box item -> Equatable::equals @Int item 1 }. result.",
+      "data Box a = Box a. class Equatable(a) { equals :: a -> a -> Bool. }. impl Equatable(Int) { equals = __kernel_equals. }. result = case Box 1 { | Box item -> Equatable::equals @Int item 1 }. result.",
       "left = \\(item) -> if True then item else right item. between = left 1. right = \\(item) -> left item. (between, right True)."
     ]
   where
@@ -1022,11 +949,11 @@ factCompletenessSources =
         identity :: a -> a.
         identity = \\(item) -> item.
         countdown :: Int -> Int.
-        countdown = \\(number) -> if number == 0 then 0 else countdown (number - 1).
-        increment = \\(number) -> number + 1.
+        countdown = \\(number) -> if __kernel_equals number 0 then 0 else countdown (__kernel_subtract number 1).
+        increment = \\(number) -> __kernel_add number 1.
         data Box a = Box a.
         class Equatable(a) { equals :: a -> a -> Bool. }.
-        impl Equatable(Int) { equals = \\(left, right) -> left == right. }.
+        impl Equatable(Int) { equals = __kernel_equals. }.
         }
         """
       )
@@ -1381,7 +1308,7 @@ explicitExportSources =
       ( "src/Lib/Value.jz",
         """
         module Lib::Value (answer) {
-        helper = \\(x) -> x + 1.
+        helper = \\(x) -> __kernel_add x 1.
         answer = \\(x) -> helper x.
         }
         """
@@ -1609,9 +1536,9 @@ testScopeStorageDefinitionSites = do
   let source =
         Text.unlines
           [ "offset = 1.",
-            "first = \\(n) -> if n == 0 then offset else second (n - 1).",
+            "first = \\(n) -> if __kernel_equals n 0 then offset else second (__kernel_subtract n 1).",
             "offset = 9.",
-            "second = \\(n) -> if n == 0 then offset else first (n - 1).",
+            "second = \\(n) -> if __kernel_equals n 0 then offset else first (__kernel_subtract n 1).",
             "(first 1, second 1)."
           ]
       hostSource = "if False then __kernel_writeStdoutRaw! \"unused\" else (True, \"\", \"\", \"\"). " <> source
@@ -1654,7 +1581,7 @@ testRunResultProjectionInvariants =
           ("not-executed", Nothing, Nothing, Nothing)
         ),
         ( "runtime failed",
-          runProjectionFixture disabledRuntimeHost "module App::Main { 1 / 0. }",
+          runProjectionFixture disabledRuntimeHost "module App::Main { __kernel_divide 1 0. }",
           ("runtime-failed", Nothing, Nothing, Nothing)
         ),
         ( "explicit exit",
@@ -1828,7 +1755,7 @@ dependencyExpressionSources :: Map.Map FilePath Text
 dependencyExpressionSources =
   Map.fromList
     [ ("src/App/Main.jz", "module App::Main { import Lib::Value. result. }"),
-      ("src/Lib/Value.jz", "module Lib::Value { result = 1. 1 / 0. }")
+      ("src/Lib/Value.jz", "module Lib::Value { result = 1. __kernel_divide 1 0. }")
     ]
 
 testAnalyzedInterfacesExposeOnlyDeclaredExports :: IO ()
@@ -1872,7 +1799,7 @@ testDependencyExpressionContract = do
     localDependencyExpressionSources =
       Map.fromList
         [ ("src/App/Main.jz", "module App::Main { import Lib::Value. result. }"),
-          ("src/Lib/Value.jz", "module Lib::Value { result = 1. 1 / 0. }")
+          ("src/Lib/Value.jz", "module Lib::Value { result = 1. __kernel_divide 1 0. }")
         ]
 
 testAliasIsolationContract :: IO ()

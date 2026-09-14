@@ -142,11 +142,11 @@ hostIOTests =
 testHostTailRecursionIsStackSafe :: IO ()
 testHostTailRecursionIsStackSafe = do
   callsRef <- newIORef []
-  let isZero = expressionBinary "==" (expressionVariable "remaining") (expressionLiteral (LInt 0))
+  let isZero = expressionKernelBinary "==" (expressionVariable "remaining") (expressionLiteral (LInt 0))
       decrement =
         expressionApply
           (expressionVariable "countDown!")
-          (expressionBinary "-" (expressionVariable "remaining") (expressionLiteral (LInt 1)))
+          (expressionKernelBinary "-" (expressionVariable "remaining") (expressionLiteral (LInt 1)))
       expression =
         expressionBlock
           [ statementLet
@@ -179,11 +179,11 @@ testHostAwareEvaluatorPreservesPureExpressions = do
   mapM_ assertPreserved expressions
   where
     expressions =
-      [ expressionBinary "+" (expressionLiteral (LInt 20)) (expressionLiteral (LInt 22)),
-        expressionApply (expressionLambda "itemValue" (expressionBinary "+" (expressionVariable "itemValue") (expressionLiteral (LInt 2)))) (expressionLiteral (LInt 40)),
+      [ expressionKernelBinary "+" (expressionLiteral (LInt 20)) (expressionLiteral (LInt 22)),
+        expressionApply (expressionLambda "itemValue" (expressionKernelBinary "+" (expressionVariable "itemValue") (expressionLiteral (LInt 2)))) (expressionLiteral (LInt 40)),
         expressionBlock
           [ statementLet "itemValue" (SourceSpan 1 1) (expressionLiteral (LInt 40)),
-            statementExpression (SourceSpan 2 1) (expressionBinary "+" (expressionVariable "itemValue") (expressionLiteral (LInt 2)))
+            statementExpression (SourceSpan 2 1) (expressionKernelBinary "+" (expressionVariable "itemValue") (expressionLiteral (LInt 2)))
           ]
       ]
 
@@ -316,7 +316,7 @@ testHostEffectsExecuteAtSelectedExpressionDepth = do
 testHostDependentFunctionSelector :: IO ()
 testHostDependentFunctionSelector = do
   let selector =
-        expressionBinary
+        expressionKernelBinary
           "=="
           (hostCall "__kernel_arguments!" [expressionTuple []])
           (expressionList [expressionLiteral (LText "one"), expressionLiteral (LText "two")])
@@ -338,8 +338,8 @@ testHostDependentFunctionSelector = do
 
 testHostScopePreservesMutualRecursion :: IO ()
 testHostScopePreservesMutualRecursion = do
-  let decrement name = expressionApply (expressionVariable name) (expressionBinary "-" (expressionVariable "itemValue") (expressionLiteral (LInt 1)))
-      isZero = expressionBinary "==" (expressionVariable "itemValue") (expressionLiteral (LInt 0))
+  let decrement name = expressionApply (expressionVariable name) (expressionKernelBinary "-" (expressionVariable "itemValue") (expressionLiteral (LInt 1)))
+      isZero = expressionKernelBinary "==" (expressionVariable "itemValue") (expressionLiteral (LInt 0))
       expression =
         expressionBlock
           [ statementLet
@@ -359,8 +359,8 @@ testHostScopePreservesMutualRecursion = do
 
 testHostScopePreservesHostfulRecursivePeers :: IO ()
 testHostScopePreservesHostfulRecursivePeers = do
-  let decrement name = expressionApply (expressionVariable name) (expressionBinary "-" (expressionVariable "itemValue") (expressionLiteral (LInt 1)))
-      isZero = expressionBinary "==" (expressionVariable "itemValue") (expressionLiteral (LInt 0))
+  let decrement name = expressionApply (expressionVariable name) (expressionKernelBinary "-" (expressionVariable "itemValue") (expressionLiteral (LInt 1)))
+      isZero = expressionKernelBinary "==" (expressionVariable "itemValue") (expressionLiteral (LInt 0))
       expression =
         expressionBlock
           [ statementLet
@@ -399,7 +399,7 @@ testHostImplMethodSelector = do
       """
       class RuntimePick(a) { pick! :: a -> Bool. }.
       impl RuntimePick(Int) {
-        pick! = if __kernel_arguments! () == ["one", "two"] then \\(ignored) -> True else \\(ignored) -> False.
+        pick! = if __kernel_equals (__kernel_arguments! ()) ["one", "two"] then \\(ignored) -> True else \\(ignored) -> False.
       }.
       RuntimePick::pick! 1.
       """
@@ -424,7 +424,7 @@ testHostImplMethodNumericSignature =
           (recordingIOHost callsRef)
           defaultWarningSettings
           Nothing
-          ("class RuntimePick(a) { pick! :: " <> signature <> ". }. impl RuntimePick(Float) { pick! = if __kernel_arguments! () == [\"one\", \"two\"] then " <> body <> " else " <> body <> ". }. " <> invocation <> ".")
+          ("class RuntimePick(a) { pick! :: " <> signature <> ". }. impl RuntimePick(Float) { pick! = if __kernel_equals (__kernel_arguments! ()) [\"one\", \"two\"] then " <> body <> " else " <> body <> ". }. " <> invocation <> ".")
       assertEqual "numeric method compile errors" [] (runCompileErrors result)
       assertEqual "numeric method runtime errors" [] (runRuntimeErrors result)
       assertEqual "numeric method result" (Just "1.0") (runOutput result)
@@ -851,7 +851,7 @@ testNullaryEvidencePreservesHostMethodCaching = do
       first! :: Int.
       first! = RuntimeDefault::defaultValue!.
       (first!, RuntimeDefault::defaultValue! @Bool, first!,
-       RuntimeDefault::defaultValue! @Int, RuntimeDefault::defaultValue! @Int == 41).
+       RuntimeDefault::defaultValue! @Int, __kernel_equals (RuntimeDefault::defaultValue! @Int) 41).
       """
   calls <- readIORef callsRef
   assertEqual "nullary host compile errors" [] (runCompileErrors result)

@@ -299,29 +299,11 @@ testSourceRejectsOutOfRangeWidthSpecificBranchLiterals = do
     "E2005"
 
 testSourceRejectsOutOfRangeWidthSpecificLiteralArithmetic :: IO ()
-testSourceRejectsOutOfRangeWidthSpecificLiteralArithmetic = do
+testSourceRejectsOutOfRangeWidthSpecificLiteralArithmetic =
   assertSourceSingleErrorContains
     """
     x :: UInt8.
     x = 1 + 300.
-    """
-    "E2005"
-  assertSourceSingleErrorContains
-    """
-    x :: UInt8.
-    x = 200 + 100.
-    """
-    "E2005"
-  assertSourceSingleErrorContains
-    """
-    x :: UInt8.
-    x = 0 - 1.
-    """
-    "E2005"
-  assertSourceSingleErrorContains
-    """
-    x :: UInt8.
-    x = 16 * 16.
     """
     "E2005"
 

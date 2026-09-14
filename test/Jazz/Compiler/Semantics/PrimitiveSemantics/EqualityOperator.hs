@@ -1,4 +1,3 @@
-{-# LANGUAGE DataKinds #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 module Jazz.Compiler.Semantics.PrimitiveSemantics.EqualityOperator
@@ -10,11 +9,6 @@ module Jazz.Compiler.Semantics.PrimitiveSemantics.EqualityOperator
 where
 
 import qualified Data.Text as Text
-import Jazz.Compiler.AST
-  ( CorePhase (Lowered),
-    Expr,
-    Literal (..),
-  )
 import Jazz.Compiler.BundledPrelude
   ( bundledPreludeSource,
   )
@@ -25,7 +19,6 @@ import Jazz.Compiler.Diagnostics.Render
 import Jazz.Compiler.Driver
   ( CompileResult,
     compileErrors,
-    compileExpr,
     compileSource,
     compileSourceWithPrelude,
   )
@@ -34,14 +27,9 @@ import Jazz.Compiler.Semantics.PrimitiveSemantics.Shared
     assertCompileErrorWithBundledPrelude,
     assertCompiles,
     assertCompilesWithBundledPrelude,
-    mkProgram,
   )
 import Jazz.Compiler.WarningConfig
   ( defaultWarningSettings,
-  )
-import Jazz.TestCore
-  ( loweredBinary,
-    loweredLiteral,
   )
 import Jazz.TestHarness
   ( NamedTest,
@@ -79,8 +67,8 @@ structuralEqualityTests =
     ("source pipeline accepts deferred direct equality once constrained", testSourcePipelineAcceptsDeferredDirectEquality),
     ("source pipeline accepts structural list equality", testSourcePipelineAcceptsStructuralListEquality),
     ("source pipeline accepts structural tuple equality", testSourcePipelineAcceptsStructuralTupleEquality),
-    ("source pipeline accepts structural ADT equality", testSourcePipelineAcceptsStructuralAdtEquality),
-    ("source pipeline accepts self-referential structural ADT equality", testSourcePipelineAcceptsSelfReferentialStructuralAdtEquality),
+    ("source pipeline accepts explicit ADT equality", testSourcePipelineAcceptsStructuralAdtEquality),
+    ("source pipeline accepts explicit recursive ADT equality", testSourcePipelineAcceptsSelfReferentialStructuralAdtEquality),
     ("source pipeline accepts structural equality sections", testSourcePipelineAcceptsStructuralEqualitySections),
     ("source pipeline rejects structural equality with function elements", testSourcePipelineRejectsStructuralFunctionEquality),
     ("source pipeline rejects structural ADT equality with function payloads", testSourcePipelineRejectsStructuralAdtFunctionEquality),
@@ -96,7 +84,7 @@ operatorTests :: [NamedTest]
 operatorTests =
   [ ("source pipeline rejects equality section mismatched application", testSourcePipelineRejectsEqualitySectionTypeMismatch),
     ("source pipeline rejects deferred equality section constrained to unresolved list", testSourcePipelineRejectsDeferredEqualitySectionUnresolvedListConstraint),
-    ("source pipeline rejects unsupported section operator", testSourcePipelineRejectsUnsupportedSectionOperator),
+    ("source pipeline accepts dollar sections", testSourcePipelineAcceptsDollarSections),
     ("unsupported operator values retain their own source spans", testUnsupportedOperatorValueSpans),
     ("source pipeline accepts bare operator value", testSourcePipelineAcceptsBareOperatorValue),
     ("source pipeline accepts bare operator value application", testSourcePipelineAcceptsBareOperatorValueApplication),
@@ -119,27 +107,27 @@ assertCallableEqualityRejected failureLabel source = do
 assertCallableEqualityRejectedWithBundledPrelude :: String -> Text.Text -> IO ()
 assertCallableEqualityRejectedWithBundledPrelude failureLabel source = do
   result <- compileSourceWithPrelude defaultWarningSettings (Just bundledPreludeSource) source
-  assertCallableEqualityDiagnostic failureLabel result
+  assertSingleDiagnosticContains (Text.pack failureLabel) "E2015" (compileErrors result)
 
 assertCallableEqualityDiagnostic :: String -> CompileResult -> IO ()
 assertCallableEqualityDiagnostic failureLabel result = do
   assertSingleDiagnosticContains
     (Text.pack (failureLabel <> " code"))
-    "E2004"
+    "E2009"
     (compileErrors result)
   assertSingleDiagnosticContains
     (Text.pack (failureLabel <> " callable text"))
-    "callable values are not equality-supported"
+    "Equatable"
     (compileErrors result)
 
 testAcceptsIntEquality :: IO ()
 testAcceptsIntEquality = do
-  result <- compileExpr defaultWarningSettings intEqualityProgram
+  result <- compileSource defaultWarningSettings "1 == 1."
   assertEqual "compile errors" [] (compileErrors result)
 
 testAcceptsBoolEquality :: IO ()
 testAcceptsBoolEquality = do
-  result <- compileExpr defaultWarningSettings boolEqualityProgram
+  result <- compileSource defaultWarningSettings "True == False."
   assertEqual "compile errors" [] (compileErrors result)
 
 testSourcePipelineAcceptsCharTextEquality :: IO ()
@@ -150,7 +138,7 @@ testSourcePipelineAcceptsCharTextEquality = do
 testSourcePipelineRejectsCharTextMismatch :: IO ()
 testSourcePipelineRejectsCharTextMismatch = do
   result <- compileSource defaultWarningSettings "bad = 'a' == \"a\"."
-  assertSingleDiagnosticContains "Char/Text mismatch" "E2004" (compileErrors result)
+  assertSingleDiagnosticContains "Char/Text mismatch" "E2006" (compileErrors result)
 
 testSourcePipelineAcceptsCharTextEqualityValuesAndSections :: IO ()
 testSourcePipelineAcceptsCharTextEqualityValuesAndSections =
@@ -166,26 +154,26 @@ testSourcePipelineTypesCharTextPatterns = do
 
 testRejectsEqualityTypeMismatch :: IO ()
 testRejectsEqualityTypeMismatch = do
-  result <- compileExpr defaultWarningSettings equalityTypeMismatchProgram
+  result <- compileSource defaultWarningSettings "1 == True."
   assertSingleDiagnosticContains
     "strict equality type error"
-    "E2004"
+    "E2006"
     (compileErrors result)
 
 testRejectsInequalityTypeMismatch :: IO ()
 testRejectsInequalityTypeMismatch = do
-  result <- compileExpr defaultWarningSettings inequalityTypeMismatchProgram
+  result <- compileSource defaultWarningSettings "True != 1."
   assertSingleDiagnosticContains
     "strict inequality type error"
-    "E2004"
+    "E2006"
     (compileErrors result)
 
 testRejectsComparisonTypeMismatch :: IO ()
 testRejectsComparisonTypeMismatch = do
-  result <- compileExpr defaultWarningSettings comparisonTypeMismatchProgram
+  result <- compileSource defaultWarningSettings "True < False."
   assertSingleDiagnosticContains
     "comparison type error"
-    "E2003"
+    "E2009"
     (compileErrors result)
 
 testSourcePipelineAcceptsEqualitySection :: IO ()
@@ -221,6 +209,7 @@ testSourcePipelineAcceptsStructuralAdtEquality = do
   assertCompiles
     """
     data Maybe = Nothing | Just Int.
+    impl Equatable(Maybe) { equals = __kernel_equals. }.
     left = Just 1.
     right = Just 1.
     same = left == right.
@@ -233,6 +222,7 @@ testSourcePipelineAcceptsStructuralAdtEquality = do
   assertCompiles
     """
     data Box a = Box a.
+    impl @{Equatable(a)}: Equatable(Box(a)) { equals = \\(Box left, Box right) -> equals left right. }.
     left = Box [1, 2].
     right = Box [1, 2].
     same = left == right.
@@ -247,6 +237,7 @@ testSourcePipelineAcceptsSelfReferentialStructuralAdtEquality = do
           defaultWarningSettings
           """
           data IntList = Nil | Cons Int IntList.
+          impl Equatable(IntList) { equals = __kernel_equals. }.
           left = Cons 1 Nil.
           right = Cons 1 Nil.
           same = left == right.
@@ -272,16 +263,17 @@ testSourcePipelineRejectsStructuralFunctionEquality = do
     compileSource
       defaultWarningSettings
       """
+      f :: Int -> Int.
       f = \\(x) -> x.
       x = [f] == [f].
       """
   assertSingleDiagnosticContains
     "function-valued structural equality code"
-    "E2004"
+    "E2009"
     (compileErrors result)
   assertSingleDiagnosticContains
     "function-valued structural equality summary"
-    "lists and tuples containing equality-supported elements"
+    "Equatable(Int -> Int)"
     (compileErrors result)
 
 testSourcePipelineRejectsStructuralAdtFunctionEquality :: IO ()
@@ -291,6 +283,7 @@ testSourcePipelineRejectsStructuralAdtFunctionEquality = do
       defaultWarningSettings
       """
       data Box a = Box a.
+      f :: Int -> Int.
       f = \\(x) -> x.
       left = Box f.
       right = Box f.
@@ -298,11 +291,11 @@ testSourcePipelineRejectsStructuralAdtFunctionEquality = do
       """
   assertSingleDiagnosticContains
     "function-valued ADT equality code"
-    "E2004"
+    "E2009"
     (compileErrors result)
   assertSingleDiagnosticContains
     "function-valued ADT equality summary"
-    "ADTs containing equality-supported constructor payloads"
+    "Equatable(Box(Int -> Int))"
     (compileErrors result)
 
 testSourcePipelineRejectsDuplicateAdtDeclarationBeforeStructuralEquality :: IO ()
@@ -327,10 +320,12 @@ testSourcePipelineRejectsStructuralAdtPartialConstructorEquality =
   assertCompileError
     """
     data Box a = Box a.
-    x = Box == Box.
+    constructor :: Int -> Box(Int).
+    constructor = Box.
+    x = constructor == constructor.
     """
     "partial constructor equality"
-    "E2004"
+    "E2009"
 
 testSourcePipelineRejectsStructuralAdtTypeMismatch :: IO ()
 testSourcePipelineRejectsStructuralAdtTypeMismatch =
@@ -341,7 +336,7 @@ testSourcePipelineRejectsStructuralAdtTypeMismatch =
     x = Lefty == Righty.
     """
     "different ADT type equality"
-    "E2004"
+    "E2006"
 
 testSourcePipelineRejectsOperatorSectionCallableEquality :: IO ()
 testSourcePipelineRejectsOperatorSectionCallableEquality = do
@@ -364,10 +359,10 @@ testSourcePipelineRejectsBareOperatorCallableEquality :: IO ()
 testSourcePipelineRejectsBareOperatorCallableEquality = do
   assertCallableEqualityRejected
     "bare arithmetic operator equality"
-    "same = (+) == (+)."
+    "plus :: Int -> Int -> Int. plus = (+). same = plus == plus."
   assertCallableEqualityRejected
     "bare equality operator inequality"
-    "different = (==) != (==)."
+    "eq :: Int -> Int -> Bool. eq = (==). different = eq != eq."
 
 testSourcePipelineRejectsBundledCallableEquality :: IO ()
 testSourcePipelineRejectsBundledCallableEquality = do
@@ -390,24 +385,22 @@ testSourcePipelineRejectsDeferredEqualitySectionUnresolvedListConstraint =
   assertCompileErrorWithBundledPrelude
     "x = (hd [] ==) []."
     "deferred equality section must still reject unresolved list equality"
-    "E2006"
+    "E2009"
 
 testSourcePipelineAcceptsDeferredDirectEquality :: IO ()
 testSourcePipelineAcceptsDeferredDirectEquality =
   assertCompilesWithBundledPrelude
     """
+    candidate :: Int.
     candidate = hd [].
     same = candidate == candidate.
     sum = candidate + 1.
     sum.
     """
 
-testSourcePipelineRejectsUnsupportedSectionOperator :: IO ()
-testSourcePipelineRejectsUnsupportedSectionOperator =
-  assertCompileError
-    "x = ($ 1)."
-    "unsupported section operator"
-    "E2008"
+testSourcePipelineAcceptsDollarSections :: IO ()
+testSourcePipelineAcceptsDollarSections =
+  assertCompiles "x = ($ 1). y = (not $)."
 
 testSourcePipelineAcceptsBareOperatorValue :: IO ()
 testSourcePipelineAcceptsBareOperatorValue =
@@ -444,7 +437,7 @@ testSourcePipelineKeepsBuiltinPipeOffDeclaredOperatorBindingPath = do
     [err] -> do
       let rendered = renderDiagnostic err
       assertContains "builtin pipe diagnostic code" "E2003" rendered
-      assertContains "builtin pipe diagnostic text" "cannot apply operator '|'" rendered
+      assertContains "builtin pipe diagnostic text" "builtin operator '|' has no value type rule" rendered
       if "E2010" `Text.isInfixOf` rendered || "has no executable binding" `Text.isInfixOf` rendered
         then failTest "builtin pipe incorrectly used declared-operator missing-binding path"
         else pure ()
@@ -539,23 +532,3 @@ testSourcePipelineRejectsNonCallableDeclaredUserOperatorBinding = do
     "declared user operator non-callable binding text"
     "cannot apply function of type"
     (compileErrors result)
-
-intEqualityProgram :: Expr 'Lowered
-intEqualityProgram =
-  mkProgram (loweredBinary "==" (loweredLiteral (LInt 1)) (loweredLiteral (LInt 1)))
-
-boolEqualityProgram :: Expr 'Lowered
-boolEqualityProgram =
-  mkProgram (loweredBinary "==" (loweredLiteral (LBool True)) (loweredLiteral (LBool False)))
-
-equalityTypeMismatchProgram :: Expr 'Lowered
-equalityTypeMismatchProgram =
-  mkProgram (loweredBinary "==" (loweredLiteral (LInt 1)) (loweredLiteral (LBool True)))
-
-inequalityTypeMismatchProgram :: Expr 'Lowered
-inequalityTypeMismatchProgram =
-  mkProgram (loweredBinary "!=" (loweredLiteral (LBool True)) (loweredLiteral (LInt 1)))
-
-comparisonTypeMismatchProgram :: Expr 'Lowered
-comparisonTypeMismatchProgram =
-  mkProgram (loweredBinary "<" (loweredLiteral (LBool True)) (loweredLiteral (LBool False)))

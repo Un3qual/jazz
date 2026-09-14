@@ -59,8 +59,8 @@ testDirectParity = do
     "CoreTypeApplicationExpression(CoreVariableExpression(CoreSourceName(\"identity\")), CoreSpan(Nothing, 2, 3), CoreIntType)"
     expected
   assertContains
-    "dollar becomes application"
-    "CoreApplyExpression(CoreVariableExpression(CoreSourceName(\"function\")), CoreLiteralExpression(CoreIntegerLiteral(\"1\")))"
+    "dollar remains operator syntax until name resolution"
+    "CoreBinaryExpression(\"$\", CoreVariableExpression(CoreSourceName(\"function\")), CoreLiteralExpression(CoreIntegerLiteral(\"1\")))"
     expected
   assertContains
     "operator binding keeps exact storage name"
@@ -402,7 +402,6 @@ signatureBlock signatures =
 earlierChildExpressions :: [SurfaceExpr]
 earlierChildExpressions =
   [ se (SETypeApplication (seVar "identity") span1 TypeInt),
-    se (SEBinary "$" (seVar "function") (seInt 1)),
     se (SEBlock [SSSignature "item" span1 (SignatureType TypeInt)]),
     se (SEBlock [SSLet "$operator:%2B%2B" span1 (seVar "combine")])
   ]

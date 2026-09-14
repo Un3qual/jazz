@@ -11,7 +11,6 @@ module Jazz.Compiler.TypeInference.Diagnostics
     mkAmbiguousDeferredConstraintError,
     mkAmbiguousQualifiedMethodBodyError,
     mkApplyTypeError,
-    mkBinaryTypeError,
     mkBindingTypeMismatchError,
     mkCaseGuardTypeError,
     mkConstructorPatternArityError,
@@ -34,19 +33,15 @@ module Jazz.Compiler.TypeInference.Diagnostics
     mkMissingImplMethodBodyError,
     mkMissingOperatorBindingError,
     mkNoMatchingQualifiedMethodBodyError,
-    mkNumericBinaryTypeError,
     mkNumericConversionFloatLiteralOverflowError,
     mkNumericConversionFractionalLiteralTypeError,
     mkNumericConversionLiteralTypeError,
-    mkNumericSectionOperandTypeError,
     mkNonExhaustivePatternMatchError,
     mkOrPatternBinderSetMismatchError,
     mkOrPatternBinderTypeMismatchError,
     mkPatternBranchTypeMismatchError,
     mkPatternTypeMismatchError,
     mkSignatureTypeMismatchError,
-    mkStrictEqualityTypeError,
-    mkStrictEqualityUnsupportedTypeError,
     mkTargetedFractionalLiteralOverflowError,
     mkTuplePatternArityMismatchError,
     mkTuplePatternTypeMismatchError,
@@ -58,7 +53,6 @@ module Jazz.Compiler.TypeInference.Diagnostics
     mkUnreachablePatternArmError,
     mkInvalidConstructorPayloadTypeError,
     mkUnsupportedOperatorValueError,
-    mkUnsupportedSectionOperatorError,
     targetedFloatLiteralDiagnostic,
     renderSignaturePayload,
     renderType,
@@ -186,21 +180,6 @@ annotateNewErrorsWithContext context spanValue previousState nextState =
 mkInferenceTypeError :: ErrorCode -> TypeErrorCause ExpressionType -> Diagnostic
 mkInferenceTypeError code = mkTypeErrorDiagnostic code . fmap (first identifierText)
 
-mkNumericBinaryTypeError :: Text -> ExpressionType -> ExpressionType -> Diagnostic
-mkNumericBinaryTypeError = mkBinaryTypeError
-
-mkBinaryTypeError :: Text -> ExpressionType -> ExpressionType -> Diagnostic
-mkBinaryTypeError operatorSymbol leftType rightType =
-  mkInferenceTypeError E2003 (BinaryOperandTypeMismatch operatorSymbol leftType rightType)
-
-mkStrictEqualityTypeError :: Text -> ExpressionType -> ExpressionType -> Diagnostic
-mkStrictEqualityTypeError operatorSymbol leftType rightType =
-  mkInferenceTypeError E2004 (StrictEqualityTypeMismatch operatorSymbol leftType rightType)
-
-mkStrictEqualityUnsupportedTypeError :: Text -> ExpressionType -> Diagnostic
-mkStrictEqualityUnsupportedTypeError operatorSymbol foundType =
-  mkInferenceTypeError E2004 (UnsupportedStrictEqualityType operatorSymbol foundType)
-
 mkDuplicateDataTypeDeclarationError :: Text -> SourceSpan -> Diagnostic
 mkDuplicateDataTypeDeclarationError typeName spanValue =
   setDiagnosticSubject typeName $ setDiagnosticPrimarySpan spanValue $ mkErrorDiagnostic E2014 CompilationOrigin ("duplicate data type declaration '" <> typeName <> "'")
@@ -257,15 +236,8 @@ mkListElementTypeMismatchError :: ExpressionType -> ExpressionType -> Diagnostic
 mkListElementTypeMismatchError expectedType foundType =
   mkInferenceTypeError E2007 (ListElementTypeMismatch expectedType foundType)
 
-mkUnsupportedSectionOperatorError :: Text -> Diagnostic
-mkUnsupportedSectionOperatorError symbol = mkErrorDiagnostic E2008 CompilationOrigin ("unsupported operator section '" <> symbol <> "'")
-
 mkUnsupportedOperatorValueError :: Text -> Diagnostic
 mkUnsupportedOperatorValueError symbol = mkErrorDiagnostic E2003 CompilationOrigin ("builtin operator '" <> symbol <> "' has no value type rule")
-
-mkNumericSectionOperandTypeError :: Text -> ExpressionType -> Diagnostic
-mkNumericSectionOperandTypeError symbol operandType =
-  mkInferenceTypeError E2003 (NumericSectionOperandType symbol operandType)
 
 mkTypeSchemeNumericConstraintError :: NumericConstraint -> ExpressionType -> Diagnostic
 mkTypeSchemeNumericConstraintError _ foundType = mkInferenceTypeError E2003 (UnsatisfiedNumericConstraint foundType)

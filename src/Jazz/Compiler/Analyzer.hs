@@ -52,7 +52,7 @@ import Jazz.Compiler.CapabilityFacts
     renderConcreteImplFact,
     splitQualifiedMethodKey,
   )
-import Jazz.Compiler.CoreIdentity (CoreBinderId, ResolvedReference (..), resolvedNodeImportTarget, resolvedNodeOwner, resolvedNodeReference, resolvedOperatorSpelling)
+import Jazz.Compiler.CoreIdentity (CoreBinderId, resolvedNodeImportTarget, resolvedNodeOwner, resolvedOperatorSpelling)
 import Jazz.Compiler.DiagnosticCatalog
   ( ErrorCode (..),
     WarningCategory (..),
@@ -260,7 +260,6 @@ collectExprDiagnostics settings visibleBindings visibleClassNames context expr =
   case expr of
     ELit _ _ -> mempty
     EVar node _ | isJust (resolvedOperatorSpelling (coreNodeFacts node)) -> mempty
-    EVar node _ | Just (BuiltinOperatorReference _) <- resolvedNodeReference (coreNodeFacts node) -> mempty
     EVar _ name ->
       case Map.lookup (resolvedValueScopeName name) visibleBindings of
         Just _ -> mempty

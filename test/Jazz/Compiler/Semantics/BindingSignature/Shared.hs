@@ -130,7 +130,7 @@ qualifiedEqSource =
   equals :: a -> a -> Bool.
   }.
   impl Equatable(Int) {
-  equals = \\(left, right) -> left == right.
+  equals = __kernel_equals.
   }.
 
   """
@@ -138,7 +138,7 @@ qualifiedEqSource =
 importedQualifiedMethodFactsProgram :: Expr 'Lowered
 importedQualifiedMethodFactsProgram =
   loweredPrograms
-    [ "module Lib { class RemoteEq(a) { equals :: a -> a -> Bool. }. impl RemoteEq(Int) { equals = \\(left, right) -> left == right. }. }",
+    [ "module Lib { class RemoteEq(a) { equals :: a -> a -> Bool. }. impl RemoteEq(Int) { equals = __kernel_equals. }. }",
       "module App { import Lib. RemoteEq::equals 1 1. }"
     ]
 

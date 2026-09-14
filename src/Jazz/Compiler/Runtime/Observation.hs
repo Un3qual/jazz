@@ -66,7 +66,6 @@ data RuntimeTermination
 data RuntimeApplicationKind
   = ClosureApplication
   | BuiltinApplication
-  | OperatorApplication
   | ConstructorApplication
   | MethodApplication
   deriving (Bounded, Enum, Eq, Ord, Show)
@@ -107,7 +106,6 @@ data RuntimeCallableIdentity
   = RootCallable
   | ClosureCallable Text Int Text
   | BuiltinCallable Text
-  | OperatorCallable Text
   | ConstructorCallable Text
   | MethodCallable Text
   | GeneratedCallable Text
@@ -160,7 +158,6 @@ data RuntimeStatistics = RuntimeStatistics
     runtimeApplications :: !Word64,
     runtimeClosureApplications :: !Word64,
     runtimeBuiltinApplications :: !Word64,
-    runtimeOperatorApplications :: !Word64,
     runtimeConstructorApplications :: !Word64,
     runtimeMethodApplications :: !Word64,
     runtimeCurrentContinuationDepth :: !Word64,
@@ -216,7 +213,6 @@ emptyRuntimeStatistics =
       runtimeApplications = 0,
       runtimeClosureApplications = 0,
       runtimeBuiltinApplications = 0,
-      runtimeOperatorApplications = 0,
       runtimeConstructorApplications = 0,
       runtimeMethodApplications = 0,
       runtimeCurrentContinuationDepth = 0,
@@ -431,7 +427,6 @@ runtimeCallableDisplayName callableIdentity =
         <> parameterName
         <> "]"
     BuiltinCallable name -> "builtin " <> name
-    OperatorCallable symbol -> "operator " <> symbol
     ConstructorCallable name -> "constructor " <> name
     MethodCallable name -> "method " <> name
     GeneratedCallable name -> "generated " <> name
@@ -490,8 +485,6 @@ incrementApplicationKind applicationKind statistics =
       statistics {runtimeClosureApplications = runtimeClosureApplications statistics + 1}
     BuiltinApplication ->
       statistics {runtimeBuiltinApplications = runtimeBuiltinApplications statistics + 1}
-    OperatorApplication ->
-      statistics {runtimeOperatorApplications = runtimeOperatorApplications statistics + 1}
     ConstructorApplication ->
       statistics {runtimeConstructorApplications = runtimeConstructorApplications statistics + 1}
     MethodApplication ->

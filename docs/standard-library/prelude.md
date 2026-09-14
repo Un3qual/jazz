@@ -55,10 +55,10 @@ class Equatable(a) {
 ```
 
 Requires an equality operation for `a`. Implementations cover scalar and numeric
-types, lists, pairs, triples, Maybe, Result, NonEmpty, and Queue. Collections
+types, Unit, Ordering, lists, pairs, triples, Maybe, Result, NonEmpty, and Queue. Collections
 and tuples require `Equatable` for their elements and compare through those
 methods. Queue compares FIFO contents, independent of construction history.
-Builtin `==` retains its separate structural equality behavior.
+`==` calls `equals`; `!=` calls `differs`. ADTs require an explicit implementation.
 
 ### `equals`
 
@@ -89,17 +89,44 @@ use their ordinary order. `Text` compares lexicographically by Unicode scalar.
 compare :: a -> a -> Ordering.
 ```
 
+### `lessThan`, `lessThanOrEqual`, `greaterThan`, `greaterThanOrEqual`
+
+```jazz jazz-signature
+lessThan :: @{Comparable(a)}: a -> a -> Bool.
+lessThanOrEqual :: @{Comparable(a)}: a -> a -> Bool.
+greaterThan :: @{Comparable(a)}: a -> a -> Bool.
+greaterThanOrEqual :: @{Comparable(a)}: a -> a -> Bool.
+```
+
+These functions inspect `compare`; they are also written `<`, `<=`, `>`, `>=`.
+An implementation of `Comparable` supplies all four comparisons.
+
+### `apply`
+
+```jazz jazz-signature
+apply :: (a -> b) -> a -> b.
+```
+
+Applies its first argument to its second. `$` is its low-precedence operator
+spelling: `not $ True` means `apply not True`.
+
 ## Numeric capabilities
 
 ### `Num`
 
 ```jazz jazz-signature
-class Num(a) { }.
+class Num(a) {
+  add :: a -> a -> a.
+  subtract :: a -> a -> a.
+  multiply :: a -> a -> a.
+  divide :: a -> a -> a.
+}.
 ```
 
-Supplies evidence for arithmetic and conversions over Jazz's primitive numeric
-types. Implementing `Num` for another type does not extend the set of types
-accepted by numeric expressions.
+Supplies arithmetic for `a`. Primitive numeric types have kernel-backed
+implementations; user-defined types may implement the same four methods.
+`+`, `-`, `*`, and `/` call these methods. Both operands and the result have type
+`a`. Integer division rounds down, and division by zero fails at runtime.
 
 ### `Integral`
 

@@ -22,7 +22,6 @@ import qualified Data.List.NonEmpty as NonEmpty
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
 import Data.Maybe (isJust, isNothing)
-import Data.Set (Set)
 import qualified Data.Set as Set
 import Data.Text (Text)
 import qualified Data.Text as Text
@@ -417,18 +416,14 @@ forceModuleInterfaceContainers moduleInterface =
   Map.foldrWithKey (\export (ModuleValueBinding binder binding) forced -> export `seq` binder `seq` binding `seq` forced) () (interfaceValueBindings moduleInterface) `seq`
     forceMapEntriesWhnf (interfaceDataTypes moduleInterface) `seq`
       forceMapEntriesWhnf (scopeClassFacts capabilities) `seq`
-        forceSetEntriesWhnf (scopeGeneratedEqualityClassFacts capabilities) `seq`
-          forceMapEntriesWhnf (scopeImplementations capabilities) `seq`
-            forceMapEntriesWhnf (scopeClassMethodSignatures capabilities) `seq`
-              ()
+        forceMapEntriesWhnf (scopeImplementations capabilities) `seq`
+          forceMapEntriesWhnf (scopeClassMethodSignatures capabilities) `seq`
+            ()
   where
     capabilities = interfaceCapabilities moduleInterface
 
 forceMapEntriesWhnf :: Map key value -> ()
 forceMapEntriesWhnf = Map.foldrWithKey (\key value forced -> key `seq` value `seq` forced) ()
-
-forceSetEntriesWhnf :: Set value -> ()
-forceSetEntriesWhnf = Set.foldr (\value forced -> value `seq` forced) ()
 
 emptyInferenceInputs :: WarningSettings -> InferenceInputs
 emptyInferenceInputs settings =

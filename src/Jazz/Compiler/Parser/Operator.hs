@@ -5,6 +5,7 @@ module Jazz.Compiler.Parser.Operator
   ( Associativity (..),
     OperatorInfo (..),
     OperatorTable,
+    builtinOperatorFunction,
     builtinOperatorInfos,
     builtinOperatorTable,
     declaredOperatorInfoForPrecedence,
@@ -60,6 +61,24 @@ builtinOperatorInfos =
     OperatorInfo ">" 2 AssocLeft,
     OperatorInfo "$" 1 AssocRight
   ]
+
+-- | Function names denoted by the standard executable operator spellings.
+builtinOperatorFunction :: Text -> Maybe Text
+builtinOperatorFunction symbol =
+  lookup
+    symbol
+    [ ("+", "add"),
+      ("-", "subtract"),
+      ("*", "multiply"),
+      ("/", "divide"),
+      ("==", "equals"),
+      ("!=", "differs"),
+      ("<", "lessThan"),
+      ("<=", "lessThanOrEqual"),
+      (">", "greaterThan"),
+      (">=", "greaterThanOrEqual"),
+      ("$", "apply")
+    ]
 
 -- | Scope-local fixity lookup. Builtins are indexed once; the declared-symbol
 -- set remains separate because only user declarations may be bound or signed.

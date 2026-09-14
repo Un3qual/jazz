@@ -10,6 +10,7 @@ once its pre-1.0 release process is active.
 
 ### Added
 
+- Boolean `not` as an ordinary Prelude function.
 - Generic capability implementations, constructor kinds, ordinary method values,
   superclasses, and default methods (RFC 0019).
 - Generic collection mapping, folding, equality, and combination; Unicode Text
@@ -19,6 +20,11 @@ once its pre-1.0 release process is active.
 
 ### Changed
 
+- All executable operators resolve to ordinary functions (RFC 0020), including
+  values and sections. ADT equality requires `Equatable`; concrete mixed numeric
+  operands require explicit conversion.
+- Runtime observation JSON uses schema version 2 and reports operator work as
+  ordinary function, method, and kernel calls.
 - Renamed `Eq`/`Ord` to `Equatable`/`Comparable` and removed redundant module
   prefixes from 183 library exports. Specialized argument orders are unchanged;
   callers use final names such as `List::append` and `Map::mapValues`.

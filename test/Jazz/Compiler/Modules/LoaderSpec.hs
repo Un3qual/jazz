@@ -114,7 +114,7 @@ testImportedTailRecursiveClosureIsStackSafe = do
       module Library::Counter (countDown) {
       countDown = \\(remaining) -> case remaining {
       | 0 -> 0
-      | _ -> countDown (remaining - 1)
+      | _ -> countDown (__kernel_subtract remaining 1)
       }.
       }
       """

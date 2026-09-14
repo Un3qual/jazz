@@ -275,8 +275,7 @@ testScopeCapabilityFacts = do
           scopeClassMethodSignatures =
             Map.singleton compareMethod (method "Third" TypeRepresentation.SemanticInt),
           scopeImplementations =
-            Map.singleton (fixtureImplId 1) (fixtureImplementation 1 comparable TypeRepresentation.SemanticInt),
-          scopeGeneratedEqualityClassFacts = Set.singleton (CapabilityId (localCapabilityName "Equatable"))
+            Map.singleton (fixtureImplId 1) (fixtureImplementation 1 comparable TypeRepresentation.SemanticInt)
         }
 
 testConcreteImplFactsUseNominalIdentity :: IO ()

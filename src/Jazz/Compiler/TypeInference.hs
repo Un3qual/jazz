@@ -75,26 +75,15 @@ import Jazz.Compiler.RecursiveBindings
   )
 import Jazz.Compiler.SemanticDeclarations (DeclarationVariable)
 import Jazz.Compiler.SemanticFacts
-  ( BinaryOperation (..),
-    SemanticFactInvariantFailure (MissingExpressionFacts, MissingScopeFacts),
+  ( SemanticFactInvariantFailure (MissingExpressionFacts, MissingScopeFacts),
   )
-import Jazz.Compiler.TypeInference.Analyzed (ExpressionDecision (..), draftDecidedExpressionNode, draftExpressionNode, draftLambda, draftOperationNode, noExpressionDecision, refineListPrependDraft)
+import Jazz.Compiler.TypeInference.Analyzed (ExpressionDecision (..), draftDecidedExpressionNode, draftExpressionNode, draftLambda, noExpressionDecision, refineListPrependDraft)
 import Jazz.Compiler.TypeInference.Capabilities
 import Jazz.Compiler.TypeInference.Diagnostics
-import Jazz.Compiler.TypeInference.Draft (CheckedExpr (..), CheckedScope (..), Draft, rejectedDraft)
+import Jazz.Compiler.TypeInference.Draft (CheckedExpr (..), CheckedScope (..), rejectedDraft)
 import Jazz.Compiler.TypeInference.Environment (insertResolvedTypeBinding)
 import Jazz.Compiler.TypeInference.Instantiation (instantiateTypeScheme)
 import Jazz.Compiler.TypeInference.Interface (closeModuleBindings, importBindingTypes)
-import Jazz.Compiler.TypeInference.Operator
-  ( applyOperatorAliasSchemeConstraints,
-    builtinDollarOperatorExpr,
-    builtinOperatorSymbolExpr,
-    builtinSectionOperatorSymbol,
-    hasOperatorRule,
-    inferBinaryType,
-    inferSectionType,
-    instantiateOperatorType,
-  )
 import Jazz.Compiler.TypeInference.Pattern
   ( inferPatternCaseType,
   )
@@ -106,6 +95,7 @@ import Jazz.Compiler.TypeInference.Scope
   )
 import Jazz.Compiler.TypeInference.Solver
   ( addNumericTypeVarConstraint,
+    addStrictEqualityTypeVarConstraint,
     freshIntegerLiteralType,
     freshTypeVar,
     freshTypeVariable,
@@ -139,7 +129,6 @@ import Jazz.Compiler.TypeInference.Types
     TypeBinding,
     TypeEnv,
     TypeEnvKey (..),
-    TypeScheme,
     emptyScopeCapabilityFacts,
     typeEnvReferenceKey,
   )
@@ -277,10 +266,6 @@ instantiateEnvBinding binding state =
       case instantiateBuiltinSymbolType builtinSymbol state of
         Just (expressionType, nextState) -> (Just expressionType, nextState)
         Nothing -> (Nothing, state)
-    BuiltinOperatorAliasTypeBinding operatorSymbol ->
-      case instantiateOperatorType operatorSymbol state of
-        Just (expressionType, nextState) -> (Just expressionType, nextState)
-        Nothing -> (Nothing, state)
     _ -> instantiateNonBuiltinTypeBinding binding state
 
 inferExprTypeWithMode :: InferenceMode -> TypeEnv -> InferState -> Expr 'Resolved -> (CheckedExpr, InferState)
@@ -331,17 +316,10 @@ inferExprTypeDetailed env state expr = case expr of
             )
             inferredFinalState
      in finish expressionType finalState (\node -> EPatternCase <$> node <*> checkedExprTree scrutineeCheck <*> armDrafts)
-  EBinary _ symbol left right -> inferBinaryExpression symbol left right
-  ESectionLeft _ left symbol ->
-    inferSection symbol (\node operand -> ESectionLeft node operand symbol) left
-  ESectionRight _ symbol right ->
-    inferSection symbol (\node operand -> ESectionRight node symbol operand) right
-  EApply _ function argument
-    | Just (symbol, aliasScheme, left, right, sectionFallback) <- builtinOperatorApplicationSpine env expr ->
-        if sectionFallback then inferSectionApplicationWithFallback function argument symbol left right else inferBuiltinOperatorApplication symbol aliasScheme left right
-    | otherwise ->
-        let (checked, finalState) = inferCheckedApplication env state expr function argument
-         in (checked, finalState)
+  EBinary {} -> unresolvedOperator
+  ESectionLeft {} -> unresolvedOperator
+  ESectionRight {} -> unresolvedOperator
+  EApply _ function argument -> inferCheckedApplication env state expr function argument
   ETypeApplication {} -> inferExplicitTypeApplication inferExprTypeDetailed env state expr
   ELambda node name body ->
     let (parameterType, stateAfterParameter) = freshTypeVar state
@@ -354,63 +332,10 @@ inferExprTypeDetailed env state expr = case expr of
       let (result, evidence, finalState) = inferLeafExpression env state expr
           decision = noExpressionDecision {decisionEvidence = evidence}
        in (CheckedExpr result (make <$> draftDecidedExpressionNode decision result expr), finalState)
-    finish = finishOperation Nothing
-    finishOperation operation result finalState make =
-      (CheckedExpr result (make (draftOperationNode operation result expr)), finalState)
-
-    inferBinaryExpression operatorSymbol leftExpr rightExpr =
-      let (leftCheck, rightCheck, expressionType, operation, finalState) = inferBinaryOperands operatorSymbol leftExpr rightExpr
-       in finishOperation operation expressionType finalState (\node -> EBinary <$> node <*> pure operatorSymbol <*> checkedExprTree leftCheck <*> checkedExprTree rightCheck)
-
-    inferBinaryOperands operatorSymbol leftExpr rightExpr =
-      let (leftCheck, stateAfterLeft) = inferExprTypeDetailed env state leftExpr
-          (rightCheck, stateAfterRight) = inferExprTypeDetailed env stateAfterLeft rightExpr
-          (expressionType, operandTyping, finalState) =
-            case (checkedExprType leftCheck, checkedExprType rightCheck) of
-              (Just leftType, Just rightType) ->
-                inferBinaryType operatorSymbol leftExpr rightExpr leftType rightType stateAfterRight
-              _ -> (Nothing, Nothing, stateAfterRight)
-          operation =
-            (\typing -> BinaryOperation operatorSymbol typing (coreNodeId (expressionNode leftExpr)) (coreNodeId (expressionNode rightExpr))) <$> operandTyping
-       in (leftCheck, rightCheck, expressionType, operation, finalState)
-
-    inferSection operatorSymbol make operand =
-      let (checked, afterOperand) = inferExprTypeDetailed env state operand
-          (expressionType, finalState) =
-            case checkedExprType checked of
-              Just operandType -> inferSectionType operatorSymbol operandType afterOperand
-              Nothing -> (Nothing, afterOperand)
-       in finish expressionType finalState (\node -> make <$> node <*> checkedExprTree checked)
-
-    inferBuiltinOperatorApplication operatorSymbol maybeAliasScheme (_, leftExpr) (_, rightExpr) =
-      let (leftCheck, rightCheck, expressionType, operation, stateAfterBinary) = inferBinaryOperands operatorSymbol leftExpr rightExpr
-          leftResult = checkedExprType leftCheck
-          rightResult = checkedExprType rightCheck
-          finalState =
-            case (maybeAliasScheme, leftResult, rightResult) of
-              (Just aliasScheme, Just leftType, Just rightType)
-                | Just _ <- expressionType ->
-                    applyOperatorAliasSchemeConstraints
-                      operatorSymbol
-                      aliasScheme
-                      leftType
-                      rightType
-                      stateAfterBinary
-              _ -> stateAfterBinary
-          tree = case (leftResult, rightResult, expressionType) of
-            (Just leftType, Just rightType, Just resultType) -> draftBuiltinApplication env operatorSymbol operation expr leftCheck rightCheck leftType rightType resultType finalState
-            _ -> rejectedDraft (MissingExpressionFacts (coreNodeId (expressionNode expr)))
-       in (CheckedExpr expressionType tree, finalState)
-
-    inferSectionApplicationWithFallback function argument symbol left right =
-      let (generic, genericState) = inferCheckedApplication env state expr function argument
-       in case checkedExprType generic of
-            Just _ -> (generic, genericState)
-            Nothing ->
-              let builtin@(checked, _) = inferBuiltinOperatorApplication symbol Nothing left right
-               in case checkedExprType checked of
-                    Just _ -> builtin
-                    Nothing -> (generic, genericState)
+    finish result finalState make =
+      (CheckedExpr result (make (draftExpressionNode result expr)), finalState)
+    unresolvedOperator =
+      (CheckedExpr Nothing (rejectedDraft (MissingExpressionFacts (coreNodeId (expressionNode expr)))), state)
 
 inferLeafExpression :: TypeEnv -> InferState -> Expr 'Resolved -> (Maybe ExpressionType, [EvidenceReference], InferState)
 inferLeafExpression env state expr = case expr of
@@ -418,16 +343,10 @@ inferLeafExpression env state expr = case expr of
     let (literalType, afterLiteral) = literalExpressionType literal state
      in (Just literalType, [], checkLiteralType afterLiteral literal)
   ETuple _ [] -> (Just (SemanticTuple []), [], state)
-  EVar node _
-    | Just (BuiltinOperatorReference symbol) <- resolvedNodeReference (coreNodeFacts node) ->
-        let (result, finalState) = case instantiateOperatorType symbol state of
-              Just (operatorType, next) -> (Just operatorType, next)
-              Nothing -> (Nothing, addTypeError state (mkUnsupportedOperatorValueError symbol))
-         in (result, [], annotateNewErrorsWithPrimarySpan (coreNodeSpan node) state finalState)
   EVar node name ->
     let (result, evidence, finalState) = case Map.lookup (typeEnvReferenceKey (coreNodeFacts node) name) env of
           Just binding -> ordinary (instantiateEnvBinding binding state)
-          Nothing | Just symbol <- resolvedOperatorSpelling (coreNodeFacts node) -> (Nothing, [], addTypeError state (mkMissingOperatorBindingError symbol))
+          Nothing | Just symbol <- resolvedOperatorSpelling (coreNodeFacts node) -> (Nothing, [], addTypeError state (if symbol == "|" then mkUnsupportedOperatorValueError symbol else mkMissingOperatorBindingError symbol))
           Nothing -> case instantiateBuiltinType (resolvedValueReference (coreNodeFacts node) name) state of
             Just (builtinType, next) -> (Just builtinType, [], next)
             Nothing -> case instantiateQualifiedMethodType instantiateTypeScheme (resolvedValueReference (coreNodeFacts node) name) state of
@@ -571,77 +490,6 @@ discardFailedFunctionApplicationConstraints stateBeforeFunction stateAfterApplic
     )
     stateAfterApplication
 
-draftBuiltinApplication :: TypeEnv -> Text -> Maybe BinaryOperation -> Expr 'Resolved -> CheckedExpr -> CheckedExpr -> ExpressionType -> ExpressionType -> ExpressionType -> InferState -> Draft (Expr 'Analyzed)
-draftBuiltinApplication env selectedSymbol operation root left right leftType rightType resultType state =
-  case root of
-    EApply _ partial@(EApply _ operator _) _
-      | Just (symbol, _) <- builtinOperatorSymbolExpr env operator,
-        symbol == selectedSymbol ->
-          let partialType = SemanticFunction resolvedRight resolvedResult
-              operatorType = SemanticFunction resolvedLeft partialType
-              partialTree = EApply <$> facts partial partialType <*> callable operator operatorType <*> checkedExprTree left
-           in EApply <$> draftOperationNode operation (Just resolvedResult) root <*> partialTree <*> checkedExprTree right
-    EApply _ function _ ->
-      let (argument, argumentType) = case sectionDirection function of
-            Just True -> (right, resolvedRight)
-            Just False -> (left, resolvedLeft)
-            Nothing -> (right, resolvedRight)
-          sectionType = SemanticFunction argumentType resolvedResult
-       in EApply <$> draftOperationNode operation (Just resolvedResult) root <*> section function sectionType <*> checkedExprTree argument
-    _ -> rejected root
-  where
-    resolvedLeft = resolveType state leftType
-    resolvedRight = resolveType state rightType
-    resolvedResult = resolveType state resultType
-    facts expression result = draftExpressionNode (Just result) expression
-    rejected expression = rejectedDraft (MissingExpressionFacts (coreNodeId (expressionNode expression)))
-    leaf expression result = case expression of
-      EVar _ name -> EVar <$> facts expression result <*> pure name
-      _ -> rejected expression
-    callable expression result = case expression of
-      EApply _ dollar nested -> wrapper expression dollar nested result callable
-      _ -> leaf expression result
-    section expression result = case expression of
-      ESectionLeft _ _ symbol -> ESectionLeft <$> facts expression result <*> checkedExprTree left <*> pure symbol
-      ESectionRight _ symbol _ -> ESectionRight <$> facts expression result <*> pure symbol <*> checkedExprTree right
-      EApply _ dollar nested -> wrapper expression dollar nested result section
-      _ -> rejected expression
-    wrapper expression dollar nested result build = EApply <$> facts expression result <*> leaf dollar (SemanticFunction result result) <*> build nested result
-    sectionDirection expression = case expression of
-      ESectionLeft {} -> Just True
-      ESectionRight {} -> Just False
-      EApply _ _ nested -> sectionDirection nested
-      _ -> Nothing
-
-builtinOperatorApplicationSpine ::
-  TypeEnv ->
-  Expr 'Resolved ->
-  Maybe (Text, Maybe TypeScheme, ([Int], Expr 'Resolved), ([Int], Expr 'Resolved), Bool)
-builtinOperatorApplicationSpine env expr =
-  case expr of
-    EApply _ (EApply _ dollarExpr sectionExpr) argumentExpr
-      | builtinDollarOperatorExpr env dollarExpr ->
-          case sectionExpr of
-            ESectionLeft _ leftExpr operatorSymbol
-              | builtinSectionOperatorSymbol operatorSymbol ->
-                  Just (operatorSymbol, Nothing, ([0, 1, 0], leftExpr), ([1], argumentExpr), True)
-            ESectionRight _ operatorSymbol rightExpr
-              | builtinSectionOperatorSymbol operatorSymbol ->
-                  Just (operatorSymbol, Nothing, ([1], argumentExpr), ([0, 1, 0], rightExpr), True)
-            _ -> Nothing
-    EApply _ (ESectionLeft _ leftExpr operatorSymbol) rightExpr
-      | builtinSectionOperatorSymbol operatorSymbol ->
-          Just (operatorSymbol, Nothing, ([0, 0], leftExpr), ([1], rightExpr), True)
-    EApply _ (ESectionRight _ operatorSymbol rightExpr) leftExpr
-      | builtinSectionOperatorSymbol operatorSymbol ->
-          Just (operatorSymbol, Nothing, ([1], leftExpr), ([0, 0], rightExpr), True)
-    EApply _ (EApply _ operatorExpr leftExpr) rightExpr -> do
-      (operatorSymbol, maybeAliasScheme) <- builtinOperatorSymbolExpr env operatorExpr
-      if hasOperatorRule operatorSymbol
-        then Just (operatorSymbol, maybeAliasScheme, ([0, 1], leftExpr), ([1], rightExpr), False)
-        else Nothing
-    _ -> Nothing
-
 literalExpressionType :: Literal -> InferState -> (ExpressionType, InferState)
 literalExpressionType literal state =
   case literal of
@@ -748,6 +596,15 @@ instantiateBuiltinSymbolType builtinSymbol state =
 instantiateBuiltinSymbolTypeByName :: Text -> InferState -> Maybe (ExpressionType, InferState)
 instantiateBuiltinSymbolTypeByName builtinName state =
   case builtinName of
+    "add" -> numericBinary RuntimeArithmeticNumericConstraint id
+    "subtract" -> numericBinary RuntimeArithmeticNumericConstraint id
+    "multiply" -> numericBinary RuntimeArithmeticNumericConstraint id
+    "divide" -> numericBinary RuntimeArithmeticNumericConstraint id
+    "lessThan" -> numericBinary RuntimeComparisonNumericConstraint (const SemanticBool)
+    "greaterThan" -> numericBinary RuntimeComparisonNumericConstraint (const SemanticBool)
+    "equals" ->
+      let (variable, operand, next) = freshTypeVariable state
+       in Just (SemanticFunction operand (SemanticFunction operand SemanticBool), addStrictEqualityTypeVarConstraint variable next)
     "hd" ->
       let (elementType, stateAfterElement) = freshTypeVar state
        in Just (SemanticFunction (SemanticList elementType) elementType, stateAfterElement)
@@ -849,6 +706,10 @@ instantiateBuiltinSymbolTypeByName builtinName state =
     "exit!" ->
       Just (SemanticFunction SemanticInt unitType, state)
     _ -> Nothing
+  where
+    numericBinary constraint result =
+      let (variable, operand, next) = freshTypeVariable state
+       in Just (SemanticFunction operand (SemanticFunction operand (result operand)), addNumericTypeVarConstraint variable constraint next)
 
 hostIOOutcomeType :: ExpressionType
 hostIOOutcomeType = SemanticTuple [SemanticBool, SemanticText, SemanticText, SemanticText]

@@ -122,7 +122,7 @@ testKernelBuiltinShadowing :: IO ()
 testKernelBuiltinShadowing = mapM_ check ["f", "__kernel_listPrependRaw"]
   where
     check name = do
-      let source = "invoke = \\(" <> name <> ") -> " <> name <> " 1 [True]. invoke (\\(n, xs) -> n) + 1."
+      let source = "invoke = \\(" <> name <> ") -> " <> name <> " 1 [True]. __kernel_add (invoke (\\(n, xs) -> n)) 1."
       result <- runSourceWithPrelude defaultWarningSettings Nothing source
       assertEqual "shadowed callable compile errors" [] (runCompileErrors result)
       assertEqual "shadowed callable runtime errors" [] (runRuntimeErrors result)
@@ -130,14 +130,14 @@ testKernelBuiltinShadowing = mapM_ check ["f", "__kernel_listPrependRaw"]
 
 testDeclarationTargets :: IO ()
 testDeclarationTargets =
-  assertRight "lower rebinding and shadowing" (parseAndLowerStandaloneSource "x = 1. x = x + 1. f = \\(x) -> x. x.") $ \lowered ->
+  assertRight "lower rebinding and shadowing" (parseAndLowerStandaloneSource "x = 1. x = __kernel_add x 1. f = \\(x) -> x. x.") $ \lowered ->
     mapM_ (check lowered) [StandaloneSourceUnit path, NamedSourceUnit path, PreludeSourceUnit path]
   where
     path = mkModulePath (mkIdentifier "SamePath" :| [])
     check lowered owner =
       let resolved = resolveExprNames (context owner) lowered
        in case resolved of
-            EBlock _ [SLet firstNode _ _, SLet secondNode _ (EBinary _ _ (EVar earlierUse _) _), SLet _ _ (ELambda parameterNode _ (EVar parameterUse _)), SExpr _ (EVar finalUse _)] -> do
+            EBlock _ [SLet firstNode _ _, SLet secondNode _ (EApply _ (EApply _ _ (EVar earlierUse _)) _), SLet _ _ (ELambda parameterNode _ (EVar parameterUse _)), SExpr _ (EVar finalUse _)] -> do
               let firstBinder = CoreBinderId (owner, coreNodeId firstNode)
                   secondBinder = CoreBinderId (owner, coreNodeId secondNode)
                   parameterBinder = CoreBinderId (owner, coreNodeId parameterNode)

@@ -461,11 +461,6 @@ lowerSurfaceExprWithoutCostCentre surfaceExpr = do
       scrutinee <- lowerSurfaceExprWithoutCostCentre scrutineeExpr
       arms <- traverse lowerSurfaceCaseArm caseArms
       pure (EPatternCase node scrutinee arms)
-    SEBinary operatorSymbol functionExpr argumentExpr
-      | operatorSymbol == Text.pack "$" -> do
-          function <- lowerSurfaceExprWithoutCostCentre functionExpr
-          argument <- lowerSurfaceExprWithoutCostCentre argumentExpr
-          pure (EApply node function argument)
     SEBinary operatorSymbol leftExpr rightExpr -> do
       left <- lowerSurfaceExprWithoutCostCentre leftExpr
       right <- lowerSurfaceExprWithoutCostCentre rightExpr

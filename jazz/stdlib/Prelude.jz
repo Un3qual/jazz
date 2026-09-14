@@ -11,7 +11,13 @@ differs = \(left, right) -> not (equals left right).
 class @{Equatable(a)}: Comparable(a) {
 compare :: a -> a -> Ordering.
 }.
-class Num(a) { }.
+class Num(a) {
+add :: a -> a -> a.
+subtract :: a -> a -> a.
+multiply :: a -> a -> a.
+divide :: a -> a -> a.
+}.
+
 class Integral(a) { }.
 class Fractional(a) { }.
 class Showable(a) {
@@ -31,6 +37,17 @@ class Combinable(a) {
 combine :: a -> a -> a.
 }.
 
+apply :: (a -> b) -> a -> b.
+apply = \(function, argument) -> function argument.
+lessThan :: @{Comparable(a)}: a -> a -> Bool.
+lessThan = \(left, right) -> case compare left right { | LT -> True | EQ -> False | GT -> False }.
+lessThanOrEqual :: @{Comparable(a)}: a -> a -> Bool.
+lessThanOrEqual = \(left, right) -> case compare left right { | LT -> True | EQ -> True | GT -> False }.
+greaterThan :: @{Comparable(a)}: a -> a -> Bool.
+greaterThan = \(left, right) -> case compare left right { | LT -> False | EQ -> False | GT -> True }.
+greaterThanOrEqual :: @{Comparable(a)}: a -> a -> Bool.
+greaterThanOrEqual = \(left, right) -> case compare left right { | LT -> False | EQ -> True | GT -> True }.
+
 __prelude_compareText :: Text -> Text -> Ordering.
 __prelude_compareText = \(left, right) -> case __kernel_textUnconsRaw left {
 | [] -> case __kernel_textUnconsRaw right {
@@ -39,39 +56,51 @@ __prelude_compareText = \(left, right) -> case __kernel_textUnconsRaw left {
   }
 | [(leftFirst, leftRest) | _] -> case __kernel_textUnconsRaw right {
   | [] -> GT
-  | [(rightFirst, rightRest) | _] -> if __kernel_charToUInt32 leftFirst < __kernel_charToUInt32 rightFirst then LT else if __kernel_charToUInt32 leftFirst > __kernel_charToUInt32 rightFirst then GT else __prelude_compareText leftRest rightRest
+  | [(rightFirst, rightRest) | _] -> if __kernel_lessThan (__kernel_charToUInt32 leftFirst) (__kernel_charToUInt32 rightFirst) then LT else if __kernel_greaterThan (__kernel_charToUInt32 leftFirst) (__kernel_charToUInt32 rightFirst) then GT else __prelude_compareText leftRest rightRest
   }
 }.
 
 impl Equatable(Int) {
-equals = \(left, right) -> left == right.
+equals = __kernel_equals.
 }.
 impl Equatable(Float) {
-equals = \(left, right) -> left == right.
+equals = __kernel_equals.
 }.
 impl Equatable(Bool) {
-equals = \(left, right) -> left == right.
+equals = __kernel_equals.
 }.
 impl Equatable(Char) {
-equals = \(left, right) -> left == right.
+equals = __kernel_equals.
 }.
 impl Equatable(Text) {
-equals = \(left, right) -> left == right.
+equals = __kernel_equals.
 }.
 impl Comparable(Int) {
-compare = \(left, right) -> if left < right then LT else if left > right then GT else EQ.
+compare = \(left, right) -> if __kernel_lessThan left right then LT else if __kernel_greaterThan left right then GT else EQ.
 }.
 impl Comparable(Float) {
-compare = \(left, right) -> if left < right then LT else if left > right then GT else EQ.
+compare = \(left, right) -> if __kernel_lessThan left right then LT else if __kernel_greaterThan left right then GT else EQ.
 }.
 impl Comparable(Char) {
-compare = \(left, right) -> if __kernel_charToUInt32 left < __kernel_charToUInt32 right then LT else if __kernel_charToUInt32 left > __kernel_charToUInt32 right then GT else EQ.
+compare = \(left, right) -> if __kernel_lessThan (__kernel_charToUInt32 left) (__kernel_charToUInt32 right) then LT else if __kernel_greaterThan (__kernel_charToUInt32 left) (__kernel_charToUInt32 right) then GT else EQ.
 }.
 impl Comparable(Text) {
 compare = __prelude_compareText.
 }.
-impl Num(Int) { }.
-impl Num(Float) { }.
+impl Num(Int) {
+add = __kernel_add.
+subtract = __kernel_subtract.
+multiply = __kernel_multiply.
+divide = __kernel_divide.
+}.
+
+impl Num(Float) {
+add = __kernel_add.
+subtract = __kernel_subtract.
+multiply = __kernel_multiply.
+divide = __kernel_divide.
+}.
+
 impl Integral(Int) { }.
 impl Fractional(Float) { }.
 impl Default(Int) {
@@ -105,12 +134,18 @@ impl Showable(Text) {
 show = __kernel_renderValue.
 }.
 impl Equatable(Int8) {
-equals = \(left, right) -> left == right.
+equals = __kernel_equals.
 }.
 impl Comparable(Int8) {
-compare = \(left, right) -> if left < right then LT else if left > right then GT else EQ.
+compare = \(left, right) -> if __kernel_lessThan left right then LT else if __kernel_greaterThan left right then GT else EQ.
 }.
-impl Num(Int8) { }.
+impl Num(Int8) {
+add = __kernel_add.
+subtract = __kernel_subtract.
+multiply = __kernel_multiply.
+divide = __kernel_divide.
+}.
+
 impl Integral(Int8) { }.
 impl Default(Int8) {
 defaultValue = 0.
@@ -119,12 +154,18 @@ impl Showable(Int8) {
 show = __kernel_renderValue.
 }.
 impl Equatable(Int16) {
-equals = \(left, right) -> left == right.
+equals = __kernel_equals.
 }.
 impl Comparable(Int16) {
-compare = \(left, right) -> if left < right then LT else if left > right then GT else EQ.
+compare = \(left, right) -> if __kernel_lessThan left right then LT else if __kernel_greaterThan left right then GT else EQ.
 }.
-impl Num(Int16) { }.
+impl Num(Int16) {
+add = __kernel_add.
+subtract = __kernel_subtract.
+multiply = __kernel_multiply.
+divide = __kernel_divide.
+}.
+
 impl Integral(Int16) { }.
 impl Default(Int16) {
 defaultValue = 0.
@@ -133,12 +174,18 @@ impl Showable(Int16) {
 show = __kernel_renderValue.
 }.
 impl Equatable(Int32) {
-equals = \(left, right) -> left == right.
+equals = __kernel_equals.
 }.
 impl Comparable(Int32) {
-compare = \(left, right) -> if left < right then LT else if left > right then GT else EQ.
+compare = \(left, right) -> if __kernel_lessThan left right then LT else if __kernel_greaterThan left right then GT else EQ.
 }.
-impl Num(Int32) { }.
+impl Num(Int32) {
+add = __kernel_add.
+subtract = __kernel_subtract.
+multiply = __kernel_multiply.
+divide = __kernel_divide.
+}.
+
 impl Integral(Int32) { }.
 impl Default(Int32) {
 defaultValue = 0.
@@ -147,12 +194,18 @@ impl Showable(Int32) {
 show = __kernel_renderValue.
 }.
 impl Equatable(Int64) {
-equals = \(left, right) -> left == right.
+equals = __kernel_equals.
 }.
 impl Comparable(Int64) {
-compare = \(left, right) -> if left < right then LT else if left > right then GT else EQ.
+compare = \(left, right) -> if __kernel_lessThan left right then LT else if __kernel_greaterThan left right then GT else EQ.
 }.
-impl Num(Int64) { }.
+impl Num(Int64) {
+add = __kernel_add.
+subtract = __kernel_subtract.
+multiply = __kernel_multiply.
+divide = __kernel_divide.
+}.
+
 impl Integral(Int64) { }.
 impl Default(Int64) {
 defaultValue = 0.
@@ -161,12 +214,18 @@ impl Showable(Int64) {
 show = __kernel_renderValue.
 }.
 impl Equatable(UInt8) {
-equals = \(left, right) -> left == right.
+equals = __kernel_equals.
 }.
 impl Comparable(UInt8) {
-compare = \(left, right) -> if left < right then LT else if left > right then GT else EQ.
+compare = \(left, right) -> if __kernel_lessThan left right then LT else if __kernel_greaterThan left right then GT else EQ.
 }.
-impl Num(UInt8) { }.
+impl Num(UInt8) {
+add = __kernel_add.
+subtract = __kernel_subtract.
+multiply = __kernel_multiply.
+divide = __kernel_divide.
+}.
+
 impl Integral(UInt8) { }.
 impl Default(UInt8) {
 defaultValue = 0.
@@ -175,12 +234,18 @@ impl Showable(UInt8) {
 show = __kernel_renderValue.
 }.
 impl Equatable(UInt16) {
-equals = \(left, right) -> left == right.
+equals = __kernel_equals.
 }.
 impl Comparable(UInt16) {
-compare = \(left, right) -> if left < right then LT else if left > right then GT else EQ.
+compare = \(left, right) -> if __kernel_lessThan left right then LT else if __kernel_greaterThan left right then GT else EQ.
 }.
-impl Num(UInt16) { }.
+impl Num(UInt16) {
+add = __kernel_add.
+subtract = __kernel_subtract.
+multiply = __kernel_multiply.
+divide = __kernel_divide.
+}.
+
 impl Integral(UInt16) { }.
 impl Default(UInt16) {
 defaultValue = 0.
@@ -189,12 +254,18 @@ impl Showable(UInt16) {
 show = __kernel_renderValue.
 }.
 impl Equatable(UInt32) {
-equals = \(left, right) -> left == right.
+equals = __kernel_equals.
 }.
 impl Comparable(UInt32) {
-compare = \(left, right) -> if left < right then LT else if left > right then GT else EQ.
+compare = \(left, right) -> if __kernel_lessThan left right then LT else if __kernel_greaterThan left right then GT else EQ.
 }.
-impl Num(UInt32) { }.
+impl Num(UInt32) {
+add = __kernel_add.
+subtract = __kernel_subtract.
+multiply = __kernel_multiply.
+divide = __kernel_divide.
+}.
+
 impl Integral(UInt32) { }.
 impl Default(UInt32) {
 defaultValue = 0.
@@ -203,12 +274,18 @@ impl Showable(UInt32) {
 show = __kernel_renderValue.
 }.
 impl Equatable(UInt64) {
-equals = \(left, right) -> left == right.
+equals = __kernel_equals.
 }.
 impl Comparable(UInt64) {
-compare = \(left, right) -> if left < right then LT else if left > right then GT else EQ.
+compare = \(left, right) -> if __kernel_lessThan left right then LT else if __kernel_greaterThan left right then GT else EQ.
 }.
-impl Num(UInt64) { }.
+impl Num(UInt64) {
+add = __kernel_add.
+subtract = __kernel_subtract.
+multiply = __kernel_multiply.
+divide = __kernel_divide.
+}.
+
 impl Integral(UInt64) { }.
 impl Default(UInt64) {
 defaultValue = 0.
@@ -217,12 +294,18 @@ impl Showable(UInt64) {
 show = __kernel_renderValue.
 }.
 impl Equatable(Float16) {
-equals = \(left, right) -> left == right.
+equals = __kernel_equals.
 }.
 impl Comparable(Float16) {
-compare = \(left, right) -> if left < right then LT else if left > right then GT else EQ.
+compare = \(left, right) -> if __kernel_lessThan left right then LT else if __kernel_greaterThan left right then GT else EQ.
 }.
-impl Num(Float16) { }.
+impl Num(Float16) {
+add = __kernel_add.
+subtract = __kernel_subtract.
+multiply = __kernel_multiply.
+divide = __kernel_divide.
+}.
+
 impl Fractional(Float16) { }.
 impl Default(Float16) {
 defaultValue = __kernel_toFloat16 0.
@@ -231,12 +314,18 @@ impl Showable(Float16) {
 show = __kernel_renderValue.
 }.
 impl Equatable(Float32) {
-equals = \(left, right) -> left == right.
+equals = __kernel_equals.
 }.
 impl Comparable(Float32) {
-compare = \(left, right) -> if left < right then LT else if left > right then GT else EQ.
+compare = \(left, right) -> if __kernel_lessThan left right then LT else if __kernel_greaterThan left right then GT else EQ.
 }.
-impl Num(Float32) { }.
+impl Num(Float32) {
+add = __kernel_add.
+subtract = __kernel_subtract.
+multiply = __kernel_multiply.
+divide = __kernel_divide.
+}.
+
 impl Fractional(Float32) { }.
 impl Default(Float32) {
 defaultValue = __kernel_toFloat32 0.
@@ -245,12 +334,18 @@ impl Showable(Float32) {
 show = __kernel_renderValue.
 }.
 impl Equatable(Float64) {
-equals = \(left, right) -> left == right.
+equals = __kernel_equals.
 }.
 impl Comparable(Float64) {
-compare = \(left, right) -> if left < right then LT else if left > right then GT else EQ.
+compare = \(left, right) -> if __kernel_lessThan left right then LT else if __kernel_greaterThan left right then GT else EQ.
 }.
-impl Num(Float64) { }.
+impl Num(Float64) {
+add = __kernel_add.
+subtract = __kernel_subtract.
+multiply = __kernel_multiply.
+divide = __kernel_divide.
+}.
+
 impl Fractional(Float64) { }.
 impl Default(Float64) {
 defaultValue = __kernel_toFloat64 0.
@@ -259,6 +354,12 @@ impl Showable(Float64) {
 show = __kernel_renderValue.
 }.
 
+impl Equatable(()) {
+equals = __kernel_equals.
+}.
+impl Equatable(Ordering) {
+equals = __kernel_equals.
+}.
 impl @{Equatable(a)}: Equatable([a]) {
 equals = \(left, right) -> case (left, right) {
 | ([], []) -> True
@@ -289,6 +390,13 @@ impl Combinable(Text) {
 combine = __kernel_textAppend.
 }.
 
+__kernel_add = __kernel_add.
+__kernel_subtract = __kernel_subtract.
+__kernel_multiply = __kernel_multiply.
+__kernel_divide = __kernel_divide.
+__kernel_equals = __kernel_equals.
+__kernel_lessThan = __kernel_lessThan.
+__kernel_greaterThan = __kernel_greaterThan.
 __kernel_map = __kernel_map.
 __kernel_filter = __kernel_filter.
 __kernel_hd = __kernel_hd.

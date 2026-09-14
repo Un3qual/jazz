@@ -26,7 +26,6 @@ import Jazz.Compiler.CoreIdentity
 import Jazz.Compiler.Diagnostics (Diagnostic)
 import Jazz.Compiler.ModuleIdentity (SourceUnitOwner (..), standaloneModulePath)
 import Jazz.Compiler.Name
-import Jazz.Compiler.Parser.Operator (isBuiltinOperatorSymbol)
 import Jazz.Compiler.RecursiveBindings (publishResolvedCaptures, resolveLexicalScopes)
 import Jazz.Compiler.Runtime (RuntimeValue)
 import qualified Jazz.Compiler.Runtime as Runtime
@@ -65,7 +64,6 @@ resolveRuntimeFixtureWith owner external fixture =
       Just target -> target
       Nothing -> case name of
         BuiltinName identifier -> BuiltinReference identifier
-        GeneratedName (OperatorBinding symbol) | isBuiltinOperatorSymbol symbol -> BuiltinOperatorReference symbol
         UserName (ResolvedUserName origin _ identifier)
           | Just _ <- lookupKernelBuiltinSymbol (identifierText identifier) -> BuiltinReference identifier
           | [capability, method] <- Text.splitOn "::" (identifierText identifier) ->
@@ -74,10 +72,7 @@ resolveRuntimeFixtureWith owner external fixture =
     allocateExpression _ binder target (CoreNode _ spanValue facts) = state $ \(next, es, ps, ss) ->
       let index = CoreNodeId next
           resolution = nodeFacts index binder target
-          operatorResolution = case resolvedNodeReference (expressionResolution facts) of
-            Just operatorReference@BuiltinOperatorReference {} -> resolution {resolvedNodeReference = Just operatorReference}
-            _ -> resolution
-       in (CoreNode index spanValue operatorResolution, (next + 1, Map.insert index facts es, ps, ss))
+       in (CoreNode index spanValue resolution, (next + 1, Map.insert index facts es, ps, ss))
     allocatePattern binder target (CoreNode _ spanValue facts) = state $ \(next, es, ps, ss) ->
       let index = CoreNodeId next
        in (CoreNode index spanValue (nodeFacts index binder target), (next + 1, es, Map.insert index facts ps, ss))

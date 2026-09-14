@@ -76,9 +76,6 @@ import Jazz.Compiler.Name
     mkIdentifier,
     resolvedLocalName,
   )
-import Jazz.Compiler.Parser.Operator
-  ( isBuiltinOperatorSymbol,
-  )
 import Jazz.Compiler.RecursiveBindings
   ( PreparedRecursiveScope,
     preparedRecursiveScopeBindingNames,
@@ -95,15 +92,14 @@ import Jazz.Compiler.SemanticFacts
 import Jazz.Compiler.TypeInference.Analyzed (constrainBindingRuntimeResult, draftExpressionNode, draftLambda, draftStatementNode, retainCheckedEvidence, withEvidenceParameters, withRecursiveBindingEvidence)
 import Jazz.Compiler.TypeInference.Capabilities
   ( TypeEnvFreeVariables,
-    addUnpreservedInferredMethodConstraintErrors,
     capabilityFactsFromState,
     defaultBindingLiteralTypes,
     defaultLiteralTypes,
     deferExplicitConstraintsWithFacts,
     deleteTypeEnvFreeVariables,
     enterModuleCapabilityScope,
+    finalizeBindingConstraintsAt,
     finalizeDeferredExplicitConstraintsAt,
-    finalizeDeferredExplicitConstraintsAtWithEntailments,
     flushCurrentModuleCapabilityFacts,
     freeTypeVariablesInEnv,
     implementationsOverlap,
@@ -147,7 +143,6 @@ import Jazz.Compiler.TypeInference.Instantiation
     instantiateTypeScheme,
     typeBindingScheme,
   )
-import Jazz.Compiler.TypeInference.Operator (builtinOperatorSymbolExpr)
 import qualified Jazz.Compiler.TypeInference.Signature as Signature
 import Jazz.Compiler.TypeInference.Solver
   ( freshTypeVar,
@@ -363,7 +358,7 @@ checkClassMethods state declarationSpan capabilityName parameters signatures pre
       (rename (schemeResultType scheme), TypeKind)
         : [ (rename target, classParameterKind definition)
           | constraint <- schemeClassConstraints scheme,
-            let (name, target) = case constraint of TypeSchemeConstraint owner argument -> (owner, argument); TypeSchemeMethodConstraint owner _ argument -> (owner, argument); TypeSchemeInferredConstraint owner argument -> (owner, argument),
+            let (name, target) = case constraint of TypeSchemeConstraint owner argument -> (owner, argument); TypeSchemeMethodConstraint owner _ argument -> (owner, argument),
             name /= capability,
             Just definition <- [Map.lookup name (inferClassFacts state)]
           ]
@@ -502,7 +497,6 @@ inferScopeTypeInternal
       semanticFactBinding state valueType binding =
         case binding of
           BuiltinAliasTypeBinding {} -> generalizedAliasBinding
-          BuiltinOperatorAliasTypeBinding {} -> generalizedAliasBinding
           _ -> binding
         where
           generalizedAliasBinding =
@@ -851,7 +845,6 @@ inferScopeTypeInternal
                                   state
                                   ( deferExplicitConstraintsWithFacts
                                       (capabilityFactsFromState state)
-                                      (capabilityFactsFromState state)
                                       [constraint | constraint <- pendingSignatureExplicitConstraints pendingSignature, all (Set.null . freeTypeVariables) constraint]
                                       state
                                   )
@@ -999,17 +992,18 @@ inferScopeTypeInternal
                               schemeVariables = case valueType of
                                 Just inferredType
                                   | shouldGeneralizeOrdinaryBinding statementIndex generalizationEnv valueExpr matchingPendingSignature ->
-                                      ordinaryBindingSchemeVariables environmentVariables stateAfterSignatureCheck valueExpr inferredType
+                                      ordinaryBindingSchemeVariables environmentVariables stateAfterSignatureCheck inferredType
                                 _ -> Set.empty
-                           in typeSchemeInferredClassConstraints stateAfterSignatureCheck (environmentVariables <> schemeVariables)
+                           in typeSchemeInferredClassConstraints stateAfterSignatureCheck schemeVariables
                         stateAfterContractValidation = case matchingPendingSignature of
                           Just pendingSignature -> addUndeclaredSignatureConstraintErrors nameText stateForStatement pendingSignature stateAfterSignatureCheck
                           Nothing -> stateAfterSignatureCheck
                         stateAfterSignatureContractCheck =
                           restoreRigidTypeVariables stateForStatement $
-                            finalizeDeferredExplicitConstraintsAtWithEntailments
+                            finalizeBindingConstraintsAt
                               bindingSpan
                               (maybe inferredEntailments (\pending -> pendingSignatureExplicitConstraints pending <> inferredEntailments) matchingPendingSignature)
+                              (freeTypeVariablesInEnv stateAfterSignatureCheck generalizationEnv)
                               stateForStatement
                               stateAfterContractValidation
                         nextBindingType =
@@ -1018,7 +1012,7 @@ inferScopeTypeInternal
                               Just (resolveType stateAfterSignatureContractCheck (pendingSignatureDeclaredType pendingSignature))
                             _ ->
                               fmap
-                                (bindingTypeForValue stateAfterSignatureContractCheck valueExpr)
+                                (bindingTypeForValue stateAfterSignatureContractCheck)
                                 (Map.lookup statementIndex bindingSeedsByStatement)
                         generalizationEnv =
                           generalizationEnvForStatement statementIndex envForStatement
@@ -1027,26 +1021,6 @@ inferScopeTypeInternal
                             && Map.notMember statementIndex recursiveGroupsByInterveningLet
                             then resolveTypeEnvFreeVariables stateAfterSignatureContractCheck envFreeVariables
                             else freeTypeVariablesInEnv stateAfterSignatureContractCheck generalizationEnv
-                        droppedInferredSchemeVariables =
-                          case (matchingPendingSignature, nextBindingType) of
-                            (Just pendingSignature, Just _)
-                              | shouldGeneralizeExplicitSignatureBinding pendingSignature ->
-                                  explicitBindingSchemeVariables generalizationEnvVariables stateAfterSignatureContractCheck pendingSignature
-                            (_, Just inferredType)
-                              | shouldGeneralizeOrdinaryBinding statementIndex generalizationEnv valueExpr matchingPendingSignature ->
-                                  ordinaryBindingSchemeVariables generalizationEnvVariables stateAfterSignatureContractCheck valueExpr inferredType
-                            _ -> Set.empty
-                        stateAfterDroppedInferredMethodCheck =
-                          case nextBindingType of
-                            Just bindingType ->
-                              addUnpreservedInferredMethodConstraintErrors
-                                bindingSpan
-                                generalizationEnvVariables
-                                stateForStatement
-                                stateAfterSignatureContractCheck
-                                bindingType
-                                droppedInferredSchemeVariables
-                            Nothing -> stateAfterSignatureContractCheck
                         maybeNextBinding =
                           nextBindingForValue
                             statementIndex
@@ -1055,12 +1029,12 @@ inferScopeTypeInternal
                             valueExpr
                             nextBindingType
                             matchingPendingSignature
-                            stateAfterDroppedInferredMethodCheck
+                            stateAfterSignatureContractCheck
                         stateAfterCapturedConstraintPrune =
                           case maybeNextBinding of
                             Just binding ->
-                              pruneCapturedInferredClassConstraints stateForStatement binding stateAfterDroppedInferredMethodCheck
-                            Nothing -> stateAfterDroppedInferredMethodCheck
+                              pruneCapturedInferredClassConstraints stateForStatement binding stateAfterSignatureContractCheck
+                            Nothing -> stateAfterSignatureContractCheck
                         nextPendingSignaturesByStatement =
                           case matchingPendingSignature of
                             Just pendingSignature ->
@@ -1126,17 +1100,6 @@ inferScopeTypeInternal
                             exprSpan
                             stateForStatement
                             stateAfterExpr
-                        stateAfterDroppedInferredMethodCheck =
-                          case exprType of
-                            Just resultType ->
-                              addUnpreservedInferredMethodConstraintErrors
-                                exprSpan
-                                (freeTypeVariablesInEnv stateAfterExplicitConstraintCheck envForStatement)
-                                stateForStatement
-                                stateAfterExplicitConstraintCheck
-                                resultType
-                                Set.empty
-                            Nothing -> stateAfterExplicitConstraintCheck
                         (scopeResultType, resultState) =
                           go
                             walkState
@@ -1144,14 +1107,10 @@ inferScopeTypeInternal
                                 scopeWalkLastExprType = exprType,
                                 scopeWalkPendingSignature = Nothing,
                                 scopeWalkRecursiveGroupPreviewCache = Map.empty,
-                                scopeWalkInferState = stateAfterDroppedInferredMethodCheck
+                                scopeWalkInferState = stateAfterExplicitConstraintCheck
                               }
                             rest
                      in (scopeResultType, resultState)
-
-      builtinOperatorAliasSymbol :: Text -> Bool
-      builtinOperatorAliasSymbol operatorSymbol =
-        isBuiltinOperatorSymbol operatorSymbol && operatorSymbol /= "|"
 
       nextBindingForValue ::
         Int ->
@@ -1168,26 +1127,11 @@ inferScopeTypeInternal
                 then PlainTypeBinding <$> maybeInferredType
                 else ordinaryBindingForValue statementIndex currentEnv environmentVariables valueExpr maybeInferredType maybePendingSignature state
          in case valueExpr of
-              EVar node _
-                | Just (BuiltinOperatorReference operatorSymbol) <- resolvedNodeReference (coreNodeFacts node),
-                  isNothing maybePendingSignature,
-                  builtinOperatorAliasSymbol operatorSymbol ->
-                    Just (operatorAliasBinding operatorSymbol monomorphicBinding)
-              EApply _ _ _
-                | isNothing maybePendingSignature,
-                  Just (operatorSymbol, maybeAliasScheme) <- builtinOperatorSymbolExpr currentEnv valueExpr ->
-                    Just (operatorAliasBinding operatorSymbol (SchemeTypeBinding <$> maybeAliasScheme))
               EVar node builtinName ->
                 let referencedName = identifierText builtinName
                  in case Map.lookup (typeEnvReferenceKey (coreNodeFacts node) builtinName) currentEnv of
                       Just (BuiltinAliasTypeBinding builtinSymbol) ->
                         Just (BuiltinAliasTypeBinding builtinSymbol)
-                      Just (BuiltinOperatorAliasTypeBinding operatorSymbol)
-                        | isNothing maybePendingSignature ->
-                            Just (BuiltinOperatorAliasTypeBinding operatorSymbol)
-                      Just binding@(OperatorAliasSchemeTypeBinding _ _)
-                        | isNothing maybePendingSignature ->
-                            Just binding
                       Just _ ->
                         monomorphicBinding
                       Nothing ->
@@ -1195,16 +1139,6 @@ inferScopeTypeInternal
                           Just builtinSymbol -> Just (BuiltinAliasTypeBinding builtinSymbol)
                           Nothing -> monomorphicBinding
               _ -> monomorphicBinding
-
-      operatorAliasBinding :: Text -> Maybe TypeBinding -> TypeBinding
-      operatorAliasBinding operatorSymbol maybeBinding =
-        case maybeBinding of
-          Just (SchemeTypeBinding typeScheme) ->
-            OperatorAliasSchemeTypeBinding operatorSymbol typeScheme
-          Just (OperatorAliasSchemeTypeBinding _ typeScheme) ->
-            OperatorAliasSchemeTypeBinding operatorSymbol typeScheme
-          _ ->
-            BuiltinOperatorAliasTypeBinding operatorSymbol
 
       ordinaryBindingForValue ::
         Int ->
@@ -1472,7 +1406,6 @@ inferScopeTypeInternal
             case binding of
               PlainTypeBinding expressionType -> freeTypeVariables expressionType
               SchemeTypeBinding typeScheme -> recursiveGroupPreviewSchemeFreeVariables typeScheme
-              OperatorAliasSchemeTypeBinding _ typeScheme -> recursiveGroupPreviewSchemeFreeVariables typeScheme
               _ -> Set.empty
 
           recursiveGroupPreviewSchemeFreeVariables typeScheme =
@@ -1897,8 +1830,8 @@ isDirectConstructorAlias env expr =
 
 generalizedOrdinaryBinding :: Set InferenceVariable -> InferState -> Expr 'Resolved -> ExpressionType -> TypeBinding
 generalizedOrdinaryBinding environmentVariables state valueExpr expressionType =
-  let resolvedType = bindingTypeForValue state valueExpr expressionType
-      schemeVariables = ordinaryBindingSchemeVariables environmentVariables state valueExpr expressionType
+  let resolvedType = bindingTypeForValue state expressionType
+      schemeVariables = ordinaryBindingSchemeVariables environmentVariables state expressionType
       inferredClassConstraints = typeSchemeInferredClassConstraints state schemeVariables
       methodParameters = case valueExpr of
         EVar {} -> concat [expressionTypeVariableOrder target | TypeSchemeMethodConstraint _ _ target <- inferredClassConstraints]
@@ -1906,23 +1839,17 @@ generalizedOrdinaryBinding environmentVariables state valueExpr expressionType =
    in generalizedTypeBinding
         (bindingTypeScheme state (methodParameters <> expressionTypeVariableOrder resolvedType) schemeVariables inferredClassConstraints resolvedType)
 
-ordinaryBindingSchemeVariables :: Set InferenceVariable -> InferState -> Expr 'Resolved -> ExpressionType -> Set InferenceVariable
-ordinaryBindingSchemeVariables environmentVariables state valueExpr expressionType =
-  let resolvedType = bindingTypeForValue state valueExpr expressionType
+ordinaryBindingSchemeVariables :: Set InferenceVariable -> InferState -> ExpressionType -> Set InferenceVariable
+ordinaryBindingSchemeVariables environmentVariables state expressionType =
+  let resolvedType = bindingTypeForValue state expressionType
       freeVariables = freeTypeVariables resolvedType
       quantifiedVariables = Set.difference freeVariables environmentVariables
    in Set.difference
         quantifiedVariables
         (numericConstrainedTypeVariables state)
 
-bindingTypeForValue :: InferState -> Expr 'Resolved -> ExpressionType -> ExpressionType
-bindingTypeForValue state valueExpr expressionType =
-  case valueExpr of
-    ESectionLeft {} -> resolvedType
-    ESectionRight {} -> resolvedType
-    _ -> defaultBindingLiteralTypes state resolvedType
-  where
-    resolvedType = resolveType state expressionType
+bindingTypeForValue :: InferState -> ExpressionType -> ExpressionType
+bindingTypeForValue state = defaultBindingLiteralTypes state . resolveType state
 
 generalizedExplicitSignatureBinding ::
   Set InferenceVariable ->
@@ -2010,7 +1937,6 @@ addUndeclaredSignatureConstraintErrors bindingName statementStartState pendingSi
     constraintIdentity constraint =
       case constraint of
         TypeSchemeConstraint constraintName targetType -> Just (constraintName, targetType)
-        TypeSchemeInferredConstraint constraintName targetType -> Just (constraintName, targetType)
         TypeSchemeMethodConstraint constraintName _ targetType -> Just (constraintName, targetType)
 
     dedupeObligations =
@@ -2082,7 +2008,6 @@ pruneCapturedInferredClassConstraintsForBindings statementStartState bindings st
 typeSchemeConstraintIsInferred :: TypeSchemeConstraint -> Bool
 typeSchemeConstraintIsInferred constraint =
   case constraint of
-    TypeSchemeInferredConstraint {} -> True
     TypeSchemeMethodConstraint {} -> True
     TypeSchemeConstraint {} -> False
 

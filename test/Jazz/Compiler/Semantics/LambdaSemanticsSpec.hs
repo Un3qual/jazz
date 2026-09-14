@@ -217,12 +217,19 @@ testBlockWrappedSelfRecursiveLambdaRuntime = do
   assertEqual "runtime output" (Just "0") (runOutput result)
 
 testBlockReturnedLambdaAliasRuntime :: IO ()
-testBlockReturnedLambdaAliasRuntime = do
-  result <- runSource defaultWarningSettings "countdown = { go = \\(n) -> if n == 0 then 0 else countdown (n - 1). go. }. countdown 2."
-  assertEqual "warnings" [] (runWarnings result)
-  assertEqual "compile errors" [] (runCompileErrors result)
-  assertEqual "runtime errors" [] (runRuntimeErrors result)
-  assertEqual "runtime output" (Just "0") (runOutput result)
+testBlockReturnedLambdaAliasRuntime =
+  mapM_
+    check
+    [ "countdown = { go = \\(n) -> if n == 0 then 0 else countdown (n - 1). go. }. countdown 2.",
+      "countdown = { go = \\(n) -> if equals n 0 then 0 else countdown (subtract n 1). go. }. countdown 2."
+    ]
+  where
+    check source = do
+      result <- runSource defaultWarningSettings source
+      assertEqual "warnings" [] (runWarnings result)
+      assertEqual "compile errors" [] (runCompileErrors result)
+      assertEqual "runtime errors" [] (runRuntimeErrors result)
+      assertEqual "runtime output" (Just "0") (runOutput result)
 
 testMutualRecursiveLambdaRuntime :: IO ()
 testMutualRecursiveLambdaRuntime = do
@@ -293,7 +300,7 @@ testMultiplePatternLambdaParametersRuntime = do
   result <-
     runSource
       defaultWarningSettings
-      "data Maybe = Nothing | Just Int. add = \\|([head | _], Just item) -> head + item |(_, _) -> 0. add [1, 2] (Just 41)."
+      "data Maybe = Nothing | Just Int. sumFields = \\|([head | _], Just item) -> head + item |(_, _) -> 0. sumFields [1, 2] (Just 41)."
   assertEqual "warnings" [] (runWarnings result)
   assertEqual "compile errors" [] (runCompileErrors result)
   assertEqual "runtime errors" [] (runRuntimeErrors result)
@@ -312,7 +319,7 @@ testMultiParameterOrPatternLambdaRuntime = do
   result <-
     runSource
       defaultWarningSettings
-      "data Maybe = Nothing | Just Int | Also Int. add = \\|(Just item | Also item, extra) -> item + extra |(Nothing, _) -> 0. add (Also 40) 2."
+      "data Maybe = Nothing | Just Int | Also Int. sumFields = \\|(Just item | Also item, extra) -> item + extra |(Nothing, _) -> 0. sumFields (Also 40) 2."
   assertEqual "warnings" [] (runWarnings result)
   assertEqual "compile errors" [] (runCompileErrors result)
   assertEqual "runtime errors" [] (runRuntimeErrors result)
@@ -483,7 +490,9 @@ testLambdaEqualityRejected = do
     compileSource
       defaultWarningSettings
       """
+      f :: Int -> Int.
       f = \\(x) -> x.
+      g :: Int -> Int.
       g = \\(x) -> x.
       same = f == g.
       """
@@ -495,7 +504,9 @@ testLambdaInequalityRejected = do
     compileSource
       defaultWarningSettings
       """
+      f :: Int -> Int.
       f = \\(x) -> x.
+      g :: Int -> Int.
       g = \\(x) -> x.
       different = f != g.
       """
@@ -530,11 +541,11 @@ assertCallableEqualityDiagnostic label result =
     compileError : _ -> do
       assertContains
         (label <> " code")
-        "E2004"
+        "E2009"
         (renderDiagnostic compileError)
       assertContains
         (label <> " callable text")
-        "callable values are not equality-supported"
+        "missing impl fact 'Equatable(Int -> Int)'"
         (renderDiagnostic compileError)
     [] ->
       failTest ("expected " <> label <> " to fail compilation")

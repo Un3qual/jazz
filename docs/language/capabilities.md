@@ -19,7 +19,7 @@ Fragment:
 class Same(a) {
   same :: a -> a -> Bool.
   different :: a -> a -> Bool.
-  different = \(left, right) -> if same left right then False else True.
+  different = \(left, right) -> not (same left right).
 }.
 
 impl Same(Int) {

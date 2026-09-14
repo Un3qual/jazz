@@ -84,12 +84,10 @@ typeBindingScheme :: TypeBinding -> Maybe TypeScheme
 typeBindingScheme binding =
   case binding of
     SchemeTypeBinding typeScheme -> Just typeScheme
-    OperatorAliasSchemeTypeBinding _ typeScheme -> Just typeScheme
     _ -> Nothing
 
 -- | Instantiate non-builtin local bindings and constructors at use sites.
--- Builtin aliases stay with the top-level dispatcher because their rules share
--- the operator and primitive catalog owned there.
+-- Kernel aliases use the primitive schemes in the top-level dispatcher.
 instantiateNonBuiltinTypeBinding :: TypeBinding -> InferState -> (Maybe ExpressionType, InferState)
 instantiateNonBuiltinTypeBinding binding state =
   case binding of
@@ -98,9 +96,6 @@ instantiateNonBuiltinTypeBinding binding state =
     SchemeTypeBinding typeScheme ->
       instantiateTypeScheme typeScheme state
     BuiltinAliasTypeBinding {} -> (Nothing, state)
-    BuiltinOperatorAliasTypeBinding {} -> (Nothing, state)
-    OperatorAliasSchemeTypeBinding _ typeScheme ->
-      instantiateTypeScheme typeScheme state
     ConstructorTypeBinding {} ->
       case instantiateConstructorBinding binding state of
         Just (constructorArgumentTypes', constructorResultType, nextState) ->
@@ -137,7 +132,6 @@ instantiateTypeSchemeWithBindings typeScheme initialBindings remainingVariables 
       stateWithDeferredConstraints =
         deferExplicitConstraintsWithFacts
           (definingFacts <> capabilityFactsFromState state)
-          definingFacts
           instantiatedConstraints
           (foldl' (flip addInferredConstraint) stateWithPrimitiveConstraints instantiatedConstraints)
    in (Just (resolveType stateWithDeferredConstraints instantiatedType), stateWithDeferredConstraints)
@@ -175,7 +169,7 @@ inferExplicitTypeApplication inferExpression env state expression@(ETypeApplicat
                     (schemeResultType scheme, TypeKind)
                       : [ (target, classParameterKind definition)
                         | constraint <- schemeClassConstraints scheme,
-                          let (capability, target) = case constraint of TypeSchemeConstraint owner argument -> (owner, argument); TypeSchemeInferredConstraint owner argument -> (owner, argument); TypeSchemeMethodConstraint owner _ argument -> (owner, argument),
+                          let (capability, target) = case constraint of TypeSchemeConstraint owner argument -> (owner, argument); TypeSchemeMethodConstraint owner _ argument -> (owner, argument),
                           Just definition <- [Map.lookup capability (inferClassFacts state)]
                         ]
                in either (const TypeKind) (Map.findWithDefault TypeKind variable) (signatureVariableKindsAt (inferDataTypes state) Map.empty requirements)
