@@ -92,7 +92,7 @@ data ClassDefinition = ClassDefinition
 
 -- | A checked implementation target with nominal capability/type identity.
 data ConcreteImplFact = ConcreteImplFact CapabilityId (SemanticType ResolvedName Void)
-  deriving stock (Eq, Ord, Show)
+  deriving stock (Eq, Ord)
 
 -- | One checked instance declaration, shared by all of its methods.
 data ImplementationTemplate = ImplementationTemplate

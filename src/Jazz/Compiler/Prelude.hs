@@ -12,7 +12,8 @@ where
 
 import Data.Text (Text)
 import Jazz.Compiler.AST
-  ( CorePhase (..),
+  ( ClassMethodSignature (..),
+    CorePhase (..),
     DataConstructor (..),
     Statement (..),
   )
@@ -141,6 +142,9 @@ collectPreludeExports coreModule =
             : [ ModuleExport ConstructorNamespace (renderName name)
               | DataConstructor _ name _ <- constructors
               ]
-        SClass _ className _ _ _ _ ->
-          [ModuleExport CapabilityNamespace (renderName className)]
+        SClass _ className _ methods _ _ ->
+          ModuleExport CapabilityNamespace (renderName className)
+            : [ ModuleExport ValueNamespace (renderName methodName)
+              | ClassMethodSignature _ methodName _ <- methods
+              ]
         _ -> []

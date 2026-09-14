@@ -18,6 +18,7 @@ import Jazz.Compiler.Driver
     compileSourceWithPrelude,
     runCompileErrors,
     runModuleGraph,
+    runModuleGraphWithPrelude,
     runOutput,
     runRuntimeErrors,
     runSource,
@@ -46,7 +47,8 @@ main = runTestSuite "PreludeLoading" tests
 
 tests :: [NamedTest]
 tests =
-  [ ("compile source can reference prelude-defined bindings", testCompileWithPreludeBindingVisibility),
+  [ ("Prelude method values remain visible beside alias imports", testPreludeMethodBesideAliasImport),
+    ("compile source can reference prelude-defined bindings", testCompileWithPreludeBindingVisibility),
     ("run source can apply prelude-defined section functions", testRunWithPreludeSectionFunction),
     ("explicit type application hints stay source-unit scoped", testExplicitTypeApplicationHintsStaySourceUnitScoped),
     ("bundled default prelude preserves user diagnostic spans", testBundledPreludePreservesUserDiagnosticSpans),
@@ -1061,3 +1063,16 @@ assertBundledPreludeNameUnavailable (name, source, expectedCode) = do
       assertContains (name <> " diagnostic subject") name rendered
     diagnostics ->
       assertEqual (name <> " diagnostic count") 1 (length diagnostics)
+
+testPreludeMethodBesideAliasImport :: IO ()
+testPreludeMethodBesideAliasImport = do
+  result <- runModuleGraphWithPrelude defaultWarningSettings (Just prelude) resolver ["Main"] source
+  assertEqual "Prelude method compile errors" [] (runCompileErrors result)
+  assertEqual "Prelude method runtime errors" [] (runRuntimeErrors result)
+  assertEqual "ordinary Prelude method wins over hidden alias member" (Just "(True, False)") (runOutput result)
+  where
+    prelude = "class Inspect(a) { inspect :: a -> Bool. }. impl Inspect(Int) { inspect = \\(item) -> True. }."
+    resolver = ModuleResolutionConfig {moduleRoots = ["src"], moduleExtension = ".jz"}
+    source "src/Main.jz" = pure (Just "module Main { import Other as Other. (inspect 1, Other::inspect 1). }")
+    source "src/Other.jz" = pure (Just "module Other (value inspect) { inspect = \\(item) -> False. }")
+    source _ = pure Nothing

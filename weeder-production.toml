@@ -103,8 +103,6 @@ root-modules = []
 root-instances = [
   # RFC 0019 retains the shared Kind structural and traversal interfaces.
   { module = '^src/Jazz/Compiler/TypeRepresentation\.hs$', instance = '(^|=> )(Eq|Ord|Show|Generic|NFData|Functor|Foldable|Traversable) (\(Kind variable\)|Kind)$' },
-  # Render concrete diagnostic views in compiler inspection tests.
-  { module = '^src/Jazz/Compiler/SemanticDeclarations\.hs$', instance = '^Show ConcreteImplFact$' },
   { module = '^src/Jazz/CLI/Main\.hs$', instance = '(^|=> )(Eq|Ord|Show|Generic|NFData|Enum|Bounded|Functor|Foldable|Traversable) (CliExecutionMode|CliInput|CliOptions|CliOutput|CliPreludeSelection|RawCliOptions|RuntimeStatisticsFormat)$' },
   { module = '^src/Jazz/Compiler/AST\.hs$', instance = '(^|=> )(Eq|Ord|Show|Generic|NFData|Enum|Bounded|Functor|Foldable|Traversable) (\(CaseArm phase\)|\(ClassMethodSignature phase\)|\(CoreNode phase sort\)|\(DataConstructor phase\)|\(Expr phase\)|\(ImplMethod phase\)|\(Pattern phase\)|\(Statement phase\))$' },
   { module = '^src/Jazz/Compiler/Analyzer\.hs$', instance = '(^|=> )(Eq|Ord|Show|Generic|NFData|Enum|Bounded|Functor|Foldable|Traversable) (AnalysisBinding|AnalysisInputs|AnalysisResult)$' },
