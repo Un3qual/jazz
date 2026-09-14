@@ -9,6 +9,7 @@ import Data.Foldable (toList)
 import qualified Data.Map.Strict as Map
 import Data.Maybe (catMaybes)
 import qualified Data.Set as Set
+import Data.Text (Text)
 import Jazz.Compiler.AST (CoreNode (coreNodeSpan), CorePhase (Resolved), Expr, ImplMethod (..))
 import Jazz.Compiler.CapabilityFacts (qualifiedMethodKey)
 import Jazz.Compiler.CoreIdentity (CapabilityId (..), renderCapabilityMethodKey)
@@ -27,7 +28,6 @@ import Jazz.Compiler.TypeInference.Types
     SemanticScheme (..),
     TypeEnv,
     TypeScheme,
-    implementationTarget,
     instantiateDeclarationType,
     quantifiedVariablesFromPreferred,
     quantifiedVariablesOrderedList,
@@ -38,16 +38,16 @@ checkImplMethodBodies ::
   (result -> Maybe ExpressionType) ->
   TypeEnv ->
   InferState ->
-  ImplementationTemplate ->
+  CapabilityId ->
+  SemanticScheme Text ->
   [ImplMethod 'Resolved] ->
   (InferState, [(Int, (TypeScheme, result))])
-checkImplMethodBodies inferExpected resultType env initialState template methods
+checkImplMethodBodies inferExpected resultType env initialState (CapabilityId capabilityName) targetScheme methods
   | length methodNames /= Set.size (Set.fromList methodNames) = (initialState, [])
   | otherwise =
       let (results, finalState) = runState (mapM checkMethod (zip [0 ..] methods)) initialState
        in (finalState, catMaybes results)
   where
-    CapabilityId capabilityName = implementationCapability template
     methodNames = [identifierText name | ImplMethod _ name _ <- methods]
     checkMethod (methodIndex, ImplMethod methodNode methodName methodExpr) = do
       beforeSignature <- get
@@ -58,17 +58,17 @@ checkImplMethodBodies inferExpected resultType env initialState template methods
           modify' (\current -> addTypeError current (mkImplMethodMissingClassMethodError (renderCapabilityMethodKey methodKey) methodSpan))
           pure Nothing
         Just (ClassMethodScheme parameter methodScheme) -> do
-          let instanceNames = quantifiedVariablesOrderedList (schemeQuantifiedVariables (implementationScheme template))
+          let instanceNames = quantifiedVariablesOrderedList (schemeQuantifiedVariables targetScheme)
               localNames = filter (/= parameter) (quantifiedVariablesOrderedList (schemeQuantifiedVariables methodScheme))
           instanceTypes <- state (freshTypeVars (length instanceNames))
           localTypes <- state (freshTypeVars (length localNames))
           let instanceBindings = Map.fromList (zip instanceNames instanceTypes)
-              instantiatedTarget = instantiateDeclarationType instanceBindings (implementationTarget template)
+              instantiatedTarget = instantiateDeclarationType instanceBindings (schemeResultType targetScheme)
               methodBindings target = Map.insert parameter target (Map.fromList (zip localNames localTypes))
               instantiateMethod target = do
                 expected <- instantiateDeclarationType (methodBindings target) (schemeResultType methodScheme)
                 methodConstraints <- traverse (traverse (instantiateDeclarationType (methodBindings target))) (schemeClassConstraints methodScheme)
-                prerequisites <- traverse (traverse (instantiateDeclarationType instanceBindings)) (schemeClassConstraints (implementationScheme template))
+                prerequisites <- traverse (traverse (instantiateDeclarationType instanceBindings)) (schemeClassConstraints targetScheme)
                 pure (expected, methodConstraints <> prerequisites)
           case instantiatedTarget >>= instantiateMethod of
             Nothing -> pure Nothing

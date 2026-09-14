@@ -14,12 +14,12 @@ import qualified Data.Sequence as Seq
 import qualified Data.Set as Set
 import Data.Text (Text)
 import Jazz.Compiler.AST
-  ( CoreNode (coreNodeFacts, coreNodeId),
+  ( CoreNode (coreNodeFacts),
     CorePhase (Resolved),
     Expr (..),
     Statement (..),
   )
-import Jazz.Compiler.CoreIdentity (CapabilityId (..), ImplId (..), ResolvedNodeFacts (..), ResolvedReference (UnresolvedReference))
+import Jazz.Compiler.CoreIdentity (CapabilityId (..), ResolvedReference (UnresolvedReference))
 import Jazz.Compiler.DiagnosticCatalog (ErrorCode (E2009))
 import Jazz.Compiler.Diagnostics (DiagnosticOrigin (CompilationOrigin), mkErrorDiagnostic)
 import Jazz.Compiler.ModuleIdentity (mkModulePath)
@@ -99,7 +99,6 @@ import Jazz.Compiler.TypeInference.Types
   ( ClassDefinition (..),
     ClassMethodType (..),
     ExpressionType,
-    ImplementationTemplate (..),
     NumericConstraint (..),
     SchemeConstraint (..),
     SchemePrimitiveConstraint (..),
@@ -711,7 +710,7 @@ testImplChecksPreserveRollback = do
           ELit _ _ -> ((Just (SemanticTuple [variable, SemanticBool]), resolveType current variable), current)
           _ -> ((Just expected, resolveType current variable), current)
   case resolvedProgram "class Probe(a) { first :: (Int, Int). second :: (Int, Int). }. impl Probe(Int) { first = 0. second = (1, 2). }." of
-    EBlock _ [SClass {}, SImpl node capability _ methods _] -> do
+    EBlock _ [SClass {}, SImpl _ capability _ methods _] -> do
       let initialState =
             modifyDeclarationState
               ( \declarations ->
@@ -723,14 +722,8 @@ testImplChecksPreserveRollback = do
                     }
               )
               allocated
-          template =
-            ImplementationTemplate
-              (ImplId (resolvedNodeOwner (coreNodeFacts node), coreNodeId node))
-              (CapabilityId capability)
-              (SemanticScheme (quantifiedVariablesFromPreferred [] Set.empty) [] [] mempty SemanticInt)
-              Map.empty
-              Map.empty
-          (finalState, results) = checkImplMethodBodies inferBody fst Map.empty initialState template methods
+          targetScheme = SemanticScheme (quantifiedVariablesFromPreferred [] Set.empty) [] [] mempty SemanticInt
+          (finalState, results) = checkImplMethodBodies inferBody fst Map.empty initialState (CapabilityId capability) targetScheme methods
       assertEqual "both bodies checked in source order" [0, 1] (map fst results)
       assertEqual "failed tuple unification did not leak into next body" [variable, variable] (map (snd . snd . snd) results)
       assertEqual "one mismatch survives the successful subsequent body" 1 (inferErrorCount finalState)

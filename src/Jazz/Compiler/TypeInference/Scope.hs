@@ -62,7 +62,7 @@ import Jazz.Compiler.BuiltinCatalog
 import Jazz.Compiler.CapabilityFacts
   ( constraintSignatureTypeVariableNamesInOrder,
   )
-import Jazz.Compiler.CoreIdentity (CapabilityId (..), CoreBinderId, ImplId (..), MethodId (..), ResolvedNodeFacts (..), ResolvedReference (..), ResolvedScopeFacts (..), renderCapabilityId, resolvedNodeImportTarget, resolvedValueReference)
+import Jazz.Compiler.CoreIdentity (CapabilityId (..), CoreBinderId, ImplId (..), MethodId (..), ResolvedNodeFacts (..), ResolvedReference (..), ResolvedScopeFacts (..), renderCapabilityId, resolvedNodeImportTarget)
 import Jazz.Compiler.Diagnostics
   ( Diagnostic,
     DiagnosticContext (CheckingBinding),
@@ -93,10 +93,9 @@ import Jazz.Compiler.SemanticFacts
   ( SemanticFactInvariantFailure (..),
     StatementDeclarationFact (..),
   )
-import Jazz.Compiler.TypeInference.Analyzed (ExpressionDecision (..), constrainBindingRuntimeResult, draftDecidedExpressionNode, draftExpressionNode, draftStatementNode, noExpressionDecision, projectAnalyzedMethodSignature, retainCheckedEvidence, withEvidenceParameters, withRecursiveBindingEvidence)
+import Jazz.Compiler.TypeInference.Analyzed (constrainBindingRuntimeResult, draftExpressionNode, draftStatementNode, projectAnalyzedMethodSignature, retainCheckedEvidence, withEvidenceParameters, withRecursiveBindingEvidence)
 import Jazz.Compiler.TypeInference.Capabilities
-  ( MethodSelection (..),
-    TypeEnvFreeVariables,
+  ( TypeEnvFreeVariables,
     addUnpreservedInferredMethodConstraintErrors,
     capabilityFactsFromState,
     defaultBindingLiteralTypes,
@@ -111,11 +110,10 @@ import Jazz.Compiler.TypeInference.Capabilities
     implementationsOverlap,
     importModuleCapabilityFacts,
     insertTypeEnvFreeVariables,
-    instantiateQualifiedMethodTypeWithExpected,
     newInferredClassConstraints,
-    ordinaryMethodScheme,
     registerClassCapabilityFacts,
     registerImplementation,
+    reindexDeclarationScheme,
     resolveTypeEnvFreeVariables,
     resolveTypeSchemeConstraint,
     restoreCapabilityFacts,
@@ -233,12 +231,6 @@ inferExprTypeWithExpectedMode ::
   (CheckedExpr, InferState)
 inferExprTypeWithExpectedMode inferExpression mode env state expectedType expr =
   case (resolveType state expectedType, expr) of
-    (_, EVar node name)
-      | Map.notMember (typeEnvReferenceKey (coreNodeFacts node) name) env,
-        Just (selection, checkedState) <- instantiateQualifiedMethodTypeWithExpected instantiateTypeScheme (resolvedValueReference (coreNodeFacts node) name) expectedType state ->
-          let result = selectedMethodType selection
-              decision = noExpressionDecision {decisionEvidence = selectedMethodEvidence selection}
-           in (CheckedExpr result (EVar <$> draftDecidedExpressionNode decision result expr <*> pure name), checkedState)
     (SemanticFunction argumentType resultType, ELambda node parameterName bodyExpr) ->
       let extendedEnv = insertResolvedTypeBinding (coreNodeFacts node) parameterName (PlainTypeBinding argumentType) env
           (bodyCheck, afterBody) = inferExprTypeWithExpectedMode inferExpression mode extendedEnv state resultType bodyExpr
@@ -575,7 +567,7 @@ inferScopeTypeInternal
             Left failure -> rejectedDraft failure
           implementationNode node name = case Map.lookup index (preparedDeclarations scopePreparation) of
             Just (Right (PreparedImplementationTemplate template)) ->
-              case ordinaryMethodScheme (ClassMethodScheme "" (implementationScheme template)) of
+              case reindexDeclarationScheme (implementationScheme template) of
                 Just scheme -> facts node Nothing (ImplementationDeclaration name [schemeResultType scheme])
                 Nothing -> rejectedDraft (MissingStatementFacts (coreNodeId node))
             _ -> rejectedDraft (MissingStatementFacts (coreNodeId node))
@@ -731,10 +723,10 @@ inferScopeTypeInternal
                   SModule moduleNode _ ->
                     let next = enterModuleCapabilityScope moduleBaselineFacts (sourceUnitOwnerModulePath (resolvedNodeOwner (coreNodeFacts moduleNode))) state
                      in go (retainStatement statementIndex statement env next Nothing [] walkState {scopeWalkRecursiveGroupPreviewCache = Map.empty}) rest
-                  SImport importNode _ maybeAlias maybeSymbolNames ->
-                    let next = maybe state (\target -> importModuleCapabilityFacts target maybeAlias maybeSymbolNames state) (resolvedNodeImportTarget (coreNodeFacts importNode))
+                  SImport importNode _ _ _ ->
+                    let next = maybe state (\target -> importModuleCapabilityFacts target state) (resolvedNodeImportTarget (coreNodeFacts importNode))
                      in go (retainStatement statementIndex statement env next Nothing [] walkState {scopeWalkRecursiveGroupPreviewCache = Map.empty}) rest
-                  SClass classNode capabilityName parameters _ _ defaults ->
+                  SClass _ capabilityName parameters _ _ defaults ->
                     let registeredState = case Map.lookup statementIndex (preparedDeclarations scopePreparation) of
                           Just (Left diagnostic) -> addTypeError stateForSource diagnostic
                           Just (Right (PreparedClassMethods methods)) -> registerClassDeclaration stateForSource capabilityName methods
@@ -746,7 +738,7 @@ inferScopeTypeInternal
                             [ (capability, member, scheme)
                             | ((capability, member), method) <- Map.toList (inferClassMethodSignatures registeredState),
                               capability == CapabilityId capabilityName,
-                              Just scheme <- [ordinaryMethodScheme method]
+                              Just scheme <- [reindexDeclarationScheme (classMethodScheme method)]
                             ]
                         publishMethod (currentEnv, currentState) (capability, member, scheme) =
                           let allocate (allocatedNames, current) variable =
@@ -761,14 +753,8 @@ inferScopeTypeInternal
                         (nextState, defaultChecks) = case parameters of
                           [parameter] ->
                             let parameterName = identifierText parameter
-                                template =
-                                  ImplementationTemplate
-                                    (ImplId (resolvedNodeOwner (coreNodeFacts classNode), coreNodeId classNode))
-                                    (CapabilityId capabilityName)
-                                    (SemanticScheme (quantifiedVariablesFromPreferred [parameterName] (Set.singleton parameterName)) [] [] mempty (SemanticVariable parameterName))
-                                    Map.empty
-                                    Map.empty
-                             in checkImplMethodBodies (inferExprTypeWithExpectedMode inferExpression mode) checkedExprType methodEnv methodState template defaults
+                                targetScheme = SemanticScheme (quantifiedVariablesFromPreferred [parameterName] (Set.singleton parameterName)) [] [] mempty (SemanticVariable parameterName)
+                             in checkImplMethodBodies (inferExprTypeWithExpectedMode inferExpression mode) checkedExprType methodEnv methodState (CapabilityId capabilityName) targetScheme defaults
                           _ -> (methodState, [])
                         nextModuleBaselineFacts =
                           updateRootModuleBaselineFacts moduleBaselineFacts state nextState
@@ -806,7 +792,8 @@ inferScopeTypeInternal
                                     checkedExprType
                                     env
                                     implSeededState
-                                    targets
+                                    (implementationCapability targets)
+                                    (implementationScheme targets)
                                     methods
                         nextModuleBaselineFacts =
                           updateRootModuleBaselineFacts moduleBaselineFacts state nextState
@@ -1727,14 +1714,14 @@ prepareScope forwardSignedFunctionsPolicy mode indexedStatements initialState =
               moduleBaselineFacts,
               enterModuleCapabilityScope moduleBaselineFacts (sourceUnitOwnerModulePath (resolvedNodeOwner (coreNodeFacts moduleNode))) state
             )
-          SImport importNode _ maybeAlias maybeSymbolNames ->
+          SImport importNode _ _ _ ->
             ( bindingSeeds,
               signatures,
               forwardFunctions,
               declarations,
               Nothing,
               moduleBaselineFacts,
-              maybe state (\target -> importModuleCapabilityFacts target maybeAlias maybeSymbolNames state) (resolvedNodeImportTarget (coreNodeFacts importNode))
+              maybe state (\target -> importModuleCapabilityFacts target state) (resolvedNodeImportTarget (coreNodeFacts importNode))
             )
           SClass classNode capabilityName parameters methods prerequisites defaults ->
             let checked = checkClassMethods state (coreNodeSpan classNode) capabilityName parameters methods prerequisites defaults

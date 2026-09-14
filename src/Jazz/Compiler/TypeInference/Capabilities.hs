@@ -22,10 +22,8 @@ module Jazz.Compiler.TypeInference.Capabilities
     freeTypeVariablesInEnv,
     importModuleCapabilityFacts,
     MethodSelection (..),
-    ordinaryMethodScheme,
-    inferQualifiedMethodApplicationWithResults,
+    reindexDeclarationScheme,
     instantiateQualifiedMethodType,
-    instantiateQualifiedMethodTypeWithExpected,
     instantiateQualifiedMethodTypeWithExplicitTarget,
     deleteTypeEnvFreeVariables,
     insertTypeEnvFreeVariables,
@@ -72,10 +70,6 @@ import qualified Data.Set as Set
 import Data.Text
   ( Text,
   )
-import Jazz.Compiler.AST
-  ( CorePhase (..),
-    Expr,
-  )
 import Jazz.Compiler.CapabilityFacts
   ( qualifiedMethodKey,
   )
@@ -103,7 +97,6 @@ import Jazz.Compiler.TypeInference.Diagnostics
     annotateNewErrorsWithPrimarySpan,
     mkAmbiguousDeferredConstraintError,
     mkAmbiguousQualifiedMethodBodyError,
-    mkApplyTypeError,
     mkInvalidCapabilityDeclarationError,
     mkMissingClassMethodError,
     mkMissingExplicitConstraintImplFactError,
@@ -113,7 +106,6 @@ import Jazz.Compiler.TypeInference.Diagnostics
     mkTypeSchemeStrictEqualityConstraintError,
     mkUndeclaredSignatureConstraintError,
   )
-import Jazz.Compiler.TypeInference.Draft (CheckedExpr (..))
 import Jazz.Compiler.TypeInference.Environment
   ( TypeEnvFreeVariables,
     deleteTypeEnvFreeVariables,
@@ -125,7 +117,6 @@ import Jazz.Compiler.TypeInference.Environment
 import Jazz.Compiler.TypeInference.Solver
   ( addStrictEqualityTypeVarConstraint,
     constrainNumericOperatorType,
-    freshTypeVar,
     freshTypeVars,
     integerLiteralRangeFor,
     resolveType,
@@ -157,9 +148,6 @@ import Jazz.Compiler.TypeInference.State
     modifyInferenceOutput,
     modifyModuleInferenceState,
   )
-import Jazz.Compiler.TypeInference.Traversal
-  ( InferExprFn,
-  )
 import Jazz.Compiler.TypeInference.TypeOps
   ( dedupeTypeSchemeConstraints,
     freeTypeVariables,
@@ -175,7 +163,6 @@ import Jazz.Compiler.TypeInference.Types
     ScopeCapabilityFacts (..),
     SemanticScheme (..),
     SemanticType (..),
-    TypeEnv,
     TypeScheme,
     TypeSchemeConstraint,
     TypeSchemePrimitiveConstraint,
@@ -283,18 +270,13 @@ enterModuleCapabilityScope baselineFacts modulePath state =
     )
     (applyCapabilityFacts baselineFacts (flushCurrentModuleCapabilityFacts state))
 
-importModuleCapabilityFacts :: ModulePath -> Maybe Text -> Maybe [Text] -> InferState -> InferState
-importModuleCapabilityFacts modulePath maybeAlias maybeSymbolNames state =
+importModuleCapabilityFacts :: ModulePath -> InferState -> InferState
+importModuleCapabilityFacts modulePath state =
   applyCapabilityFacts
     ( capabilityFactsFromState state
-        <> filterImportedCapabilityFacts maybeAlias maybeSymbolNames (Map.findWithDefault emptyScopeCapabilityFacts (Just modulePath) (inferModuleCapabilityFacts state))
+        <> Map.findWithDefault emptyScopeCapabilityFacts (Just modulePath) (inferModuleCapabilityFacts state)
     )
     state
-
--- Instance and supporting metadata follow the dependency regardless of source
--- selectors. The resolver owns which spellings are visible.
-filterImportedCapabilityFacts :: Maybe Text -> Maybe [Text] -> ScopeCapabilityFacts -> ScopeCapabilityFacts
-filterImportedCapabilityFacts _ _ facts = facts
 
 registerClassCapabilityFacts :: ResolvedName -> ClassDefinition -> [(ResolvedName, ClassMethodType)] -> InferState -> InferState
 registerClassCapabilityFacts capabilityName definition methods =
@@ -367,8 +349,8 @@ newConstraintEvidence before after =
     not (deferredWasInferred constraint) || isJust (deferredMethodKey constraint)
   ]
 
-ordinaryMethodScheme :: ClassMethodType -> Maybe TypeScheme
-ordinaryMethodScheme (ClassMethodScheme _ scheme) = do
+reindexDeclarationScheme :: SemanticScheme Text -> Maybe TypeScheme
+reindexDeclarationScheme scheme = do
   constraints <- traverse (traverse (traverse (`Map.lookup` parameters))) (schemeClassConstraints scheme)
   primitives <- traverse (traverse (traverse (`Map.lookup` parameters))) (schemePrimitiveConstraints scheme)
   resultType <- traverse (`Map.lookup` parameters) (schemeResultType scheme)
@@ -379,7 +361,7 @@ ordinaryMethodScheme (ClassMethodScheme _ scheme) = do
     order = [variable | name <- names, Just variable <- [Map.lookup name parameters]]
 
 instantiateMethod :: SchemeInstantiation -> CapabilityMethodKey -> InferState -> (MethodSelection, InferState)
-instantiateMethod instantiate methodKey state = case Map.lookup methodKey (inferClassMethodSignatures state) >>= ordinaryMethodScheme of
+instantiateMethod instantiate methodKey state = case Map.lookup methodKey (inferClassMethodSignatures state) >>= reindexDeclarationScheme . classMethodScheme of
   Nothing -> (MethodSelection Nothing [], addTypeError state (mkMissingClassMethodError methodKey))
   Just scheme ->
     let (result, next) = instantiate scheme state
@@ -390,17 +372,6 @@ instantiateQualifiedMethodType instantiate reference state = do
   methodKey <- capabilityMethodKeyFromReference reference
   guard (qualifiedMethodClassIsVisible methodKey state)
   pure (instantiateMethod instantiate methodKey state)
-
-instantiateQualifiedMethodTypeWithExpected :: SchemeInstantiation -> ResolvedReference -> ExpressionType -> InferState -> Maybe (MethodSelection, InferState)
-instantiateQualifiedMethodTypeWithExpected instantiate reference expected state = do
-  methodKey <- capabilityMethodKeyFromReference reference
-  guard (qualifiedMethodClassIsVisible methodKey state)
-  let (selection, next) = instantiateMethod instantiate methodKey state
-  pure $ case selectedMethodType selection of
-    Nothing -> (selection, next)
-    Just actual -> case unifyTypes expected actual next of
-      Just unified -> (selection {selectedMethodType = resolveType unified <$> selectedMethodType selection}, unified)
-      Nothing -> (MethodSelection Nothing [], addTypeError next (mkNoMatchingQualifiedMethodBodyError methodKey [expected]))
 
 instantiateQualifiedMethodTypeWithExplicitTarget :: SchemeInstantiation -> CapabilityMethodKey -> ExpressionType -> InferState -> (MethodSelection, InferState)
 instantiateQualifiedMethodTypeWithExplicitTarget instantiate methodKey explicitTarget state =
@@ -414,17 +385,6 @@ instantiateQualifiedMethodTypeWithExplicitTarget instantiate methodKey explicitT
           | otherwise -> rejected next
   where
     rejected next = (MethodSelection Nothing [], addTypeError next (mkNoMatchingQualifiedMethodBodyError methodKey [explicitTarget]))
-
-inferQualifiedMethodApplicationWithResults :: SchemeInstantiation -> InferExprFn -> TypeEnv -> InferState -> CapabilityMethodKey -> [Expr 'Resolved] -> (MethodSelection, InferState, [CheckedExpr])
-inferQualifiedMethodApplicationWithResults instantiate inferExpression env state methodKey arguments =
-  let (reversed, afterArguments) = foldl' (\(accumulated, current) argument -> let (result, next) = inferExpression env current argument in (result : accumulated, next)) ([], state) arguments
-      checked = reverse reversed
-      (selection, afterMethod) = instantiateMethod instantiate methodKey afterArguments
-   in case (selectedMethodType selection, traverse checkedExprType checked) of
-        (Just methodType, Just argumentTypes) ->
-          let (result, next) = applyKnownFunctionArgumentsWithErrors methodType argumentTypes afterMethod
-           in (selection {selectedMethodType = result}, next, checked)
-        _ -> (MethodSelection Nothing [], afterMethod, checked)
 
 addUnpreservedInferredMethodConstraintErrors ::
   SourceSpan ->
@@ -722,42 +682,6 @@ structuralRuntimeEqualityType state argumentType =
       supportsRuntimeEqualityType state (SemanticData typeName typeArguments)
     _ ->
       False
-
-applyKnownFunctionArgumentsWithErrors ::
-  ExpressionType ->
-  [ExpressionType] ->
-  InferState ->
-  (Maybe ExpressionType, InferState)
-applyKnownFunctionArgumentsWithErrors = applyFunctionArguments (\_ afterAllocation diagnostic -> addTypeError afterAllocation diagnostic)
-
--- Silent candidate probing discards the failing argument's fresh variable;
--- reporting retains it. Neither policy keeps a failed unification's changes.
-applyFunctionArguments ::
-  (InferState -> InferState -> Diagnostic -> InferState) ->
-  ExpressionType ->
-  [ExpressionType] ->
-  InferState ->
-  (Maybe ExpressionType, InferState)
-applyFunctionArguments onFailure functionType argumentTypes state =
-  foldl' step (Just functionType, state) argumentTypes
-  where
-    step (Nothing, stateAcc) _ =
-      (Nothing, stateAcc)
-    step (Just currentFunctionType, stateAcc) argumentType =
-      let (resultTypeVar, stateWithResultVar) = freshTypeVar stateAcc
-       in case unifyTypes currentFunctionType (SemanticFunction argumentType resultTypeVar) stateWithResultVar of
-            Just unifiedState ->
-              (Just (resolveType unifiedState resultTypeVar), unifiedState)
-            Nothing ->
-              ( Nothing,
-                onFailure
-                  stateAcc
-                  stateWithResultVar
-                  ( mkApplyTypeError
-                      (defaultLiteralTypes stateWithResultVar (resolveType stateWithResultVar currentFunctionType))
-                      (defaultLiteralTypes stateWithResultVar (resolveType stateWithResultVar argumentType))
-                  )
-              )
 
 defaultLiteralTypes :: InferState -> ExpressionType -> ExpressionType
 defaultLiteralTypes state =

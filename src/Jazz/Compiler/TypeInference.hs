@@ -40,8 +40,8 @@ import Jazz.Compiler.BuiltinCatalog
     numericTypeIntegerBounds,
     numericTypeLiteralIntegerBounds,
   )
-import Jazz.Compiler.CoreIdentity (CapabilityId (..), CapabilityMethodKey, CoreBinderId, ResolvedNodeFacts (..), ResolvedReference (..), capabilityMethodKeyFromReference, resolvedValueReference)
-import Jazz.Compiler.Diagnostics (Diagnostic, SourceSpan)
+import Jazz.Compiler.CoreIdentity (CapabilityId (..), CoreBinderId, ResolvedNodeFacts (..), ResolvedReference (..), resolvedValueReference)
+import Jazz.Compiler.Diagnostics (Diagnostic)
 import Jazz.Compiler.FractionalLiteral
   ( FractionalLiteralSource,
     fractionalLiteralExceedsMagnitude,
@@ -339,14 +339,6 @@ inferExprTypeDetailed env state expr = case expr of
   EApply _ function argument
     | Just (symbol, aliasScheme, left, right, sectionFallback) <- builtinOperatorApplicationSpine env expr ->
         if sectionFallback then inferSectionApplicationWithFallback function argument symbol left right else inferBuiltinOperatorApplication symbol aliasScheme left right
-    | Just (methodName, methodSpan, methodKey, arguments) <- qualifiedMethodApplicationSpine expr state,
-      Map.notMember methodName env ->
-        let (selection, afterArguments, argumentChecks) = inferQualifiedMethodApplicationWithResults instantiateTypeScheme inferLocatedMethodArgument env state methodKey arguments
-            result = selectedMethodType selection
-            tree = case (result, traverse checkedExprType argumentChecks) of
-              (Just resultType, Just argumentTypes) -> draftQualifiedMethodSpine (selectedMethodEvidence selection) expr (foldr (SemanticFunction . resolveType afterArguments) (resolveType afterArguments resultType) argumentTypes) argumentChecks
-              _ -> rejectedDraft (MissingExpressionFacts (coreNodeId (expressionNode expr)))
-         in (CheckedExpr result tree, annotateNewErrorsWithPrimarySpan methodSpan state afterArguments)
     | otherwise ->
         let (checked, finalState) = inferCheckedApplication env state expr function argument
          in (checked, finalState)
@@ -419,10 +411,6 @@ inferExprTypeDetailed env state expr = case expr of
                in case checkedExprType checked of
                     Just _ -> builtin
                     Nothing -> (generic, genericState)
-
-    inferLocatedMethodArgument argumentEnv priorState argumentExpr =
-      let (checked, nextState) = inferExprTypeDetailed argumentEnv priorState argumentExpr
-       in (checked, annotateNewErrorsWithPrimarySpan (coreNodeSpan (expressionNode argumentExpr)) priorState nextState)
 
 inferLeafExpression :: TypeEnv -> InferState -> Expr 'Resolved -> (Maybe ExpressionType, [EvidenceReference], InferState)
 inferLeafExpression env state expr = case expr of
@@ -582,57 +570,6 @@ discardFailedFunctionApplicationConstraints stateBeforeFunction stateAfterApplic
           }
     )
     stateAfterApplication
-
-qualifiedMethodApplicationSpine :: Expr 'Resolved -> InferState -> Maybe (TypeEnvKey, SourceSpan, CapabilityMethodKey, [Expr 'Resolved])
-qualifiedMethodApplicationSpine expr state =
-  case applicationSpine expr of
-    Just (methodName, methodSpan, argumentExprs)
-      | Just methodKey <- capabilityMethodKeyFromReference (typeEnvReference methodName),
-        qualifiedMethodClassIsVisible methodKey state ->
-          Just (methodName, methodSpan, methodKey, argumentExprs)
-    _ -> Nothing
-
-applicationSpine :: Expr 'Resolved -> Maybe (TypeEnvKey, SourceSpan, [Expr 'Resolved])
-applicationSpine expr =
-  go [] expr
-  where
-    go argumentExprs currentExpr =
-      case currentExpr of
-        EApply _ (EVar node _) functionExpr
-          | resolvedNodeReference (coreNodeFacts node) == Just (BuiltinOperatorReference "$") ->
-              go argumentExprs functionExpr
-        EApply _ functionExpr argumentExpr ->
-          go (argumentExpr : argumentExprs) functionExpr
-        EVar node name ->
-          Just (typeEnvReferenceKey (coreNodeFacts node) name, coreNodeSpan node, argumentExprs)
-        _ ->
-          Nothing
-
--- Specialized checks construct skipped callable wrappers from their selected
--- types and owned argument trees. These builders do not mutate solver output.
-draftQualifiedMethodSpine :: [EvidenceReference] -> Expr 'Resolved -> ExpressionType -> [CheckedExpr] -> Draft (Expr 'Analyzed)
-draftQualifiedMethodSpine evidence root methodType arguments =
-  let (_, tree, remaining) = walk root arguments
-   in if null remaining then tree else rejected root
-  where
-    facts expression result =
-      let decision = noExpressionDecision {decisionEvidence = case expression of EVar {} -> evidence; _ -> []}
-       in draftDecidedExpressionNode decision (Just result) expression
-    rejected expression = rejectedDraft (MissingExpressionFacts (coreNodeId (expressionNode expression)))
-    walk expression remaining = case expression of
-      EApply _ dollar@(EVar dollarNode dollarName) function
-        | resolvedNodeReference (coreNodeFacts dollarNode) == Just (BuiltinOperatorReference "$") ->
-            let (functionType, functionTree, rest) = walk function remaining
-                dollarTree = EVar <$> facts dollar (SemanticFunction functionType functionType) <*> pure dollarName
-             in (functionType, EApply <$> facts expression functionType <*> dollarTree <*> functionTree, rest)
-      EApply _ function _ ->
-        let (functionType, functionTree, rest) = walk function remaining
-            result = case functionType of SemanticFunction _ value -> value; _ -> functionType
-         in case rest of
-              argument : later -> (result, EApply <$> facts expression result <*> functionTree <*> checkedExprTree argument, later)
-              [] -> (result, rejected expression, [])
-      EVar _ name -> (methodType, EVar <$> facts expression methodType <*> pure name, remaining)
-      _ -> (methodType, rejected expression, remaining)
 
 draftBuiltinApplication :: TypeEnv -> Text -> Maybe BinaryOperation -> Expr 'Resolved -> CheckedExpr -> CheckedExpr -> ExpressionType -> ExpressionType -> ExpressionType -> InferState -> Draft (Expr 'Analyzed)
 draftBuiltinApplication env selectedSymbol operation root left right leftType rightType resultType state =

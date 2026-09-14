@@ -13,12 +13,13 @@ target_paths:
   - src/Jazz/Compiler/Runtime/Semantics.hs
   - src/Jazz/Compiler/TypeInference.hs
   - src/Jazz/Compiler/TypeInference/Capabilities.hs
-  - src/Jazz/Compiler/TypeInference/Instantiation.hs
   - src/Jazz/Compiler/TypeInference/ImplChecking.hs
   - src/Jazz/Compiler/TypeInference/Scope.hs
   - src/Jazz/Compiler/TypeInference/Analyzed.hs
   - src/Jazz/Compiler/SemanticFacts.hs
   - test/Jazz/Compiler/Semantics/Runtime/CapabilitiesTests.hs
+  - test/Jazz/Compiler/Semantics/BindingSignature/InferenceOwnershipTests.hs
+  - test/Jazz/Compiler/Semantics/Runtime/Fixtures.hs
   - test/Jazz/Compiler/Stdlib/GenericCapabilitiesTests.hs
   - test/fixtures/stdlib/generic/GenericLibrary.jz
   - test/fixtures/stdlib/generic/GenericLaws.jz
@@ -45,10 +46,10 @@ remains the public contract; this work preserves behavior.
 - [x] Remove the runtime candidate catalog. Retain one qualified-method token
       and the selected dictionary's direct method cells. Remove its inspection
       test while retaining behavioral method/default/host-effect coverage.
-- [ ] Route method references through ordinary application inference. Remove
+- [x] Route method references through ordinary application inference. Remove
       the specialized application spine and unused failure policy. Remove
       pass-through import filtering parameters; visibility stays in resolution.
-- [ ] Narrow scheme conversion and method-checker inputs to the data consumed;
+- [x] Narrow scheme conversion and method-checker inputs to the data consumed;
       stop fabricating class and implementation records for adapters.
 - [ ] Finalize evidence capture requirements once on analyzed lambdas. Reuse
       checked dictionary identities and the existing draft finalization path;
@@ -74,3 +75,7 @@ for helper deletion; add a regression only for a concrete uncovered invariant.
 Runtime catalog removal: runtime-semantics-spec, runtime-observation-spec,
 and module-pipeline-contract-spec pass with serialized pinned Cabal. The
 obsolete catalog inspection test was removed; behavioral tests remain.
+
+Ordinary method inference, direct scheme conversion, checker inputs, and import
+API cleanup: binding-signature-coherence-spec, runtime-semantics-spec, and
+module-pipeline-contract-spec pass with serialized pinned Cabal.
