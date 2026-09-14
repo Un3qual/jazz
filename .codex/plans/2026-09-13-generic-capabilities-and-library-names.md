@@ -1,6 +1,6 @@
 ---
 id: JN-GENERIC-CAPABILITIES-CORE-001
-status: ready
+status: complete
 priority: P1
 size: L
 kind: impl
@@ -105,7 +105,8 @@ the repository-pinned Nix development/quality shells.
 The revised contract, initial simplifications, compiler-reuse requirements,
 and final correctness refinements are approved on 2026-09-13.
 The maintainer explicitly retained the Reduce module and safe seedless helper.
-This accepted future contract is not yet implemented.
+Tasks 1-4 are implemented and verified. The dependent library migration is
+ready in [its child plan](2026-09-13-generic-capabilities-library.md).
 
 ## Global constraints
 
@@ -135,17 +136,14 @@ This accepted future contract is not yet implemented.
 
 ## Promotion and delivery
 
-RFC 0019 is accepted and this plan is ready. The queue row uses exactly this
+RFC 0019 is accepted and the core child is complete. The queue row uses exactly this
 ordered target and verification list. The first queue child covers Tasks 1-4
 as one complete compiler deliverable; do not close it at parser-only support.
 
 Task 5 is the dependent library migration, child
-`JN-GENERIC-CAPABILITIES-LIBRARY-001`, recorded in Next Curation Target behind
-`JN-GENERIC-CAPABILITIES-CORE-001`. At core closeout, create its ready plan
-from Task 5 and the rename CSV, naming the concrete stdlib, catalog, consumer,
-and test files. Preserve
-the approved scope and continue to that milestone without reopening it for
-permission. The separate child is an integration/verification boundary, not a
+`JN-GENERIC-CAPABILITIES-LIBRARY-001`, promoted to Ready Now after verified core closeout, with its concrete stdlib,
+catalog, consumer, and test files named in the child plan. Continue to that
+approved milestone without reopening it for permission. The separate child is an integration/verification boundary, not a
 request to leave the rename undone.
 
 ## Implementation
@@ -209,7 +207,7 @@ so real checking consumes those prepared declarations. Add a local dependency
 traversal only where kind dependencies require it; do not introduce another
 compiler phase or prepared-module representation.
 
-- [ ] In parser/signature and binding suites, add focused source cases:
+- [x] In parser/signature and binding suites, add focused source cases:
 
   ```jazz
   data Wrapped f a = Wrapped f(a).
@@ -228,10 +226,10 @@ compiler phase or prepared-module representation.
   parameter that defaults to `Type` and a constructor parameter whose inferred
   kind survives module transport; extend the Task 4 import fixture for the latter.
 
-- [ ] Run `cabal test parser-foundation-spec declaration-parser-spec
+- [x] Run `cabal test parser-foundation-spec declaration-parser-spec
 binding-signature-coherence-spec signature-rendering-spec --jobs=1
 --test-show-details=failures`; confirm the new behavior fails on the baseline.
-- [ ] Extract the existing `@{...}:` prefix from
+- [x] Extract the existing `@{...}:` prefix from
       `constrainedSignaturePayloadParser`/`constraintBlockParser` in
       `Parser/Signature.hs` for use by both signatures and declaration headers.
       Retain `SignatureConstraint` and its shared lowering/traversal. Factor
@@ -245,9 +243,9 @@ binding-signature-coherence-spec signature-rendering-spec --jobs=1
       implementation contexts as `C(a)` for head-bound variables and superclass
       contexts as `C(classParameter)`. Keep method-local and use-site constraints
       governed by ordinary schemes, including compound targets.
-- [ ] Extend `prepareScope` and its declaration cache for kind/template
+- [x] Extend `prepareScope` and its declaration cache for kind/template
       preparation, retaining forward declaration behavior and diagnostic ownership.
-- [ ] Extend hosted declaration encodings for contexts/default bodies and complete
+- [x] Extend hosted declaration encodings for contexts/default bodies and complete
       their exhaustive adapters; reuse existing type-application encodings and
       retain structural differential checks for the changed declaration syntax.
       Run the focused suites plus `canonical-parser-comparison-spec`,
@@ -277,7 +275,7 @@ prerequisite evidence once added. Extend existing analyzed facts and method
 cells; do not add another evidence-lowering pass or runtime instruction plan.
 Preserve the public driver result APIs.
 
-- [ ] Add compile/run cases using the existing `assertSourceOkWithoutPrelude`
+- [x] Add compile/run cases using the existing `assertSourceOkWithoutPrelude`
       helper in `BindingSignature/ConstraintsTests.hs` and driver-based runtime
       cases in `Runtime/CapabilitiesTests.hs`. Start with this complete program:
 
@@ -307,9 +305,9 @@ Preserve the public driver result APIs.
   reject an `impl Keeping([a])` of `class Keeping(t) { keep :: t -> t. }`
   with `keep = \(values) -> [True]`, specializing its instance parameter to Bool.
 
-- [ ] Run binding/runtime suites and confirm failures concern unsupported new
+- [x] Run binding/runtime suites and confirm failures concern unsupported new
       semantics, not fixture/import mistakes.
-- [ ] Freshen each instance's variables and match the entire head against the
+- [x] Freshen each instance's variables and match the entire head against the
       obligation. Use exact constructor identity for overlap and exact-match
       preference: Int/Int64 and Float/Float64 heads remain distinct. Reuse the
       solver's structural traversal, variable binding, and occurs checks with
@@ -323,13 +321,13 @@ Preserve the public driver result APIs.
       descent; add no size/occurrence accounting.
       Reject compound/unbound declaration prerequisites, while accepting inferred
       and use-site compound obligations such as `Same([[Int]])`.
-- [ ] Extend `resolveDeferredExplicitConstraint`,
+- [x] Extend `resolveDeferredExplicitConstraint`,
       `finalizeDeferredExplicitConstraintsAtWithEntailments`, and
       `deferredConstraintIsEntailed` for generic prerequisites and superclass
       entailment. Reuse the existing queue and statement checkpoints, preserving
       source diagnostics and generalization of unresolved constraints. Do not
       introduce a second obligation type, work queue, or solving pass.
-- [ ] Wrap candidate trials locally in `StateT InferState Maybe`, using existing
+- [x] Wrap candidate trials locally in `StateT InferState Maybe`, using existing
       `transformers` and unification functions. Run every candidate from the same
       immutable pre-trial state, discard failures, and examine all matching heads.
       Apply exact-match preference and require a unique selection before checking
@@ -340,7 +338,7 @@ Preserve the public driver result APIs.
       and reject overlapping heads even when one prerequisite is unavailable.
       Do not substitute `previewInference`: it deliberately discards outputs and
       outstanding constraints and has a different allocation/continuation contract.
-- [ ] Check bodies under declared prerequisites and self evidence. Reuse
+- [x] Check bodies under declared prerequisites and self evidence. Reuse
       `inferRigidTypeVars` and the signed-binding checker's rigidity discipline
       for instance parameters and method-local quantified variables. Restore the
       surrounding rigid set after checking and constraint finalization, including
@@ -352,7 +350,7 @@ Preserve the public driver result APIs.
       of method names; references in bodies use the same overloaded schemes,
       with prerequisites and self evidence supplied through the entailment path.
       Reuse the recursive `Same([a])` fixture above to verify both evidence targets.
-- [ ] Unify the two evidence records and update their producers/consumers, then
+- [x] Unify the two evidence records and update their producers/consumers, then
       pass selected/deferred evidence through analyzed binders and callables.
       Finalize substitutions in the existing draft finalizer and consume the
       attached facts directly at runtime, as required by RFC 0018.
@@ -376,18 +374,18 @@ existing `CapabilityMethodReference` identity for every spelling. Defaults
 remain ordinary `Expr` values checked with shared method-body checking and
 executed through existing method cells; preserve their defining lexical scope.
 
-- [ ] Change the generic helper above to call plain `same`; add stored aliases
+- [x] Change the generic helper above to call plain `same`; add stored aliases
       and local shadowing cases. Add a class with `same` and default `different`,
       and a subclass that calls a superclass method. Execute default and overridden
       methods with different results; reject missing methods and superclass cycles.
-- [ ] Run binding/runtime and `purity-semantics-spec` tests to establish the
+- [x] Run binding/runtime and `purity-semantics-spec` tests to establish the
       new cases' failures.
-- [ ] Publish class methods with the ordinary schemes from Tasks 1-2 into the
+- [x] Publish class methods with the ordinary schemes from Tasks 1-2 into the
       normal local value environment and resolve them before inference. Do not
       add a separate method generalization or value-lookup path. Follow current
       lexical rules and reject same-scope duplicate values. Do not synthesize
       wrapper bindings or fresh lexical identities for ordinary method spellings.
-- [ ] Factor expected-type and constraint checking from `checkImplMethodBodies`
+- [x] Factor expected-type and constraint checking from `checkImplMethodBodies`
       into one shared body-checking operation. Use implementation prerequisites
       for supplied bodies and class/superclass/method assumptions for defaults.
       Check a default once in its defining scope, then select it with the
@@ -397,10 +395,10 @@ executed through existing method cells; preserve their defining lexical scope.
       checks. Reuse ordinary expression inference and runtime method cells,
       including recursion; do not
       add a default-body AST, separate checker, or evaluator.
-- [ ] Supply superclass evidence through the existing entailment path extended
+- [x] Supply superclass evidence through the existing entailment path extended
       in Task 2, using declared nominal superclass relationships. Preserve the
       acyclic superclass requirement and missing-superclass diagnostics.
-- [ ] Confirm class-method aliases preserve bang-name purity checks. Run the
+- [x] Confirm class-method aliases preserve bang-name purity checks. Run the
       three focused suites and `source-ranges-spec`; update public capability and
       grammar documentation for this completed behavior and commit.
 
@@ -432,12 +430,12 @@ value export map rather than adding a parallel method-value table. Update
 fixtures, including `test/Jazz/Compiler/ProfilingSpec.hs`, for the reference field;
 this is fixture maintenance, not new profiling work.
 
-- [ ] Add modules A, B, and C: A exports a class/method; B imports A and
+- [x] Add modules A, B, and C: A exports a class/method; B imports A and
       declares an implementation. C imports A for the method and B with an empty
       selection for its instance, then calls A's method. The empty B selection
       exposes no names. Expect successful dispatch. Repeated aliases must deduplicate the same instance;
       an additional overlapping instance must fail regardless of import order.
-- [ ] Add fixtures for existing `class C` and method-value-only selections.
+- [x] Add fixtures for existing `class C` and method-value-only selections.
       Class selection provides its method names, including alias-qualified
       spellings; value-only selection preserves hidden class metadata. Assert
       private names remain inaccessible, exported helpers receive caller evidence,
@@ -445,21 +443,21 @@ this is fixture maintenance, not new profiling work.
       Include an imported default that calls a private helper in its defining
       module, with a same-named helper in the implementing module, to verify
       that default reuse preserves lexical ownership.
-- [ ] Add a Prelude-owned test class implemented in a Queue-like library module.
+- [x] Add a Prelude-owned test class implemented in a Queue-like library module.
       Importing that library, even by alias, must make its generic instance usable.
       This case prevents retaining the current public-class filter on instances.
-- [ ] Extend `publishModuleInterface`, `importSelectedInterface`, and existing
+- [x] Extend `publishModuleInterface`, `importSelectedInterface`, and existing
       capability merges for transitive instances and supporting metadata, including
       empty-selection imports. Update `ModuleRuntime` publication, selection, and
       merging to transport the corresponding method cells and deduplicate by
       nominal identity. Retain the existing module dependency order; add no
       instance-import graph, registry, or separate transport pass.
-- [ ] Complete the `ModuleValueBinding` reference-field migration and method
+- [x] Complete the `ModuleValueBinding` reference-field migration and method
       export inventory changes with the existing class/value/alias loader cases.
       Retain re-export rejection and add no new selector grammar. Run
       `module-exports-spec`, `module-resolution-spec`, `loader-spec`, and
       `module-pipeline-contract-spec`.
-- [ ] Complete the core queue child only after Tasks 1-4 work end to end and
+- [x] Complete the core queue child only after Tasks 1-4 work end to end and
       the frontmatter verification commands pass, including execution of all
       four full parser-scale suites with `-ffull-parser-scale`. The quality gate
       only builds those components; it does not run them. Publish matching public
@@ -588,8 +586,8 @@ module values. There is no separate second pass to rename newly added adapters.
 Use `/nix/var/nix/profiles/default/bin/nix --extra-experimental-features
 'nix-command flakes' develop --command ...` when Nix is absent from PATH.
 Use the quality shell selected by the repository for the Haskell quality gate.
-No compiler tests are claimed by this planning change. Run RFC, authority,
-queue, docs, and whitespace checks for the design documents themselves.
+The receipt below records verification of the compiler core. The library child
+repeats the required gates after migration.
 
 ## Design review record
 
@@ -635,3 +633,11 @@ queue, docs, and whitespace checks for the design documents themselves.
   7. Execute full parser-scale checks before core closeout (Task 4/frontmatter).
 - RFC acceptance and ready plan metadata record this approval. Compiler and
   library implementation are not claimed by the documentation change.
+
+## Core implementation receipt
+
+Tasks 1-4 are committed through `6970d538`. All frontmatter commands passed on
+2026-09-13: build all, test all, execution of all four full parser-scale suites,
+the fresh Haskell quality gate, examples, docs, queue, and whitespace checks.
+No full-scale waiver was used. The library child is promoted and remains the
+next required milestone for RFC 0019.
