@@ -38,6 +38,11 @@ only `docs/` and does not publish this directory.
 | [0016](accepted/0016-optional-backend-removal.md)                 | Optional backend removal                 |
 | [0017](accepted/0017-alias-qualified-classes.md)                  | Alias-qualified classes                  |
 | [0018](accepted/0018-direct-analyzed-runtime-facts.md)            | Direct analyzed runtime facts            |
+| [0019](accepted/0019-generic-capabilities-and-library-names.md)   | Generic capabilities and library names   |
+
+## Proposed decisions
+
+No proposals are currently open.
 
 ## Process
 

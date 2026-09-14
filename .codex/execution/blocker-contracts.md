@@ -70,30 +70,117 @@ Each blocked item should answer these questions:
 
 ### JN-ABSTRACTION-SEMANTICS-PLAN-001
 
-- Smallest unblocker: none currently. The cross-cutting typed module export
-  inventory landed under module ownership as
-  `JN-MODULE-TYPED-EXPORT-INVENTORY-001`; there is no separate abstraction
-  child to promote.
-- Decision needed: none for that child. RFC 0017 additionally implements
-  alias-qualified classes in Haskell. Preserve qualified and unqualified class
-  capability imports, class-attached impl payloads,
-  and non-transitive module boundaries.
-- Recommended default: keep the landed typed inventory behavior. Keep
-  user-visible dictionaries, dictionary optimization, default methods,
-  superclasses, new bundled method families,
-  re-exports, and new impl policy blocked behind separate contracts.
-- Candidate child: none currently.
-- Target paths: not set; no independent abstraction paths are open after the
-  typed inventory child landed.
-- Verification: `bash scripts/check-execution-queue.sh`;
-  `bash scripts/check-docs.sh`.
-- Not in scope: re-promoting completed bundled `Eq(Int).equals`,
-  `Eq(Bool).equals`, `Eq(Float).equals`, `Eq(Float16).equals`,
-  `Eq(Float32).equals`, or `Eq(Float64).equals` work; unqualified overloads,
-  dictionary passing/optimization, default methods, superclasses, non-alias
-  overlap/orphan behavior, re-exports, or any method visibility expansion
-  beyond the landed typed inventory and RFC 0017 contracts. Hosted parity
-  for RFC 0017 remains deferred by the maintainer.
+- Approved direction: general class programming with behavior-based names,
+  inferred constraints, generic implementations, higher-kinded support, and
+  ordinary method values. Generic map preserves its collection constructor;
+  Text and Set use separate mapping functions as approved by the maintainer.
+- Smallest unblocker: implement the accepted, unimplemented contract in
+  [RFC 0019](../../rfcs/accepted/0019-generic-capabilities-and-library-names.md)
+  through the ready core child.
+- Decision needed: none; RFC 0019 is accepted and no further decision is pending.
+- Accepted contract: one-parameter classes, constructor-preserving mapping,
+  variable-only declaration prerequisites, and separate Text/Set operations.
+  Defer parenthesized application heads, functional dependencies, associated types,
+  multi-parameter classes, automatic destination selection, Empty, and new class
+  selectors. Generic library instance transport and Reduce remain in scope.
+  The maintainer approved the seven simplifications and explicitly retained
+  Reduce on 2026-09-13. Reuse ordinary schemes, a parameterized kind tree,
+  canonical semantic applications with Haskell pattern-synonym views, and local
+  state-isolated candidate trials as specified in the plan.
+- Second review approved on 2026-09-13: share inference/analyzed evidence and
+  draft finalization; extend the existing constraint queue/entailment, module
+  interfaces and runtime method-cell transport, resolved reference identities,
+  method-body checker, scope preparation/cache, and constraint/body parsers.
+  These seven requirements belong within Tasks 1-4 of the ready core child;
+  they do not add another compiler phase, instance registry, or setup child.
+- Final review refinements are approved in RFC 0019 and the plan. Reuse existing
+  rigidity and numeric dispatch behavior, keep methods overloaded in bodies,
+  finalize kinds at declarations, and specify logical collection equality and
+  initial pair/triple instances. Full parser-scale execution gates core closeout.
+- Recommended default: execute the ready general core, then the dependent
+  library migration, combining instances, names, consumers, and docs per module.
+  Preserve nominal identities and the existing analyzed-core interpreter.
+- Ready child: `JN-GENERIC-CAPABILITIES-CORE-001`.
+- Candidate child: `JN-GENERIC-CAPABILITIES-LIBRARY-001`.
+  Promote after verified core closeout using Task 5 and the rename CSV. The
+  curation row records library targets and verification; the lists below cover
+  the current core child.
+- Active plan: [generic capabilities and library names](../plans/2026-09-13-generic-capabilities-and-library-names.md),
+  Tasks 1-4. Task 5 specifies the dependent library child, including Reduce.
+- Target paths: `src/Jazz/Compiler/TypeRepresentation.hs`,
+  `src/Jazz/Compiler/SemanticDeclarations.hs`,
+  `src/Jazz/Compiler/AST.hs`,
+  `src/Jazz/Compiler/Parser/AST.hs`,
+  `src/Jazz/Compiler/Parser/Signature.hs`,
+  `src/Jazz/Compiler/Parser/CapabilityDeclaration.hs`,
+  `src/Jazz/Compiler/Parser/Lower.hs`,
+  `src/Jazz/Compiler/SignatureRendering.hs`,
+  `src/Jazz/Compiler/TypeInference/Signature.hs`,
+  `src/Jazz/Compiler/TypeInference/Solver.hs`,
+  `src/Jazz/Compiler/TypeInference/Scope.hs`,
+  `src/Jazz/Compiler/CapabilityFacts.hs`,
+  `src/Jazz/Compiler/TypeInference.hs`,
+  `src/Jazz/Compiler/TypeInference/Capabilities.hs`,
+  `src/Jazz/Compiler/TypeInference/ImplChecking.hs`,
+  `src/Jazz/Compiler/TypeInference/Instantiation.hs`,
+  `src/Jazz/Compiler/TypeInference/State.hs`,
+  `src/Jazz/Compiler/TypeInference/Analyzed.hs`,
+  `src/Jazz/Compiler/CoreIdentity.hs`,
+  `src/Jazz/Compiler/SemanticFacts.hs`,
+  `src/Jazz/Compiler/Runtime/Types.hs`,
+  `src/Jazz/Compiler/Runtime/Engine.hs`,
+  `src/Jazz/Compiler/Runtime/Semantics.hs`,
+  `src/Jazz/Compiler/ModuleResolver.hs`,
+  `src/Jazz/Compiler/ModuleResolver/Names.hs`,
+  `src/Jazz/Compiler/ModuleResolver/Imports.hs`,
+  `src/Jazz/Compiler/ModuleExports.hs`,
+  `src/Jazz/Compiler/ModuleInterface.hs`,
+  `src/Jazz/Compiler/ModuleAnalysis.hs`,
+  `src/Jazz/Compiler/ModuleRuntime.hs`,
+  `src/Jazz/Compiler/TypeInference/Interface.hs`,
+  `jazz/compiler/ParserDeclaration.jz`,
+  `jazz/compiler/ParserTypes.jz`,
+  `jazz/compiler/CoreTypes.jz`,
+  `jazz/compiler/CoreLower.jz`,
+  `test/Jazz/Compiler/Parser/Foundation/SignaturesTests.hs`,
+  `test/Jazz/Compiler/Parser/Foundation/InvalidSyntaxTests.hs`,
+  `test/Jazz/Compiler/Parser/DeclarationParserSpec.hs`,
+  `test/Jazz/Compiler/Diagnostics/SignatureRenderingSpec.hs`,
+  `test/Jazz/Compiler/Parser/SourceRangesSpec.hs`,
+  `test/Jazz/Compiler/Semantics/BindingSignature/ConstraintsTests.hs`,
+  `test/Jazz/Compiler/Semantics/BindingSignature/InferenceOwnershipTests.hs`,
+  `test/Jazz/Compiler/Semantics/Runtime/CapabilitiesTests.hs`,
+  `test/Jazz/Compiler/Semantics/PuritySemanticsSpec.hs`,
+  `test/Jazz/Compiler/Modules/Loader/CapabilitiesTests.hs`,
+  `test/Jazz/Compiler/Modules/Loader/AliasClassTests.hs`,
+  `test/Jazz/Compiler/Modules/ModuleExportsSpec.hs`,
+  `test/Jazz/Compiler/Modules/ModuleResolutionSpec.hs`,
+  `test/Jazz/Compiler/Modules/ModulePipelineContractSpec.hs`,
+  `test/Jazz/Compiler/ProfilingSpec.hs`,
+  `test/Jazz/Compiler/HaskellTypeclassContractsSpec.hs`,
+  `test/Jazz/Compiler/Bootstrap/CanonicalParserComparison.hs`,
+  `test/Jazz/Compiler/Bootstrap/CanonicalCoreComparison.hs`,
+  `test/Jazz/Compiler/Bootstrap/CanonicalParserComparisonSpec.hs`,
+  `test/Jazz/Compiler/Bootstrap/CanonicalCoreComparisonSpec.hs`,
+  `test/Jazz/Compiler/Bootstrap/JazzParserTypesDeclarationsModulesSpec.hs`,
+  `docs/language/capabilities.md`,
+  `docs/language/types-and-signatures.md`,
+  `docs/language/modules.md`,
+  `docs/reference/expression-grammar.md`,
+  `docs/reference/module-resolution.md`.
+- Verification: `cabal build all --jobs=1`;
+  `cabal test all --jobs=1 --test-show-details=failures`;
+  `cabal test jazz-parser-scale-full-expression-spec jazz-parser-scale-full-declarations-spec jazz-parser-scale-full-control-flow-spec jazz-parser-scale-full-operator-spec -ffull-parser-scale --jobs=1 --test-show-details=failures`;
+  `JAZZ_CABAL_JOBS=1 bash scripts/ci/haskell-quality.sh`;
+  `bash scripts/check-examples.sh --jazz-bin "$(cabal list-bin jazz)"`;
+  `bash scripts/check-docs.sh`; `bash scripts/check-execution-queue.sh`;
+  `git diff --check`.
+- Promotion check: complete. RFC 0019 is accepted; the core plan and queue row
+  are ready with matching targets and verification. No implementation is claimed.
+- Not in scope: an Append-specific workaround, concrete-instance enumeration,
+  same-name runtime lookup, mathematical public naming, re-exports, native work,
+  broader self-hosting, or performance/profiling work. New syntax receives
+  retained hosted frontend conformance coverage within the core child.
 
 ### JN-USER-DEFINED-OPERATORS-PLAN-001
 
@@ -144,31 +231,30 @@ Each blocked item should answer these questions:
 
 ### JN-TYPE-GRAMMAR-CLOSURE-PLAN-001
 
-- Smallest unblocker: none currently after runtime evidence/dictionaries
-  landed.
-- Decision needed: accepted on `2026-06-30`: write the remaining solver plan for
-  inferred class constraints, final defaulting/ambiguity, explicit type
-  application, and runtime evidence/dictionaries as separate verifier-backed
-  child rows. All accepted children from that plan are now landed.
-- Recommended default: keep type grammar closure blocked until a new concrete
-  contract exists; do not promote default methods, superclasses, module method
-  import/export behavior, orphan/overlap changes, dictionary optimization,
-  primitive mixed-width behavior, typed integer-to-float promotion, or another
-  broad type-system batch opportunistically.
-- Candidate child: none currently.
-- Target paths: not set until the next type-system contract is accepted.
-- Verification: `bash scripts/check-execution-queue.sh`;
-  `bash scripts/check-docs.sh`.
-- Not in scope: re-promoting `JN-TYPE-SOLVER-CONTRACT-001`, re-promoting
-  `JN-TYPE-SOLVER-ORDINARY-BINDING-SCHEMES-001` or
-  `JN-TYPE-SOLVER-CONSTRAINED-SIGNATURE-SCHEMES-001`, re-promoting
-  `JN-TYPE-SOLVER-INFERRED-CLASS-CONSTRAINTS-001`, re-promoting
-  `JN-TYPE-SOLVER-FINAL-DEFAULTING-AMBIGUITY-001`, re-promoting
-  `JN-TYPE-SOLVER-EXPLICIT-TYPE-APPLICATION-001`, re-promoting
-  `JN-TYPE-SOLVER-RUNTIME-EVIDENCE-DICTIONARIES-001`, default methods,
-  superclasses, abstraction method import/export behavior, higher-rank
-  polymorphism, primitive mixed-width or implicit promotion, or revival of
-  removed legacy implementations.
+- Retained baseline: ordinary schemes, inferred constraints, numeric defaulting,
+  explicit type application, and existing runtime evidence remain complete.
+- Smallest unblocker: the shared
+  [generic-capability contract](../../rfcs/accepted/0019-generic-capabilities-and-library-names.md)
+  implementation under `JN-ABSTRACTION-SEMANTICS-PLAN-001`.
+- Decision needed: none; RFC 0019 is accepted and no further decision is pending.
+- Accepted contract: single-parameter classes, inferred constructor kinds, and
+  variable-only declaration prerequisites in RFC 0019. Reuse ordinary schemes
+  and one parameterized kind tree; retain the surface application encoding.
+  Functional dependencies and associated types are deferred.
+- Recommended default: keep solver and evidence changes in the single
+  abstraction-owned core child, followed by the library migration.
+- Candidate child: none independently; use `JN-GENERIC-CAPABILITIES-CORE-001`
+  through the abstraction blocker rather than creating a duplicate candidate.
+- Target paths: the ordered `target_paths` list in
+  [JN-GENERIC-CAPABILITIES-CORE-001](../plans/2026-09-13-generic-capabilities-and-library-names.md)
+  frontmatter.
+- Verification: the ordered `verification` commands in that same
+  `JN-GENERIC-CAPABILITIES-CORE-001` frontmatter, including full parser-scale
+  execution. This is the shared core deliverable, not a separate verification batch.
+- Not in scope: re-promoting completed solver children, numeric promotion changes,
+  associated types, explicit higher-rank types, accepting overlapping instances,
+  or a separate speculative solver rewrite. Rejecting overlapping visible heads,
+  including `[a]` and `[Int]`, remains required by RFC 0019 and Task 2.
 
 ### JN-PATTERN-FUTURE-FORMS-PLAN-001
 
