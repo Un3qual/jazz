@@ -414,7 +414,7 @@ collectScopeDiagnosticsWithPreparedScope (PreparedAnalysisScope statements rawRe
                       (\target -> visibleImportedClassNames target maybeAlias maybeSymbolNames)
                       (resolvedNodeImportTarget (coreNodeFacts node))
               }
-          SClass classNode capabilityName _parameters methods ->
+          SClass classNode capabilityName _parameters methods _ _ ->
             let classSpan = coreNodeSpan classNode
                 classNameText = identifierText capabilityName
                 (nextClassDeclarations, classErrors) =
@@ -435,7 +435,7 @@ collectScopeDiagnosticsWithPreparedScope (PreparedAnalysisScope statements rawRe
                   { classDeclarations = nextClassDeclarations,
                     scopeDiagnostics = scopeDiagnostics next <> errorDiagnostics (classErrors ++ methodErrors)
                   }
-          SImpl implNode capabilityName arguments methods ->
+          SImpl implNode capabilityName arguments methods _ ->
             let implSpan = coreNodeSpan implNode
                 (nextImplDeclarations, implErrors) =
                   case concreteImplFact capabilityName arguments of
@@ -542,7 +542,7 @@ collectScopeDiagnosticsWithPreparedScope (PreparedAnalysisScope statements rawRe
         firstModuleStatementIndex : _ ->
           Map.fromList
             [ (identifierText className, coreNodeSpan classNode)
-            | (statementIndex, SClass classNode className _ _) <- indexedScopeStatements,
+            | (statementIndex, SClass classNode className _ _ _ _) <- indexedScopeStatements,
               statementIndex < firstModuleStatementIndex
             ]
 
@@ -554,7 +554,7 @@ collectScopeDiagnosticsWithPreparedScope (PreparedAnalysisScope statements rawRe
           case statement of
             SModule node _ ->
               (Just (sourceUnitOwnerModulePath (resolvedNodeOwner (coreNodeFacts node))), declarationsByPath)
-            SClass classNode className _ _ ->
+            SClass classNode className _ _ _ _ ->
               case currentModulePath of
                 Just modulePath ->
                   ( currentModulePath,

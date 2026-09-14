@@ -521,9 +521,9 @@ prepareRuntimeCells storage initialEnv preparedScope =
           LazyMap.insert (resolvedBinderReference (statementResolution (coreNodeFacts node)) name) (bindingCellAt statementIndex) env
         SData _ _ _ constructors ->
           insertDataConstructors (modulePathForStatement statementIndex) constructors env
-        SClass _ capabilityName _ methods ->
+        SClass _ capabilityName _ methods _ _ ->
           insertClassMethods (modulePathForStatement statementIndex) capabilityName methods env
-        SImpl implementationNode capabilityName _ methods ->
+        SImpl implementationNode capabilityName _ methods _ ->
           insertImplMethods (modulePathForStatement statementIndex) implementationNode capabilityName methods env
         _ -> env
 

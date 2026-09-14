@@ -1,4 +1,5 @@
 module ParserSignature (
+  value parseConstraintPrefix,
   value parseSignaturePayload,
   value parseSignaturePayloadDetailed,
   value parseSignatureType,
@@ -36,6 +37,7 @@ module ParserSignature (
     tokenSucceed,
     tokenTransform,
     tokenAndThen,
+    tokenKeepLeft,
     tokenKeepRight,
     tokenChoice,
     tokenAttempt,
@@ -370,20 +372,20 @@ module ParserSignature (
     })
     tokenPeek.
 
-  parseConstrainedPayload :: TokenParser(SurfaceSignaturePayload).
-  parseConstrainedPayload = tokenKeepRight
+  parseConstraintPrefix :: TokenParser([SurfaceSignatureConstraint]).
+  parseConstraintPrefix = tokenKeepRight
     (tokenPunctuation AtPunctuation)
     (tokenKeepRight
       (tokenPunctuation LeftBracePunctuation)
-      (tokenAndThen
-        (\(constraints) -> tokenKeepRight
+      (tokenKeepLeft parseConstraints
+        (tokenKeepRight
           (tokenPunctuation RightBracePunctuation)
-          (tokenKeepRight
-            (tokenPunctuation ColonPunctuation)
-            (tokenAndThen
-              (\(signatureType) -> tokenSucceed (ConstrainedSignature constraints signatureType))
-              parseSignatureType)))
-        parseConstraints)).
+          (tokenPunctuation ColonPunctuation)))).
+
+  parseConstrainedPayload :: TokenParser(SurfaceSignaturePayload).
+  parseConstrainedPayload = tokenAndThen
+    (\(constraints) -> tokenTransform (ConstrainedSignature constraints) parseSignatureType)
+    parseConstraintPrefix.
 
   parseSupportedPayload :: TokenParser(SurfaceSignaturePayload).
   parseSupportedPayload = tokenChoice

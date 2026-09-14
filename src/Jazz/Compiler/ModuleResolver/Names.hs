@@ -480,14 +480,16 @@ resolveExprNames context rootExpression = publishResolvedCaptures (resolveLexica
           SSignature (resolveBinderNode owner node) (resolveBinder ValueNamespace name) (resolveSignaturePayload owner payload)
         SData node name parameters constructors ->
           SData (resolveNode owner node) (resolveDeclarationOwner owner (resolveBinder TypeNamespace name)) (map (resolveBinder TypeNamespace) parameters) (map (resolveDataConstructor owner) constructors)
-        SClass node name parameters methods ->
+        SClass node name parameters methods prerequisites defaults ->
           let capability = resolveDeclarationOwner owner (resolveBinder CapabilityNamespace name)
            in SClass
                 (resolveNode owner node)
                 capability
                 (map (resolveBinder TypeNamespace) parameters)
                 (map (resolveClassMethod owner capability) methods)
-        SImpl node name arguments methods ->
+                (map (resolveSignatureConstraint owner) prerequisites)
+                (map (resolveImplMethod owner boundValues capability) defaults)
+        SImpl node name arguments methods prerequisites ->
           let capability = resolveDeclarationReference owner (resolveName Map.empty CapabilityNamespace name)
               methodBindings = foldl' (\acc (ImplMethod _ methodName _) -> insertVisibleName ValueNamespace methodName acc) boundValues methods
            in SImpl
@@ -495,6 +497,7 @@ resolveExprNames context rootExpression = publishResolvedCaptures (resolveLexica
                 capability
                 (map (resolveSignatureType owner) arguments)
                 (map (resolveImplMethod owner methodBindings capability) methods)
+                (map (resolveSignatureConstraint owner) prerequisites)
         SModule node path -> SModule (resolveNode owner node) path
         SImport node path alias symbols ->
           let target = mkModulePath <$> NonEmpty.nonEmpty (map mkIdentifier path)
@@ -595,7 +598,7 @@ statementInventory = exportInventory . concatMap statementExports
         SData _ typeName _ constructors ->
           maybeExport TypeNamespace typeName
             <> concatMap constructorExports constructors
-        SClass _ className _ _ ->
+        SClass _ className _ _ _ _ ->
           maybeExport CapabilityNamespace className
         _ -> []
 
@@ -620,7 +623,7 @@ resolvedPublicReferences origin inventory = Map.fromList . concatMap statementRe
     statementReferences statement = case statement of
       SLet node name _ -> binding ValueNamespace name node
       SData _ _ _ constructors -> concat [binding ConstructorNamespace name node | DataConstructor node name _ <- constructors]
-      SClass _ name _ methods
+      SClass _ name _ methods _ _
         | Set.member (identifierText name) (exportNamesInNamespace CapabilityNamespace inventory) ->
             [(UserName (ResolvedUserName origin ValueNamespace (mkIdentifier (identifierText name <> "::" <> identifierText method))), CapabilityMethodReference (CapabilityId name) (mkIdentifier (identifierText method))) | ClassMethodSignature _ method _ <- methods]
       _ -> []

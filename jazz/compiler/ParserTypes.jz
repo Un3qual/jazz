@@ -145,8 +145,8 @@ module ParserTypes (
     = LetStatement Text CanonicalSpan SurfaceExpr
     | SignatureStatement Text CanonicalSpan SurfaceSignaturePayload
     | DataStatement CanonicalSpan Text [Text] [SurfaceDataConstructor]
-    | ClassStatement CanonicalSpan Text [Text] [SurfaceClassMethodSignature]
-    | ImplStatement CanonicalSpan Text [SurfaceSignatureType] [SurfaceImplMethod]
+    | ClassStatement CanonicalSpan Text [Text] [SurfaceClassMethodSignature] [SurfaceSignatureConstraint] [SurfaceImplMethod]
+    | ImplStatement CanonicalSpan Text [SurfaceSignatureType] [SurfaceImplMethod] [SurfaceSignatureConstraint]
     | ModuleStatement CanonicalSpan [Text] Maybe([SurfaceModuleExportSelector])
     | ImportStatement CanonicalSpan [Text] Maybe(Text) Maybe([Text])
     | ExpressionStatement CanonicalSpan SurfaceExpr.
@@ -199,7 +199,6 @@ module ParserTypes (
   data ParserUnsupportedFeature
     = ExplicitTypeApplicationArgument
     | FractionalLiteralPattern
-    | ClassMethodBody Text
     | DeclarationHeaderArguments ParserDeclarationKind
     | AbstractionSyntax Text.
 
@@ -219,7 +218,7 @@ module ParserTypes (
     | ReservedLiteralName ParserNameRole Text
     | DeclarationOutsideAllowedScope ParserDeclarationKind
     | ImportAliasCombinedWithSymbolList
-    | ImplRequiresConcreteTarget
+    | ImplRequiresConstructorTarget
     | DuplicateName ParserDuplicateNameRole Text ParserDeclarationKind
     | DuplicateListItem ParserListKind Text
     | ExpectedOrdinaryImplMethodBinding Text

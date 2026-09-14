@@ -214,6 +214,7 @@ testLowersAliasQualifiedImplHead =
                     (SurfaceName (mkQualifiedIdentifier "Facts" "Eq") (SourceSpan 1 13) (Just (SourceSpan 1 6)))
                     [TypeInt]
                     []
+                    []
                 ]
           )
           surfaceProgram
@@ -231,8 +232,8 @@ testParsesCapabilityDeclarationsInModuleBody =
         ( e 1 1 $
             SEBlock
               [ SSModule (SourceSpan 1 1) ["App", "Core"] Nothing,
-                SSClass (SourceSpan 2 1) "Eq" ["a"] [],
-                SSImpl (SourceSpan 3 1) (SurfaceName "Eq" (SourceSpan 3 6) Nothing) [TypeInt] []
+                SSClass (SourceSpan 2 1) "Eq" ["a"] [] [] [],
+                SSImpl (SourceSpan 3 1) (SurfaceName "Eq" (SourceSpan 3 6) Nothing) [TypeInt] [] []
               ]
         )
     )

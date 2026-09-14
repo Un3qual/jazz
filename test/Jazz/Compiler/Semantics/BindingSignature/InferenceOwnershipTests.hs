@@ -706,7 +706,7 @@ testImplChecksPreserveRollback = do
           ELit _ _ -> ((Just (SemanticTuple [variable, SemanticBool]), resolveType current variable), current)
           _ -> ((Just expected, resolveType current variable), current)
   case resolvedProgram "class Probe(a) { first :: (Int, Int). second :: (Int, Int). }. impl Probe(Int) { first = 0. second = (1, 2). }." of
-    EBlock _ [SClass {}, SImpl _ capability _ methods] -> do
+    EBlock _ [SClass {}, SImpl _ capability _ methods _] -> do
       let initialState =
             modifyDeclarationState
               ( \declarations ->

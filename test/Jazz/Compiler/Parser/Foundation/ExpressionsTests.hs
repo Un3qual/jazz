@@ -466,7 +466,7 @@ testParsesParameterizedClassCapabilityDeclaration =
     ( Right
         ( e 1 1 $
             SEBlock
-              [ SSClass (SourceSpan 1 1) "Eq" ["a"] []
+              [ SSClass (SourceSpan 1 1) "Eq" ["a"] [] [] []
               ]
         )
     )
@@ -483,6 +483,7 @@ testParsesImplCapabilityDeclaration =
                   (SourceSpan 1 1)
                   (SurfaceName "Eq" (SourceSpan 1 6) Nothing)
                   [TypeInt]
+                  []
                   []
               ]
         )
@@ -540,6 +541,7 @@ testParsesImplMethodBindingMetadata =
                             )
                         )
                     ]
+                  []
                 ]
             ) -> pure ()
         other -> failTest ("unexpected surface impl method shape: " <> Text.pack (show other))
@@ -569,6 +571,7 @@ testLowersImplMethodBindingMetadata =
                     "equals"
                     (ELambda _ "left" (ELambda _ "right" (EBinary _ "==" (EVar _ "left") (EVar _ "right"))))
                   ]
+                []
               ] -> pure ()
           other -> failTest ("unexpected lowered impl method shape: " <> Text.pack (show other))
     )

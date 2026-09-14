@@ -4,7 +4,8 @@
 
 -- | Signature grammar helpers for the surface parser.
 module Jazz.Compiler.Parser.Signature
-  ( parseConstrainedSignatureTypeDetailed,
+  ( constraintPrefixParser,
+    parseConstrainedSignatureTypeDetailed,
     parseSignatureTypeParser,
     parseSignaturePayload,
     parseSignaturePayloadDetailed,
@@ -154,13 +155,17 @@ signaturePayloadParser =
     <|> (SignatureType <$> signatureTypeParser)
 
 constrainedSignaturePayloadParser :: TokenParser.Parser SurfaceSignaturePayload
-constrainedSignaturePayloadParser = do
+constrainedSignaturePayloadParser =
+  ConstrainedSignature <$> constraintPrefixParser <*> signatureTypeParser
+
+constraintPrefixParser :: TokenParser.Parser [SurfaceSignatureConstraint]
+constraintPrefixParser = do
   _ <- TokenParser.parseTokenKind TAt
   _ <- TokenParser.parseTokenKind TLBrace
   constraints <- constraintBlockParser
   _ <- TokenParser.parseTokenKind TRBrace
   _ <- TokenParser.parseTokenKind TColon
-  ConstrainedSignature constraints <$> signatureTypeParser
+  pure constraints
 
 constraintBlockParser :: TokenParser.Parser [SurfaceSignatureConstraint]
 constraintBlockParser =

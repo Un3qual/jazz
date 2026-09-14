@@ -371,21 +371,24 @@ surfaceStatementRuntimeValue statement =
           listRuntimeValue identifierRuntimeValue parameters,
           listRuntimeValue surfaceDataConstructorRuntimeValue constructors
         ]
-    SSClass spanValue name parameters methods ->
+    SSClass spanValue name parameters methods prerequisites defaults ->
       canonicalConstructor
         "ClassStatement"
         [ canonicalSpanRuntimeValue (canonicalizeSpan spanValue),
           identifierRuntimeValue name,
           listRuntimeValue identifierRuntimeValue parameters,
-          listRuntimeValue surfaceClassMethodSignatureRuntimeValue methods
+          listRuntimeValue surfaceClassMethodSignatureRuntimeValue methods,
+          listRuntimeValue surfaceSignatureConstraintRuntimeValue prerequisites,
+          listRuntimeValue surfaceImplMethodRuntimeValue defaults
         ]
-    SSImpl spanValue name targets methods ->
+    SSImpl spanValue name targets methods prerequisites ->
       canonicalConstructor
         "ImplStatement"
         [ canonicalSpanRuntimeValue (canonicalizeSpan spanValue),
           identifierRuntimeValue name,
           listRuntimeValue surfaceSignatureTypeRuntimeValue targets,
-          listRuntimeValue surfaceImplMethodRuntimeValue methods
+          listRuntimeValue surfaceImplMethodRuntimeValue methods,
+          listRuntimeValue surfaceSignatureConstraintRuntimeValue prerequisites
         ]
     SSModule spanValue modulePath maybeExports ->
       canonicalConstructor
@@ -560,7 +563,6 @@ parserUnsupportedFeatureRuntimeValue feature =
   case feature of
     ExplicitTypeApplicationArgument -> canonicalNullaryConstructor "ExplicitTypeApplicationArgument"
     FractionalLiteralPattern -> canonicalNullaryConstructor "FractionalLiteralPattern"
-    ClassMethodBody name -> canonicalConstructor "ClassMethodBody" [VText name]
     DeclarationHeaderArguments declarationKind ->
       canonicalConstructor "DeclarationHeaderArguments" [parserDeclarationKindRuntimeValue declarationKind]
     AbstractionSyntax syntax -> canonicalConstructor "AbstractionSyntax" [VText syntax]
@@ -591,7 +593,7 @@ parserDeclarationFailureRuntimeValue failure =
     DeclarationOutsideAllowedScope declarationKind ->
       canonicalConstructor "DeclarationOutsideAllowedScope" [parserDeclarationKindRuntimeValue declarationKind]
     ImportAliasCombinedWithSymbolList -> canonicalNullaryConstructor "ImportAliasCombinedWithSymbolList"
-    ImplRequiresConcreteTarget -> canonicalNullaryConstructor "ImplRequiresConcreteTarget"
+    ImplRequiresConstructorTarget -> canonicalNullaryConstructor "ImplRequiresConstructorTarget"
     DuplicateName role name declarationKind ->
       canonicalConstructor
         "DuplicateName"

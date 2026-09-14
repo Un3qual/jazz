@@ -167,10 +167,10 @@ loweredData :: SourceSpan -> UnresolvedName -> [UnresolvedName] -> [DataConstruc
 loweredData spanValue = SData (fixtureStatementNode spanValue)
 
 loweredClass :: SourceSpan -> UnresolvedName -> [UnresolvedName] -> [ClassMethodSignature 'Lowered] -> Statement 'Lowered
-loweredClass spanValue = SClass (fixtureStatementNode spanValue)
+loweredClass spanValue name parameters methods = SClass (fixtureStatementNode spanValue) name parameters methods [] []
 
 loweredImpl :: SourceSpan -> UnresolvedName -> [SignatureType 'Lowered] -> [ImplMethod 'Lowered] -> Statement 'Lowered
-loweredImpl spanValue = SImpl (fixtureStatementNode spanValue)
+loweredImpl spanValue name targets methods = SImpl (fixtureStatementNode spanValue) name targets methods []
 
 loweredModule :: SourceSpan -> [Text] -> Statement 'Lowered
 loweredModule spanValue = SModule (fixtureStatementNode spanValue)
@@ -239,10 +239,10 @@ eraseStatementMetadata statement =
     SSignature node name payload -> SSignature (eraseNodeMetadata node) name payload
     SData node name parameters constructors ->
       SData (eraseNodeMetadata node) name parameters (map eraseConstructorMetadata constructors)
-    SClass node name parameters methods ->
-      SClass (eraseNodeMetadata node) name parameters (map eraseClassMethodMetadata methods)
-    SImpl node name arguments methods ->
-      SImpl (eraseNodeMetadata node) name arguments (map eraseImplMethodMetadata methods)
+    SClass node name parameters methods prerequisites defaults ->
+      SClass (eraseNodeMetadata node) name parameters (map eraseClassMethodMetadata methods) prerequisites (map eraseImplMethodMetadata defaults)
+    SImpl node name arguments methods prerequisites ->
+      SImpl (eraseNodeMetadata node) name arguments (map eraseImplMethodMetadata methods) prerequisites
     SModule node path -> SModule (eraseNodeMetadata node) path
     SImport node path alias symbols -> SImport (eraseNodeMetadata node) path alias symbols
     SExpr node value -> SExpr (eraseNodeMetadata node) (eraseExprMetadata value)

@@ -286,15 +286,19 @@ module CoreLower (
           (lowerSourceNames parameters)
           (lowerDataConstructors constructors)
       )
-    | ClassStatement span name parameters methods ->
-      ( SignaturesDeclarationsOperatorsProfile,
-        CoreClassStatement
-          (lowerFoundationSpan span)
-          (CoreSourceName name)
-          (lowerSourceNames parameters)
-          (lowerClassMethodSignatures methods)
-      )
-    | ImplStatement span name arguments methods -> case lowerImplMethods methods {
+    | ClassStatement span name parameters methods prerequisites defaults -> case lowerImplMethods defaults {
+      | (defaultsRequired, loweredDefaults) ->
+        ( maximumProfile SignaturesDeclarationsOperatorsProfile defaultsRequired,
+          CoreClassStatement
+            (lowerFoundationSpan span)
+            (CoreSourceName name)
+            (lowerSourceNames parameters)
+            (lowerClassMethodSignatures methods)
+            (lowerSignatureConstraints prerequisites)
+            loweredDefaults
+        )
+    }
+    | ImplStatement span name arguments methods prerequisites -> case lowerImplMethods methods {
       | (methodsRequired, loweredMethods) ->
         ( maximumProfile SignaturesDeclarationsOperatorsProfile methodsRequired,
           CoreImplStatement
@@ -302,6 +306,7 @@ module CoreLower (
             (CoreSourceName name)
             (lowerSignatureTypes arguments)
             loweredMethods
+            (lowerSignatureConstraints prerequisites)
         )
     }
     | ModuleStatement span path exports ->
@@ -634,18 +639,21 @@ module CoreLower (
       CoreSignatureStatement name (qualifySpan sourcePath span) payload
     | CoreDataStatement span name parameters constructors ->
       CoreDataStatement (qualifySpan sourcePath span) name parameters constructors
-    | CoreClassStatement span name parameters methods ->
+    | CoreClassStatement span name parameters methods prerequisites defaults ->
       CoreClassStatement
         (qualifySpan sourcePath span)
         name
         parameters
         (qualifyClassMethods sourcePath methods)
-    | CoreImplStatement span name arguments methods ->
+        prerequisites
+        (qualifyImplMethods sourcePath defaults)
+    | CoreImplStatement span name arguments methods prerequisites ->
       CoreImplStatement
         (qualifySpan sourcePath span)
         name
         arguments
         (qualifyImplMethods sourcePath methods)
+        prerequisites
     | CoreModuleStatement span path ->
       CoreModuleStatement (qualifySpan sourcePath span) path
     | CoreImportStatement span path alias symbols ->

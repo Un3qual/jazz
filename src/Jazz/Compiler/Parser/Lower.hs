@@ -394,18 +394,21 @@ traverseStatement locations statement =
         <*> pure name
         <*> pure parameters
         <*> traverse (traverseDataConstructor locations) constructors
-    SClass node name parameters methods ->
+    SClass node name parameters methods context defaults ->
       SClass
         <$> visitLoweredNode locations node
         <*> pure name
         <*> pure parameters
         <*> traverse (traverseClassMethod locations) methods
-    SImpl node name arguments methods ->
+        <*> pure context
+        <*> traverse (traverseImplMethod locations) defaults
+    SImpl node name arguments methods context ->
       SImpl
         <$> visitLoweredNode locations node
         <*> pure name
         <*> pure arguments
         <*> traverse (traverseImplMethod locations) methods
+        <*> pure context
     SModule node modulePath -> SModule <$> visitLoweredNode locations node <*> pure modulePath
     SImport node modulePath alias symbols ->
       SImport <$> visitLoweredNode locations node <*> pure modulePath <*> pure alias <*> pure symbols
@@ -598,14 +601,15 @@ lowerSurfaceStatement surfaceStatement =
       node <- freshNode spanValue
       loweredConstructors <- traverse (lowerSurfaceDataConstructor spanValue) constructors
       pure (SData node (sourceName typeName) (map sourceName typeParameters) loweredConstructors)
-    SSClass spanValue capabilityName parameters methods -> do
+    SSClass spanValue capabilityName parameters methods context defaults -> do
       node <- freshNode spanValue
       loweredMethods <- traverse lowerSurfaceClassMethodSignature methods
-      pure (SClass node (sourceName capabilityName) (map sourceName parameters) loweredMethods)
-    SSImpl spanValue capabilityName arguments methods -> do
+      loweredDefaults <- traverse lowerSurfaceImplMethod defaults
+      pure (SClass node (sourceName capabilityName) (map sourceName parameters) loweredMethods (map lowerSurfaceSignatureConstraint context) loweredDefaults)
+    SSImpl spanValue capabilityName arguments methods context -> do
       node <- freshNode spanValue
       loweredMethods <- traverse lowerSurfaceImplMethod methods
-      pure (SImpl node (lowerSurfaceSignatureName capabilityName) (map lowerSurfaceSignatureType arguments) loweredMethods)
+      pure (SImpl node (lowerSurfaceSignatureName capabilityName) (map lowerSurfaceSignatureType arguments) loweredMethods (map lowerSurfaceSignatureConstraint context))
     SSModule spanValue modulePath _ -> do
       node <- freshNode spanValue
       pure (SModule node modulePath)

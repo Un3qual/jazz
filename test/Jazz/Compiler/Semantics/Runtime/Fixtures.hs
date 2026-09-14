@@ -343,7 +343,7 @@ statementData spanValue name parameters constructors =
 
 statementClass :: SourceSpan -> UnresolvedName -> [UnresolvedName] -> [ClassMethodSignature 'Analyzed] -> Statement 'Analyzed
 statementClass spanValue name parameters methods =
-  SClass (statementNode spanValue) (capabilityName name) (map typeName parameters) (map analyzedMethod methods)
+  SClass (statementNode spanValue) (capabilityName name) (map typeName parameters) (map analyzedMethod methods) [] []
   where
     analyzedMethod (ClassMethodSignature node method signature) =
       case signaturePayloadConstraintType signature of
@@ -361,7 +361,7 @@ statementClass spanValue name parameters methods =
         Nothing -> error "runtime fixture requires a supported method signature"
 
 statementImpl :: SourceSpan -> UnresolvedName -> [SignatureType 'Analyzed] -> [ImplMethod 'Analyzed] -> Statement 'Analyzed
-statementImpl spanValue name targets =
+statementImpl spanValue name targets methods =
   SImpl
     node
       { coreNodeFacts =
@@ -372,6 +372,8 @@ statementImpl spanValue name targets =
       }
     (capabilityName name)
     targets
+    methods
+    []
   where
     node = statementNode spanValue
 

@@ -175,8 +175,8 @@ data Statement (phase :: CorePhase)
   = SLet (CoreNode phase 'StatementSort) (CoreNameAt phase) (Expr phase)
   | SSignature (CoreNode phase 'StatementSort) (CoreNameAt phase) (SignaturePayload phase)
   | SData (CoreNode phase 'StatementSort) (CoreNameAt phase) [CoreNameAt phase] [DataConstructor phase]
-  | SClass (CoreNode phase 'StatementSort) (CoreNameAt phase) [CoreNameAt phase] [ClassMethodSignature phase]
-  | SImpl (CoreNode phase 'StatementSort) (CoreNameAt phase) [SignatureType phase] [ImplMethod phase]
+  | SClass (CoreNode phase 'StatementSort) (CoreNameAt phase) [CoreNameAt phase] [ClassMethodSignature phase] [SignatureConstraint phase] [ImplMethod phase]
+  | SImpl (CoreNode phase 'StatementSort) (CoreNameAt phase) [SignatureType phase] [ImplMethod phase] [SignatureConstraint phase]
   | SModule (CoreNode phase 'StatementSort) [Text]
   | SImport (CoreNode phase 'StatementSort) [Text] (Maybe Text) (Maybe [Text])
   | SExpr (CoreNode phase 'StatementSort) (Expr phase)
@@ -220,8 +220,8 @@ statementNode statement =
     SLet node _ _ -> node
     SSignature node _ _ -> node
     SData node _ _ _ -> node
-    SClass node _ _ _ -> node
-    SImpl node _ _ _ -> node
+    SClass node _ _ _ _ _ -> node
+    SImpl node _ _ _ _ -> node
     SModule node _ -> node
     SImport node _ _ _ -> node
     SExpr node _ -> node

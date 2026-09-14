@@ -161,7 +161,8 @@ runtimeStatementRequiresHost statement =
         runtimeNameRequiresHost name ->
           False
     SLet _ _ valueExpr -> runtimeExprRequiresHost valueExpr
-    SImpl _ _ _ methods -> any implMethodRequiresHost methods
+    SClass _ _ _ _ _ defaults -> any implMethodRequiresHost defaults
+    SImpl _ _ _ methods _ -> any implMethodRequiresHost methods
     SExpr _ valueExpr -> runtimeExprRequiresHost valueExpr
     _ -> False
   where

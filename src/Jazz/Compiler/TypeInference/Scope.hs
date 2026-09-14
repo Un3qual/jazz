@@ -439,11 +439,12 @@ inferScopeTypeInternal
         SLet node name value -> makeLet name <$> facts node (bindingFor node name) (ValueDeclaration name) <*> valueDraft value body
         SSignature node name signature -> SSignature <$> facts node (bindingAt (resolvedNodeReference (coreNodeFacts node)) name) (SignatureDeclaration name) <*> pure name <*> pure signature
         SData node name parameters constructors -> SData <$> facts node Nothing (DataDeclaration name [constructorName | DataConstructor _ constructorName _ <- constructors]) <*> pure name <*> pure parameters <*> traverse constructor constructors
-        SClass node name parameters signatures ->
-          SClass <$> facts node Nothing (CapabilityDeclaration name parameters) <*> pure name <*> pure parameters <*> case Map.lookup index (preparedDeclarations scopePreparation) of
-            Just (Right (PreparedClassMethods checkedMethods)) -> zipWithM classMethod signatures checkedMethods
-            _ -> rejectedDraft (MissingStatementFacts (coreNodeId node))
-        SImpl node name arguments declarations -> SImpl <$> implementationNode node name <*> pure name <*> pure arguments <*> traverse implMethod (zip [0 ..] declarations)
+        SClass node name parameters signatures context defaults ->
+          let checkedSignatures = case Map.lookup index (preparedDeclarations scopePreparation) of
+                Just (Right (PreparedClassMethods checkedMethods)) -> zipWithM classMethod signatures checkedMethods
+                _ -> rejectedDraft (MissingStatementFacts (coreNodeId node))
+           in SClass <$> facts node Nothing (CapabilityDeclaration name parameters) <*> pure name <*> pure parameters <*> checkedSignatures <*> pure context <*> traverse implMethod (zip [0 ..] defaults)
+        SImpl node name arguments declarations context -> SImpl <$> implementationNode node name <*> pure name <*> pure arguments <*> traverse implMethod (zip [0 ..] declarations) <*> pure context
         SModule node path -> SModule <$> facts node Nothing (ModuleDeclaration (sourceUnitOwnerModulePath (resolvedNodeOwner (coreNodeFacts node)))) <*> pure path
         SImport node path alias names -> case resolvedNodeImportTarget (coreNodeFacts node) of
           Just target -> SImport <$> facts node Nothing (ImportDeclaration target) <*> pure path <*> pure alias <*> pure names
@@ -614,7 +615,7 @@ inferScopeTypeInternal
                   SImport importNode _ maybeAlias maybeSymbolNames ->
                     let next = maybe state (\target -> importModuleCapabilityFacts target maybeAlias maybeSymbolNames state) (resolvedNodeImportTarget (coreNodeFacts importNode))
                      in go (retainStatement statementIndex statement env next Nothing [] walkState {scopeWalkRecursiveGroupPreviewCache = Map.empty}) rest
-                  SClass _ capabilityName parameters _ ->
+                  SClass _ capabilityName parameters _ _ _ ->
                     let nextState = case Map.lookup statementIndex (preparedDeclarations scopePreparation) of
                           Just (Left diagnostic) -> addTypeError stateForSource diagnostic
                           Just (Right (PreparedClassMethods methods)) -> registerClassDeclaration stateForSource capabilityName parameters methods
@@ -638,7 +639,7 @@ inferScopeTypeInternal
                             )
                             rest
                      in (scopeResultType, resultState)
-                  SImpl implNode capabilityName _ methods ->
+                  SImpl implNode capabilityName _ methods _ ->
                     let checkedTargets = case Map.lookup statementIndex (preparedDeclarations scopePreparation) of
                           Just (Left diagnostic) -> Just (Left diagnostic)
                           Just (Right (PreparedImplementationTargets targets)) -> Just (Right targets)
@@ -1573,7 +1574,7 @@ prepareScope forwardSignedFunctionsPolicy mode indexedStatements initialState =
               moduleBaselineFacts,
               maybe state (\target -> importModuleCapabilityFacts target maybeAlias maybeSymbolNames state) (resolvedNodeImportTarget (coreNodeFacts importNode))
             )
-          SClass _ capabilityName parameters methods ->
+          SClass _ capabilityName parameters methods _ _ ->
             let checked = checkClassMethods state capabilityName parameters methods
                 nextState = either (const state) (registerClassDeclaration state capabilityName parameters) checked
              in ( bindingSeeds,
@@ -1584,7 +1585,7 @@ prepareScope forwardSignedFunctionsPolicy mode indexedStatements initialState =
                   updateRootModuleBaselineFacts moduleBaselineFacts state nextState,
                   nextState
                 )
-          SImpl implNode capabilityName arguments methods ->
+          SImpl implNode capabilityName arguments methods _ ->
             let checked = checkImplementationTargets state (coreNodeSpan implNode) arguments
                 nextState = either (const state) (\targets -> registerImplementation implNode capabilityName targets methods state) checked
              in ( bindingSeeds,

@@ -159,8 +159,8 @@ data SurfaceStatement
   = SSLet Identifier SourceSpan SurfaceExpr
   | SSSignature Identifier SourceSpan SurfaceSignaturePayload
   | SSData SourceSpan Identifier [Identifier] [SurfaceDataConstructor]
-  | SSClass SourceSpan Identifier [Identifier] [SurfaceClassMethodSignature]
-  | SSImpl SourceSpan SurfaceName [SurfaceSignatureType] [SurfaceImplMethod]
+  | SSClass SourceSpan Identifier [Identifier] [SurfaceClassMethodSignature] [SurfaceSignatureConstraint] [SurfaceImplMethod]
+  | SSImpl SourceSpan SurfaceName [SurfaceSignatureType] [SurfaceImplMethod] [SurfaceSignatureConstraint]
   | SSModule SourceSpan [Text] (Maybe [ModuleExportSelector])
   | SSImport SourceSpan [Text] (Maybe Text) (Maybe [Text])
   | SSExpr SourceSpan SurfaceExpr

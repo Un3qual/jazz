@@ -160,6 +160,7 @@ import Jazz.Compiler.Parser.AST
     SurfacePattern (..),
     SurfacePatternForm (..),
     SurfacePatternLambdaClause (..),
+    SurfaceSignatureConstraint,
     SurfaceSignaturePayload,
     SurfaceSignatureType,
     SurfaceStatement (..),
@@ -644,7 +645,7 @@ discoverModuleFacts surfaceExpr =
             )
             (ModuleExport TypeNamespace (identifierText typeName) : exportsRev)
             constructors
-        SSClass _ className _ _ ->
+        SSClass _ className _ _ _ _ ->
           ModuleExport CapabilityNamespace (identifierText className) : exportsRev
         _ -> exportsRev
 
@@ -846,15 +847,19 @@ collectStatementReferenceFacts boundNames statement facts =
         | SurfaceDataConstructor _ fieldTypes <- constructors,
           fieldType <- fieldTypes
         ]
-    SSClass _ _ _ methods ->
-      foldl'
-        (\current (SurfaceClassMethodSignature _ _ payload) -> collectSignaturePayloadReferenceFacts payload current)
-        facts
-        methods
-    SSImpl _ className arguments methods ->
+    SSClass _ _ _ methods context defaults ->
       foldl'
         (\current (SurfaceImplMethod _ _ body) -> collectExprReferenceFacts boundNames body current)
-        (foldl' (flip collectSignatureTypeReferenceFacts) (collectClassNameReference className facts) arguments)
+        ( foldl'
+            (\current (SurfaceClassMethodSignature _ _ payload) -> collectSignaturePayloadReferenceFacts payload current)
+            (foldl' (flip collectSignatureConstraintReferenceFacts) facts context)
+            methods
+        )
+        defaults
+    SSImpl _ className arguments methods context ->
+      foldl'
+        (\current (SurfaceImplMethod _ _ body) -> collectExprReferenceFacts boundNames body current)
+        (foldl' (flip collectSignatureConstraintReferenceFacts) (foldl' (flip collectSignatureTypeReferenceFacts) (collectClassNameReference className facts) arguments) context)
         methods
     SSModule {} -> facts
     SSImport {} -> facts
@@ -943,14 +948,12 @@ collectSignaturePayloadReferenceFacts payload facts =
     ConstrainedSignature constraints signatureType ->
       collectSignatureTypeReferenceFacts
         signatureType
-        (foldl' collectConstraint facts constraints)
-      where
-        collectConstraint current (SignatureConstraint name arguments) =
-          foldl'
-            (flip collectSignatureTypeReferenceFacts)
-            (collectClassNameReference name current)
-            arguments
+        (foldl' (flip collectSignatureConstraintReferenceFacts) facts constraints)
     UnsupportedSignature _ -> facts
+
+collectSignatureConstraintReferenceFacts :: SurfaceSignatureConstraint -> ReferenceInventory -> ReferenceInventory
+collectSignatureConstraintReferenceFacts (SignatureConstraint name arguments) facts =
+  foldl' (flip collectSignatureTypeReferenceFacts) (collectClassNameReference name facts) arguments
 
 collectClassNameReference :: SurfaceName -> ReferenceInventory -> ReferenceInventory
 collectClassNameReference name facts =

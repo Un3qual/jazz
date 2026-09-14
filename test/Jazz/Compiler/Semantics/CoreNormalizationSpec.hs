@@ -178,8 +178,8 @@ statementNodeFacts statement =
     SLet node _ value -> nodeFact node <> canonicalNodeFacts value
     SSignature node _ _ -> nodeFact node
     SData node _ _ constructors -> nodeFact node <> concatMap dataConstructorNodeFacts constructors
-    SClass node _ _ methods -> nodeFact node <> concatMap classMethodNodeFacts methods
-    SImpl node _ _ methods -> nodeFact node <> concatMap implMethodNodeFacts methods
+    SClass node _ _ methods _ _ -> nodeFact node <> concatMap classMethodNodeFacts methods
+    SImpl node _ _ methods _ -> nodeFact node <> concatMap implMethodNodeFacts methods
     SModule node _ -> nodeFact node
     SImport node _ _ _ -> nodeFact node
     SExpr node value -> nodeFact node <> canonicalNodeFacts value

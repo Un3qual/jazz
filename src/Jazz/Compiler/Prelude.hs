@@ -141,6 +141,6 @@ collectPreludeExports coreModule =
             : [ ModuleExport ConstructorNamespace (renderName name)
               | DataConstructor _ name _ <- constructors
               ]
-        SClass _ className _ _ ->
+        SClass _ className _ _ _ _ ->
           [ModuleExport CapabilityNamespace (renderName className)]
         _ -> []

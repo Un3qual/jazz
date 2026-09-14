@@ -561,7 +561,7 @@ testAnalyzedMethodParameterIdentity = do
   let methods =
         Map.fromList
           [ (identifierText name, signature)
-          | SClass _ _ _ declarations <- coreModuleStatements (NonEmpty.head (coreProgramModules analyzed)),
+          | SClass _ _ _ declarations _ _ <- coreModuleStatements (NonEmpty.head (coreProgramModules analyzed)),
             ClassMethodSignature node name _ <- declarations,
             MethodDeclaration _ signature <- [statementDeclarationFact (coreNodeFacts node)]
           ]
@@ -743,9 +743,9 @@ statementNodeIdentities statement =
       SLet _ _ value -> exprNodeIdentities value
       SData _ _ _ constructors ->
         [nodeIdentity node | DataConstructor node _ _ <- constructors]
-      SClass _ _ _ methods ->
+      SClass _ _ _ methods _ _ ->
         [nodeIdentity node | ClassMethodSignature node _ _ <- methods]
-      SImpl _ _ _ methods ->
+      SImpl _ _ _ methods _ ->
         foldMap (\(ImplMethod node _ body) -> nodeIdentity node : exprNodeIdentities body) methods
       SExpr _ value -> exprNodeIdentities value
       _ -> []
@@ -799,7 +799,7 @@ expressionEvidenceInventory expression =
     statementEvidence statement =
       case statement of
         SLet _ _ value -> expressionEvidenceInventory value
-        SImpl _ _ _ methods -> foldMap (\(ImplMethod _ _ body) -> expressionEvidenceInventory body) methods
+        SImpl _ _ _ methods _ -> foldMap (\(ImplMethod _ _ body) -> expressionEvidenceInventory body) methods
         SExpr _ value -> expressionEvidenceInventory value
         _ -> []
 
@@ -828,7 +828,7 @@ expressionInstantiationInventory expression =
     statementInstantiations statement =
       case statement of
         SLet _ _ value -> expressionInstantiationInventory value
-        SImpl _ _ _ methods -> foldMap (\(ImplMethod _ _ body) -> expressionInstantiationInventory body) methods
+        SImpl _ _ _ methods _ -> foldMap (\(ImplMethod _ _ body) -> expressionInstantiationInventory body) methods
         SExpr _ value -> expressionInstantiationInventory value
         _ -> []
 
@@ -843,8 +843,8 @@ moduleBinderIds = foldMap statementBinderInventory . moduleStatements
       nodeBinders (statementCoreNode statement)
         <> case statement of
           SData _ _ _ constructors -> foldMap (\(DataConstructor node _ _) -> nodeBinders node) constructors
-          SClass _ _ _ methods -> foldMap (\(ClassMethodSignature node _ _) -> nodeBinders node) methods
-          SImpl _ _ _ methods -> foldMap (\(ImplMethod node _ _) -> nodeBinders node) methods
+          SClass _ _ _ methods _ _ -> foldMap (\(ClassMethodSignature node _ _) -> nodeBinders node) methods
+          SImpl _ _ _ methods _ -> foldMap (\(ImplMethod node _ _) -> nodeBinders node) methods
           _ -> []
     nodeBinders (CoreNode _ _ facts) = foldMap (\(binder, _) -> [binder]) (statementBinding facts)
 
@@ -859,8 +859,8 @@ moduleSchemes = foldMap statementSchemes . moduleStatements
       nodeSchemes (statementCoreNode statement)
         <> case statement of
           SData _ _ _ constructors -> foldMap (\(DataConstructor node _ _) -> nodeSchemes node) constructors
-          SClass _ _ _ methods -> foldMap (\(ClassMethodSignature node _ _) -> nodeSchemes node) methods
-          SImpl _ _ _ methods -> foldMap (\(ImplMethod node _ _) -> nodeSchemes node) methods
+          SClass _ _ _ methods _ _ -> foldMap (\(ClassMethodSignature node _ _) -> nodeSchemes node) methods
+          SImpl _ _ _ methods _ -> foldMap (\(ImplMethod node _ _) -> nodeSchemes node) methods
           _ -> []
     nodeSchemes (CoreNode _ _ facts) = foldMap (\(_, scheme) -> [scheme]) (statementBinding facts)
 
@@ -888,7 +888,7 @@ expectedEvidenceIdentities program =
     )
   | coreModule <- NonEmpty.toList (coreProgramModules program),
     statement <- moduleStatements coreModule,
-    SImpl implementationNode capabilityName [_] methods <- [statement],
+    SImpl implementationNode capabilityName [_] methods _ <- [statement],
     let implementationId = ImplId (NamedSourceUnit (coreModulePath coreModule), coreNodeId implementationNode),
     ImplMethod _ methodName _ <- methods,
     identifierText methodName == "equals"
@@ -947,10 +947,10 @@ assertStatementFacts statement = do
         SData _ name _ constructors -> do
           assertEqual "data declaration fact" (DataDeclaration name [constructorName | DataConstructor _ constructorName _ <- constructors]) (statementDeclarationFact facts)
           mapM_ assertConstructorFacts constructors
-        SClass _ name parameters methods -> do
+        SClass _ name parameters methods _ _ -> do
           assertEqual "capability declaration fact" (CapabilityDeclaration name parameters) (statementDeclarationFact facts)
           mapM_ assertClassMethodFacts methods
-        SImpl _ name _ methods -> do
+        SImpl _ name _ methods _ -> do
           case statementDeclarationFact facts of
             ImplementationDeclaration factName [_] -> assertEqual "implementation declaration identity" name factName
             other -> fail ("missing analyzed implementation target: " <> show other)
@@ -1017,8 +1017,8 @@ statementCoreNode statement =
     SLet node _ _ -> node
     SSignature node _ _ -> node
     SData node _ _ _ -> node
-    SClass node _ _ _ -> node
-    SImpl node _ _ _ -> node
+    SClass node _ _ _ _ _ -> node
+    SImpl node _ _ _ _ -> node
     SModule node _ -> node
     SImport node _ _ _ -> node
     SExpr node _ -> node
@@ -1095,9 +1095,9 @@ testRuntimeUsesAnalyzedDeclarations = do
     eraseStatement statement = case statement of
       SData node name parameters constructors ->
         SData node name parameters [DataConstructor child constructorName [] | DataConstructor child constructorName _ <- constructors]
-      SClass node name parameters methods ->
-        SClass node name parameters [ClassMethodSignature child methodName (SignatureType TypeBool) | ClassMethodSignature child methodName _ <- methods]
-      SImpl node name _ methods -> SImpl node name [] methods
+      SClass node name parameters methods prerequisites defaults ->
+        SClass node name parameters [ClassMethodSignature child methodName (SignatureType TypeBool) | ClassMethodSignature child methodName _ <- methods] prerequisites defaults
+      SImpl node name _ methods prerequisites -> SImpl node name [] methods prerequisites
       _ -> statement
 
 testLexicalBindersShadowImportedAndBuiltinNames :: IO ()
@@ -1302,7 +1302,7 @@ identityDefinitionBinderIds expression =
         SLet (CoreNode _ _ facts) name value ->
           [binder | identifierText name == "identity", Just (binder, _) <- [statementBinding facts]]
             <> identityDefinitionBinderIds value
-        SImpl _ _ _ methods -> foldMap (\(ImplMethod _ _ body) -> identityDefinitionBinderIds body) methods
+        SImpl _ _ _ methods _ -> foldMap (\(ImplMethod _ _ body) -> identityDefinitionBinderIds body) methods
         SExpr _ value -> identityDefinitionBinderIds value
         _ -> []
 

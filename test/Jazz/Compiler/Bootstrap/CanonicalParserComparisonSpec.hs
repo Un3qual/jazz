@@ -267,12 +267,15 @@ surfaceInventory =
             span1
             "Show"
             ["a"]
-            [SurfaceClassMethodSignature "show" span1 (SignatureType TypeText)],
+            [SurfaceClassMethodSignature "show" span1 (SignatureType TypeText)]
+            []
+            [],
           SSImpl
             span1
             (SurfaceName "Show" span1 Nothing)
             allSignatureTypes
-            [SurfaceImplMethod "show" span1 (seText "shown")],
+            [SurfaceImplMethod "show" span1 (seText "shown")]
+            [],
           SSModule span1 ["App", "Main"] (Just allModuleExports),
           SSImport span1 ["Core", "Text"] (Just "TextCore") (Just ["length"]),
           SSExpr span1 patternInventory
@@ -441,7 +444,6 @@ parserFailureInventory =
     ("ImplicitBoundary", ExpectedSyntax "expression" ParserImplicitBoundary),
     ("ExplicitTypeApplicationArgument", UnsupportedSyntax ExplicitTypeApplicationArgument),
     ("FractionalLiteralPattern", UnsupportedSyntax FractionalLiteralPattern),
-    ("ClassMethodBody", UnsupportedSyntax (ClassMethodBody "show")),
     ("DeclarationHeaderArguments", UnsupportedSyntax (DeclarationHeaderArguments ModuleDeclaration)),
     ("AbstractionSyntax", UnsupportedSyntax (AbstractionSyntax "trait")),
     ("InvalidFractionalLiteral", InvalidFractionalLiteral "1.0"),
@@ -482,7 +484,7 @@ declarationFailureInventory =
     ("ClassDeclaration", DeclarationOutsideAllowedScope ClassDeclaration),
     ("ImplDeclaration", DeclarationOutsideAllowedScope ImplDeclaration),
     ("ImportAliasCombinedWithSymbolList", ImportAliasCombinedWithSymbolList),
-    ("ImplRequiresConcreteTarget", ImplRequiresConcreteTarget),
+    ("ImplRequiresConstructorTarget", ImplRequiresConstructorTarget),
     ("DataTypeParameter", DuplicateName DataTypeParameter "a" DataDeclaration),
     ("DataConstructorName", DuplicateName DataConstructorName "Thing" DataDeclaration),
     ("ClassMethodName", DuplicateName ClassMethodName "show" ClassDeclaration),

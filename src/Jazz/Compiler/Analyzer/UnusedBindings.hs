@@ -100,5 +100,6 @@ statementReferences statement = case statement of
   SLet _ name value ->
     Map.filter ((/= resolvedValueScopeName name) . resolvedValueScopeName) (resolvedExpressionReferences value)
   SExpr _ value -> resolvedExpressionReferences value
-  SImpl _ _ _ methods -> foldMap (\(ImplMethod _ _ body) -> resolvedExpressionReferences body) methods
+  SClass _ _ _ _ _ defaults -> foldMap (\(ImplMethod _ _ body) -> resolvedExpressionReferences body) defaults
+  SImpl _ _ _ methods _ -> foldMap (\(ImplMethod _ _ body) -> resolvedExpressionReferences body) methods
   _ -> Map.empty

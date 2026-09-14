@@ -878,6 +878,8 @@ testParsesClassMethodSignatureMetadata =
                     [ SurfaceClassMethodSignature "equals" (SourceSpan 2 1) surfacePayload,
                       SurfaceClassMethodSignature "notEquals" (SourceSpan 3 1) surfacePayload
                     ]
+                    []
+                    []
                 ]
           )
           surfaceProgram

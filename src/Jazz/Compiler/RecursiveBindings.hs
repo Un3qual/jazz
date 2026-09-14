@@ -99,7 +99,8 @@ resolvedExpressionReferences expression = case expression of
     statementReferences statement = case statement of
       SLet _ _ value -> recur value
       SExpr _ value -> recur value
-      SImpl _ _ _ methods -> foldMap (\(ImplMethod _ _ body) -> recur body) methods
+      SClass _ _ _ _ _ defaults -> foldMap (\(ImplMethod _ _ body) -> recur body) defaults
+      SImpl _ _ _ methods _ -> foldMap (\(ImplMethod _ _ body) -> recur body) methods
       _ -> Map.empty
 
 -- | Name resolution has chosen namespaces and nonlocal targets. This pass owns
@@ -207,9 +208,11 @@ resolveLexicalScopes externalReferences externalNames = expression (Map.mapMaybe
           SData statementNode name parameters constructors ->
             let (nextVisible, resolvedConstructors) = mapAccumL (\acc (DataConstructor constructorNode constructor fields) -> (insertBinder constructorNode constructor acc, DataConstructor (shadowed acc constructor constructorNode) constructor fields)) visible constructors
              in (nextVisible, SData statementNode name parameters resolvedConstructors)
-          SImpl statementNode capability targets methods ->
+          SClass statementNode capability parameters signatures context defaults ->
+            (visible, SClass statementNode capability parameters signatures context [ImplMethod methodNode name (expression visible body) | ImplMethod methodNode name body <- defaults])
+          SImpl statementNode capability targets methods context ->
             let methodVisible = foldl' (\acc (ImplMethod methodNode name _) -> insertBinder methodNode name acc) visible methods
-             in (visible, SImpl statementNode capability targets [ImplMethod (shadowed visible name methodNode) name (expression methodVisible body) | ImplMethod methodNode name body <- methods])
+             in (visible, SImpl statementNode capability targets [ImplMethod (shadowed visible name methodNode) name (expression methodVisible body) | ImplMethod methodNode name body <- methods] context)
           _ -> (visible, value)
         insertPeer visible index = case Map.lookup index definitions of
           Just (bindingNode, name) | Map.notMember name visible -> insertBinder bindingNode name visible
@@ -282,14 +285,17 @@ publishResolvedCaptures = snd . expression
     statement value = case value of
       SLet node name body -> fmap (SLet node name) (expression body)
       SExpr node body -> fmap (SExpr node) (expression body)
-      SImpl node capability target methods ->
+      SClass node capability parameters signatures context defaults ->
+        let (free, checked) = unzip [fmap (ImplMethod methodNode name) (expression body) | ImplMethod methodNode name body <- defaults]
+         in (mconcat free, SClass node capability parameters signatures context checked)
+      SImpl node capability target methods context ->
         let (free, checked) = unzip [fmap (ImplMethod methodNode name) (expression body) | ImplMethod methodNode name body <- methods]
-         in (without (foldMap (\(ImplMethod methodNode _ _) -> binder methodNode) methods) (mconcat free), SImpl node capability target checked)
+         in (without (foldMap (\(ImplMethod methodNode _ _) -> binder methodNode) methods) (mconcat free), SImpl node capability target checked context)
       _ -> (mempty, value)
     statementBinders value = case value of
       SLet node _ _ -> binder node
       SData _ _ _ constructors -> foldMap (\(DataConstructor node _ _) -> binder node) constructors
-      SClass _ _ _ methods -> foldMap (\(ClassMethodSignature node _ _) -> binder node) methods
+      SClass _ _ _ methods _ _ -> foldMap (\(ClassMethodSignature node _ _) -> binder node) methods
       _ -> Set.empty
 
 collectBindingNames :: [(Int, Statement phase)] -> Map Int (CoreNameAt phase)

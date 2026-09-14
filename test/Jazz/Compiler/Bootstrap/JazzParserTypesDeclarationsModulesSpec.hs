@@ -77,6 +77,8 @@ tests =
     ("matches stage 0 for uppercase data type parameter", assertStage0Parity "uppercase data type parameter" "data Box A = Box."),
     ("matches stage 0 for qualified lowercase impl target", assertStage0Parity "qualified lowercase impl target" "impl Eq(Alias::a) { }."),
     ("matches stage 0 for unsupported capability header argument", assertStage0Parity "unsupported capability header argument" "class Eq(forall a) { }."),
+    ("matches stage 0 for superclass contexts and defaults", assertStage0Parity "superclass contexts and defaults" "class @{Same(a)}: Ordered(a) { order :: a -> Int. order = \\(x) -> 1. }."),
+    ("matches stage 0 for generic implementation contexts", assertStage0Parity "generic implementation contexts" "impl @{Same(a)}: Same([a]) { same = \\(x, y) -> True. }."),
     ("matches stage 0 for capability header EOF context", assertStage0Parity "capability header EOF context" "class Eq(a"),
     ("matches stage 0 for qualified method binding expression", assertStage0Parity "qualified method binding expression" "result = Alias::Class::method."),
     ("matches stage 0 for qualified method name before dot", assertStage0Parity "qualified method name before dot" "result = Alias::Class::."),

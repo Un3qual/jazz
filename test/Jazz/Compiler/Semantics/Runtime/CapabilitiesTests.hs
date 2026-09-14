@@ -628,7 +628,7 @@ testNullaryMethodSelectionRecordsCanonicalAnalyzedEvidence = do
   where
     implementationIdentities expression =
       [ (capabilityName, ImplId (StandaloneSourceUnit standaloneModulePath, coreNodeId implementationNode))
-      | SImpl implementationNode capabilityName [_] _ <- sourceUnitStatements expression
+      | SImpl implementationNode capabilityName [_] _ _ <- sourceUnitStatements expression
       ]
     evidenceReference capabilityName implementationId targetType =
       EvidenceReference
@@ -2047,7 +2047,7 @@ testAuthoredModuleTransitionOwnsFactsAndEvidence = do
   let authoredPath = mkModulePath (mkIdentifier "App" NonEmpty.:| [mkIdentifier "Main"])
       implementationIds =
         [ ImplId (NamedSourceUnit authoredPath, coreNodeId node)
-        | SImpl node _ _ _ <- sourceUnitStatements analyzedExpression
+        | SImpl node _ _ _ _ <- sourceUnitStatements analyzedExpression
         ]
       selectedEvidence = expressionEvidenceInventory analyzedExpression
   assertEqual "one authored implementation" 1 (length implementationIds)
@@ -2108,7 +2108,7 @@ expressionEvidenceFactsInventory expression =
     statementEvidenceFacts statement =
       case statement of
         SLet _ _ value -> expressionEvidenceFactsInventory value
-        SImpl _ _ _ methods -> foldMap (\(ImplMethod _ _ body) -> expressionEvidenceFactsInventory body) methods
+        SImpl _ _ _ methods _ -> foldMap (\(ImplMethod _ _ body) -> expressionEvidenceFactsInventory body) methods
         SExpr _ value -> expressionEvidenceFactsInventory value
         _ -> []
 

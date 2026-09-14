@@ -1,5 +1,5 @@
-{-# LANGUAGE TupleSections #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE TupleSections #-}
 
 -- | Declaration-local kind inference. Solved metadata never contains variables.
 module Jazz.Compiler.KindInference (inferDataKinds, inferSignatureKinds) where

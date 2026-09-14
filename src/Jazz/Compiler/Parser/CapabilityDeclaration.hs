@@ -56,7 +56,8 @@ import Jazz.Compiler.Parser.Lexer
     isImmediatelyAfter,
   )
 import Jazz.Compiler.Parser.Signature
-  ( parseConstrainedSignatureTypeDetailed,
+  ( constraintPrefixParser,
+    parseConstrainedSignatureTypeDetailed,
     parseSignaturePayloadDetailed,
     splitTopLevelCommaTokensDetailed,
   )
@@ -88,21 +89,25 @@ parseCapabilityDeclarationParser expression = do
     declaration@Token {tokenKind = TIdentifier kind} :< _
       | kind == "class" || kind == "impl" -> do
           _ <- parseAnyToken
+          next <- peekToken
+          context <- case next of
+            Just Token {tokenKind = TAt} -> constraintPrefixParser
+            _ -> pure []
           (name, arguments) <- parseCapabilityHeader kind declaration
           case kind of
             "class" -> do
               parameters <- either failParserFailure pure (validateClassHeaderParameters declaration arguments)
               _ <- parseToken TLBrace
-              methods <- parseClassBody declaration Set.empty []
-              SSClass (tokenSpan declaration) (surfaceNameIdentifier name) parameters methods <$ parseToken TDot
+              (methods, defaults) <- parseClassBody expression declaration Set.empty [] Set.empty []
+              SSClass (tokenSpan declaration) (surfaceNameIdentifier name) parameters methods context defaults <$ parseToken TDot
             _ -> do
               _ <- parseToken TLBrace
               methods <- parseImplBody expression declaration Set.empty []
               _ <- parseToken TDot
               let targets = fromMaybe [] arguments
-              if surfaceConcreteImplArguments targets
-                then pure (SSImpl (tokenSpan declaration) name targets methods)
-                else failTokenParserAt (tokenSpan declaration) (DeclarationFailure ImplRequiresConcreteTarget)
+              if surfaceSupportedImplArguments targets
+                then pure (SSImpl (tokenSpan declaration) name targets methods context)
+                else failTokenParserAt (tokenSpan declaration) (DeclarationFailure ImplRequiresConstructorTarget)
       | otherwise -> either failParserFailure pure (rejectReservedAbstractionSyntax declaration)
     EmptyTokens -> failTokenParser (ExpectedSyntax "capability declaration" ParserEndOfInput)
     token :< _ -> failTokenParserAt (tokenSpan token) (ExpectedSyntax "capability declaration" (foundToken token))
@@ -178,12 +183,12 @@ collectHeaderArguments kind declaration = go (1 :: Int) []
         Just token -> parseAnyToken *> go depth (token : reversed)
         Nothing -> failTokenParserAt (tokenSpan declaration) (ExpectedSyntax "')'" (ParserEndOfInputIn (kind <> " declaration header")))
 
-parseClassBody :: Token -> Set.Set Text -> [SurfaceClassMethodSignature] -> Parser [SurfaceClassMethodSignature]
-parseClassBody declaration seen reversed = do
+parseClassBody :: Parser SurfaceExpr -> Token -> Set.Set Text -> [SurfaceClassMethodSignature] -> Set.Set Text -> [SurfaceImplMethod] -> Parser ([SurfaceClassMethodSignature], [SurfaceImplMethod])
+parseClassBody expression declaration seen reversed seenBodies reversedBodies = do
   tokens <- MP.getInput
   case tokens of
     EmptyTokens -> failTokenParserAt (tokenSpan declaration) (ExpectedSyntax "'}'" (ParserEndOfInputIn "class declaration"))
-    Token {tokenKind = TRBrace} :< _ -> reverse reversed <$ parseAnyToken
+    Token {tokenKind = TRBrace} :< _ -> (reverse reversed, reverse reversedBodies) <$ parseAnyToken
     operator@Token {tokenKind = TIdentifier "operator"} :< _ -> either failParserFailure pure (rejectNestedOperatorDeclaration operator)
     method@Token {tokenKind = TIdentifier name, tokenSpan = spanValue} :< Token {tokenKind = TColonColon} :< _
       | Set.member name seen -> failTokenParserAt spanValue (DeclarationFailure (DuplicateName ClassMethodName name ClassDeclaration))
@@ -191,10 +196,13 @@ parseClassBody declaration seen reversed = do
           _ <- MP.takeP Nothing 2
           signatureTokens <- collectUntilDotParser
           payload <- either failParserFailure pure (parseSignaturePayloadDetailed signatureTokens)
-          parseClassBody declaration (Set.insert name seen) (SurfaceClassMethodSignature (mkIdentifier name) (tokenSpan method) payload : reversed)
-    Token {tokenKind = TIdentifier name, tokenSpan = spanValue} :< Token {tokenKind = TEquals} :< _ ->
-      failTokenParserAt spanValue (UnsupportedSyntax (ClassMethodBody name))
-    token :< _ -> failTokenParserAt (tokenSpan token) (ExpectedSyntax "signature-only method declaration or '}' in class declaration body" (foundToken token))
+          parseClassBody expression declaration (Set.insert name seen) (SurfaceClassMethodSignature (mkIdentifier name) (tokenSpan method) payload : reversed) seenBodies reversedBodies
+    Token {tokenKind = TIdentifier name, tokenSpan = spanValue} :< Token {tokenKind = TEquals} :< _
+      | Set.member name seenBodies -> failTokenParserAt spanValue (DeclarationFailure (DuplicateName ClassMethodName name ClassDeclaration))
+      | otherwise -> do
+          binding <- parseMethodBinding expression
+          parseClassBody expression declaration seen reversed (Set.insert name seenBodies) (binding : reversedBodies)
+    token :< _ -> failTokenParserAt (tokenSpan token) (ExpectedSyntax "method signature, default binding, or '}' in class declaration body" (foundToken token))
 
 parseImplBody :: Parser SurfaceExpr -> Token -> Set.Set Text -> [SurfaceImplMethod] -> Parser [SurfaceImplMethod]
 parseImplBody expression declaration seen reversed = do
@@ -203,21 +211,38 @@ parseImplBody expression declaration seen reversed = do
     EmptyTokens -> failTokenParserAt (tokenSpan declaration) (ExpectedSyntax "'}'" (ParserEndOfInputIn "impl declaration"))
     Token {tokenKind = TRBrace} :< _ -> reverse reversed <$ parseAnyToken
     operator@Token {tokenKind = TIdentifier "operator"} :< _ -> either failParserFailure pure (rejectNestedOperatorDeclaration operator)
-    method@Token {tokenKind = TIdentifier name, tokenSpan = spanValue} :< Token {tokenKind = TEquals} :< _
+    Token {tokenKind = TIdentifier name, tokenSpan = spanValue} :< Token {tokenKind = TEquals} :< _
       | Set.member name seen -> failTokenParserAt spanValue (DeclarationFailure (DuplicateName ImplMethodName name ImplDeclaration))
       | otherwise -> do
-          _ <- MP.takeP Nothing 2
-          body <- expression <* parseToken TDot
-          parseImplBody expression declaration (Set.insert name seen) (SurfaceImplMethod (mkIdentifier name) (tokenSpan method) body : reversed)
+          binding <- parseMethodBinding expression
+          parseImplBody expression declaration (Set.insert name seen) (binding : reversed)
     Token {tokenKind = TIdentifier name, tokenSpan = spanValue} :< Token {tokenKind = TColonColon} :< _ ->
       failTokenParserAt spanValue (DeclarationFailure (ExpectedOrdinaryImplMethodBinding name))
     token :< _ -> failTokenParserAt (tokenSpan token) (ExpectedSyntax "ordinary method binding or '}' in impl declaration body" (foundToken token))
 
-surfaceConcreteImplArguments :: [SurfaceSignatureType] -> Bool
-surfaceConcreteImplArguments arguments =
-  case arguments of
-    [argument] -> surfaceConcreteConstraintArgument argument
-    _ -> False
+parseMethodBinding :: Parser SurfaceExpr -> Parser SurfaceImplMethod
+parseMethodBinding expression = do
+  method <- parseAnyToken
+  _ <- parseToken TEquals
+  body <- expression <* parseToken TDot
+  pure (SurfaceImplMethod (mkIdentifier (tokenLexeme method)) (tokenSpan method) body)
+
+surfaceSupportedImplArguments :: [SurfaceSignatureType] -> Bool
+surfaceSupportedImplArguments [argument]
+  | surfaceConcreteConstraintArgument argument = True
+  | otherwise = case argument of
+      TypeList element -> distinctVariables [element]
+      TypeTuple elements -> distinctVariables elements
+      TypeApplication name arguments ->
+        not (surfaceIdentifierLooksLikeTypeVariable (surfaceNameIdentifier name)) && distinctVariables arguments
+      _ -> False
+  where
+    distinctVariables types = case traverse variable types of
+      Just names -> not (null names) && length names == Set.size (Set.fromList names)
+      Nothing -> False
+    variable (TypeVariable name) = Just (identifierText name)
+    variable _ = Nothing
+surfaceSupportedImplArguments _ = False
 
 surfaceConcreteConstraintArgument :: SurfaceSignatureType -> Bool
 surfaceConcreteConstraintArgument signatureType =

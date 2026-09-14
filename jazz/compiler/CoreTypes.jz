@@ -112,8 +112,8 @@ module CoreTypes {
     = CoreLetStatement CoreName CoreSpan CoreExpr
     | CoreSignatureStatement CoreName CoreSpan CoreSignaturePayload
     | CoreDataStatement CoreSpan CoreName [CoreName] [CoreDataConstructor]
-    | CoreClassStatement CoreSpan CoreName [CoreName] [CoreClassMethodSignature]
-    | CoreImplStatement CoreSpan CoreName [CoreSignatureType] [CoreImplMethod]
+    | CoreClassStatement CoreSpan CoreName [CoreName] [CoreClassMethodSignature] [CoreSignatureConstraint] [CoreImplMethod]
+    | CoreImplStatement CoreSpan CoreName [CoreSignatureType] [CoreImplMethod] [CoreSignatureConstraint]
     | CoreModuleStatement CoreSpan [Text]
     | CoreImportStatement CoreSpan [Text] Maybe(Text) Maybe([Text])
     | CoreExpressionStatement CoreSpan CoreExpr.

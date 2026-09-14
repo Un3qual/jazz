@@ -158,8 +158,8 @@ traverseFixture expressionNodeVisit patternNodeVisit statementNodeVisit = expres
       SLet n name body -> SLet <$> bindingStatement n <*> pure name <*> expression body
       SSignature n name signature -> SSignature <$> bindingStatement n <*> pure name <*> pure signature
       SData n name parameters constructors -> SData <$> plainStatement n <*> pure name <*> pure parameters <*> traverse constructor constructors
-      SClass n name parameters methods -> SClass <$> plainStatement n <*> pure name <*> pure parameters <*> traverse (classMethod name) methods
-      SImpl n name targets methods -> SImpl <$> plainStatement n <*> pure name <*> pure targets <*> traverse (implMethod name) methods
+      SClass n name parameters methods prerequisites defaults -> SClass <$> plainStatement n <*> pure name <*> pure parameters <*> traverse (classMethod name) methods <*> pure prerequisites <*> traverse (implMethod name) defaults
+      SImpl n name targets methods prerequisites -> SImpl <$> plainStatement n <*> pure name <*> pure targets <*> traverse (implMethod name) methods <*> pure prerequisites
       SExpr n body -> SExpr <$> plainStatement n <*> expression body
       SModule n path -> SModule <$> plainStatement n <*> pure path
       SImport n path alias symbols -> SImport <$> plainStatement n <*> pure path <*> pure alias <*> pure symbols

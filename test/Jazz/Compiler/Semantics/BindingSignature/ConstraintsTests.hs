@@ -223,10 +223,10 @@ testAnalyzerRejectsDuplicateClassMethodMetadata = do
       case ( loweredProgram "class Eq(a) { equals :: Int. }. 1.",
              loweredProgram "class Eq(a) { equals :: Bool. }."
            ) of
-        ( EBlock blockNode (SClass classNode className parameters methods : statements),
-          EBlock _ (SClass _ _ _ duplicateMethods : _)
+        ( EBlock blockNode (SClass classNode className parameters methods prerequisites defaults : statements),
+          EBlock _ (SClass _ _ _ duplicateMethods _ _ : _)
           ) ->
-            EBlock blockNode (SClass classNode className parameters (methods <> duplicateMethods) : statements)
+            EBlock blockNode (SClass classNode className parameters (methods <> duplicateMethods) prerequisites defaults : statements)
         (firstProgram, secondProgram) ->
           error ("expected class declaration blocks, got " <> show (firstProgram, secondProgram))
 
@@ -266,7 +266,7 @@ testSourceRejectsVariableTargetImplMethodBindings =
     impl Eq(a) { equals = 1. }.
     x = 1.
     """
-    "concrete impl target"
+    "constructor-headed impl target"
 
 testSourceRejectsVariableTargetEmptyImplDeclarations :: IO ()
 testSourceRejectsVariableTargetEmptyImplDeclarations =
@@ -276,7 +276,7 @@ testSourceRejectsVariableTargetEmptyImplDeclarations =
     impl Eq(a) { }.
     x = 1.
     """
-    "concrete impl target"
+    "constructor-headed impl target"
 
 testSourceRejectsUnknownNamedImplTargets :: IO ()
 testSourceRejectsUnknownNamedImplTargets =

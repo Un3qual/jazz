@@ -38,7 +38,7 @@ module ParserDeclaration (
   import NonEmpty.
   import ParserContext.
   import ParserOperator.
-  import ParserSignature (parseSignaturePayloadDetailed, parseSignatureType, parseSignatureTypes).
+  import ParserSignature (parseConstraintPrefix, parseSignaturePayloadDetailed, parseSignatureType, parseSignatureTypes).
   import Set.
   import ParserToken (
     TokenParser,
@@ -872,8 +872,15 @@ module ParserDeclaration (
     }
   }.
 
-  parseClassBody :: CanonicalToken -> Set(Text) -> [SurfaceClassMethodSignature] -> TokenParser([SurfaceClassMethodSignature]).
-  parseClassBody = \(declarationToken, seen, reversed) -> tokenAndThen
+  parseMethodBinding :: (ParserContext -> TokenParser(SurfaceExpr)) -> ParserContext -> CanonicalToken -> Text -> TokenParser(SurfaceImplMethod).
+  parseMethodBinding = \(parseExpression, context, methodToken, methodName) -> tokenKeepRight
+    tokenIdentifier
+    (tokenKeepRight (tokenPunctuation EqualsPunctuation)
+      (tokenTransform (SurfaceImplMethod methodName (canonicalTokenSpan methodToken))
+        (tokenKeepLeft (parseExpression context) (tokenPunctuation DotPunctuation)))).
+
+  parseClassBody :: (ParserContext -> TokenParser(SurfaceExpr)) -> ParserContext -> CanonicalToken -> Set(Text) -> [SurfaceClassMethodSignature] -> Set(Text) -> [SurfaceImplMethod] -> TokenParser(([SurfaceClassMethodSignature], [SurfaceImplMethod])).
+  parseClassBody = \(parseExpression, context, declarationToken, seen, reversed, seenBodies, reversedBodies) -> tokenAndThen
     (\(remaining) -> case remaining {
       | [] -> tokenFailAtSpan
         (canonicalTokenSpan declarationToken)
@@ -881,7 +888,7 @@ module ParserDeclaration (
       | [first | rest] -> case canonicalTokenKind first {
         | PunctuationKind RightBracePunctuation -> tokenKeepRight
           (tokenPunctuation RightBracePunctuation)
-          (tokenSucceed (listReverse reversed))
+          (tokenSucceed (listReverse reversed, listReverse reversedBodies))
         | IdentifierKind methodName -> if methodName == "operator" then
           tokenFailAtSpan
             (canonicalTokenSpan first)
@@ -898,31 +905,39 @@ module ParserDeclaration (
                   (tokenPunctuation DoubleColonPunctuation)
                   (tokenAndThen
                     (\(payload) -> parseClassBody
+                      parseExpression
+                      context
                       declarationToken
                       (setInsert seen methodName)
                       (listPrepend
                         (SurfaceClassMethodSignature methodName (canonicalTokenSpan first) payload)
-                        reversed))
+                        reversed)
+                      seenBodies
+                      reversedBodies)
                     parseSignatureBody))
-            | PunctuationKind EqualsPunctuation -> tokenFailAtSpan
-              (canonicalTokenSpan first)
-              (UnsupportedSyntax (ClassMethodBody methodName))
+            | PunctuationKind EqualsPunctuation -> if setContains seenBodies methodName then
+              tokenFailAtSpan (canonicalTokenSpan first)
+                (DeclarationFailure (DuplicateName ClassMethodName methodName ClassDeclaration))
+              else tokenAndThen
+                (\(binding) -> parseClassBody parseExpression context declarationToken seen reversed
+                  (setInsert seenBodies methodName) (listPrepend binding reversedBodies))
+                (parseMethodBinding parseExpression context first methodName)
             | other -> tokenFailAtSpan
               (canonicalTokenSpan first)
               (ExpectedSyntax
-                "signature-only method declaration or '}' in class declaration body"
+                "method signature, default binding, or '}' in class declaration body"
                 (canonicalTokenEncountered (Just first)))
           }
           | [] -> tokenFailAtSpan
             (canonicalTokenSpan first)
             (ExpectedSyntax
-              "signature-only method declaration or '}' in class declaration body"
+              "method signature, default binding, or '}' in class declaration body"
               (canonicalTokenEncountered (Just first)))
         }
         | other -> tokenFailAtSpan
           (canonicalTokenSpan first)
           (ExpectedSyntax
-            "signature-only method declaration or '}' in class declaration body"
+            "method signature, default binding, or '}' in class declaration body"
             (canonicalTokenEncountered (Just first)))
       }
     })
@@ -948,22 +963,10 @@ module ParserDeclaration (
               tokenFailAtSpan
                 (canonicalTokenSpan first)
                 (DeclarationFailure (DuplicateName ImplMethodName methodName ImplDeclaration))
-              else tokenKeepRight
-                tokenIdentifier
-                (tokenKeepRight
-                  (tokenPunctuation EqualsPunctuation)
-                  (tokenAndThen
-                    (\(methodExpression) -> tokenKeepRight
-                      (tokenPunctuation DotPunctuation)
-                      (parseImplBody
-                        parseExpression
-                        context
-                        declarationToken
-                        (setInsert seen methodName)
-                        (listPrepend
-                          (SurfaceImplMethod methodName (canonicalTokenSpan first) methodExpression)
-                          reversed)))
-                    (parseExpression context)))
+              else tokenAndThen
+                (\(binding) -> parseImplBody parseExpression context declarationToken
+                  (setInsert seen methodName) (listPrepend binding reversed))
+                (parseMethodBinding parseExpression context first methodName)
             | PunctuationKind DoubleColonPunctuation -> tokenFailAtSpan
               (canonicalTokenSpan first)
               (DeclarationFailure (ExpectedOrdinaryImplMethodBinding methodName))
@@ -1005,15 +1008,40 @@ module ParserDeclaration (
     | other -> True
   }.
 
-  concreteImplArguments :: [SurfaceSignatureType] -> Bool.
-  concreteImplArguments = \(arguments) -> case arguments {
-    | [argument] -> concreteImplType argument
+  distinctImplVariables :: Set(Text) -> [SurfaceSignatureType] -> Bool.
+  distinctImplVariables = \(seen, arguments) -> case arguments {
+    | [] -> True
+    | [TypeVariable name | rest] -> if setContains seen name then False else
+      distinctImplVariables (setInsert seen name) rest
     | other -> False
   }.
+
+  supportedImplArguments :: [SurfaceSignatureType] -> Bool.
+  supportedImplArguments = \(arguments) -> case arguments {
+    | [argument] -> if concreteImplType argument then True else case argument {
+      | ListType element -> distinctImplVariables setEmpty [element]
+      | TupleType elements -> distinctImplVariables setEmpty elements
+      | AppliedType name elements -> if identifierStartsLower (terminalTypeName name) then False else
+        distinctImplVariables setEmpty elements
+      | other -> False
+    }
+    | other -> False
+  }.
+
+  optionalCapabilityContext :: TokenParser([SurfaceSignatureConstraint]).
+  optionalCapabilityContext = tokenAndThen
+    (\(current) -> case current {
+      | Just token -> case canonicalTokenKind token {
+        | PunctuationKind AtPunctuation -> parseConstraintPrefix
+        | other -> tokenSucceed []
+      }
+      | Nothing -> tokenSucceed []
+    }) tokenPeek.
 
   parseCapabilityDeclaration :: (ParserContext -> TokenParser(SurfaceExpr)) -> ParserContext -> Text -> TokenParser(SurfaceStatement).
   parseCapabilityDeclaration = \(parseExpression, context, declarationKind) -> tokenAndThen
     (\(declarationToken) -> tokenAndThen
+      (\(prerequisites) -> tokenAndThen
       (\(capabilityName) -> tokenAndThen
         (\(maybeArguments) -> tokenKeepRight
           (requireCapabilityBodyStart declarationKind declarationToken)
@@ -1021,15 +1049,17 @@ module ParserDeclaration (
             (\(parameters) -> tokenKeepRight
               (tokenPunctuation LeftBracePunctuation)
               (tokenAndThen
-                (\(methods) -> tokenKeepRight
+                (\(body) -> case body { | (methods, defaults) -> tokenKeepRight
                   (tokenPunctuation DotPunctuation)
                   (tokenSucceed
                     (ClassStatement
                       (canonicalTokenSpan declarationToken)
                       capabilityName
                       parameters
-                      methods)))
-                (parseClassBody declarationToken setEmpty [])))
+                      methods
+                      prerequisites
+                      defaults)) })
+                (parseClassBody parseExpression context declarationToken setEmpty [] setEmpty [])))
             (classParameterNames declarationToken maybeArguments)
             else tokenKeepRight
               (tokenPunctuation LeftBracePunctuation)
@@ -1037,22 +1067,24 @@ module ParserDeclaration (
                 (\(methods) -> tokenKeepRight
                   (tokenPunctuation DotPunctuation)
                   (case maybeArguments {
-                    | Just arguments -> if concreteImplArguments arguments then tokenSucceed
+                    | Just arguments -> if supportedImplArguments arguments then tokenSucceed
                       (ImplStatement
                         (canonicalTokenSpan declarationToken)
                         capabilityName
                         arguments
-                        methods)
+                        methods
+                        prerequisites)
                       else tokenFailAtSpan
                         (canonicalTokenSpan declarationToken)
-                        (DeclarationFailure ImplRequiresConcreteTarget)
+                        (DeclarationFailure ImplRequiresConstructorTarget)
                     | Nothing -> tokenFailAtSpan
                       (canonicalTokenSpan declarationToken)
-                      (DeclarationFailure ImplRequiresConcreteTarget)
+                      (DeclarationFailure ImplRequiresConstructorTarget)
                   }))
                 (parseImplBody parseExpression context declarationToken setEmpty []))))
         (parseOptionalCapabilityArguments declarationKind declarationToken))
       (parseCapabilityName declarationKind declarationToken))
+      optionalCapabilityContext)
     (capabilityKeyword declarationKind).
 
   parseModulePathTail :: [Text] -> TokenParser([Text]).

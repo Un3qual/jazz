@@ -32,7 +32,7 @@ invalidSyntaxTests =
     ("rejects negative literal syntax for now", testRejectsNegativeLiteralSyntax),
     ("rejects class capability declarations without parameters", testRejectsClassCapabilityDeclarationWithoutParameters),
     ("rejects class capability declarations with multiple parameters", testRejectsClassCapabilityDeclarationWithMultipleParameters),
-    ("rejects class method body syntax", testRejectsClassMethodBodySyntax),
+    ("rejects duplicate class defaults", testRejectsDuplicateClassDefaults),
     ("rejects duplicate class method signatures", testRejectsDuplicateClassMethodSignatures),
     ("rejects non-signature class body items", testRejectsNonSignatureClassBodyItem),
     ("rejects variable-target impl method bindings", testRejectsVariableTargetImplMethodBindings),
@@ -186,12 +186,12 @@ testRejectsClassCapabilityDeclarationWithMultipleParameters =
     "exactly one parameter"
     (parseSurfaceProgram "class Eq(a, b) { }.")
 
-testRejectsClassMethodBodySyntax :: IO ()
-testRejectsClassMethodBodySyntax =
+testRejectsDuplicateClassDefaults :: IO ()
+testRejectsDuplicateClassDefaults =
   assertLeftDiagnosticContains
-    "class method body syntax"
-    "method body/default syntax"
-    (parseSurfaceProgram "class Eq(a) { equals = \\item -> item. }.")
+    "duplicate class defaults"
+    "duplicate method signature 'equals'"
+    (parseSurfaceProgram "class Eq(a) { equals = \\(item) -> item. equals = \\(item) -> item. }.")
 
 testRejectsDuplicateClassMethodSignatures :: IO ()
 testRejectsDuplicateClassMethodSignatures =
@@ -204,21 +204,21 @@ testRejectsNonSignatureClassBodyItem :: IO ()
 testRejectsNonSignatureClassBodyItem =
   assertLeftDiagnosticContains
     "non-signature class body item"
-    "signature-only method declaration"
+    "method signature, default binding"
     (parseSurfaceProgram "class Eq(a) { 1. }.")
 
 testRejectsVariableTargetImplMethodBindings :: IO ()
 testRejectsVariableTargetImplMethodBindings =
   assertLeftDiagnosticContains
     "variable-target impl method binding"
-    "concrete impl target"
+    "constructor-headed impl target"
     (parseSurfaceProgram "impl Eq(a) { equals = 1. }.")
 
 testRejectsVariableTargetEmptyImplDeclarations :: IO ()
 testRejectsVariableTargetEmptyImplDeclarations =
   assertLeftDiagnosticContains
     "variable-target empty impl declaration"
-    "concrete impl target"
+    "constructor-headed impl target"
     (parseSurfaceProgram "impl Eq(a) { }.")
 
 testRejectsDuplicateImplMethodBindings :: IO ()

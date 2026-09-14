@@ -323,7 +323,7 @@ directFixtures =
         )
     ),
     ( "class-empty",
-      se (SEBlock [SSClass span1 "Marker" ["a"] []])
+      se (SEBlock [SSClass span1 "Marker" ["a"] [] [] []])
     ),
     ( "class-methods",
       se
@@ -346,11 +346,13 @@ directFixtures =
                         (TypeFunction (TypeVariable "a") TypeInt)
                     )
                 ]
+                []
+                []
             ]
         )
     ),
     ( "impl-empty",
-      se (SEBlock [SSImpl span1 (SurfaceName "Show" span1 Nothing) [TypeText] []])
+      se (SEBlock [SSImpl span1 (SurfaceName "Show" span1 Nothing) [TypeText] [] []])
     ),
     ( "impl-methods",
       se
@@ -370,6 +372,7 @@ directFixtures =
                         )
                     )
                 ]
+                []
             ]
         )
     ),
@@ -378,8 +381,8 @@ directFixtures =
         ( SEBlock
             [ SSSignature "convert" span1 (SignatureType (TypeFunction TypeInt TypeText)),
               SSData span1 "Wrapped" ["a"] [SurfaceDataConstructor "Wrapped" [TypeVariable "a"]],
-              SSClass span1 "Render" ["a"] [SurfaceClassMethodSignature "render" span2 (SignatureType (TypeFunction (TypeVariable "a") TypeText))],
-              SSImpl span1 (SurfaceName "Render" span1 Nothing) [TypeInt] [SurfaceImplMethod "render" span2 (se (SEBinary "$" (seVar "toText") (seVar "item")))],
+              SSClass span1 "Render" ["a"] [SurfaceClassMethodSignature "render" span2 (SignatureType (TypeFunction (TypeVariable "a") TypeText))] [] [],
+              SSImpl span1 (SurfaceName "Render" span1 Nothing) [TypeInt] [SurfaceImplMethod "render" span2 (se (SEBinary "$" (seVar "toText") (seVar "item")))] [],
               SSLet "convert" span2 (se (SETypeApplication (seVar "identity") span2 TypeText)),
               SSExpr span2 (seVar "convert")
             ]
@@ -534,6 +537,7 @@ deferredFixtures =
                     span2
                     (se (SEBlock [SSModule span1 ["App", "Main"] Nothing, SSExpr span2 (seInt 1)]))
                 ]
+                []
             ]
         )
     ),
