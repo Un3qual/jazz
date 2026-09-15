@@ -3,8 +3,9 @@ title: Map
 description: Use a persistent ordered map with logarithmic lookup and update.
 ---
 
-Import `Map` for a persistent balanced search tree. Keys require `Comparable(k)`, and
-ordered views traverse keys in ascending order. The representation and
+Import `Map` for a persistent balanced search tree. Key lookup and update require
+`Comparable(k)`; construction with `empty` or `singleton` and read-only traversal
+do not. Ordered views traverse keys in ascending order. The representation and
 constructor are private. Lookup and update are `O(log n)`; full views and folds
 are `O(n)` before callback work.
 

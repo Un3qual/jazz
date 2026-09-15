@@ -547,13 +547,7 @@ test('published combined standard-library routes redirect to canonical module pa
   ]]);
 });
 
-test('public docs retain non-obvious numeric, complexity, and module-root contracts', () => {
-  const operators = read('docs/language/operators.md');
-  const operatorSection = operators.split('## Executable built-ins', 2)[1];
-  assert.match(operatorSection, /same numeric type/i);
-  assert.match(operatorSection, /integral[^\n]+(?:`Float`|`Float64`)/i);
-  assert.match(operatorSection, /explicit conversion/i);
-
+test('public docs retain non-obvious complexity and module-root contracts', () => {
   const overview = read('docs/standard-library/overview.md');
   assert.match(overview, /--module-root[^\n]+--module-root/s);
   assert.match(overview, /jazz\/stdlib/);

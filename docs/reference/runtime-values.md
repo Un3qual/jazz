@@ -80,9 +80,7 @@ rounding.
 
 ### `Float64`
 
-`Float64` uses IEEE binary64 storage and deterministic target rounding. Arithmetic overflow is checked at runtime with
-`E3025`, including operations whose operands are both literals. Literal operands
-outside the expected type's range are rejected during type checking.
+`Float64` uses IEEE binary64 storage and deterministic target rounding.
 
 ### Tuples
 

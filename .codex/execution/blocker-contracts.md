@@ -136,12 +136,13 @@ Each blocked item should answer these questions:
 - Retained baseline: ordinary schemes, inferred constraints, numeric defaulting,
   explicit type application, analyzed runtime evidence, constructor kinds,
   canonical applications, generic heads, prerequisite solving, rigid method
-  checking, and superclass evidence. RFC 0019 and its library integration are complete.
+  checking, superclass evidence, and rejection of overlapping visible heads.
+  RFC 0019 and its library integration are complete.
 - Smallest unblocker: none; no independently accepted solver child remains.
 - Decision needed: a separate accepted contract for further solver work.
 - Candidate child: none.
 - Deferred: functional dependencies, associated types, higher-rank types,
-  numeric promotion changes, overlapping instances, and speculative rewrites.
+  numeric promotion changes, accepting overlapping instances, and speculative rewrites.
 
 ### JN-PATTERN-FUTURE-FORMS-PLAN-001
 
