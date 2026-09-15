@@ -54,7 +54,7 @@ import qualified Data.Map.Strict as Map
 import Data.Set (Set)
 import qualified Data.Set as Set
 import Data.Text (Text)
-import Data.Void (Void)
+import Data.Void (Void, absurd)
 import GHC.Generics (Generic)
 import Jazz.Compiler.BuiltinCatalog (BuiltinSymbol, numericTypeFromName)
 import Jazz.Compiler.CoreIdentity (CapabilityId, CapabilityMethodKey, ImplId, MethodId, ResolvedReference)
@@ -141,7 +141,7 @@ prepareDataTypeKinds existing declarations = do
 dataConstructorKinds :: Map ResolvedName DataTypeBinding -> Map ResolvedName (Kind Void)
 dataConstructorKinds = Map.map (foldr FunctionKind TypeKind . dataTypeParameterKinds)
 
-signatureVariableKindsAt :: (Ord variable) => Map ResolvedName DataTypeBinding -> Map variable (Kind Void) -> [(SemanticType ResolvedName variable, Kind Void)] -> Either SignatureTypeFailure (Map variable (Kind Void))
+signatureVariableKindsAt :: (Ord variable) => Map ResolvedName DataTypeBinding -> Map variable (Kind Void) -> [(SemanticType ResolvedName variable, Kind variable)] -> Either SignatureTypeFailure (Map variable (Kind Void))
 signatureVariableKindsAt dataTypes known =
   either (Left . SignatureKindMismatch) Right . inferSignatureKindsAt (dataConstructorKinds dataTypes) known
 
@@ -167,7 +167,7 @@ normalizeSignatureType dataTypes variables = normalizeSignatureTypeAt dataTypes 
 normalizeSignatureTypeAt :: (Ord variable) => Map ResolvedName DataTypeBinding -> Map Text (SemanticType ResolvedName variable) -> Kind Void -> SignatureType ResolvedName ResolvedName -> Either SignatureTypeFailure (SemanticType ResolvedName variable)
 normalizeSignatureTypeAt dataTypes variables expected signature = do
   normalized <- normalizeSignatureStructure dataTypes variables signature
-  _ <- signatureVariableKindsAt dataTypes Map.empty [(normalized, expected)]
+  _ <- signatureVariableKindsAt dataTypes Map.empty [(normalized, fmap absurd expected)]
   pure normalized
 
 normalizeSignatureStructure :: Map ResolvedName DataTypeBinding -> Map Text (SemanticType ResolvedName variable) -> SignatureType ResolvedName ResolvedName -> Either SignatureTypeFailure (SemanticType ResolvedName variable)

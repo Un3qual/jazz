@@ -40,6 +40,7 @@ constraintTests =
     ("generic instances check recursive element and container method calls", testGenericInstances),
     ("constructor parameters accept List and variable application", testConstructorParameters),
     ("constructor kinds reject invalid applications", testInvalidConstructorKinds),
+    ("class prerequisites share the class parameter kind", testClassPrerequisiteKinds),
     ("source pipeline accepts inert class and impl declarations", testSourceAcceptsCapabilityDeclarations),
     ("source pipeline accepts class method signature metadata", testSourceAcceptsClassMethodSignatureMetadata),
     ("source pipeline accepts method-local class signature variables", testSourceAcceptsMethodLocalClassSignatureVariables),
@@ -150,6 +151,21 @@ testInvalidConstructorKinds =
       "data Inconsistent f = Inconsistent f(Int) f(Int, Int).",
       "data Phantom f = Phantom. bad :: Phantom(List). bad = Phantom."
     ]
+
+testClassPrerequisiteKinds :: IO ()
+testClassPrerequisiteKinds = do
+  mapM_
+    (`assertSourceSingleErrorContainsWithoutPrelude` "kind mismatch")
+    [ "class C(f) { pick :: @{C(Int)}: f(a) -> Int. }.",
+      "class C(f) { pick :: @{C(f(Int))}: f(a) -> Int. }.",
+      "class C(f) { pick :: @{C(List)}: f -> Int. }."
+    ]
+  assertSourceOkWithoutPrelude
+    """
+    class C(f) { pick :: @{C(List)}: Int. }.
+    impl C(List) { pick = 7. }.
+    pick @List.
+    """
 
 testSourceAcceptsCapabilityDeclarations :: IO ()
 testSourceAcceptsCapabilityDeclarations =

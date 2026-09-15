@@ -77,11 +77,19 @@ typeKind constructors variables = infer
       _ -> pure TypeKind
     complete expression = infer expression >>= unifyKinds TypeKind
 
-inferSignatureKindsAt :: (Ord variable) => Map ResolvedName (Kind Void) -> Map variable (Kind Void) -> [(SemanticType ResolvedName variable, Kind Void)] -> Either Text (Map variable (Kind Void))
+inferSignatureKindsAt :: (Ord variable) => Map ResolvedName (Kind Void) -> Map variable (Kind Void) -> [(SemanticType ResolvedName variable, Kind variable)] -> Either Text (Map variable (Kind Void))
 inferSignatureKindsAt constructors known requirements = flip evalStateT (0, Map.empty) $ do
-  variables <- traverse (const freshKind) (Map.fromSet (const ()) (Set.fromList (concatMap (toList . fst) requirements) <> Map.keysSet known))
+  variables <- traverse (const freshKind) (Map.fromSet (const ()) (Set.fromList (concatMap (\(expression, expected) -> toList expression <> toList expected) requirements) <> Map.keysSet known))
   mapM_ (\(variable, kind) -> maybe (pure ()) (unifyKinds (fmap absurd kind)) (Map.lookup variable variables)) (Map.toList known)
-  mapM_ (\(expression, expected) -> typeKind (fmap (fmap absurd) constructors) variables expression >>= unifyKinds (fmap absurd expected)) requirements
+  let expectedKind TypeKind = pure TypeKind
+      expectedKind (FunctionKind argument result) = FunctionKind <$> expectedKind argument <*> expectedKind result
+      expectedKind (KindVariable variable) = maybe (lift (Left "unbound kind variable")) pure (Map.lookup variable variables)
+  mapM_
+    ( \(expression, expected) -> do
+        actual <- typeKind (fmap (fmap absurd) constructors) variables expression
+        expectedKind expected >>= unifyKinds actual
+    )
+    requirements
   traverse fixedKind variables
 
 inferDataKinds :: Map ResolvedName (Kind Void) -> [(ResolvedName, [Text], [SemanticType ResolvedName Text])] -> Either (ResolvedName, Text) (Map ResolvedName [Kind Void])

@@ -13,6 +13,7 @@ import Data.List.NonEmpty
   ( NonEmpty (..),
   )
 import qualified Data.Map.Strict as Map
+import Data.Void (absurd)
 import Jazz.Compiler.AST
   ( CoreNode (coreNodeFacts, coreNodeId, coreNodeSpan),
     CorePhase (..),
@@ -167,7 +168,7 @@ inferExplicitTypeApplication inferExpression env state expression@(ETypeApplicat
           | variable : _ <- quantifiedVariablesOrderedList (schemeQuantifiedVariables scheme) ->
               let requirements =
                     (schemeResultType scheme, TypeKind)
-                      : [ (target, classParameterKind definition)
+                      : [ (target, fmap absurd (classParameterKind definition))
                         | constraint <- schemeClassConstraints scheme,
                           let (capability, target) = case constraint of TypeSchemeConstraint owner argument -> (owner, argument); TypeSchemeMethodConstraint owner _ argument -> (owner, argument),
                           Just definition <- [Map.lookup capability (inferClassFacts state)]

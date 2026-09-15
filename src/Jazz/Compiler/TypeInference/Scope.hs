@@ -39,6 +39,7 @@ import qualified Data.Set as Set
 import Data.Text
   ( Text,
   )
+import Data.Void (absurd)
 import Jazz.Compiler.AST
   ( ClassMethodSignature (..),
     CoreNode (coreNodeFacts, coreNodeId, coreNodeSpan),
@@ -268,7 +269,7 @@ checkImplementationTemplate state node capabilityName arguments prerequisites me
   target <- first (mkInvalidImplTargetError spanValue) (normalizeSignatureTypeAt (inferDataTypes state) variables (classParameterKind definition) signature)
   if supportedHead target then Right () else Left (invalid "impl declarations require a constructor-headed target with distinct variables")
   constraints <- traverse (checkPrerequisite variables) prerequisites
-  _ <- first (mkInvalidImplTargetError spanValue) (signatureVariableKindsAt (inferDataTypes state) Map.empty ((target, classParameterKind definition) : [(argument, classParameterKind owner) | TypeSchemeConstraint name argument <- constraints, Just owner <- [Map.lookup name (inferClassFacts state)]]))
+  _ <- first (mkInvalidImplTargetError spanValue) (signatureVariableKindsAt (inferDataTypes state) Map.empty ((target, fmap absurd (classParameterKind definition)) : [(argument, fmap absurd (classParameterKind owner)) | TypeSchemeConstraint name argument <- constraints, Just owner <- [Map.lookup name (inferClassFacts state)]]))
   let declaredMethods = Map.keysSet (Map.filterWithKey (\(name, _) _ -> name == capability) (scopeClassMethodSignatures (capabilityFactsFromState state)))
       members = Set.map snd declaredMethods
       provided = Set.fromList [mkIdentifier (identifierText name) | ImplMethod _ name _ <- methods]
@@ -318,7 +319,7 @@ checkClassMethods :: InferState -> SourceSpan -> ResolvedName -> [ResolvedName] 
 checkClassMethods state declarationSpan capabilityName parameters signatures prerequisites defaults = do
   superclasses <- traverse checkSuperclass prerequisites
   checked <- traverse checkMethod signatures
-  let kindRequirements = concatMap methodRequirements checked <> [(SemanticVariable classParameter, classParameterKind definition) | (_, definition) <- superclasses]
+  let kindRequirements = concatMap methodRequirements checked <> [(SemanticVariable classParameter, fmap absurd (classParameterKind definition)) | (_, definition) <- superclasses]
   kinds <- first (invalid . Signature.renderSignatureTypeFailure) (signatureVariableKindsAt (inferDataTypes state) Map.empty kindRequirements)
   mapM_ checkDefault defaults
   pure (ClassDefinition (Map.findWithDefault TypeKind classParameter kinds) (map fst superclasses) (Set.fromList [mkIdentifier (identifierText name) | ImplMethod _ name _ <- defaults]), checked)
@@ -356,11 +357,13 @@ checkClassMethods state declarationSpan capabilityName parameters signatures pre
         checkConstraint _ _ = Left (mkInvalidCapabilityDeclarationError (coreNodeSpan node) "method constraints require a known unary class")
     methodRequirements (_, methodName, ClassMethodScheme _ scheme) =
       (rename (schemeResultType scheme), TypeKind)
-        : [ (rename target, classParameterKind definition)
+        : [ (rename target, expected)
           | constraint <- schemeClassConstraints scheme,
             let (name, target) = case constraint of TypeSchemeConstraint owner argument -> (owner, argument); TypeSchemeMethodConstraint owner _ argument -> (owner, argument),
-            name /= capability,
-            Just definition <- [Map.lookup name (inferClassFacts state)]
+            expected <-
+              if name == capability
+                then [KindVariable classParameter]
+                else [fmap absurd (classParameterKind definition) | Just definition <- [Map.lookup name (inferClassFacts state)]]
           ]
       where
         rename = fmap (\name -> if name == classParameter then name else identifierText methodName <> "$" <> name)

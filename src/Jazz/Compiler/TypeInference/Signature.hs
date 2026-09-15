@@ -23,6 +23,7 @@ import Data.Maybe (isNothing)
 import qualified Data.Set as Set
 import Data.Text (Text)
 import qualified Data.Text as Text
+import Data.Void (absurd)
 import Jazz.Compiler.AST
   ( CorePhase (..),
     SignatureConstraint,
@@ -119,7 +120,7 @@ signaturePayloadToSignatureType signaturePayload state =
             guard (isNothing (duplicateConstraintName constraints))
             expressionType <- either (const Nothing) Just (normalizeSignatureStructure (inferDataTypes state) variables signatureType)
             explicitConstraints <- traverse (checkConstraint variables) constraints
-            _ <- either (const Nothing) Just (signatureVariableKindsAt (inferDataTypes state) Map.empty ((expressionType, TypeKind) : [(target, classParameterKind definition) | TypeSchemeConstraint capability target <- explicitConstraints, Just definition <- [Map.lookup capability (inferClassFacts state)]]))
+            _ <- either (const Nothing) Just (signatureVariableKindsAt (inferDataTypes state) Map.empty ((expressionType, TypeKind) : [(target, fmap absurd (classParameterKind definition)) | TypeSchemeConstraint capability target <- explicitConstraints, Just definition <- [Map.lookup capability (inferClassFacts state)]]))
             pure (SignaturePayloadType expressionType explicitConstraints variableOrder)
        in case checked of
             Just result -> (Just result, nextState)
