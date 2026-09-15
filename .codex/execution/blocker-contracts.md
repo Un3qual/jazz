@@ -79,7 +79,7 @@ Each blocked item should answer these questions:
 - Decision needed: a separate accepted contract for further capability work.
 - Ready child: none.
 - Candidate child: none.
-- Implementation receipt: [completed library plan](../plans/2026-09-13-generic-capabilities-library.md).
+- Implementation receipt: [consolidated capabilities and operators plan](../plans/2026-09-13-generic-capabilities-and-library-names.md).
 - Deferred: functional dependencies, associated types, multi-parameter classes,
   automatic destination selection, Empty, parenthesized application heads,
   new class selectors, and broader hosted compiler work.
