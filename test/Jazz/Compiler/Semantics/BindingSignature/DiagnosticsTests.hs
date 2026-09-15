@@ -32,6 +32,7 @@ diagnosticTests =
     ("source pipeline rejects generic signature specialization", testSourceRejectsGenericSignatureSpecialization),
     ("source pipeline rejects generic signature variable collapse", testSourceRejectsGenericSignatureVariableCollapse),
     ("source pipeline rejects generic named signature specialization", testSourceRejectsGenericNamedSignatureSpecialization),
+    ("diagnostics render multi-argument type applications", testTypeApplicationDiagnostic),
     ("signature separated from binding by expression is rejected", testSignatureSeparatedFromBinding),
     ("signature must match immediate binding name", testSignatureNameMismatch),
     ("use-before-definition is rejected", testUseBeforeDefinition),
@@ -93,6 +94,15 @@ testSourceRejectsGenericNamedSignatureSpecialization =
     bad = \\(x) -> Box 1.
     """
     "declared as Box"
+
+testTypeApplicationDiagnostic :: IO ()
+testTypeApplicationDiagnostic =
+  assertSourceSingleErrorContainsWithoutPrelude
+    """
+    check :: f(a, b) -> Bool.
+    check = \\(x) -> if x then True else False.
+    """
+    "if condition must have type Bool, found t0(t1, t2)"
 
 testSignatureTypeMismatch :: IO ()
 testSignatureTypeMismatch = do

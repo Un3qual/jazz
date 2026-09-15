@@ -22,7 +22,7 @@ import Data.Text (Text)
 import qualified Data.Text as Text
 import GHC.Generics (Generic)
 import Jazz.Compiler.BuiltinCatalog (renderNumericTypeName)
-import Jazz.Compiler.TypeRepresentation (InferenceVariable, SemanticType (..))
+import Jazz.Compiler.TypeRepresentation (InferenceVariable, SemanticType (..), semanticApplicationSpine)
 
 type DiagnosticType = SemanticType Text InferenceVariable
 
@@ -131,7 +131,9 @@ renderDiagnosticType = render
       SemanticVariable variable -> "t" <> Text.pack (show variable)
       SemanticListConstructor -> "List"
       SemanticNamedConstructor name -> name
-      SemanticApplication constructor argument -> render constructor <> "(" <> render argument <> ")"
+      application@SemanticApplication {} ->
+        let (constructor, arguments) = semanticApplicationSpine application
+         in renderAtom constructor <> "(" <> renderMany arguments <> ")"
     renderMany = Text.intercalate ", " . map render
     renderAtom typeValue = case typeValue of
       SemanticFunction {} -> "(" <> render typeValue <> ")"

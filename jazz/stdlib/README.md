@@ -49,7 +49,8 @@ The bundled prelude declares:
 - `Comparable(a)` with `compare` and superclass `Equatable(a)`;
 - `Mappable(f)` with `map`, `Reducible(f)` with `foldLeft` and `foldRight`,
   and `Combinable(a)` with `combine`;
-- marker capabilities `Num(a)`, `Integral(a)`, and `Fractional(a)`;
+- `Num(a)` with `add`, `subtract`, `multiply`, and `divide`;
+- marker capabilities `Integral(a)` and `Fractional(a)`;
 - `Showable(a)` with `show`, and `Default(a)` with `defaultValue`.
 
 Concrete instances cover the built-in scalar and numeric types appropriate to

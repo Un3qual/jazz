@@ -129,4 +129,7 @@ Empty observations use [Maybe](maybe.md).
 
 ## Generic methods
 
-Importing Queue supplies element-based Equatable, Mappable, Reducible, and Combinable instances. Generic methods use FIFO order. Equality compares contents independently of construction history.
+Importing Queue supplies element-based Equatable, Mappable, Reducible, and Combinable instances.
+Generic `map` preserves FIFO output order without guaranteeing callback evaluation order.
+Generic folds follow the same oldest-to-newest or newest-to-oldest order as the corresponding Queue functions.
+Equality compares FIFO contents independently of construction history.
