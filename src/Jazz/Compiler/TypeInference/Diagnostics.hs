@@ -286,9 +286,9 @@ mkInvalidConstructorPayloadTypeError detail =
 mkMissingExplicitConstraintImplFactError :: Text -> Diagnostic
 mkMissingExplicitConstraintImplFactError key = mkErrorDiagnostic E2009 CompilationOrigin ("missing impl fact '" <> key <> "'")
 
-mkAmbiguousDeferredConstraintError :: Bool -> CapabilityId -> ExpressionType -> Diagnostic
-mkAmbiguousDeferredConstraintError inferred name argumentType =
-  mkInferenceTypeError E2009 (AmbiguousDeferredConstraint inferred (renderCapabilityId name) argumentType)
+mkAmbiguousDeferredConstraintError :: CapabilityId -> ExpressionType -> Diagnostic
+mkAmbiguousDeferredConstraintError name argumentType =
+  mkInferenceTypeError E2009 (AmbiguousDeferredConstraint (renderCapabilityId name) argumentType)
 
 mkPatternTypeMismatchError :: ExpressionType -> ExpressionType -> Diagnostic
 mkPatternTypeMismatchError scrutineeType patternType = mkInferenceTypeError E2011 (PatternTypeMismatch patternType scrutineeType)

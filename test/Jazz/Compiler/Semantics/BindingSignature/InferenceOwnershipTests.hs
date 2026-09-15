@@ -228,7 +228,6 @@ deferredConstraint constraintName argumentType =
   DeferredExplicitConstraint
     { deferredConstraintName = CapabilityId (capabilityName constraintName),
       deferredMethodKey = Nothing,
-      deferredWasInferred = False,
       deferredArgumentType = argumentType,
       deferredVisibleFacts = emptyFacts
     }

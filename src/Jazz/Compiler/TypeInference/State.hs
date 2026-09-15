@@ -126,7 +126,6 @@ data InferState = InferState
 data DeferredExplicitConstraint = DeferredExplicitConstraint
   { deferredConstraintName :: CapabilityId,
     deferredMethodKey :: Maybe CapabilityMethodKey,
-    deferredWasInferred :: Bool,
     deferredArgumentType :: ExpressionType,
     deferredVisibleFacts :: ScopeCapabilityFacts
   }

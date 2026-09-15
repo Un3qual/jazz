@@ -9,7 +9,8 @@ public behavior.
 ## Ready Now
 
 Current executor status (`2026-09-14`): the operator-as-function batch is complete.
-There is no source-backed next curation target and no named candidate currently.
+`Ready Now` is empty. There is no source-backed next curation target and no named
+candidate currently.
 
 `Ready Now` should contain implementation-first entries by default. `kind: docs` or `kind: coordination` items belong here only when they are the smallest verified unblocker for the next implementation batch.
 

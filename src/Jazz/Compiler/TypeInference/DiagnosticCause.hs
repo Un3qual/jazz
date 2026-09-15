@@ -37,7 +37,7 @@ data TypeErrorCause typeValue
   | UnsatisfiedStrictEqualityConstraint typeValue
   | NoMatchingMethodArguments Text [typeValue]
   | UndeclaredSignatureConstraint Text Bool Text typeValue
-  | AmbiguousDeferredConstraint Bool Text typeValue
+  | AmbiguousDeferredConstraint Text typeValue
   | PatternTypeMismatch typeValue typeValue
   | ListPatternTypeMismatch typeValue
   | TuplePatternTypeMismatch typeValue
@@ -90,11 +90,9 @@ renderTypeErrorCause cause = renderCause (evalState (traverse (traverse rename) 
           <> "("
           <> render argument
           <> ")'"
-      AmbiguousDeferredConstraint inferred name argument ->
+      AmbiguousDeferredConstraint name argument ->
         let constraint = name <> "(" <> render argument <> ")"
-         in if inferred
-              then "ambiguous/defaulting inferred constraint '" <> constraint <> "': inferred class constraints do not default unresolved type variables"
-              else "ambiguous/defaulting explicit constraint '" <> constraint <> "': explicit constrained signatures do not default unresolved type variables"
+         in "ambiguous/defaulting explicit constraint '" <> constraint <> "': explicit constrained signatures do not default unresolved type variables"
       PatternTypeMismatch patternType scrutinee ->
         "case pattern of type " <> render patternType <> " does not match scrutinee type " <> render scrutinee
       ListPatternTypeMismatch scrutinee ->

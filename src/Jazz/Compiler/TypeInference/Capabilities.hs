@@ -54,7 +54,6 @@ import qualified Control.Monad.Trans.State.Strict as Trial
 import Data.Foldable
   ( toList,
   )
-import Data.List (partition)
 import qualified Data.Map.Strict as Map
 import Data.Maybe (isJust, isNothing)
 import qualified Data.Sequence as Seq
@@ -319,8 +318,7 @@ type SchemeInstantiation = TypeScheme -> InferState -> (Maybe ExpressionType, In
 newConstraintEvidence :: InferState -> InferState -> [EvidenceReference]
 newConstraintEvidence before after =
   [ PendingEvidence (deferredConstraintName constraint) (snd <$> deferredMethodKey constraint) (deferredArgumentType constraint)
-  | constraint <- toList (Seq.drop (inferDeferredExplicitConstraintCount before) (outputDeferredConstraints (inferOutput after))),
-    not (deferredWasInferred constraint) || isJust (deferredMethodKey constraint)
+  | constraint <- toList (Seq.drop (inferDeferredExplicitConstraintCount before) (outputDeferredConstraints (inferOutput after)))
   ]
 
 reindexDeclarationScheme :: SemanticScheme Text -> Maybe TypeScheme
@@ -415,7 +413,6 @@ typeSchemeConstraintToDeferredExplicitConstraint facts constraint =
       DeferredExplicitConstraint
         { deferredConstraintName = constraintName,
           deferredMethodKey = Nothing,
-          deferredWasInferred = False,
           deferredArgumentType = argumentType,
           deferredVisibleFacts = facts
         }
@@ -423,7 +420,6 @@ typeSchemeConstraintToDeferredExplicitConstraint facts constraint =
       DeferredExplicitConstraint
         { deferredConstraintName = constraintName,
           deferredMethodKey = Just methodKey,
-          deferredWasInferred = True,
           deferredArgumentType = argumentType,
           deferredVisibleFacts = facts
         }
@@ -454,8 +450,8 @@ resolveStatementDeferredExplicitConstraints spanValue entailingConstraints envir
     priorConstraintCount = inferDeferredExplicitConstraintCount statementStartState
     currentConstraints = outputDeferredConstraints (inferOutput state)
     priorConstraints = Seq.take priorConstraintCount currentConstraints
-    statementConstraints = toList (Seq.drop priorConstraintCount currentConstraints)
-    (capturedConstraints, localConstraints) = partition capturedByEnvironment statementConstraints
+    statementConstraints = Seq.drop priorConstraintCount currentConstraints
+    (capturedConstraints, localConstraints) = Seq.partition capturedByEnvironment statementConstraints
     -- Constraints on an enclosing binding must survive until that binding is
     -- generalized or made concrete; a nested let cannot supply its evidence.
     capturedByEnvironment constraint =
@@ -465,7 +461,7 @@ resolveStatementDeferredExplicitConstraints spanValue entailingConstraints envir
       modifyInferenceOutput
         ( \output ->
             output
-              { outputDeferredConstraints = priorConstraints Seq.>< Seq.fromList capturedConstraints
+              { outputDeferredConstraints = priorConstraints Seq.>< capturedConstraints
               }
         )
         state
@@ -504,7 +500,7 @@ resolveDeferredExplicitConstraintWithEntailments assumptions state constraint
   | Map.member request (outputEvidence (inferOutput state)) = state
   | otherwise = case resolution of
       Right (evidence, next) -> remember evidence next
-      Left diagnostic -> remember request (addTypeError state (if isNothing member && deferredWasInferred constraint && not (Set.null (freeTypeVariables (resolveType state argument))) then mkAmbiguousDeferredConstraintError True capability (resolveType state argument) else diagnostic))
+      Left diagnostic -> remember request (addTypeError state diagnostic)
   where
     resolution
       | deferredConstraintIsEntailed state assumptions constraint = Right (PendingEvidence capability member (resolveType state argument), state)
@@ -542,7 +538,7 @@ resolveCapabilityEvidence assumptions facts capability member argument state
        in not (Set.null (freeTypeVariables target)) && resolveType state entailedTarget == target && isJust (superclassPath facts owner capability)
     ambiguous = case member of
       Just method -> mkAmbiguousQualifiedMethodBodyError (capability, method)
-      Nothing -> mkAmbiguousDeferredConstraintError False capability target
+      Nothing -> mkAmbiguousDeferredConstraintError capability target
     templates = filter ((== capability) . implementationCapability) (Map.elems (scopeImplementations facts))
     candidates candidateTarget exact =
       [ (template, headTarget, prerequisites, matched)
