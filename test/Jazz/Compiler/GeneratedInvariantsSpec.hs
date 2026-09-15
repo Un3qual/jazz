@@ -8,10 +8,20 @@ import Data.Bitraversable (bitraverse)
 import Data.Functor.Compose (Compose (..))
 import Data.Functor.Identity (Identity (..))
 import Data.List (nub, sort)
+import qualified Data.List.NonEmpty as NonEmpty
+import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
 import qualified Data.Text as Text
+import Jazz.Compiler.BundledPrelude (bundledPreludeIdentity)
+import Jazz.Compiler.DiagnosticCatalog (diagnosticCodeText)
+import Jazz.Compiler.Diagnostics (diagnosticCode)
+import Jazz.Compiler.Driver (runCompileErrors, runModuleGraphWithPrelude, runOutput, runRuntimeErrors)
+import Jazz.Compiler.ModuleExports (exportInventory)
+import Jazz.Compiler.ModuleGraph (CoreModule (..), PreludeArtifact (..), ResolvedModuleFacts (..), coreProgramModules)
+import Jazz.Compiler.ModuleResolver (ModuleResolutionConfig (..), resolveProgramWithAmbientExports)
 import Jazz.Compiler.StableSet
 import Jazz.Compiler.TypeRepresentation
+import Jazz.Compiler.WarningConfig (defaultWarningSettings)
 import Jazz.TestHarness (failTest, runTestSuite)
 import System.Environment (lookupEnv)
 import Test.QuickCheck
@@ -178,6 +188,49 @@ checkProperty args propertyToCheck = do
       "\nReplay with JAZZ_QUICKCHECK_REPLAY='" <> show (seed, size) <> "'"
     replayMessage _ = ""
 
+-- Generated chains plus a direct import form diamonds. A second leaf may have
+-- the same value, but its distinct declaration must still cause a collision.
+facadeGraphIdentity :: Property
+facadeGraphIdentity = forAll (chooseInt (1, 4)) $ \depth ->
+  forAll arbitrary $ \reverseImports -> forAll arbitrary $ \conflict ->
+    forAll (chooseInt (0, 100)) $ \value -> ioProperty $ do
+      let name index = "F" <> Text.pack (show index)
+          leaf = "answer = " <> Text.pack (show value) <> "."
+          imports = ["import Chain::F0.", "import Chain::" <> name depth <> "."] <> ["import Other::Leaf." | conflict]
+          sources =
+            Map.fromList $
+              [ ("src/Chain/F0.jz", leaf),
+                ("src/Other/Leaf.jz", leaf),
+                ("src/App/Main.jz", Text.unwords (if reverseImports then reverse imports else imports) <> " answer.")
+              ]
+                <> [ ( "src/Chain/" <> Text.unpack (name index) <> ".jz",
+                       "module Chain::" <> name index <> " (value A::answer) { import Chain::" <> name (index - 1) <> " as A. }"
+                     )
+                   | index <- [1 .. depth]
+                   ]
+          config = ModuleResolutionConfig ["src"] ".jz"
+          load path = pure (Map.lookup path sources)
+      resolved <- resolveProgramWithAmbientExports config (PreludeArtifact bundledPreludeIdentity Nothing) (exportInventory []) load ["App", "Main"]
+      if conflict
+        then pure $ case resolved of
+          Left diagnostic -> diagnosticCodeText (diagnosticCode diagnostic) === "E4008"
+          Right _ -> counterexample "distinct original declarations coalesced" False
+        else case resolved of
+          Left diagnostic -> pure (counterexample (show diagnostic) False)
+          Right program -> do
+            result <- runModuleGraphWithPrelude defaultWarningSettings Nothing config ["App", "Main"] load
+            let targets = concatMap (Map.elems . resolvedModuleExportNames . coreModuleFacts) (NonEmpty.toList (coreProgramModules program))
+                identityPreserved = case targets of
+                  original : rest -> length rest == depth && all (== original) rest
+                  [] -> False
+            pure $
+              conjoin
+                [ counterexample "facade changed declaration identity" identityPreserved,
+                  runCompileErrors result === [],
+                  runRuntimeErrors result === [],
+                  runOutput result === Just (Text.pack (show value))
+                ]
+
 main :: IO ()
 main = do
   replaySetting <- lookupEnv "JAZZ_QUICKCHECK_REPLAY"
@@ -189,7 +242,8 @@ main = do
   let args = stdArgs {maxSuccess = 1000, maxSize = 40, chatty = False, replay = replayValue}
   runTestSuite
     "GeneratedInvariants"
-    [ ("nested semantic traversal identity", checkProperty args traversalIdentity),
+    [ ("facade graph identity and conflicting leaves", checkProperty (args {maxSuccess = 50}) facadeGraphIdentity),
+      ("nested semantic traversal identity", checkProperty args traversalIdentity),
       ("nested semantic traversal composition", checkProperty args traversalComposition),
       ("nested semantic traversal visit order", checkProperty args traversalOrder),
       ("semantic substitution identity", checkProperty args substitutionIdentity),

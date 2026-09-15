@@ -20,6 +20,7 @@ module Jazz.Compiler.Name
     mkQualifiedIdentifier,
     isOperatorBindingIdentifierText,
     operatorBindingIdentifierText,
+    renderOperatorBindingIdentifier,
     qualifiedIdentifierText,
     splitQualifiedIdentifierText,
     GeneratedNameKind (..),
@@ -49,7 +50,7 @@ module Jazz.Compiler.Name
 where
 
 import Control.DeepSeq (NFData)
-import Data.Char (isLower, ord, toUpper)
+import Data.Char (chr, isLower, ord, toUpper)
 import Data.String (IsString (..))
 import Data.Text (Text)
 import qualified Data.Text as Text
@@ -63,7 +64,7 @@ import Jazz.Compiler.Identifier
   )
 import Jazz.Compiler.ModuleIdentity (ModulePath, SourceUnitOwner (..), preludeModulePath, renderModulePath)
 import Jazz.Compiler.Purity (Purity (..))
-import Numeric (showHex)
+import Numeric (readHex, showHex)
 
 operatorBindingIdentifierText :: Text -> Text
 operatorBindingIdentifierText operatorSymbol =
@@ -72,6 +73,18 @@ operatorBindingIdentifierText operatorSymbol =
     encodeOperatorChar char =
       let hexText = Text.pack (map toUpper (showHex (ord char) ""))
        in "%" <> Text.justifyRight 2 '0' hexText
+
+-- Diagnostics expose the authored spelling, while inventory keys stay encoded.
+renderOperatorBindingIdentifier :: Text -> Text
+renderOperatorBindingIdentifier name = case Text.stripPrefix operatorBindingIdentifierPrefix name of
+  Nothing -> name
+  Just encoded -> case traverse decode (drop 1 (Text.splitOn "%" encoded)) of
+    Just symbols | not (null symbols) -> Text.pack symbols
+    _ -> name
+  where
+    decode hex = case readHex (Text.unpack hex) of
+      [(value, "")] | value <= 0x10ffff -> Just (chr value)
+      _ -> Nothing
 
 operatorBindingIdentifierPrefix :: Text
 operatorBindingIdentifierPrefix = "$operator:"

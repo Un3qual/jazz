@@ -199,6 +199,7 @@ importDiagnosticRanges =
         Map.empty
         Set.empty
         Set.empty
+        Map.empty
         Map.empty of
         Left diagnostic -> do
           assertEqual "import primary" (Just (SourceRange 2 1 2 7)) (diagnosticPrimarySpan diagnostic)

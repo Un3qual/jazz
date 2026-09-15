@@ -15,6 +15,8 @@ where
 
 import Control.DeepSeq (NFData)
 import Data.List (sortOn)
+import Data.List.NonEmpty (NonEmpty)
+import qualified Data.List.NonEmpty as NonEmpty
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
@@ -38,7 +40,7 @@ data BindingOrigin = BindingOrigin
 -- consumes these namespace-aware targets instead of selecting exports again.
 data ValidatedImportScope = ValidatedImportScope
   { importScopeAliases :: Map Text BindingOrigin,
-    importScopeNames :: Map NameNamespace (Map Text BindingOrigin),
+    importScopeNames :: Map NameNamespace (Map Text (NonEmpty BindingOrigin)),
     importScopeInventories :: Map ModulePath ModuleExportInventory
   }
   deriving stock (Eq, Generic, Show)
@@ -47,9 +49,9 @@ data ValidatedImportScope = ValidatedImportScope
 emptyImportScope :: ValidatedImportScope
 emptyImportScope = ValidatedImportScope Map.empty Map.empty Map.empty
 
-importedNameOrigins :: NameNamespace -> ValidatedImportScope -> Map Text ModulePath
+importedNameOrigins :: NameNamespace -> ValidatedImportScope -> Map Text (NonEmpty ModulePath)
 importedNameOrigins namespace =
-  Map.map bindingOriginModulePath . Map.findWithDefault Map.empty namespace . importScopeNames
+  Map.map (fmap bindingOriginModulePath) . Map.findWithDefault Map.empty namespace . importScopeNames
 
 -- | Alias views retain all public names; unqualified views use the exact
 -- namespace selection already accepted by validation. No selector is rerun.
@@ -72,6 +74,7 @@ dependencyImportViews path scope = case Map.lookup path (importScopeInventories 
         Set.union
         [ (bindingOriginSpan origin, Set.singleton (ModuleExport namespace name))
         | (namespace, names) <- Map.toList (importScopeNames scope),
-          (name, origin) <- Map.toList names,
+          (name, origins) <- Map.toList names,
+          origin <- NonEmpty.toList origins,
           bindingOriginModulePath origin == path
         ]

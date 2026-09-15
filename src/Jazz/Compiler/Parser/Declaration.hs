@@ -4,9 +4,7 @@
 
 -- | Declaration-level token-stream parsers for the surface parser.
 module Jazz.Compiler.Parser.Declaration
-  ( collectImportAliasesUntilBrace,
-    collectImportAliasesUntilEnd,
-    parseCapabilityDeclarationParser,
+  ( parseCapabilityDeclarationParser,
     parseDataStatementParser,
     parseStatementParser,
   )
@@ -77,17 +75,14 @@ import Jazz.Compiler.Parser.Lexer
     isImmediatelyAfter,
   )
 import Jazz.Compiler.Parser.ModuleDeclaration
-  ( collectImportAliasesUntilBrace,
-    collectImportAliasesUntilEnd,
+  ( operatorTokenPrefix,
     parseImportStatementParser,
     parseModuleStatementParser,
-    registerImportAliases,
   )
 import Jazz.Compiler.Parser.Operator
   ( Associativity (..),
     OperatorInfo (..),
     OperatorTable,
-    builtinOperatorTable,
     declaredOperatorInfoForPrecedence,
     declaredOperatorInfoForTier,
     insertDeclaredOperator,
@@ -143,26 +138,20 @@ data OperatorDeclarationFixityKeyword
 -- their owning grammars, which keeps this module responsible only for
 -- declaration and statement syntax.
 parseStatementParser ::
+  OperatorTable ->
   ExpressionParser ->
   StatementBlockParser ->
   ParserContext ->
   Parser ([SurfaceStatement], ParserContext)
-parseStatementParser parseExpression parseBlock context = do
+parseStatementParser suppliedOperators parseExpression parseBlock context = do
   tokens <- MP.getInput
-  let knownAliases = parserKnownAliases context
-      declaredOperators = parserDeclaredOperators context
-      moduleBodyContext =
-        ParserContext
-          { parserKnownAliases = Set.empty,
-            parserDeclaredOperators = builtinOperatorTable,
-            parserStatementContext = ModuleBodyContext
-          }
-      finish statements =
-        (statements, context {parserKnownAliases = registerImportAliases knownAliases statements})
+  let declaredOperators = parserDeclaredOperators context
+      moduleBodyContext = context {parserStatementContext = ModuleBodyContext}
+      finish statements = (statements, context)
   case tokens of
     moduleToken@Token {tokenKind = TModule} :< _ ->
       case parserStatementContext context of
-        TopLevelContext -> finish <$> parseModuleStatementParser (parseBlock moduleBodyContext)
+        TopLevelContext -> parseModuleStatementParser (parseBlock moduleBodyContext)
         _ -> liftOwnedResult (rejectNestedDeclaration ModuleDeclaration moduleToken)
     importToken@Token {tokenKind = TImport} :< _ ->
       case parserStatementContext context of
@@ -179,7 +168,7 @@ parseStatementParser parseExpression parseBlock context = do
                     insertDeclaredOperator operatorInfo declaredOperators
                 }
             )
-    _ -> finish <$> parseStatement (parseExpression context) context
+    _ -> finish <$> parseStatement suppliedOperators (parseExpression context) context
 
 liftOwnedResult :: Either ParserFailure a -> Parser a
 liftOwnedResult result =
@@ -278,22 +267,15 @@ validateDeclaredOperatorSymbol declaredOperators operatorToken declaredSymbol
             (DeclarationFailure (InvalidOperatorSymbol declaredSymbol))
         )
 
-parseStatement :: Parser SurfaceExpr -> ParserContext -> Parser [SurfaceStatement]
-parseStatement expression context = do
+parseStatement :: OperatorTable -> Parser SurfaceExpr -> ParserContext -> Parser [SurfaceStatement]
+parseStatement suppliedOperators expression context = do
   tokens <- MP.getInput
   case tokens of
-    Token {tokenKind = TLParen}
-      :< operatorToken@Token {tokenKind = TOperator {}}
-      :< Token {tokenKind = TRParen}
-      :< Token {tokenKind = TColonColon}
-      :< _ ->
-        MP.takeP Nothing 3 *> (pure <$> parseOperatorSignature statementContext declaredOperators operatorToken)
-    Token {tokenKind = TLParen}
-      :< operatorToken@Token {tokenKind = TOperator {}}
-      :< Token {tokenKind = TRParen}
-      :< Token {tokenKind = TEquals}
-      :< _ ->
-        MP.takeP Nothing 4 *> (pure <$> parseOperatorBinding expression statementContext declaredOperators operatorToken)
+    Token {tokenKind = TLParen} :< operatorTokens
+      | Just (operatorToken, count, Token {tokenKind = TRParen} :< Token {tokenKind = TColonColon} :< _) <- operatorTokenPrefix operatorTokens ->
+          rejectImportedOperator operatorToken *> MP.takeP Nothing (count + 2) *> (pure <$> parseOperatorSignature statementContext declaredOperators operatorToken)
+      | Just (operatorToken, count, Token {tokenKind = TRParen} :< Token {tokenKind = TEquals} :< _) <- operatorTokenPrefix operatorTokens ->
+          rejectImportedOperator operatorToken *> MP.takeP Nothing (count + 3) *> (pure <$> parseOperatorBinding expression statementContext declaredOperators operatorToken)
     abstractionToken@Token {tokenKind = TIdentifier name} :< rest
       | isDeclarationContext statementContext,
         looksLikeSupportedCapabilityDeclaration name rest ->
@@ -316,6 +298,12 @@ parseStatement expression context = do
     knownAliases = parserKnownAliases context
     declaredOperators = parserDeclaredOperators context
     statementContext = parserStatementContext context
+    rejectImportedOperator operatorToken =
+      case tokenKind operatorToken of
+        TOperator symbol
+          | isDeclaredOperator symbol suppliedOperators ->
+              failTokenParserAt (tokenSpan operatorToken) (DeclarationFailure (DuplicateOperatorDeclaration symbol))
+        _ -> pure ()
     rejectName token name =
       failTokenParserAt (tokenSpan token) (DeclarationFailure (ReservedLiteralName BindingName name))
 

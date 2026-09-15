@@ -1,0 +1,7 @@
+module Example::OperatorConsumer {
+  import Example::OperatorAPI ((%%), answer).
+  import Example::OperatorAPI as API.
+  (10 %% 3, (%%) 10 3, (10 %%) 3, (%% 3) 10,
+   10 API::%% 3, (API::%%) 10 3,
+   (10 API::%%) 3, (API::%% 3) 10, 2 * 10 %% 3, answer).
+}

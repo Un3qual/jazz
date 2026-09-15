@@ -6,7 +6,10 @@ module Jazz.Compiler.Modules.Loader.OperatorsTests
 where
 
 import qualified Data.Map.Strict as Map
+import Data.Text (Text)
+import qualified Data.Text as Text
 import Jazz.Compiler.BundledPrelude (bundledPreludeSource)
+import Jazz.Compiler.Diagnostics (SourceSpan (..))
 import Jazz.Compiler.Diagnostics.Render
   ( renderDiagnostic,
   )
@@ -24,12 +27,18 @@ import Jazz.TestHarness
   ( NamedTest,
     assertContains,
     assertEqual,
+    assertSingleDiagnosticCode,
+    assertSingleDiagnosticRelatedStart,
     failTest,
   )
 
 operatorTests :: [NamedTest]
 operatorTests =
-  [ ("operator notation retains imported function dependencies", testImportedOperatorFunction),
+  [ ("facade operator sections capture their operands on creation", testFacadeSectionCapture),
+    ("operator imports retain fixity, visibility and generic aliases", testOperatorImportCases),
+    ("operator imports reject conflicting declarations and visibility", testOperatorImportFailures),
+    ("facades transport all operator forms and defining fixity", testFacadeOperators),
+    ("operator notation retains imported function dependencies", testImportedOperatorFunction),
     ("run module graph retains local operator binding needed by exported binding", testRunModuleGraphRetainsLocalOperatorBindingNeededByExportedBinding),
     ("run module graph retains local operator signature needed by exported binding", testRunModuleGraphRetainsLocalOperatorSignatureNeededByExportedBinding),
     ("run module graph retains local operator binding needed by explicit imported export", testRunModuleGraphRetainsLocalOperatorBindingNeededByExplicitImportedExport),
@@ -303,3 +312,86 @@ testImportedOperatorFunction = do
           ),
           ("src/Lib/Operations.jz", "module Lib::Operations (add) { add = __kernel_subtract. }")
         ]
+
+testFacadeOperators :: IO ()
+testFacadeOperators = do
+  result <- runModuleGraphWithPrelude defaultWarningSettings (Just bundledPreludeSource) resolverConfig ["App", "Main"] (lookupSourceIn sources)
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "facade operator output" (Just "(7, 7, 7, 7, 7, 7, 7, 7, 14, 42)") (runOutput result)
+  where
+    sources =
+      Map.fromList
+        [ ("src/Lib/Operations.jz", "module Lib::Operations (value (%%), value answer) { operator %% precedence 6 left. (%%) :: Int -> Int -> Int. (%%) = \\(left, right) -> left - right. answer = 42. }"),
+          ("src/Lib/API.jz", "module Lib::API (value (Ops::%%), value Ops::answer) { import Lib::Operations as Ops. }"),
+          ("src/App/Main.jz", "module App::Main { import Lib::API ((%%), answer). import Lib::API as API. (10 %% 3, (%%) 10 3, (10 %%) 3, (%% 3) 10, 10 API::%% 3, (API::%%) 10 3, (10 API::%%) 3, (API::%% 3) 10, 2 * 10 %% 3, answer). }")
+        ]
+
+testOperatorImportCases :: IO ()
+testOperatorImportCases =
+  mapM_
+    check
+    [ ("import Lib::Left as L. import Lib::Right as R. (10 L::%% 3 L::%% 1, 10 R::%% 3 R::%% 1).", "(6, 8)"),
+      ("10 L::%% 3. import Lib::Left as L.", "7"),
+      ("import Lib::Left as L. operator %% precedence 6 left. (%%) = __kernel_add. (10 L::%% 3, 10 %% 3).", "(7, 13)"),
+      ("import Lib::Generic as G. ((G::%%) @Int 7 True, (7 G::%%) False).", "(7, 7)"),
+      ("import Lib::PrivateAPI as P. 1 P::%% 1.", "True"),
+      ("import Lib::Constrained as C. (1 C::%% 1, (C::%%) @Int 1 2).", "(True, False)")
+    ]
+  where
+    check (body, expected) = do
+      result <- runModuleGraphWithPrelude defaultWarningSettings Nothing resolverConfig ["App", "Main"] (lookupSourceIn (Map.insert "src/App/Main.jz" ("module App::Main { " <> body <> " }") operatorImportSources))
+      assertEqual "imported operator compile errors" [] (runCompileErrors result)
+      assertEqual "imported operator runtime errors" [] (runRuntimeErrors result)
+      assertEqual body (Just expected) (runOutput result)
+
+testOperatorImportFailures :: IO ()
+testOperatorImportFailures = do
+  mapM_
+    check
+    [ ("import Lib::Left. import Lib::Right.", "E4008"),
+      ("import Lib::Left as L. 1 %% 2.", "E4004"),
+      ("import Lib::NonAssoc. 1 %% 2 %% 3.", "E4004"),
+      ("import Lib::DeclarationOnly.", "E4015"),
+      ("import Lib::Left.\n(%%) = __kernel_add.", "E4004"),
+      ("import Lib::Left.\n(%%) :: Int -> Int -> Int.", "E4004"),
+      ("import Lib::Left.\noperator %% precedence 7 right.", "E4004")
+    ]
+  result <-
+    runModuleGraphWithPrelude
+      defaultWarningSettings
+      Nothing
+      resolverConfig
+      ["App", "Main"]
+      (lookupSourceIn (Map.insert "src/App/Main.jz" "module App::Main {\nimport Lib::Left.\n(%%) = __kernel_add.\n}" operatorImportSources))
+  assertSingleDiagnosticRelatedStart "imported operator original import" (SourceSpanIn "src/App/Main.jz" 2 1) (runCompileErrors result)
+  where
+    check (body, code) = do
+      result <- runModuleGraphWithPrelude defaultWarningSettings Nothing resolverConfig ["App", "Main"] (lookupSourceIn (Map.insert "src/App/Main.jz" ("module App::Main { " <> body <> " }") operatorImportSources))
+      assertSingleDiagnosticCode body code (runCompileErrors result)
+      mapM_ (\diagnostic -> assertEqual "operator diagnostics avoid storage names" False ("$operator:" `Text.isInfixOf` renderDiagnostic diagnostic)) (runCompileErrors result)
+
+operatorImportSources :: Map.Map FilePath Text
+operatorImportSources =
+  Map.fromList
+    [ ("src/Lib/Private.jz", "module Lib::Private (value (%%)) { operator %% precedence 6 left. data Hidden = Hidden Int. class Same(a) { same :: a -> a -> Bool. }. impl Same(Hidden) { same = \\(x, y) -> case (x, y) { | (Hidden(a), Hidden(b)) -> __kernel_equals a b }. }. helper = \\(x) -> Hidden x. (%%) = \\(x, y) -> same (helper x) (helper y). }"),
+      ("src/Lib/PrivateAPI.jz", "module Lib::PrivateAPI (value (P::%%)) { import Lib::Private as P. }"),
+      ("src/Lib/Left.jz", "module Lib::Left (value (%%)) { operator %% precedence 6 left. (%%) = __kernel_subtract. }"),
+      ("src/Lib/Right.jz", "module Lib::Right (value (%%)) { operator %% precedence 6 right. (%%) = __kernel_subtract. }"),
+      ("src/Lib/NonAssoc.jz", "module Lib::NonAssoc (value (%%)) { operator %% precedence 6 nonassoc. (%%) = __kernel_subtract. }"),
+      ("src/Lib/DeclarationOnly.jz", "module Lib::DeclarationOnly (value (%%)) { operator %% precedence 6 left. }"),
+      ("src/Lib/Generic.jz", "module Lib::Generic (value (%%)) { operator %% precedence 6 left. (%%) :: a -> b -> a. (%%) = \\(left, right) -> left. }"),
+      ("src/Lib/Constrained.jz", "module Lib::Constrained (value (%%)) { operator %% precedence 6 left. class Match(a) { match :: a -> a -> Bool. }. impl Match(Int) { match = __kernel_equals. }. (%%) :: @{Match(a)}: a -> a -> Bool. (%%) = match. }")
+    ]
+
+testFacadeSectionCapture :: IO ()
+testFacadeSectionCapture = mapM_ check ["(API::%% (__kernel_divide 1 0))", "((__kernel_divide 1 0) API::%%)"]
+  where
+    check section = do
+      let sources =
+            Map.insert "src/Lib/API.jz" "module Lib::API (value (L::%%)) { import Lib::Left as L. }" $
+              Map.insert "src/App/Main.jz" ("module App::Main { import Lib::API as API. " <> section <> ". }") operatorImportSources
+      result <- runModuleGraphWithPrelude defaultWarningSettings Nothing resolverConfig ["App", "Main"] (lookupSourceIn sources)
+      assertEqual "section compile errors" [] (runCompileErrors result)
+      assertEqual "failed section has no output" Nothing (runOutput result)
+      assertSingleDiagnosticCode "operand fails before section invocation" "E3001" (runRuntimeErrors result)

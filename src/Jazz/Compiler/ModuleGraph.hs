@@ -63,7 +63,8 @@ import Jazz.Compiler.AST
   )
 import Jazz.Compiler.Diagnostics (CompilationDiagnostics, Diagnostic, SourceSpan, compilationDiagnostics, isErrorDiagnostic)
 import Jazz.Compiler.ModuleExports
-  ( ModuleExportInventory,
+  ( ModuleExport,
+    ModuleExportInventory,
     ModuleExportSelector,
   )
 import Jazz.Compiler.ModuleIdentity
@@ -76,7 +77,8 @@ import Jazz.Compiler.ModuleIdentity
   )
 import Jazz.Compiler.ModuleImportScope (ValidatedImportScope)
 import Jazz.Compiler.ModuleInterface (ModuleInterface)
-import Jazz.Compiler.Name (Identifier)
+import Jazz.Compiler.Name (Identifier, ResolvedName)
+import Jazz.Compiler.Parser.Operator (OperatorInfo)
 
 data DeclaredModuleExports = DeclaredModuleExports
   { declaredModuleExportsSpan :: SourceSpan,
@@ -126,6 +128,8 @@ data DeclaredModuleFacts = DeclaredModuleFacts
 
 data ResolvedModuleFacts = ResolvedModuleFacts
   { resolvedModuleExports :: ModuleExportInventory,
+    resolvedModuleExportNames :: Map ModuleExport ResolvedName,
+    resolvedModuleOperators :: [OperatorInfo],
     resolvedModuleExportSelectors :: Maybe [ModuleExportSelector],
     resolvedModuleImportScope :: ValidatedImportScope
   }

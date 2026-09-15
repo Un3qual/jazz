@@ -124,9 +124,9 @@ testSelectsExactModuleExportNamespaces =
     )
     ( exportInventoryEntries
         ( selectModuleExportSelectors
-            [ ModuleExportSelector (Just ValueNamespace) "Shared",
-              ModuleExportSelector (Just TypeNamespace) "Shared",
-              ModuleExportSelector (Just CapabilityNamespace) "Shared"
+            [ ModuleExportSelector (Just ValueNamespace) (LocatedModuleExportName "Shared" (SourceSpan 1 1)),
+              ModuleExportSelector (Just TypeNamespace) (LocatedModuleExportName "Shared" (SourceSpan 1 1)),
+              ModuleExportSelector (Just CapabilityNamespace) (LocatedModuleExportName "Shared" (SourceSpan 1 1))
             ]
             sharedInventory
         )
@@ -151,7 +151,7 @@ testBareModuleExportSelectorKeepsSameTextEntries =
     )
     ( exportInventoryEntries
         ( selectModuleExportSelectors
-            [ModuleExportSelector Nothing "Box"]
+            [ModuleExportSelector Nothing (LocatedModuleExportName "Box" (SourceSpan 1 1))]
             sampleInventory
         )
     )
@@ -204,7 +204,7 @@ testStandaloneConstructorSelectorOwnership =
         "C"
         ( selectValidatedModuleExportSelectors
             reboundConstructorOwners
-            [ModuleExportSelector (Just ConstructorNamespace) "C"]
+            [ModuleExportSelector (Just ConstructorNamespace) (LocatedModuleExportName "C" (SourceSpan 1 1))]
             reboundConstructorInventory
         )
     )

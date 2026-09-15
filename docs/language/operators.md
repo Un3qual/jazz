@@ -1,6 +1,6 @@
 ---
 title: Operators
-description: Use built-in operators, sections, values, and source-local declarations.
+description: Use operators, sections, function values, and imported fixity.
 sidebar_position: 8
 ---
 
@@ -83,8 +83,29 @@ operator %% tier 2.
 1 %% 2.
 ```
 
-The declaration affects only the current source unit and must precede use.
+A local declaration must precede use. An explicitly exported custom operator
+carries its defining precedence and associativity through imports and facades.
 Associativity controls how adjacent operators at the same precedence group;
 `nonassoc` requires explicit parentheses. Operator declarations are not allowed
 inside expression blocks. See the [expression grammar](../reference/expression-grammar.md)
 for tiers, numeric precedence, defaults, and valid symbols.
+
+## Importing operators
+
+A defining module publishes a custom operator with `(%%)` or `value (%%)` in
+its export list. Both a valid declaration and an executable binding are required.
+`import Library::API ((%%)).` exposes the operator unqualified. An alias import
+exposes `(API::%%)`, `left API::%% right`, `(left API::%%)`, and `(API::%% right)`.
+The alias, `::`, and symbol must be adjacent. Parenthesized operator values also
+support ordinary explicit type application.
+
+The defining module owns fixity. Facades preserve it, and imported operators
+cannot be rebound, re-signed, or given a local declaration. Different original
+operators with the same unqualified spelling conflict even if their fixities
+match. Alias imports let those operators coexist with separate fixities, or
+with a same-spelled local operator. Imports are module-scoped, including imports
+written after a use. Sections capture their operand once when constructed.
+
+Custom operators remain private when the export list is omitted. Built-in
+notation keeps its fixed ordinary-function mapping: import or export `add`,
+for example, rather than `(+)`. See the [module example](modules.md#facades-and-custom-operators).

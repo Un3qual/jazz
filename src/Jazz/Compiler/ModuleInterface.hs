@@ -73,6 +73,7 @@ data ModuleValueBinding = ModuleValueBinding
 
 data ModuleInterface = ModuleInterface
   { interfacePublicExports :: ModuleExportInventory,
+    interfacePublicNames :: Map ModuleExport ResolvedName,
     interfaceValueBindings :: Map ModuleExport ModuleValueBinding,
     interfaceDataTypes :: Map ResolvedName DataTypeBinding,
     interfaceCapabilities :: ScopeCapabilityFacts
@@ -90,11 +91,16 @@ publishModuleInterface :: Maybe ModuleExportInventory -> Map ResolvedName DataTy
 publishModuleInterface requested typeDefinitions declarations =
   public
     { interfaceValueBindings = Map.map (\binding -> binding {interfaceBindingType = publishBindingNames (interfaceBindingType binding)}) (interfaceValueBindings public),
+      interfacePublicNames = Map.map publishedName (Map.restrictKeys (interfacePublicNames declarations) (exportInventoryEntries exports)),
       interfaceDataTypes = Map.mapKeys publishedName (Map.map publishDataNames (reachableTypes roots)),
       interfaceCapabilities = publishCapabilityNames capabilities
     }
   where
-    available = declaredInterfaceInventory declarations
+    available = declaredInterfaceInventory declarations <> exportInventory [entry | (entry, target) <- Map.toList (interfacePublicNames declarations), availableTarget entry target]
+    availableTarget entry target = case moduleExportNamespace entry of
+      TypeNamespace -> Map.member target typeDefinitions
+      CapabilityNamespace -> Map.member (CapabilityId target) (scopeClassFacts capabilities)
+      _ -> Map.member entry (interfaceValueBindings declarations)
     exports = maybe available (\inventory -> restrictExportInventory (Set.intersection (exportInventoryEntries available) (exportInventoryEntries inventory)) inventory) requested
     public =
       declarations
@@ -104,7 +110,8 @@ publishModuleInterface requested typeDefinitions declarations =
     capabilities = interfaceCapabilities declarations
     roots =
       Set.unions
-        [ Map.keysSet (Map.filterWithKey (\name _ -> inventoryHasExport (ModuleExport TypeNamespace (renderName name)) exports) (interfaceDataTypes declarations)),
+        [ Set.fromList [target | (entry, target) <- Map.toList (interfacePublicNames declarations), moduleExportNamespace entry == TypeNamespace, inventoryHasExport entry exports],
+          Map.keysSet (Map.filterWithKey (\name _ -> inventoryHasExport (ModuleExport TypeNamespace (renderName name)) exports) (interfaceDataTypes declarations)),
           foldMap (bindingNames . interfaceBindingType) (interfaceValueBindings public),
           foldMap (schemeNames . classMethodScheme) (scopeClassMethodSignatures capabilities),
           foldMap (schemeNames . implementationScheme) (scopeImplementations capabilities)
@@ -150,6 +157,7 @@ emptyModuleInterface :: ModuleInterface
 emptyModuleInterface =
   ModuleInterface
     { interfacePublicExports = exportInventory [],
+      interfacePublicNames = Map.empty,
       interfaceValueBindings = Map.empty,
       interfaceDataTypes = Map.empty,
       interfaceCapabilities = mempty

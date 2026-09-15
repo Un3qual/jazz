@@ -16,7 +16,7 @@ from partial areas and planned work.
 | ADTs, typed patterns, ordered cases, and guards                       | Implemented | [ADTs and patterns](../language/algebraic-data-types-and-patterns.md) |
 | Static exhaustiveness and unreachable-arm analysis                    | Implemented | [Control flow](../language/control-flow.md)                           |
 | Type inference, signatures, generic named types, and numeric widths   | Implemented | [Types and signatures](../language/types-and-signatures.md)           |
-| Modules, qualified classes, explicit exports, and cycle diagnostics   | Implemented | [Module resolution](../reference/module-resolution.md)                |
+| Modules, qualified classes, re-exports, operator imports, and cycles  | Implemented | [Module resolution](../reference/module-resolution.md)                |
 | Interpreter, stable rendering, runtime hosts, and observations        | Implemented | [Runtime values](../reference/runtime-values.md)                      |
 | Bundled Prelude and explicit-import collection, text, and I/O modules | Implemented | [Standard library](../standard-library/overview.md)                   |
 | Structured errors and opt-in warning policy                           | Implemented | [Diagnostics](../reference/diagnostics.md)                            |

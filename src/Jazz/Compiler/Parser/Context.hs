@@ -5,19 +5,20 @@ module Jazz.Compiler.Parser.Context
     ParserContext (..),
     StatementBlockParser,
     StatementContext (..),
-    initialParserContext
-  ) where
+    initialParserContext,
+  )
+where
 
 import Data.Set (Set)
 import qualified Data.Set as Set
 import Data.Text (Text)
 import Jazz.Compiler.Parser.AST
   ( SurfaceExpr,
-    SurfaceStatement
+    SurfaceStatement,
   )
 import Jazz.Compiler.Parser.Operator
   ( OperatorTable,
-    builtinOperatorTable
+    builtinOperatorTable,
   )
 import Jazz.Compiler.Parser.TokenParser (Parser)
 
@@ -36,7 +37,7 @@ data ParserContext = ParserContext
 
 type ExpressionParser = ParserContext -> Parser SurfaceExpr
 
-type StatementBlockParser = ParserContext -> Parser [SurfaceStatement]
+type StatementBlockParser = ParserContext -> Parser ([SurfaceStatement], ParserContext)
 
 initialParserContext :: ParserContext
 initialParserContext =

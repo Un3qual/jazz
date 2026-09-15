@@ -2,7 +2,10 @@
 
 module Main (main) where
 
+import Control.Monad (forM_)
+import Data.Bifunctor (first)
 import Data.List.NonEmpty (NonEmpty (..))
+import qualified Data.Set as Set
 import Data.Text (Text)
 import Jazz.Compiler.AST
   ( Literal (..),
@@ -13,15 +16,20 @@ import Jazz.Compiler.Diagnostics
 import Jazz.Compiler.Name
   ( Identifier,
   )
+import Jazz.Compiler.Parser (parseSurfaceProgramTokensWithContextDetailed)
 import Jazz.Compiler.Parser.AST
   ( SurfaceExpr (..),
     SurfaceExprForm (..),
     SurfaceLambdaParameter (..),
     SurfaceStatement (..),
   )
+import Jazz.Compiler.Parser.Context (ParserContext (..), initialParserContext)
+import Jazz.Compiler.Parser.Failure (parserFailureDiagnostic)
+import Jazz.Compiler.Parser.Lexer (tokenize)
 import Jazz.Compiler.Parser.Lower
   ( lowerSurfaceExpr,
   )
+import Jazz.Compiler.Parser.Operator (Associativity (..), OperatorInfo (..), operatorTableFromDeclarations)
 import Jazz.Compiler.TypeRepresentation
   ( SignaturePayload (..),
     SignatureType (..),
@@ -37,6 +45,7 @@ import Jazz.TestCore
 import Jazz.TestHarness
   ( NamedTest,
     assertEqual,
+    assertLeftDiagnosticContains,
     assertRight,
     runTestSuite,
   )
@@ -46,7 +55,11 @@ main = runTestSuite "OperatorFixity" tests
 
 tests :: [NamedTest]
 tests =
-  [ ("declared tier 2 operator inherits additive precedence", testDeclaredTier2OperatorPrecedence),
+  [ ("supplied context returns only local fixities", testSuppliedContextFixities),
+    ("qualified operator values sections and infix share fixity", testQualifiedOperatorForms),
+    ("supplied operators reject local redefinition", testImportedOperatorRedefinition),
+    ("qualified operator fixity and isolation", testQualifiedOperatorFixity),
+    ("declared tier 2 operator inherits additive precedence", testDeclaredTier2OperatorPrecedence),
     ("declared custom precedence operator binds tighter than builtins", testDeclaredCustomPrecedenceOperatorPrecedence),
     ("declared custom precedence operator defaults left associative", testDeclaredCustomPrecedenceOperatorAssociativity),
     ("declared operator accepts explicit left associativity", testDeclaredOperatorExplicitLeftAssociativity),
@@ -521,3 +534,90 @@ apply functionExpr argumentExpr = SurfaceExpr (surfaceExprSpan functionExpr) (SE
 
 e :: Int -> Int -> SurfaceExprForm -> SurfaceExpr
 e line column = SurfaceExpr (SourceSpan line column)
+
+testSuppliedContextFixities :: IO ()
+testSuppliedContextFixities = forM_ [id, ("module App { " <>) . (<> " }")] $ \wrap ->
+  assertRight
+    "tokenize context fixture"
+    (tokenize (wrap "operator && precedence 7 right. { 10 %% 3. }. operator ^^ tier 2. 1 && 2 ^^ 3."))
+    $ \tokens ->
+      assertRight "parse supplied context" (parseSurfaceProgramTokensWithContextDetailed suppliedContext tokens) $ \(_, authored) ->
+        assertEqual
+          "local declarations survive blocks and wrappers"
+          [OperatorInfo "&&" 7 AssocRight, OperatorInfo "^^" 4 AssocLeft]
+          authored
+
+testQualifiedOperatorForms :: IO ()
+testQualifiedOperatorForms =
+  assertRight
+    "tokenize qualified forms"
+    (tokenize "(10 API::%% 3, (API::%%), (10 API::%%), (API::%% 3), (API::%%) @Int).")
+    $ \tokens ->
+      assertRight "parse qualified forms" (parseSurfaceProgramTokensWithContextDetailed suppliedContext tokens) $ \(parsed, authored) -> do
+        assertEqual "no authored declarations" [] authored
+        case surfaceExprForm parsed of
+          SEBlock [SSExpr _ tuple] -> case surfaceExprForm tuple of
+            SETuple [infixUse, value, leftSection, rightSection, applied] -> do
+              case surfaceExprForm infixUse of
+                SEBinary symbol _ _ -> assertEqual "infix spelling" "API::%%" symbol
+                other -> fail (show other)
+              assertEqual "value spelling" (SEOperatorValue "API::%%") (surfaceExprForm value)
+              case surfaceExprForm leftSection of
+                SESectionLeft _ symbol -> assertEqual "left section spelling" "API::%%" symbol
+                other -> fail (show other)
+              case surfaceExprForm rightSection of
+                SESectionRight symbol _ -> assertEqual "right section spelling" "API::%%" symbol
+                other -> fail (show other)
+              case surfaceExprForm applied of
+                SETypeApplication function _ _ -> assertEqual "ordinary type application" (SEOperatorValue "API::%%") (surfaceExprForm function)
+                other -> fail (show other)
+            other -> fail (show other)
+          other -> fail (show other)
+
+testImportedOperatorRedefinition :: IO ()
+testImportedOperatorRedefinition = forM_
+  ["operator %% precedence 6 left.", "(%%) = f.", "(%%) :: Int -> Int -> Int.", "(API::%%) = f.", "(API::%%) :: Int -> Int -> Int."]
+  $ \source ->
+    assertRight "tokenize redefinition" (tokenize source) $ \tokens ->
+      assertLeftDiagnosticContains
+        "supplied operator cannot be redefined"
+        "duplicate operator declaration"
+        (first parserFailureDiagnostic (parseSurfaceProgramTokensWithContextDetailed suppliedContext tokens))
+
+testQualifiedOperatorFixity :: IO ()
+testQualifiedOperatorFixity = do
+  forM_ [(AssocLeft, True), (AssocRight, False)] $ \(associativity, leftNested) -> do
+    let context =
+          initialParserContext
+            { parserKnownAliases = Set.singleton "API",
+              parserDeclaredOperators = operatorTableFromDeclarations [OperatorInfo "API::%%" 6 associativity]
+            }
+    assertRight "tokenize qualified chain" (tokenize "10 API::%% 3 API::%% 1.") $ \tokens ->
+      assertRight "parse qualified chain" (parseSurfaceProgramTokensWithContextDetailed context tokens) $ \(parsed, _) ->
+        case surfaceExprForm parsed of
+          SEBlock [SSExpr _ expression] -> case surfaceExprForm expression of
+            SEBinary "API::%%" left right -> do
+              assertEqual "left nesting follows supplied fixity" leftNested (isBinary left)
+              assertEqual "right nesting follows supplied fixity" (not leftNested) (isBinary right)
+            other -> fail (show other)
+          other -> fail (show other)
+  let aliasContext = initialParserContext {parserDeclaredOperators = operatorTableFromDeclarations [OperatorInfo "API::%%" 6 AssocNonAssoc]}
+  forM_ ["10 API::%% 3 API::%% 1.", "10 %% 3.", "10 API ::%% 3.", "10 API:: %% 3."] $ \source ->
+    assertRight "tokenize invalid chain" (tokenize source) $ \tokens ->
+      case parseSurfaceProgramTokensWithContextDetailed aliasContext tokens of
+        Left _ -> pure ()
+        Right parsed -> fail ("unexpected successful operator parse: " <> show parsed)
+  assertRight "tokenize independent local operator" (tokenize "operator %% precedence 6. (%%) = f.") $ \tokens ->
+    assertRight "alias-only import permits same-spelled local operator" (parseSurfaceProgramTokensWithContextDetailed aliasContext tokens) $ \(_, authored) ->
+      assertEqual "independent local fixity" [OperatorInfo "%%" 6 AssocLeft] authored
+  where
+    isBinary expression = case surfaceExprForm expression of
+      SEBinary {} -> True
+      _ -> False
+
+suppliedContext :: ParserContext
+suppliedContext =
+  initialParserContext
+    { parserKnownAliases = Set.singleton "API",
+      parserDeclaredOperators = operatorTableFromDeclarations [OperatorInfo "%%" 6 AssocLeft, OperatorInfo "API::%%" 6 AssocLeft]
+    }

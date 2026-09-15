@@ -1,3 +1,5 @@
+{-# LANGUAGE DeriveAnyClass #-}
+{-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 -- | Operator metadata used by the surface parser's precedence climber.
@@ -8,6 +10,7 @@ module Jazz.Compiler.Parser.Operator
     builtinOperatorFunction,
     builtinOperatorInfos,
     builtinOperatorTable,
+    declaredOperatorsSince,
     declaredOperatorInfoForPrecedence,
     declaredOperatorInfoForTier,
     insertDeclaredOperator,
@@ -22,19 +25,21 @@ module Jazz.Compiler.Parser.Operator
   )
 where
 
+import Control.DeepSeq (NFData)
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
 import Data.Set (Set)
 import qualified Data.Set as Set
 import Data.Text (Text)
 import qualified Data.Text as Text
+import GHC.Generics (Generic)
 
 -- | Associativity used when computing the next precedence floor in the parser.
 data Associativity
   = AssocLeft
   | AssocRight
   | AssocNonAssoc
-  deriving (Eq, Show)
+  deriving (Eq, Show, Generic, NFData)
 
 -- | Published fixity information for a builtin operator.
 data OperatorInfo = OperatorInfo
@@ -42,7 +47,7 @@ data OperatorInfo = OperatorInfo
     operatorPrecedence :: Int,
     operatorAssociativity :: Associativity
   }
-  deriving (Eq, Show)
+  deriving (Eq, Show, Generic, NFData)
 
 -- | Builtin operator table. Precedence levels match the public operator
 -- reference in `docs/language/operators.md`, where larger numbers bind tighter.
@@ -104,6 +109,15 @@ insertDeclaredOperator operatorInfo operatorTable =
     { operatorInfosBySymbol = Map.insert (operatorSymbol operatorInfo) operatorInfo (operatorInfosBySymbol operatorTable),
       declaredOperatorSymbols = Set.insert (operatorSymbol operatorInfo) (declaredOperatorSymbols operatorTable)
     }
+
+-- | Declarations authored after the supplied parser environment was installed.
+declaredOperatorsSince :: OperatorTable -> OperatorTable -> [OperatorInfo]
+declaredOperatorsSince supplied final =
+  Map.elems
+    ( Map.restrictKeys
+        (operatorInfosBySymbol final)
+        (declaredOperatorSymbols final `Set.difference` declaredOperatorSymbols supplied)
+    )
 
 isDeclaredOperator :: Text -> OperatorTable -> Bool
 isDeclaredOperator symbol = Set.member symbol . declaredOperatorSymbols

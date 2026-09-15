@@ -134,6 +134,7 @@ moduleInferenceInputs :: CompileInputs -> CoreModule 'Resolved -> ImportedInterf
 moduleInferenceInputs inputs resolvedModule importedInterface =
   InferenceInputs
     { inferencePublicExports = Just (ModuleGraph.resolvedModuleExports (coreModuleFacts resolvedModule)),
+      inferencePublicNames = ModuleGraph.resolvedModuleExportNames (coreModuleFacts resolvedModule),
       inferenceWarningSettings = compileInputWarningSettings inputs,
       inferenceExternalUses = compileInputExternalUses inputs,
       inferenceImportedTypes = importedTypes importedInterface,
@@ -251,6 +252,8 @@ importSelectedInterface origin maybeAlias selectedInventory moduleInterface =
     }
   where
     importedName export =
+      Map.findWithDefault (fallbackName export) export (interfacePublicNames moduleInterface)
+    fallbackName export =
       UserName
         ( ResolvedUserName
             origin
@@ -425,6 +428,7 @@ emptyInferenceInputs :: WarningSettings -> InferenceInputs
 emptyInferenceInputs settings =
   InferenceInputs
     { inferencePublicExports = Nothing,
+      inferencePublicNames = Map.empty,
       inferenceWarningSettings = settings,
       inferenceExternalUses = Set.empty,
       inferenceImportedTypes = Map.empty,

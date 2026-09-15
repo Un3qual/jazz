@@ -27,7 +27,8 @@ import Jazz.Compiler.Diagnostics.Render
   ( renderDiagnostic,
   )
 import Jazz.Compiler.ModuleExports
-  ( ModuleExport (..),
+  ( LocatedModuleExportName (..),
+    ModuleExport (..),
     ModuleExportInventory,
     ModuleExportSelector (..),
     exportInventory,
@@ -181,7 +182,14 @@ main = runTestSuite "ModuleResolution" tests
 
 tests :: [NamedTest]
 tests =
-  [ ("core programs reject a missing entry module", testCoreProgramRejectsMissingEntry),
+  [ ("discovery reports dependencies before body errors and loads sources once", testDiscoveryDependencyOrder),
+    ("facade cycles are ordinary dependency cycles", testFacadeCycle),
+    ("qualified selectors retain namespace-specific visibility and locations", testFacadeSelectorVisibility),
+    ("import failures follow source order across validation categories", testImportValidationOrder),
+    ("class exports conflict with explicitly selected local methods", testClassMethodExportConflict),
+    ("facade type views merge only compatible visible constructors", testFacadeConstructorViews),
+    ("qualified facade conflicts retain both selector locations", testFacadeConflictLocations),
+    ("core programs reject a missing entry module", testCoreProgramRejectsMissingEntry),
     ("core programs reject duplicate module paths", testCoreProgramRejectsDuplicatePath),
     ("core programs reject dependencies ordered after dependents", testCoreProgramRejectsDependencyAfterDependent),
     ("core programs reject imports outside the program", testCoreProgramRejectsUnknownImport),
@@ -202,7 +210,7 @@ tests =
     ("grouped type exports reject imported constructors", testGroupedTypeExportsRejectImportedConstructor),
     ("explicit exports keep private local bindings resolvable", testExplicitExportsKeepPrivateLocalsUsable),
     ("rejects unknown module export names", testRejectsUnknownModuleExport),
-    ("rejects imported-only module export names", testRejectsImportedOnlyModuleExport),
+    ("selects imported module declarations", testSelectsImportedModuleExport),
     ("explicit imports reject private module bindings", testExplicitImportRejectsPrivateModuleBinding),
     ("module paths parse into a non-empty nominal identity", testParseNominalModulePath),
     ("invalid module path text retains E4016", testRejectsInvalidModulePathText),
@@ -422,8 +430,8 @@ testResolvedModulePreservesExplicitExportSelectorOrder = do
         assertEqual
           "authored selector order"
           ( Just
-              [ ModuleExportSelector (Just ValueNamespace) "zeta",
-                ModuleExportSelector (Just ValueNamespace) "alpha"
+              [ ModuleExportSelector (Just ValueNamespace) (LocatedModuleExportName "zeta" (SourceRangeIn "src/App/Main.jz" 1 25 1 29)),
+                ModuleExportSelector (Just ValueNamespace) (LocatedModuleExportName "alpha" (SourceRangeIn "src/App/Main.jz" 1 37 1 42))
               ]
           )
           (resolvedModuleExportSelectors resolvedModule)
@@ -752,7 +760,7 @@ testRejectsUnknownModuleExport = do
     result
   assertLeftDiagnosticMetadata
     "unknown module export metadata"
-    (Just (SourceRangeIn "src/Lib/Value.jz" 1 1 1 7))
+    (Just (SourceRangeIn "src/Lib/Value.jz" 1 20 1 27))
     Nothing
     (Just "missing")
     result
@@ -767,14 +775,13 @@ testRejectsUnknownModuleExport = do
         """
     lookupSource path = pure (Map.lookup path sources)
 
-testRejectsImportedOnlyModuleExport :: IO ()
-testRejectsImportedOnlyModuleExport = do
+testSelectsImportedModuleExport :: IO ()
+testSelectsImportedModuleExport = do
   result <- resolveTestProgram testResolverConfig lookupSource ["Lib", "Wrapper"]
-  assertLeftDiagnosticCodeAndContains
-    "imported-only module export"
-    "E4015"
-    "module export 'answer' is not declared by module 'Lib::Wrapper'"
-    result
+  assertRight "imported module export" result $ \program ->
+    case reverse (programModules program) of
+      wrapper : _ -> assertEqual "selected import" (exportInventory [ModuleExport ValueNamespace "answer"]) (ModuleGraph.resolvedModuleExports (ModuleGraph.coreModuleFacts wrapper))
+      [] -> failTest "missing facade module"
   where
     sources =
       Map.fromList
@@ -2297,3 +2304,116 @@ assertLeftDiagnosticNotContains label needle value =
             else pure ()
     Right ok ->
       failTest (label <> ": expected Left, got Right " <> Text.pack (show ok))
+
+testFacadeConstructorViews :: IO ()
+testFacadeConstructorViews =
+  mapM_
+    check
+    [ ("import Lib::Original. import Lib::Narrow.", "type Choice(..)", ["C1", "C2"]),
+      ("import Lib::Narrow. import Lib::Original.", "type Choice(..)", ["C1", "C2"]),
+      ("import Lib::Original. import Lib::Narrow as B.", "type B::Choice(..)", ["C1"])
+    ]
+  where
+    check (imports, selector, constructors) = do
+      let sources =
+            Map.fromList
+              [ ("src/Lib/Original.jz", "module Lib::Original (type Choice(..)) { data Choice = C1 | C2. }"),
+                ("src/Lib/Narrow.jz", "module Lib::Narrow (type A::Choice(C1)) { import Lib::Original as A. }"),
+                ("src/App/Main.jz", "module App::Main (" <> selector <> ") { " <> imports <> " }")
+              ]
+      result <- resolveTestProgram testResolverConfig (\path -> pure (Map.lookup path sources)) ["App", "Main"]
+      assertRight "facade view resolution" result $ \program ->
+        case reverse (programModules program) of
+          entry : _ ->
+            assertEqual
+              "visible constructor subset"
+              (Set.fromList (ModuleExport TypeNamespace "Choice" : map (ModuleExport ConstructorNamespace) constructors))
+              (exportInventoryEntries (ModuleGraph.resolvedModuleExports (ModuleGraph.coreModuleFacts entry)))
+          [] -> failTest "missing entry"
+
+testFacadeConflictLocations :: IO ()
+testFacadeConflictLocations = do
+  let sources =
+        Map.fromList
+          [ ("src/Lib/Left.jz", "answer = 1."),
+            ("src/Lib/Right.jz", "answer = 2."),
+            ("src/App/Main.jz", "module App::Main (\nvalue Left::answer,\nvalue Right::answer\n) { import Lib::Left as Left. import Lib::Right as Right. }")
+          ]
+  result <- resolveTestProgram testResolverConfig (\path -> pure (Map.lookup path sources)) ["App", "Main"]
+  assertLeftDiagnosticCodeAndContains "conflicting facade exports" "E4015" "conflicting module export" result
+  assertLeftDiagnosticMetadata
+    "selector conflict locations"
+    (Just (SourceRangeIn "src/App/Main.jz" 3 7 3 20))
+    (Just (SourceRangeIn "src/App/Main.jz" 2 7 2 19))
+    (Just "Right::answer")
+    result
+
+testImportValidationOrder :: IO ()
+testImportValidationOrder = do
+  let sources =
+        Map.fromList
+          [ ("src/Lib/Base.jz", "module Lib::Base { x = 1. }"),
+            ("src/App/Main.jz", "module App::Main { import Lib::Base (missing). import Lib::Base as B. import Lib::Base as B. }")
+          ]
+  result <- resolveTestModuleGraph (ModuleResolutionConfig ["src"] ".jz") sources ["App", "Main"]
+  assertLeftDiagnosticCodeAndContains "first invalid import" "E4007" "missing" result
+
+testClassMethodExportConflict :: IO ()
+testClassMethodExportConflict = do
+  let sources =
+        Map.fromList
+          [ ("src/Lib/Base.jz", "module Lib::Base (class C) { class C(a) { method :: a -> Int. }. }"),
+            ("src/App/Main.jz", "module App::Main (class C, value method) { import Lib::Base. method = \\(x) -> 9. }")
+          ]
+  result <- resolveTestModuleGraph (ModuleResolutionConfig ["src"] ".jz") sources ["App", "Main"]
+  assertLeftDiagnosticCodeAndContains "class original method conflict" "E4015" "conflicting module export 'method'" result
+
+testDiscoveryDependencyOrder :: IO ()
+testDiscoveryDependencyOrder = do
+  let config = ModuleResolutionConfig ["src"] ".jz"
+      malformed = Map.singleton "src/App/Main.jz" "module App::Main { import Lib::Missing. broken = . }"
+  failure <- resolveTestModuleGraph config malformed ["App", "Main"]
+  assertLeftDiagnosticCodeAndContains "dependency precedes body parse" "E4001" "Lib::Missing" failure
+  counts <- newIORef Map.empty
+  let sources =
+        Map.fromList
+          [ ("src/App/Main.jz", "module App::Main { import Lib::Base. import Lib::API. answer. }"),
+            ("src/Lib/API.jz", "module Lib::API (answer) { import Lib::Base. }"),
+            ("src/Lib/Base.jz", "answer = 42.")
+          ]
+      load path = do
+        modifyIORef' counts (Map.insertWith (+) path (1 :: Int))
+        pure (Map.lookup path sources)
+  result <- resolveTestProgram config load ["App", "Main"]
+  assertRight "diamond resolved" result (const (pure ()))
+  actual <- readIORef counts
+  assertEqual "one source lookup per module" (Map.map (const 1) sources) actual
+
+testFacadeCycle :: IO ()
+testFacadeCycle = do
+  let sources =
+        Map.fromList
+          [ ("src/A.jz", "module A (value B::answer) { import B as B. }"),
+            ("src/B.jz", "module B (value A::answer) { import A as A. }")
+          ]
+  result <- resolveTestModuleGraph testResolverConfig sources ["A"]
+  assertLeftDiagnosticCodeAndContains "facade cycle" "E4003" "A -> B -> A" result
+
+testFacadeSelectorVisibility :: IO ()
+testFacadeSelectorVisibility =
+  mapM_
+    check
+    [ ("type A::answer", "A::answer", SourceRangeIn "src/App/Main.jz" 3 6 3 15),
+      ("value A::private", "A::private", SourceRangeIn "src/App/Main.jz" 3 7 3 17),
+      ("type A::T(Hidden)", "Hidden", SourceRangeIn "src/App/Main.jz" 3 11 3 17)
+    ]
+  where
+    check (selector, subject, spanValue) = do
+      let sources =
+            Map.fromList
+              [ ("src/Lib/Base.jz", "module Lib::Base (value answer, type T) { answer = 1. private = 2. data T = Hidden. }"),
+                ("src/App/Main.jz", "module App::Main (\nvalue A::answer,\n" <> selector <> "\n) { import Lib::Base as A. }")
+              ]
+      result <- resolveTestModuleGraph testResolverConfig sources ["App", "Main"]
+      assertLeftDiagnosticCodeAndContains "private or wrong-namespace selector" "E4015" subject result
+      assertLeftDiagnosticMetadata "invalid selector location" (Just spanValue) Nothing (Just subject) result
