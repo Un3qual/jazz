@@ -10,21 +10,72 @@ last_verified: 2026-09-15
 plan_section: Implementation
 target_paths:
   - src/Jazz/Compiler/ModuleExports.hs
+  - src/Jazz/Compiler/ModuleGraph.hs
+  - src/Jazz/Compiler/ModuleImportScope.hs
   - src/Jazz/Compiler/ModuleResolver.hs
   - src/Jazz/Compiler/ModuleResolver/Names.hs
   - src/Jazz/Compiler/ModuleResolver/Imports.hs
   - src/Jazz/Compiler/ModuleInterface.hs
   - src/Jazz/Compiler/ModuleAnalysis.hs
+  - src/Jazz/Compiler/TypeInference.hs
+  - src/Jazz/Compiler/Name.hs
   - src/Jazz/Compiler/Parser.hs
   - src/Jazz/Compiler/Parser/ModuleDeclaration.hs
+  - src/Jazz/Compiler/Parser/Declaration.hs
+  - src/Jazz/Compiler/Parser/Context.hs
+  - src/Jazz/Compiler/Parser/Expression.hs
   - src/Jazz/Compiler/Parser/Operator.hs
+  - src/Jazz/Compiler/Parser/Lower.hs
+  - jazz/compiler/ParserTypes.jz
+  - jazz/compiler/ParserContext.jz
+  - jazz/compiler/ParserOperator.jz
+  - jazz/compiler/ParserExpression.jz
+  - jazz/compiler/ParserDeclaration.jz
+  - jazz/compiler/ParserProgram.jz
+  - jazz/compiler/Parser.jz
+  - jazz/compiler/CoreTypes.jz
+  - jazz/compiler/CoreLower.jz
+  - jazz.cabal
+  - test/Jazz/Compiler/Modules/ModuleExportsSpec.hs
+  - test/Jazz/Compiler/Modules/ModuleResolutionSpec.hs
+  - test/Jazz/Compiler/Modules/ModulePipelineContractSpec.hs
+  - test/Jazz/Compiler/Modules/Loader/VisibilityTests.hs
+  - test/Jazz/Compiler/Modules/Loader/AliasClassTests.hs
+  - test/Jazz/Compiler/Modules/Loader/DiagnosticsTests.hs
   - test/Jazz/Compiler/Modules/Loader/OperatorsTests.hs
+  - test/Jazz/Compiler/Parser/ModuleImportParserSpec.hs
+  - test/Jazz/Compiler/Parser/OperatorFixitySpec.hs
+  - test/Jazz/Compiler/Parser/OperatorInvalidSyntaxSpec.hs
+  - test/Jazz/Compiler/Parser/OperatorSectionSpec.hs
+  - test/Jazz/Compiler/Bootstrap/CanonicalParserComparison.hs
+  - test/Jazz/Compiler/Bootstrap/CanonicalCoreComparison.hs
+  - test/Jazz/Compiler/Bootstrap/JazzParserTypesDeclarationsModulesSpec.hs
+  - test/Jazz/Compiler/Bootstrap/JazzParserOperatorsFullParitySpec.hs
+  - test/Jazz/Compiler/Bootstrap/JazzCoreSignaturesDeclarationsOperatorsSpec.hs
+  - test/Jazz/Compiler/Bootstrap/JazzCoreModulesCorpusClosureSpec.hs
+  - test/Jazz/Compiler/GeneratedInvariantsSpec.hs
+  - test/Jazz/Repository/AuditSpec.hs
+  - examples/modules/src/Example/OperatorLibrary.jz
+  - examples/modules/src/Example/OperatorAPI.jz
+  - examples/modules/src/Example/OperatorConsumer.jz
+  - scripts/example-cases.tsv
+  - docs/language/modules.md
+  - docs/language/operators.md
+  - docs/reference/module-resolution.md
+  - docs/reference/expression-grammar.md
+  - docs/reference/diagnostics.md
+  - docs/project/status.md
+  - .codex/execution/queue.md
+  - .codex/execution/blocker-contracts.md
+  - .codex/plans/2026-09-15-module-reexports-and-operator-transport.md
 verification:
   - cabal test module-import-parser-spec operator-fixity-spec operator-invalid-syntax-spec operator-section-spec module-resolution-spec module-exports-spec module-pipeline-contract-spec loader-spec --jobs=1 --test-show-details=failures
-  - cabal test jazz-parser-types-declarations-modules-spec jazz-parser-operators-full-parity-spec jazz-core-signatures-declarations-operators-spec jazz-core-modules-corpus-closure-spec --jobs=1 --test-show-details=failures
+  - cabal test jazz-parser-types-declarations-modules-spec jazz-parser-operators-full-parity-spec jazz-core-signatures-declarations-operators-spec jazz-core-modules-corpus-closure-spec jazz-parser-parity-spec canonical-core-comparison-spec --jobs=1 --test-show-details=failures
+  - cabal test jazz-parser-scale-full-expression-spec jazz-parser-scale-full-declarations-spec jazz-parser-scale-full-control-flow-spec jazz-parser-scale-full-operator-spec -ffull-parser-scale --jobs=1 --test-show-details=failures
   - JAZZ_CABAL_JOBS=1 bash scripts/ci/haskell-quality.sh
   - JAZZ_CABAL_JOBS=1 bash scripts/ci/main-functional.sh
   - bash scripts/check-execution-queue.sh
+  - python3 scripts/check-rfcs.py .
   - git diff --check
 deliverable: Explicit identity-preserving re-exports and custom operator transport through module facades, with qualified uses, hosted syntax parity, and current public documentation.
 ---
@@ -462,9 +513,13 @@ facts, and ordinary resolved function calls in every notation.
       Reject distinct unqualified origins regardless of matching fixity. For these
       cases use the current collision/module-syntax family and verify the authored
       operator spelling and related source locations.
-- [ ] Test a qualified right-associative subtraction chain (`10 %% 3 %% 1`
-      gives `8`), a non-associative chain rejection, and an alias-only symbol's
-      unqualified rejection. Cover two aliases with differing same-symbol fixities.
+- [ ] With the RFC's left-associative provider, test
+      `10 API::%% 3 API::%% 1` gives `6`. In a separate provider fixture declaring
+      `operator %% precedence 6 right.`, the same qualified subtraction chain
+      gives `8`. Import both providers under different aliases to check their
+      distinct fixities without redeclaring either imported operator. Also test
+      a non-associative chain rejection and an alias-only symbol's unqualified
+      rejection.
 - [ ] Test section capture using the existing observable host harness or a
       captured failing operand, plus generic/constrained operator aliases and
       explicit type application. Preserve the existing hidden-operator tests.
@@ -500,7 +555,7 @@ grammar. Haskell still supplies module graph discovery and semantic compilation.
       selectors, unknown aliases/operators, invalid constructor groups, duplicate
       selections, non-associative chains, and whitespace around qualification.
       Do not filter old fixtures or change comparisons to success-count assertions.
-- [ ] Run the four hosted suites in frontmatter plus
+- [ ] Run the hosted suites in frontmatter, including
       `jazz-parser-parity-spec` and `canonical-core-comparison-spec`.
       Commit `Match hosted module selectors and imported operator parsing`.
 

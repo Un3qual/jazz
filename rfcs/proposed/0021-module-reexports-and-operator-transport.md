@@ -209,12 +209,15 @@ module App::Main {
 
 The result is `(7, 7, 7, 7, 7, 7, 7, 7, 14, 42)`: precedence 6 binds
 `%%` more tightly than the existing multiplication precedence 5.
+With this left-associative declaration, `10 API::%% 3 API::%% 1` evaluates to `6`.
 
 Acceptance also covers abstract/grouped type re-exports, imported class methods
 and generic instances, diamond imports, private selections, conflicting origins,
 alias isolation, non-associative operators, section evaluation, and Prelude-free
-ordinary function dispatch. Existing programs retain their behavior unless
-they intentionally opt into the new exports.
+ordinary function dispatch. Existing successful programs retain their results
+and effects. The dependency-first diagnostic order applies to all modules,
+including those using no new selectors. Jazz is unreleased; this becomes the
+single parsing path, without an opt-in flag or legacy parsing mode.
 
 The hosted frontend must retain its existing supported domain and gain the new
 selector and qualified-operator syntax, explicit imported-fixity input, and

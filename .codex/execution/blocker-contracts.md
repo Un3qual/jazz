@@ -191,18 +191,16 @@ Each blocked item should answer these questions:
   operator payloads, dependency DFS, typed interfaces, and runtime cells.
 - Candidate child: `JN-MODULE-API-COMPOSITION-001`.
 - Plan: [module re-exports and operator transport](../plans/2026-09-15-module-reexports-and-operator-transport.md).
-- Target paths: `src/Jazz/Compiler/ModuleExports.hs`,
-  `src/Jazz/Compiler/ModuleResolver.hs`,
-  `src/Jazz/Compiler/ModuleResolver/Names.hs`,
-  `src/Jazz/Compiler/ModuleResolver/Imports.hs`,
-  `src/Jazz/Compiler/ModuleInterface.hs`, `src/Jazz/Compiler/ModuleAnalysis.hs`,
-  `src/Jazz/Compiler/Parser.hs`, `src/Jazz/Compiler/Parser/ModuleDeclaration.hs`,
-  `src/Jazz/Compiler/Parser/Operator.hs`,
-  `test/Jazz/Compiler/Modules/Loader/OperatorsTests.hs`.
+- Target paths: the complete `target_paths` list in the
+  [implementation plan](../plans/2026-09-15-module-reexports-and-operator-transport.md),
+  mirrored in the curation row. It covers the existing Haskell and hosted
+  compiler owners, behavioral tests, examples, public docs, and dispatcher
+  closeout for Tasks 1-5.
 - Verification: `bash scripts/check-execution-queue.sh`;
   `python3 scripts/check-rfcs.py .`; `bash scripts/check-docs.sh` for design
   publication. Implementation requires the focused module/operator and hosted
-  suites, Haskell quality, and full serialized main gate listed in the plan.
+  suites, full-scale parser checks, Haskell quality, and the full serialized
+  main gate; exact commands are recorded in the plan and curation row.
 - Not in scope: whole-module wildcard re-exports, renamed exports, new operator
   characters, cyclic modules, package resolution, effect-system changes, or
   unrelated compiler representations. Existing constructor-group selectors are
