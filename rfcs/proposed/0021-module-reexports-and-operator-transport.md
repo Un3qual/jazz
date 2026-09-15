@@ -152,9 +152,11 @@ Local operator declarations continue updating that environment in source order.
 This does not require imports to move to the beginning of existing source files.
 
 Discovery reads the token stream and uses the same header/import grammar as the
-full parser. It does not group expressions with provisional precedence. Full
-parsing owns body syntax, binding IDs, and local operator declarations. Import
-discovery never follows an import-looking token inside a nested expression,
+full parser. Its import result also supplies parser alias visibility, including
+aliases imported after use, replacing the separate alias pre-scan. It does not
+group expressions with provisional precedence. Full parsing owns body syntax,
+binding IDs, and local operator declarations. Import discovery never follows an
+import-looking token inside a nested expression,
 string, character literal, or comment.
 
 The dependency graph remains acyclic, traversed deterministically by module

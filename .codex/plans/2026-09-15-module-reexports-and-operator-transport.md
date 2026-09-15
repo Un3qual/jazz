@@ -178,6 +178,13 @@ surface statements in source order; there is no new `ModuleHeader` data type.
 The module declaration is optional. The scanner allocates no core nodes and
 never parses an expression.
 
+This walk replaces `collectImportAliasesUntilEnd` /
+`collectImportAliasesUntilBrace` and their private token-scanning helpers.
+Derive aliases from the discovered imports with the existing
+`registerImportAliases Set.empty` projection. Seed `parserKnownAliases` once;
+statement-list parsing consumes that context instead of scanning tokens again
+or re-registering each import. Keep dependency loading in the resolver.
+
 The scanner skips balanced non-import statement tokens and recognizes imports
 only at the root statement depth of the optional module wrapper. Parentheses,
 lists, nested braces, and period-containing selectors must not change that
@@ -191,8 +198,8 @@ IDs in its current order; it owns body errors.
 ```text
 load source -> tokenize -> discover SSModule/SSImport declarations
   -> visit dependencies in existing sorted DFS order
-  -> select imported operators (unqualified and alias-qualified)
-  -> parse full token stream once with that operator environment
+  -> seed ParserContext with discovered aliases and selected imported operators
+  -> parse full token stream once with that context
   -> lower, validate import uses, resolve local declarations
   -> select public inventory, original names, and exported fixity
 ```
@@ -205,18 +212,27 @@ precedence policy. Error order follows the RFC's explicit phase ordering.
 Add one parser entrypoint using existing types:
 
 ```haskell
-parseSurfaceProgramTokensWithOperators ::
-  OperatorTable -> [Token] -> Either Diagnostic (SurfaceExpr, [OperatorInfo])
+parseSurfaceProgramTokensWithContext ::
+  ParserContext -> [Token] -> Either Diagnostic (SurfaceExpr, [OperatorInfo])
 ```
 
+Callers start from `initialParserContext`, setting only its existing alias set
+and operator table. The supplied statement context remains `TopLevelContext`.
+The module wrapper changes it to `ModuleBodyContext` while preserving both
+visibility fields; nested expression blocks inherit them as they do today.
+No new parser-input record or discovery-complete flag is needed.
+
 The second result contains only operator declarations authored in this source
-unit. Obtain them from the final parser table minus the supplied table's declared
-keys; imported redefinitions are rejected, so this difference is unambiguous.
+unit. Obtain them from the final parser table minus the declared keys in the
+supplied context's operator table; imported redefinitions are rejected, so this
+difference is unambiguous.
 Do not keep a second authored-declaration table. Add the small projection inside
 `Parser/Operator.hs`, which owns the table. Exported module metadata filters this
 list to explicitly selected operators; it contains no built-ins. Existing
-standalone entrypoints use the default environment and project `fst`. Keep
-parser failures in the current detailed error path.
+standalone entrypoints run the same discovery walk once, seed aliases with the
+default operator table, and project `fst`; they do not load dependencies. The
+resolver supplies its already-discovered aliases directly to the context-aware
+entrypoint. Keep parser failures in the current detailed error path.
 
 Return the final `ParserContext` alongside statements from the existing
 statement-list and module-body callbacks. Both end-of-input and closing-brace
@@ -363,8 +379,8 @@ Tests: existing `ModuleImportParserSpec.hs`, `OperatorFixitySpec.hs`,
 
 **Consumes:** source tokens and source-ordered imports. **Produces:**
 existing `SSModule`/`SSImport` statements for discovery and the
-`parseSurfaceProgramTokensWithOperators` entrypoint specified above.
-Existing entrypoints project the surface tree using the default environment.
+`parseSurfaceProgramTokensWithContext` entrypoint specified above.
+Existing entrypoints discover aliases once and use the default operator table.
 
 - [ ] Add discovery cases with a late import, no module wrapper, nested braces,
       tuple/list expressions, strings/comments containing `import`, and constructor
@@ -374,11 +390,17 @@ Existing entrypoints project the surface tree using the default environment.
 - [ ] Factor the shared module-prefix and import grammar. Implement the balanced
       token walk without parsing expression precedence, allocating core nodes, or
       duplicating an expression AST. Preserve source-order import metadata.
+- [ ] Replace the old alias token walkers and their parser call sites with alias
+      projection from discovery into `ParserContext`. Reuse the same discovery
+      path in standalone entrypoints; the resolver's parse must not rediscover
+      imports. Reuse existing late-alias and signature-disambiguation fixtures to
+      compare standalone and supplied-context parsing, including nested uses
+      before a later import in wrapped and unwrapped sources.
 - [ ] Supply imported operators to the existing parser context and retain the
       metadata already produced for local declarations. A local declaration must
       still precede use; duplicate local declarations keep their current failures.
-      The module-body context in `parseStatementParser` must inherit this supplied
-      table instead of resetting it to built-ins. Nested expression blocks inherit
+      The module-body context in `parseStatementParser` must inherit the supplied
+      aliases and table instead of resetting them. Nested expression blocks inherit
       lookup visibility but still reject operator declarations.
 - [ ] Return the final context through statement-list and module-body callbacks;
       expression-block callers project statements. Verify wrapped and unwrapped
@@ -457,14 +479,18 @@ facts, and ordinary resolved function calls in every notation.
 `test/Jazz/Compiler/Bootstrap/CanonicalParserComparison.hs`,
 `CanonicalCoreComparison.hs`, and their existing module/operator suites.
 
-**Consumes:** the same explicit imported-fixity environment as the Haskell parser.
+**Consumes:** the same imported fixity and known aliases through the existing
+hosted `ParserContext`.
 **Produces:** equal surface/canonical values and structured failures for the new
 grammar. Haskell still supplies module graph discovery and semantic compilation.
 
 - [ ] Extend hosted selector/operator spelling parsing and comparison adapters in
       the same commit, extending existing selector constructors with the retained
-      locations. Add an entrypoint accepting imported operator metadata while
+      locations. Add a context-aware entrypoint accepting aliases and operators while
       preserving the current default-environment entrypoint.
+      Reuse the hosted alias walk to initialize the default parser's module-scope
+      context once; the context-aware path consumes the supplied aliases. Remove
+      per-statement fallback scans without adding hosted graph discovery.
 - [ ] Mirror qualified uses, selector parsing, retained local fixities, and
       lowering with original spans. Forward the final module-body context as in
       Task 2, and compare returned local fixities for wrapped and unwrapped sources.
