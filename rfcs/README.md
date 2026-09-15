@@ -43,7 +43,7 @@ only `docs/` and does not publish this directory.
 
 ## Proposed decisions
 
-No proposals are currently open.
+- [0021: Module re-exports and operator transport](proposed/0021-module-reexports-and-operator-transport.md) — explicit facade exports, original identities, and imported custom-operator fixity; detailed proposal awaiting review.
 
 ## Process
 
