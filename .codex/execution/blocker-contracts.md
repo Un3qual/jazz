@@ -86,28 +86,21 @@ Each blocked item should answer these questions:
 
 ### JN-USER-DEFINED-OPERATORS-PLAN-001
 
-- Smallest unblocker: none currently promotion-ready after custom
-  associativity landed.
-- Decision needed: accepted on `2026-06-30`: plan operator-specific type
-  signatures, custom precedence, and custom associativity as separate child
-  rows. Operator signatures, custom precedence, and custom associativity have
-  landed; no later operator child has an accepted executable contract.
-- Recommended default: keep Stage 2 fixed-tier parsing, same-source
-  `(op) = <expr>.` execution, adjacent operator signatures, and custom numeric
-  precedence, and explicit custom associativity complete. Do not promote
-  runtime overload dispatch, cross-module APIs, or new built-ins without a new
-  contract.
-- Candidate child: none currently.
-- Target paths: not set until the next operator contract is accepted.
-- Verification: `bash scripts/check-execution-queue.sh`;
-  `bash scripts/check-docs.sh`.
-- Not in scope: re-promoting the completed fixed-tier contract or parser child,
-  re-promoting `JN-OPERATORS-DECLARED-FUNCTION-BINDINGS-001`, re-promoting
-  `JN-OPERATORS-SPECIFIC-TYPE-SIGNATURES-001`, re-promoting
-  `JN-OPERATORS-CUSTOM-PRECEDENCE-001`, re-promoting
-  `JN-OPERATORS-CUSTOM-ASSOCIATIVITY-001`, new precedence ranges, new builtin
-  operators, runtime overload dispatch, cross-module operator APIs, or parser
-  syntax already covered by completed operator children.
+- Current behavior: source-local declarations, signatures, precedence,
+  associativity, and RFC 0020 ordinary function dispatch are implemented.
+- Smallest unblocker: review the detailed combined
+  [RFC 0021](../../rfcs/proposed/0021-module-reexports-and-operator-transport.md).
+- Decision needed: explicit operator export syntax, qualified notation,
+  defining-module fixity, and the discovery-before-body-parse boundary.
+- Recommended default: execute the single combined module API plan after RFC
+  acceptance; reuse existing compiler records, names, tables, and runtime cells.
+- Candidate child: `JN-MODULE-API-COMPOSITION-001`, shared with
+  [the module umbrella](#jn-module-rebase-plan-001). Do not create a second row.
+- Target paths and verification: the shared
+  [implementation plan](../plans/2026-09-15-module-reexports-and-operator-transport.md)
+  owns the exact file list and focused/full commands.
+- Not in scope: new operator spellings, new precedence ranges, a separate
+  operator runtime, or restoring the removed backend.
 
 ### JN-PRIMITIVE-SURFACE-EXPANSION-PLAN-001
 
@@ -184,37 +177,34 @@ Each blocked item should answer these questions:
 
 ### JN-MODULE-REBASE-PLAN-001
 
-- Smallest unblocker: none currently. The namespace-aware module export child
-  landed as `JN-MODULE-NAMESPACE-AWARE-EXPORT-001`, followed by Haskell
-  alias-qualified classes under `JN-MODULE-ALIAS-QUALIFIED-CLASSES-001` (RFC 0017).
-- Decision needed: none. Optional namespace prefixes, bare-selector
-  compatibility, omitted-list export-all, `()` export-nothing, local/public
-  inventory separation, alias-qualified methods/constraints/impl heads, and
-  no re-exports are implemented. Hosted qualification parity is explicitly
-  deferred, including existing parser comparisons affected by the new grammar.
-- Recommended default: preserve the completed namespace-aware export contract
-  and `E4007`-`E4015` diagnostics until a separate source-backed module behavior
-  contract is accepted.
-- Candidate child: none currently.
-- Target paths: not set until a separate module behavior contract is accepted.
-- Verification: focused `ModuleImportParserSpec.hs`, `ParserFoundationSpec.hs`,
-  `OperatorFixitySpec.hs`, `ModuleExportsSpec.hs`,
-  `ModuleResolutionSpec.hs`, `ModulePipelineContractSpec.hs`, and `LoaderSpec.hs`;
-  `cabal build all`;
-  `cabal test all --test-show-details=failures`;
-  `bash scripts/check-execution-queue.sh`; `bash scripts/check-docs.sh`;
-  `git diff --check`.
-- Landed evidence: `src/Jazz/Compiler/ModuleExports.hs` owns the
-  typed inventory and structured selectors; module headers accept exact
-  `value`, `constructor`, `type`, and `class` prefixes plus bare compatibility;
-  `src/Jazz/Compiler/ModuleResolver.hs` separates local and public
-  inventories; compiler imports and runtime publication consume the public
-  inventory; focused and full verification passed on `2026-07-10`.
-- Not in scope: re-exports, wildcard or constructor-group shorthand, body-level
-  export declarations, visibility modifiers, cross-module operators,
-  separate impl imports, orphan/overlap policy,
-  default methods, superclasses, effects, new prelude/catalog API, public
-  builtin fallback in no-prelude mode, or package/module-root semantics.
+- Current behavior: namespace-aware explicit exports, grouped constructor
+  selectors, private/public separation, alias-qualified classes, and transitive
+  implementations are implemented. Imports cannot yet be re-exported.
+- Smallest unblocker: accept the detailed
+  [RFC 0021](../../rfcs/proposed/0021-module-reexports-and-operator-transport.md),
+  then promote its single combined implementation candidate.
+- Decision needed: the batch direction is approved. Review exact selector and
+  operator qualification syntax, default operator privacy, identity/conflict
+  rules, and the explicit diagnostic-order change before implementation.
+- Recommended default: extend the existing module records with original public
+  names and exported fixity. Reuse the existing reference map, selector types,
+  operator payloads, dependency DFS, typed interfaces, and runtime cells.
+- Candidate child: `JN-MODULE-API-COMPOSITION-001`.
+- Plan: [module re-exports and operator transport](../plans/2026-09-15-module-reexports-and-operator-transport.md).
+- Target paths: the complete `target_paths` list in the
+  [implementation plan](../plans/2026-09-15-module-reexports-and-operator-transport.md),
+  mirrored in the curation row. It covers the existing Haskell and hosted
+  compiler owners, behavioral tests, examples, public docs, and dispatcher
+  closeout for Tasks 1-5.
+- Verification: `bash scripts/check-execution-queue.sh`;
+  `python3 scripts/check-rfcs.py .`; `bash scripts/check-docs.sh` for design
+  publication. Implementation requires the focused module/operator and hosted
+  suites, full-scale parser checks, Haskell quality, and the full serialized
+  main gate; exact commands are recorded in the plan and curation row.
+- Not in scope: whole-module wildcard re-exports, renamed exports, new operator
+  characters, cyclic modules, package resolution, effect-system changes, or
+  unrelated compiler representations. Existing constructor-group selectors are
+  supported by the proposed re-export contract.
 
 ### JN-WARNING-DEPRECATED-SYNTAX-CONTRACT-001
 

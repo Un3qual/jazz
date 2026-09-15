@@ -7,7 +7,7 @@ Proposed RFCs do not override accepted RFCs, public language contracts, or
 verified implementation behavior. Implementation planning remains under
 `.codex/plans/`; a task plan is not promoted here merely because it is large.
 
-No proposals are currently open.
+- [0021: Module re-exports and operator transport](0021-module-reexports-and-operator-transport.md) proposes one combined language contract. The detailed proposal is awaiting review before implementation.
 
 When a proposal is accepted, move it to `../accepted/`, set
 `Status: Accepted`, and add it to the RFC index. Rejected or withdrawn
