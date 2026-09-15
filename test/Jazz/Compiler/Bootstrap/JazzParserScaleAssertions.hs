@@ -164,8 +164,8 @@ fullControlFlowLimits =
 fullOperatorLimits :: ScaleLimits
 fullOperatorLimits =
   ScaleLimits
-    { scaleTransitionCeiling = 52000000,
-      scaleApplicationCeiling = 6300000,
+    { scaleTransitionCeiling = 59000000,
+      scaleApplicationCeiling = 7300000,
       scaleListCellCeiling = 190000,
       scaleContinuationDepthCeiling = 1150
     }

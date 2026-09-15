@@ -380,10 +380,11 @@ Successful and runtime-failed evaluations produce reports; a runtime failure is
 marked failed and contains work collected before failure. Compilation failure
 does not start evaluation and therefore has no runtime report.
 
-The operator-to-function migration rebased exceeded corpus work ceilings from
-measured runs, with 10% headroom rounded up to two significant digits; unchanged
-ceilings remain in place. Ordinary dispatch includes dictionaries, closures, and
-kernel calls that the old operator path bypassed. For example, merge-sort now
+The operator-to-function migration rebased exceeded corpus and parser work
+ceilings from measured runs, with 10% headroom rounded up to two significant
+digits; unchanged ceilings remain in place. Ordinary dispatch includes
+dictionaries, closures, and kernel calls that the old operator path bypassed.
+For example, merge-sort now
 records 449,432 evaluator transitions and 60,016 applications; prime-sieve records
 197,348,007 transitions and 27,082,319 applications. These counts describe the
 interpreter's work, not elapsed-time ratios. Corpus outputs and the independent

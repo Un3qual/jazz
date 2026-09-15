@@ -1,6 +1,6 @@
 ---
 id: JN-OPERATORS-AS-FUNCTIONS-001
-status: ready
+status: complete
 priority: P1
 size: L
 kind: impl
@@ -13,6 +13,7 @@ target_paths:
   - src/Jazz/Compiler/TypeInference.hs
   - src/Jazz/Compiler/Runtime/Primitives.hs
   - test/Jazz/Compiler/Stdlib/FoundationsTests.hs
+  - test/Jazz/Compiler/Stdlib/OperatorFunctionsTests.hs
 verification:
   - "cabal test all -f-full-parser-scale --jobs=1 --test-show-details=failures"
   - "bash scripts/ci/haskell-quality.sh"
@@ -59,5 +60,35 @@ or conversions where they relied on the deliberately removed behavior.
       executable operators through normal resolution and evidence.
 - [x] Remove replaced operator-only inference, runtime, and metadata paths.
 - [x] Migrate maintained consumers, tests and public contracts.
-- [ ] Verify focused behavior, full regular suites, clean quality gate and docs;
+- [x] Verify focused behavior, full regular suites, clean quality gate and docs;
       commit coherent batches and close the queue row.
+
+## Implementation and verification receipt
+
+Boolean `not` is committed in `40f78a07`; ordinary dispatch for all eleven
+executable operators and removal of the replaced compiler/runtime paths is
+committed in `7a52c11c`. Arithmetic, equality, ordering, operator values, sections,
+and `$` share lexical resolution, inference and evidence with their named calls.
+The migration also fixed nested recursive method evidence and retained scalar
+recursive-cycle diagnostics after desugaring.
+
+All 62 regular suites passed: the complete matrix followed by successful reruns
+of two fixtures updated for the intentional contract changes. All 17 corpus
+programs retain their expected output and pass their measured work budgets.
+All four full parser-scale workloads passed. Both production-only and whole-tree
+Weeder checks passed from a fresh HIE build, with tests added only after the
+production check. HLint, Ormolu, package checks, generated invariants, public
+documentation, examples, snippets, and queue checks passed. The generated and
+authored Prelude match exactly.
+
+Only exceeded evaluator-work ceilings were rebased from measurements, with 10%
+headroom rounded up to two significant digits. Ordinary function dispatch adds
+method, closure and kernel calls. Existing list-allocation and continuation-depth
+ceilings remain unchanged; these measurements are work counts, not timing ratios.
+
+| Family       | Evaluator transitions | Applications | List cells | Maximum continuation depth | Maximum capture width |
+| ------------ | --------------------- | ------------ | ---------- | -------------------------- | --------------------- |
+| expression   | 23,952,562            | 2,988,713    | 111,351    | 1,061                      | 41                    |
+| declarations | 10,646,980            | 1,309,276    | 66,661     | 1,076                      | 35                    |
+| control-flow | 44,464,429            | 5,493,722    | 219,783    | 1,096                      | 41                    |
+| operator     | 53,027,838            | 6,568,857    | 186,499    | 1,116                      | 41                    |
