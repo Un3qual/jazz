@@ -379,13 +379,6 @@ overAppliedBuiltinExpr :: Text -> Expr 'Analyzed
 overAppliedBuiltinExpr name =
   runtimeExpr $
     case name of
-      "map" ->
-        expressionApply
-          ( expressionApply
-              (expressionApply (expressionVariable "__kernel_map") (expressionApply (expressionKernelFunction "+") (expressionLiteral (LInt 1))))
-              (expressionList [expressionLiteral (LInt 2)])
-          )
-          (expressionLiteral (LInt 3))
       "filter" ->
         expressionApply
           ( expressionApply

@@ -78,6 +78,7 @@ tests =
     ("matches stage 0 for qualified lowercase impl target", assertStage0Parity "qualified lowercase impl target" "impl Equatable(Alias::a) { }."),
     ("matches stage 0 for unsupported capability header argument", assertStage0Parity "unsupported capability header argument" "class Equatable(forall a) { }."),
     ("matches stage 0 for superclass contexts and defaults", assertStage0Parity "superclass contexts and defaults" "class @{Same(a)}: Ordered(a) { order :: a -> Int. order = \\(x) -> 1. }."),
+    ("matches stage 0 for duplicate class defaults", assertStage0Parity "duplicate class defaults" "class Probe(a) { probe = \\(x) -> x. probe = \\(x) -> x. }."),
     ("matches stage 0 for generic implementation contexts", assertStage0Parity "generic implementation contexts" "impl @{Same(a)}: Same([a]) { same = \\(x, y) -> True. }."),
     ("matches stage 0 for capability header EOF context", assertStage0Parity "capability header EOF context" "class Equatable(a"),
     ("matches stage 0 for qualified method binding expression", assertStage0Parity "qualified method binding expression" "result = Alias::Class::method."),

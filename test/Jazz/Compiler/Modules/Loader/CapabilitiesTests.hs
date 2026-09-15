@@ -44,7 +44,7 @@ capabilitiesTests =
     ("compile module graph keeps module ADT impl facts distinct", testCompileModuleGraphKeepsModuleAdtImplFactsDistinct),
     ("compile module graph preserves constrained schemes through export bridges", testCompileModuleGraphPreservesConstrainedSchemesThroughExportBridges),
     ("run module graph retains local capabilities needed by inferred equality export", testRunModuleGraphRetainsLocalCapabilitiesNeededByInferredEqualityExport),
-    ("run module graph uses explicit list equality through hidden inferred equality export", testRunModuleGraphAllowsStructuralEqualityThroughHiddenInferredEqualityExport),
+    ("run module graph uses explicit list equality through hidden inferred equality export", testRunModuleGraphUsesExplicitEqualityThroughHiddenInferredEqualityExport),
     ("run module graph keeps inferred equality export facts scoped to hidden capability", testRunModuleGraphKeepsInferredEqualityExportFactsScopedToHiddenCapability),
     ("run module graph keeps helper-only inferred equality hidden despite direct sibling import", testRunModuleGraphKeepsHelperOnlyInferredEqualityHiddenDespiteDirectSiblingImport),
     ("compile module graph keeps inferred equality export facts scoped to hidden capability", testCompileModuleGraphKeepsInferredEqualityExportFactsScopedToHiddenCapability),
@@ -396,8 +396,8 @@ testRunModuleGraphRetainsLocalCapabilitiesNeededByInferredEqualityExport = do
         ]
     lookupSource path = pure (Map.lookup path sourceMap)
 
-testRunModuleGraphAllowsStructuralEqualityThroughHiddenInferredEqualityExport :: IO ()
-testRunModuleGraphAllowsStructuralEqualityThroughHiddenInferredEqualityExport = do
+testRunModuleGraphUsesExplicitEqualityThroughHiddenInferredEqualityExport :: IO ()
+testRunModuleGraphUsesExplicitEqualityThroughHiddenInferredEqualityExport = do
   result <-
     runModuleGraphWithPrelude
       defaultWarningSettings

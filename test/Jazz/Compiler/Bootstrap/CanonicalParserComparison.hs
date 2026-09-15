@@ -546,7 +546,7 @@ parserDuplicateNameRoleRuntimeValue duplicateNameRole =
         DataTypeParameter -> "DataTypeParameter"
         DataConstructorName -> "DataConstructorName"
         ClassMethodName -> "ClassMethodName"
-        ImplMethodName -> "ImplMethodName"
+        MethodBindingName -> "MethodBindingName"
     )
 
 parserListKindRuntimeValue :: ParserListKind -> RuntimeValue

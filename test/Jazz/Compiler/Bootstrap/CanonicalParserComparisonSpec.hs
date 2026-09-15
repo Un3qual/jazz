@@ -488,7 +488,7 @@ declarationFailureInventory =
     ("DataTypeParameter", DuplicateName DataTypeParameter "a" DataDeclaration),
     ("DataConstructorName", DuplicateName DataConstructorName "Thing" DataDeclaration),
     ("ClassMethodName", DuplicateName ClassMethodName "show" ClassDeclaration),
-    ("ImplMethodName", DuplicateName ImplMethodName "show" ImplDeclaration),
+    ("MethodBindingName", DuplicateName MethodBindingName "show" ImplDeclaration),
     ("ImportSymbolList", DuplicateListItem ImportSymbolList "'x'"),
     ("ModuleExportList", DuplicateListItem ModuleExportList "'x'"),
     ("ConstructorExportList", DuplicateListItem ConstructorExportList "'X'"),

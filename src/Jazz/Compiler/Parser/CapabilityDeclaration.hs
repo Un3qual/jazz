@@ -198,7 +198,7 @@ parseClassBody expression declaration seen reversed seenBodies reversedBodies = 
           payload <- either failParserFailure pure (parseSignaturePayloadDetailed signatureTokens)
           parseClassBody expression declaration (Set.insert name seen) (SurfaceClassMethodSignature (mkIdentifier name) (tokenSpan method) payload : reversed) seenBodies reversedBodies
     Token {tokenKind = TIdentifier name, tokenSpan = spanValue} :< Token {tokenKind = TEquals} :< _
-      | Set.member name seenBodies -> failTokenParserAt spanValue (DeclarationFailure (DuplicateName ClassMethodName name ClassDeclaration))
+      | Set.member name seenBodies -> failTokenParserAt spanValue (DeclarationFailure (DuplicateName MethodBindingName name ClassDeclaration))
       | otherwise -> do
           binding <- parseMethodBinding expression
           parseClassBody expression declaration seen reversed (Set.insert name seenBodies) (binding : reversedBodies)
@@ -212,7 +212,7 @@ parseImplBody expression declaration seen reversed = do
     Token {tokenKind = TRBrace} :< _ -> reverse reversed <$ parseAnyToken
     operator@Token {tokenKind = TIdentifier "operator"} :< _ -> either failParserFailure pure (rejectNestedOperatorDeclaration operator)
     Token {tokenKind = TIdentifier name, tokenSpan = spanValue} :< Token {tokenKind = TEquals} :< _
-      | Set.member name seen -> failTokenParserAt spanValue (DeclarationFailure (DuplicateName ImplMethodName name ImplDeclaration))
+      | Set.member name seen -> failTokenParserAt spanValue (DeclarationFailure (DuplicateName MethodBindingName name ImplDeclaration))
       | otherwise -> do
           binding <- parseMethodBinding expression
           parseImplBody expression declaration (Set.insert name seen) (binding : reversed)

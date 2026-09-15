@@ -211,13 +211,13 @@ testContextRendering :: IO ()
 testContextRendering = do
   let report =
         appendDiagnosticContext (CheckingBinding "f") $
-          appendDiagnosticContext (CheckingImplMethod "Equatable::equal") $
-            appendDiagnosticContext (CheckingImplMethod "Equatable::equal") $
+          appendDiagnosticContext (CheckingImplMethod "Equatable::equals") $
+            appendDiagnosticContext (CheckingImplMethod "Equatable::equals") $
               appendDiagnosticContext (SatisfyingConstraint "Equatable") $
                 mkErrorDiagnostic E2005 CompilationOrigin "mismatch"
   assertEqual
     "inner context precedes its owner without duplicate hints"
-    "error: E2005: mismatch (while satisfying constraint 'Equatable'; while checking impl method 'Equatable::equal'; while checking binding 'f')"
+    "error: E2005: mismatch (while satisfying constraint 'Equatable'; while checking impl method 'Equatable::equals'; while checking binding 'f')"
     (renderDiagnostic report)
 
 -- Exercise report constructors, so adding normalization to a renderer without
@@ -227,8 +227,8 @@ testSemanticErrorReports = do
   mapM_ check cases
   assertEqual
     "method argument reports share names across their entire argument list"
-    "no matching qualified method body 'Equatable::equal' for argument types (t0, t1, t0), t1"
-    (diagnosticSummary (Inference.mkNoMatchingQualifiedMethodBodyError (equalityCapability, mkIdentifier "equal") [pair 7, variable 8]))
+    "no matching qualified method body 'Equatable::equals' for argument types (t0, t1, t0), t1"
+    (diagnosticSummary (Inference.mkNoMatchingQualifiedMethodBodyError (equalityCapability, mkIdentifier "equals") [pair 7, variable 8]))
   assertEqual
     "pattern and scrutinee share report names in presentation order"
     "case pattern of type (t0, t1, t0) does not match scrutinee type t1"
@@ -255,7 +255,7 @@ testSemanticErrorReports = do
     cases =
       [ ("numeric constraint", \n -> Inference.mkTypeSchemeNumericConstraintError AnyNumericConstraint (pair n)),
         ("equality constraint", \n -> Inference.mkTypeSchemeStrictEqualityConstraintError (pair n)),
-        ("missing method match", \n -> Inference.mkNoMatchingQualifiedMethodBodyError (equalityCapability, mkIdentifier "equal") [pair n, variable (n + 1)]),
+        ("missing method match", \n -> Inference.mkNoMatchingQualifiedMethodBodyError (equalityCapability, mkIdentifier "equals") [pair n, variable (n + 1)]),
         ("undeclared class constraint", \n -> Inference.mkUndeclaredSignatureConstraintError "f" False "Equatable" (pair n) spanValue),
         ("undeclared primitive constraint", \n -> Inference.mkUndeclaredSignatureConstraintError "f" True "Numeric" (pair n) spanValue),
         ("ambiguous explicit constraint", \n -> Inference.mkAmbiguousDeferredConstraintError equalityCapability (pair n)),

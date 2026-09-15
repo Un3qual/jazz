@@ -139,6 +139,7 @@ testCallableIdentities = do
       "class Probe(a) { identity :: a -> Bool. }. impl Probe(Int) { identity = \\(item) -> True. }. impl Probe(UInt8) { identity = \\(item) -> False. }. (Probe::identity 1)."
   assertEqual "method compile errors" [] (runCompileErrors methodResult)
   methodProfile <- requireRunReport methodResult >>= requireProfile
+  assertEqual "method profile termination" RuntimeSucceeded (runtimeSemanticProfileTermination methodProfile)
   generatedResult <-
     runSourceWithResolvedPreludeAndHostObserved
       RuntimeObservationProfile
@@ -148,6 +149,7 @@ testCallableIdentities = do
       "operator %% tier 2. (%%) = \\(left, right) -> left. (%% 2) 1."
   assertEqual "section compile errors" [] (runCompileErrors generatedResult)
   generatedProfile <- requireRunReport generatedResult >>= requireProfile
+  assertEqual "section profile termination" RuntimeSucceeded (runtimeSemanticProfileTermination generatedProfile)
   hostProfile <- profileFor (expressionApply (kernelBuiltin BuiltinArguments) (expressionTuple []))
   assertHasIdentity "closure identity" isClosure closureProfile
   assertHasIdentity "builtin identity" (== BuiltinCallable "textLength") builtinProfile

@@ -136,6 +136,7 @@ qualifiedEqSource =
 
   """
 
+-- | Compile an App entry module and its dependencies from in-memory sources.
 compileModuleSources :: [(FilePath, Text.Text)] -> IO CompileResult
 compileModuleSources sources =
   compileModuleGraphWithPrelude

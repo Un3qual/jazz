@@ -196,7 +196,7 @@ module ParserTypes (
     = DataTypeParameter
     | DataConstructorName
     | ClassMethodName
-    | ImplMethodName.
+    | MethodBindingName.
 
   data ParserListKind = ImportSymbolList | ModuleExportList | ConstructorExportList.
 

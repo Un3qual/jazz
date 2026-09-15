@@ -190,7 +190,7 @@ testRejectsDuplicateClassDefaults :: IO ()
 testRejectsDuplicateClassDefaults =
   assertLeftDiagnosticContains
     "duplicate class defaults"
-    "duplicate method signature 'equals'"
+    "duplicate method binding 'equals'"
     (parseSurfaceProgram "class Equatable(a) { equals = \\(item) -> item. equals = \\(item) -> item. }.")
 
 testRejectsDuplicateClassMethodSignatures :: IO ()

@@ -919,7 +919,7 @@ module ParserDeclaration (
                     parseSignatureBody))
             | PunctuationKind EqualsPunctuation -> if Set::contains seenBodies methodName then
               tokenFailAtSpan (canonicalTokenSpan first)
-                (DeclarationFailure (DuplicateName ClassMethodName methodName ClassDeclaration))
+                (DeclarationFailure (DuplicateName MethodBindingName methodName ClassDeclaration))
               else tokenAndThen
                 (\(binding) -> parseClassBody parseExpression context declarationToken seen reversed
                   (Set::insert seenBodies methodName) (List::prepend binding reversedBodies))
@@ -964,7 +964,7 @@ module ParserDeclaration (
             | PunctuationKind EqualsPunctuation -> if Set::contains seen methodName then
               tokenFailAtSpan
                 (canonicalTokenSpan first)
-                (DeclarationFailure (DuplicateName ImplMethodName methodName ImplDeclaration))
+                (DeclarationFailure (DuplicateName MethodBindingName methodName ImplDeclaration))
               else tokenAndThen
                 (\(binding) -> parseImplBody parseExpression context declarationToken
                   (Set::insert seen methodName) (List::prepend binding reversed))

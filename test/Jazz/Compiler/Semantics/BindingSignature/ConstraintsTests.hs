@@ -59,7 +59,7 @@ constraintTests =
     ("source pipeline rejects missing inferred equality facts at use sites", testSourceRejectsMissingInferredEqualityFactAtUseSite),
     ("source pipeline rejects missing inferred equality facts through operator values", testSourceRejectsMissingInferredEqualityFactThroughOperatorValue),
     ("source pipeline rejects missing inferred equality facts through sections", testSourceRejectsMissingInferredEqualityFactThroughSection),
-    ("source pipeline accepts primitive equality helpers without visible Equatable", testSourceAcceptsPrimitiveEqualityHelperWithoutVisibleEq),
+    ("source pipeline accepts primitive equality helpers without visible Equatable", testSourceAcceptsPrimitiveEqualityHelperWithoutVisibleEquatable),
     ("source pipeline rejects ambiguous inferred equality binding use", testSourceRejectsAmbiguousInferredEqualityBindingUse),
     ("source pipeline infers qualified method class constraints for ordinary binding schemes", testSourceInfersQualifiedMethodClassConstraintsForOrdinaryBindingSchemes),
     ("source pipeline resolves inferred method facts through aliases", testSourceResolvesInferredMethodFactsThroughAliases),
@@ -382,8 +382,8 @@ testSourceRejectsMissingInferredEqualityFactThroughSection =
     """
     "missing impl fact 'Equatable(Bool)'"
 
-testSourceAcceptsPrimitiveEqualityHelperWithoutVisibleEq :: IO ()
-testSourceAcceptsPrimitiveEqualityHelperWithoutVisibleEq =
+testSourceAcceptsPrimitiveEqualityHelperWithoutVisibleEquatable :: IO ()
+testSourceAcceptsPrimitiveEqualityHelperWithoutVisibleEquatable =
   assertSourceOkWithoutPrelude
     """
     same = \\(x) -> __kernel_equals x x.

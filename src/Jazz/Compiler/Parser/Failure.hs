@@ -87,7 +87,7 @@ data ParserDuplicateNameRole
   = DataTypeParameter
   | DataConstructorName
   | ClassMethodName
-  | ImplMethodName
+  | MethodBindingName
   deriving (Eq, Ord, Show)
 
 data ParserListKind
@@ -356,7 +356,7 @@ renderDuplicateNameRole role =
     DataTypeParameter -> "type parameter"
     DataConstructorName -> "constructor declaration"
     ClassMethodName -> "method signature"
-    ImplMethodName -> "method binding"
+    MethodBindingName -> "method binding"
 
 renderNameRoleWithArticle :: ParserNameRole -> Text
 renderNameRoleWithArticle role =

@@ -293,5 +293,5 @@ map :: (Char -> Char) -> Text -> Text.
 
 Transforms Unicode scalars and returns Text. The callback is the first argument
 and must return Char. The implementation converts to scalars, maps once, and
-rebuilds Text in linear time. For another element type, explicitly use
+rebuilds Text in linear time. For another element type, use the Prelude's generic
 `map change (Text::toChars text)` to produce a List.
