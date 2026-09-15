@@ -12,7 +12,7 @@ import Jazz.Compiler.AST (CoreNode (..), Expr (..), Statement (..))
 import Jazz.Compiler.Diagnostics (SourceSpan (..), diagnosticPrimarySpan, diagnosticRelatedSpan, qualifySourceSpan, sourceSpanEnd, sourceSpanStart)
 import Jazz.Compiler.ModuleAnalysis (analyzeResolvedExpression)
 import Jazz.Compiler.ModuleExports (exportInventory)
-import Jazz.Compiler.ModuleGraph (coreModuleExpr, coreModuleImports)
+import Jazz.Compiler.ModuleGraph (coreModuleExpr, coreModuleImports, importedModule)
 import Jazz.Compiler.ModuleIdentity (mkSourceFile, moduleIdentity, standaloneModulePath)
 import Jazz.Compiler.ModuleResolver (resolveStandaloneExprNames)
 import Jazz.Compiler.ModuleResolver.Imports (validateImportBindings)
@@ -199,7 +199,7 @@ importDiagnosticRanges =
         Map.empty
         Set.empty
         Set.empty
-        Map.empty
+        (Map.fromList [(importedModule declaration, exportInventory []) | declaration <- coreModuleImports coreModule])
         Map.empty of
         Left diagnostic -> do
           assertEqual "import primary" (Just (SourceRange 2 1 2 7)) (diagnosticPrimarySpan diagnostic)
