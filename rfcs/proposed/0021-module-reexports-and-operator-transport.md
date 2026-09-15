@@ -2,7 +2,7 @@
 
 Status: Proposed
 Date: 2026-09-15
-Supersedes: On acceptance, the no-re-export boundary in RFC 0017 and the source-local custom-operator transport restriction retained by RFC 0020. All other decisions in those RFCs remain.
+Supersedes: On acceptance, the no-re-export boundaries in RFCs 0017 and 0019 and the source-local custom-operator transport restriction retained by RFC 0020. All other decisions in those RFCs remain, including RFC 0019's method and instance rules.
 
 ## Decision
 
@@ -76,6 +76,10 @@ abstract. Selecting an unavailable constructor is an error. `class Ops::C`
 selects that class and its public ordinary methods using the existing rule;
 selecting one method alone need not expose the class name.
 
+An exported abstract type retains its original definition and parameter kinds
+for checking consumers, even when no exported value mentions it. This supporting
+definition does not make its hidden constructors selectable.
+
 Instances remain transitive and independent of name selection, as specified by
 RFC 0019. Importing a facade with no public names can still bring implementations
 into scope. Re-exporting or importing a class through multiple paths must not
@@ -90,6 +94,11 @@ entries are the same declaration:
 
 - Repeated imports, a direct import plus a facade, and two facades exposing the
   same original declaration are compatible in the same namespace.
+- Compatible unqualified imports combine their visible constructor subsets for
+  the same original type. If A exposes `T(C1, C2)` and facade B exposes `T(C1)`,
+  importing both lets `type T(..)` re-export both constructors, in either import
+  order. Qualified selectors use only the named alias's view: `type B::T(..)`
+  still exposes only `C1`. Hidden supporting metadata never widens either view.
 - Different original declarations exposed under the same unqualified name in
   the same namespace are an import collision. Qualification keeps them separate.
 - Two export selectors producing the same public name and original declaration
@@ -163,6 +172,9 @@ Use the existing diagnostic families: `E4003` for cycles, `E4004` for module
 syntax, current import collision/visibility codes for imported operators and
 names, and `E4015` for invalid or conflicting export selections. Conflicts point
 at the offending import/export/declaration and relate the earlier participant.
+For conflicting exports, those locations are the later and earlier selectors,
+including when their public names match but their qualifiers differ. Same-spelled
+selectors in different namespaces retain distinct source locations.
 Messages render the authored spelling, such as `API::%%`, never the internal
 encoded operator binder. No new error-code family is needed.
 

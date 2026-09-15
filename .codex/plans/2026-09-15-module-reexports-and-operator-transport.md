@@ -121,6 +121,23 @@ collision identity. The original defining module has one final binding per
 public namespace/name; ordinary local aliases remain distinct declarations.
 Repeated paths to that same export are compatible. No renaming is introduced.
 
+Preserve every validated unqualified import selection in `ValidatedImportScope`
+by changing the existing per-name origin field to:
+
+```haskell
+importScopeNames :: Map NameNamespace (Map Text (NonEmpty BindingOrigin))
+```
+
+The existing `BindingOrigin` already carries the provider and import span.
+Append compatible origins in source order instead of overwriting one with
+`Map.union`. Adapt `importedNameOrigins` and its consumers to resolve those
+providers through the public-name maps; validation requires one original target
+per namespace/name. `dependencyImportViews` groups all retained origins by
+provider/span, preserving each import's selected inventory and relationships.
+Unqualified grouped exports merge the visible constructor subsets for that
+original type; qualified exports use only their alias's inventory. This replaces
+the lossy field without adding a parallel import-selection cache or record type.
+
 Extend the existing resolver's inventory cache to hold `ResolvedModuleFacts`
 by module path, projecting inventories/names/operators as needed. Do not add
 three new parallel caches. The existing resolved module sequence, DFS cycle
@@ -137,13 +154,18 @@ including class methods and constructor witness names. Build the typed public
 interface from local inference entries and selected dependency entries; copy
 original schemes/references without re-inference. Supporting private types and
 instances remain separate from selectable names. Keep the existing type
-reachability and runtime-cell publication functions.
+reachability traversal and runtime-cell publication functions.
 
 `publishModuleInterface` must use the selected public-name keys when checking
 availability. Its current `declaredInterfaceInventory` rebuilds type/class
 names with `renderName`; doing that to an imported `A::Box` would incorrectly
 drop a facade's public `Box` selector. Check that each selected name resolves to
 the original definition, rather than silently intersecting mismatched spellings.
+Use that same map to seed type reachability: take the original target of every
+selected `TypeNamespace` entry, then add the existing roots from public bindings
+and capability schemes. The current root filter also uses `renderName`; leaving
+it unchanged would discard an abstract re-export that no public value mentions.
+Keep traversal and hidden-constructor visibility unchanged.
 Constructor ownership and class-method sets remain keyed by the public names
 within each inventory; their nominal definitions retain original identities.
 
@@ -196,6 +218,15 @@ list to explicitly selected operators; it contains no built-ins. Existing
 standalone entrypoints use the default environment and project `fst`. Keep
 parser failures in the current detailed error path.
 
+Return the final `ParserContext` alongside statements from the existing
+statement-list and module-body callbacks. Both end-of-input and closing-brace
+paths must return it; the module branch of `parseStatementParser` must forward
+the body's context instead of restoring the incoming context. Expression-block
+callers project the statements and keep their enclosing context. The public
+entrypoint can then read the final table for wrapped and unwrapped sources.
+Mirror this tuple return in the hosted parser; no new result record or mutable
+parser state is needed.
+
 Operator declarations already pass through the parser: retain their fixity
 there, not in a second scanner. Reuse the existing `Text` operator payloads and
 lookup keys. A qualified spelling is the validated adjacent `Alias::%%` form;
@@ -211,11 +242,17 @@ and its existing resolved reference. Built-in mappings apply only to
 unqualified built-in spellings. Alias-qualified operators refer only to
 explicitly exported custom operators. Fixity never reaches checked expressions.
 
-Export selector constructors also already carry names as `Text`: extend their
-parser and one normalization/rendering boundary for qualified names and
-parenthesized operators. Preserve authored selector spelling for diagnostics;
-convert to the current encoded operator value key only at inventory lookup.
-Avoid a parallel selector hierarchy or expanding `NameNamespace`.
+Extend selector parsing and one normalization/rendering boundary for qualified
+names and parenthesized operators. Replace the ordinary selector's bare `Text`
+payload with the existing `LocatedModuleExportName`; grouped type selectors
+already retain their locations. Keep authored names and spans through lowering,
+and qualify them with `qualifyModuleExportSelectorSpans`. Duplicate syntax still
+compares rendered selector keys, not spans. Semantic export conflicts use the
+later selector as primary and the earlier selector as related; no token rescans
+or spelling-keyed span table is needed. Convert operator names to the current
+encoded value key only at inventory lookup. Mirror the added location in hosted
+selector constructors and comparison adapters. Avoid a parallel selector
+hierarchy or expanding `NameNamespace`.
 
 ### Alternatives considered
 
@@ -262,7 +299,8 @@ abbreviated test paths are relative to `test/Jazz/Compiler/`.
 `ModuleResolver.hs`, `ModuleResolver/Imports.hs`, `ModuleResolver/Names.hs`,
 `ModuleAnalysis.hs`, `TypeInference.hs`, `jazz.cabal` under their existing owners.
 Modify `Parser/ModuleDeclaration.hs` for qualified named selectors and
-`Parser/Lower.hs` for their spans. Tests belong in
+`ModuleExports.hs` / `Parser/Lower.hs` to retain and qualify selector spans.
+Tests belong in
 `test/Jazz/Compiler/Modules/ModuleExportsSpec.hs`, `ModuleResolutionSpec.hs`,
 `ModulePipelineContractSpec.hs`, and `Modules/Loader/VisibilityTests.hs` /
 `AliasClassTests.hs`. Paths without a prefix in this paragraph are under
@@ -284,6 +322,10 @@ the typed interface, plus the current inventories and binding references.
 - [ ] Resolve export selectors after imports and local declarations are known.
       Select by namespace; build inventory, targets, and relationship metadata in
       one operation. Coalesce identical targets and reject distinct collisions.
+- [ ] Replace the per-name `BindingOrigin` with `NonEmpty BindingOrigin` in the
+      existing import scope. Preserve every validated selection when deriving
+      dependency views; merge constructor visibility by original type identity
+      for unqualified selectors and retain separate alias views.
 - [ ] Replace immediate-provider nominal-name construction in `Names` and
       `importSelectedInterface` with target lookup. Keep provider spans for errors.
       Include re-export selectors in external-use accounting so an exported value
@@ -292,7 +334,18 @@ the typed interface, plus the current inventories and binding references.
       dependency entries. Keep original schemes/references, reachable private type
       definitions, class defaults, and transitive implementations. Reuse the existing
       defining-declaration reference map; do not insert facade-owned references.
-- [ ] Cover abstract `Box`, selected visible constructors, private constructor
+- [ ] Seed type reachability from original targets of selected public type
+      names. Re-export only abstract `Box(a)` through a facade, with no exported
+      values, constructors, or instances referencing it. A consumer signature
+      using `API::Box(Int)` must check, and the typed interface must retain the
+      original definition and parameter kind while keeping constructors hidden.
+- [ ] Retain ordinary selector locations using `LocatedModuleExportName` and
+      qualify them during lowering. Test `value Left::answer` versus
+      `value Right::answer` selecting distinct declarations: `E4015` points to
+      the later selector and relates the earlier one. Pair valid
+      `value Left::answer` with unavailable `type Left::answer` and verify the
+      error points to the type selector.
+- [ ] Cover selected visible constructors, private constructor
       rejection, method-only exports, empty facades carrying instances, and same-text
       names across namespaces. Expected invalid selectors use `E4015` and point to
       the selector. Do not expose hidden metadata as public names.
@@ -303,7 +356,8 @@ the typed interface, plus the current inventories and binding references.
 
 **Files:** modify existing compiler files
 `Parser.hs`, `Parser/ModuleDeclaration.hs`, `Parser/Declaration.hs`,
-`Parser/Context.hs`, `Parser/Operator.hs`, `ModuleResolver.hs`, and `jazz.cabal`.
+`Parser/Context.hs`, `Parser/Expression.hs`, `Parser/Operator.hs`,
+`ModuleResolver.hs`, and `jazz.cabal`.
 Tests: existing `ModuleImportParserSpec.hs`, `OperatorFixitySpec.hs`,
 `ModuleResolutionSpec.hs`, and `Modules/Loader/DiagnosticsTests.hs`.
 
@@ -326,6 +380,10 @@ Existing entrypoints project the surface tree using the default environment.
       The module-body context in `parseStatementParser` must inherit this supplied
       table instead of resetting it to built-ins. Nested expression blocks inherit
       lookup visibility but still reject operator declarations.
+- [ ] Return the final context through statement-list and module-body callbacks;
+      expression-block callers project statements. Verify wrapped and unwrapped
+      sources return their authored fixities, exclude supplied imported fixities,
+      and retain declarations after a nested expression block.
 - [ ] Change `visitModule` to the discovery/dependency/body order above. Keep
       sorted DFS and cycle diagnostics. Use common selection helpers for parse-time
       operator imports and later body-dependent visibility checks.
@@ -404,10 +462,13 @@ facts, and ordinary resolved function calls in every notation.
 grammar. Haskell still supplies module graph discovery and semantic compilation.
 
 - [ ] Extend hosted selector/operator spelling parsing and comparison adapters in
-      the same commit, reusing current value constructors. Add an entrypoint accepting imported operator metadata while
+      the same commit, extending existing selector constructors with the retained
+      locations. Add an entrypoint accepting imported operator metadata while
       preserving the current default-environment entrypoint.
 - [ ] Mirror qualified uses, selector parsing, retained local fixities, and
-      lowering with original spans. Include the RFC example's consumer body with
+      lowering with original spans. Forward the final module-body context as in
+      Task 2, and compare returned local fixities for wrapped and unwrapped sources.
+      Include the RFC example's consumer body with
       the same supplied `%%` precedence in both parsers.
 - [ ] Compare complete accepted values and rejected diagnostics for qualified
       selectors, unknown aliases/operators, invalid constructor groups, duplicate
@@ -435,6 +496,10 @@ add `examples/modules/src/Example/OperatorLibrary.jz`, `OperatorAPI.jz`, and
       import order. Values, constructors, class methods, defaults, and operators
       must resolve to the original identities. Distinct same-spelled definitions
       fail deterministically. Include a facade-cycle rejection.
+- [ ] Extend the diamond fixture with A exposing `T(C1, C2)` and B exposing
+      the same `T(C1)`. A consumer importing both and exporting `type T(..)`
+      must retain both constructors in either import order. An alias-qualified
+      export through B must retain only `C1`, including when A is also imported.
 - [ ] Test a facade exposing only an operator whose function uses private
       helpers, nominal types, and capability evidence. Its dependency must be
       retained without exposing those helper names. Keep dependencies' top-level
