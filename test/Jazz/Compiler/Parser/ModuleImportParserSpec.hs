@@ -1068,12 +1068,13 @@ normalizeStatement :: SurfaceStatement -> SurfaceStatement
 normalizeStatement statement =
   case statement of
     SSLet name statementSpan body -> SSLet name statementSpan (normalizeSurfaceExpr body)
-    SSImpl statementSpan className arguments methods ->
+    SSImpl statementSpan className arguments methods prerequisites ->
       SSImpl
         statementSpan
         className
         arguments
         [SurfaceImplMethod name methodSpan (normalizeSurfaceExpr body) | SurfaceImplMethod name methodSpan body <- methods]
+        prerequisites
     SSExpr statementSpan body -> SSExpr statementSpan (normalizeSurfaceExpr body)
     other -> other
 

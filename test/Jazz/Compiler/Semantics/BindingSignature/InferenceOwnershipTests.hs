@@ -8,7 +8,6 @@ module Jazz.Compiler.Semantics.BindingSignature.InferenceOwnershipTests
   )
 where
 
-import Data.List.NonEmpty (NonEmpty (..))
 import qualified Data.Map.Strict as Map
 import qualified Data.Sequence as Seq
 import qualified Data.Set as Set
@@ -22,7 +21,6 @@ import Jazz.Compiler.AST
 import Jazz.Compiler.CoreIdentity (CapabilityId (..), ResolvedReference (UnresolvedReference))
 import Jazz.Compiler.DiagnosticCatalog (ErrorCode (E2009))
 import Jazz.Compiler.Diagnostics (DiagnosticOrigin (CompilationOrigin), mkErrorDiagnostic)
-import Jazz.Compiler.ModuleIdentity (mkModulePath)
 import Jazz.Compiler.Name
   ( NameNamespace (CapabilityNamespace, TypeNamespace, ValueNamespace),
     ResolvedName,
@@ -35,15 +33,8 @@ import Jazz.Compiler.RecursiveBindings
   )
 import Jazz.Compiler.Semantics.BindingSignature.Shared (resolvedProgram)
 import Jazz.Compiler.TypeInference (CheckedExpr (..))
-import Jazz.Compiler.TypeInference.Capabilities
-  ( typeSchemeReferencedCapabilityFacts,
-  )
 import Jazz.Compiler.TypeInference.Diagnostics (addTypeError)
 import Jazz.Compiler.TypeInference.ImplChecking (checkImplMethodBodies)
-import Jazz.Compiler.TypeInference.Operator
-  ( builtinSectionOperatorSymbol,
-    hasOperatorRule,
-  )
 import qualified Jazz.Compiler.TypeInference.Scope as TypeInferenceScope
 import Jazz.Compiler.TypeInference.Signature
   ( SignaturePayloadType (..),
@@ -65,10 +56,8 @@ import Jazz.Compiler.TypeInference.State
     DeferredExplicitConstraint (..),
     InferState (..),
     InferenceOutput (..),
-    ModuleInferenceState (..),
     SolverState (..),
     inferClassFacts,
-    inferCurrentModulePath,
     inferDeferredExplicitConstraintCount,
     inferDeferredExplicitConstraints,
     inferErrorCount,
@@ -80,7 +69,6 @@ import Jazz.Compiler.TypeInference.State
     initialInferState,
     modifyDeclarationState,
     modifyInferenceOutput,
-    modifyModuleInferenceState,
   )
 import Jazz.Compiler.TypeInference.Traversal
   ( InferExprWithModeFn,
@@ -96,20 +84,24 @@ import Jazz.Compiler.TypeInference.TypeOps
     replaceTypeVariables,
   )
 import Jazz.Compiler.TypeInference.Types
-  ( ClassMethodType (..),
+  ( ClassDefinition (..),
+    ClassMethodType (..),
     ExpressionType,
     NumericConstraint (..),
     SchemeConstraint (..),
     SchemePrimitiveConstraint (..),
     ScopeCapabilityFacts (..),
     SemanticBinding (..),
+    SemanticScheme (..),
     SemanticType (..),
     TypeEnvKey (..),
     emptyScopeCapabilityFacts,
+    quantifiedVariablesFromPreferred,
     typeEnvReferenceKey,
   )
 import Jazz.Compiler.TypeRepresentation
   ( InferenceVariable,
+    Kind (..),
     pattern SignatureConstraint,
     pattern SignatureType,
     pattern TypeBool,
@@ -136,7 +128,6 @@ inferenceOwnershipTests =
     ("unification path-compresses traversed substitution chains", testUnificationPathCompressesSubstitutionChains),
     ("solver preserves occurs, rigid, and numeric constraints", testSolverPreservesBindingConstraints),
     ("scheme constraint deduplication preserves last-occurrence order", testSchemeConstraintDeduplicationOrder),
-    ("empty scheme constraints do not traverse capability facts", testEmptySchemeConstraintsSkipCapabilityFacts),
     ("type operations collect recursive free variables", testTypeOpsCollectRecursiveFreeVariables),
     ("type operations collect constraint free variables", testTypeOpsCollectConstraintFreeVariables),
     ("type operations replace recursive type variables", testTypeOpsReplaceRecursiveTypeVariables),
@@ -149,45 +140,40 @@ inferenceOwnershipTests =
     ("recursive previews refresh after semantic solver changes", testRecursivePreviewRefreshesAfterSolverChange),
     ("recursive previews refresh after numeric-constraint changes", testRecursivePreviewRefreshesAfterNumericConstraintChange),
     ("recursive previews refresh after strict-equality-constraint changes", testRecursivePreviewRefreshesAfterStrictEqualityConstraintChange),
-    ("recursive previews are reused at an unchanged group frontier", testRecursivePreviewReuseAtSameFrontier),
-    ("operator rule presence remains distinct from section support", testOperatorRulePresenceAndSectionSupport)
+    ("recursive previews are reused at an unchanged group frontier", testRecursivePreviewReuseAtSameFrontier)
   ]
 
 testDuplicateConstraintsReportFirstRepeatedName :: IO ()
 testDuplicateConstraintsReportFirstRepeatedName =
   assertEqual
     "first duplicate"
-    (Just "Eq")
+    (Just "Equatable")
     ( duplicateConstraintName
-        [ SignatureConstraint (capabilityName "Eq") [TypeInt],
-          SignatureConstraint (capabilityName "Ord") [TypeInt],
-          SignatureConstraint (capabilityName "Eq") [TypeBool],
-          SignatureConstraint (capabilityName "Ord") [TypeBool]
+        [ SignatureConstraint (capabilityName "Equatable") [TypeInt],
+          SignatureConstraint (capabilityName "Comparable") [TypeInt],
+          SignatureConstraint (capabilityName "Equatable") [TypeInt],
+          SignatureConstraint (capabilityName "Comparable") [TypeBool]
         ]
     )
 
 testStateRecordModifiers :: IO ()
 testStateRecordModifiers = do
-  assertEqual "declaration update" (Map.singleton (CapabilityId (capabilityName "Eq")) 1) (inferClassFacts updatedState)
-  assertEqual "module update" (Just (mkModulePath (mkIdentifier "App" :| [mkIdentifier "Main"]))) (inferCurrentModulePath updatedState)
+  assertEqual "declaration update" (Map.singleton (CapabilityId (capabilityName "Equatable")) (ClassDefinition TypeKind [] Set.empty)) (inferClassFacts updatedState)
   assertEqual "output update" 3 (inferErrorCount updatedState)
   where
     updatedState =
       modifyInferenceOutput
         (\output -> output {outputErrorCount = 3})
-        ( modifyModuleInferenceState
-            (\moduleState -> moduleState {inferenceModulePath = Just (mkModulePath (mkIdentifier "App" :| [mkIdentifier "Main"]))})
-            ( modifyDeclarationState
-                ( \declarations ->
-                    declarations
-                      { declarationCapabilities =
-                          (declarationCapabilities declarations)
-                            { scopeClassFacts = Map.singleton (CapabilityId (capabilityName "Eq")) 1
-                            }
-                      }
-                )
-                initialInferState
+        ( modifyDeclarationState
+            ( \declarations ->
+                declarations
+                  { declarationCapabilities =
+                      (declarationCapabilities declarations)
+                        { scopeClassFacts = Map.singleton (CapabilityId (capabilityName "Equatable")) (ClassDefinition TypeKind [] Set.empty)
+                        }
+                  }
             )
+            initialInferState
         )
 
 testInferenceOutputConstraintCursors :: IO ()
@@ -219,9 +205,9 @@ testInferenceOutputConstraintCursors = do
               }
         )
         initialInferState
-    firstDeferred = deferredConstraint "Eq" SemanticInt
+    firstDeferred = deferredConstraint "Equatable" SemanticInt
     secondDeferred = deferredConstraint "Show" SemanticText
-    firstInferred = TypeSchemeInferredConstraint (CapabilityId (capabilityName "Eq")) SemanticInt
+    firstInferred = TypeSchemeConstraint (CapabilityId (capabilityName "Equatable")) SemanticInt
     secondInferred = TypeSchemeMethodConstraint (CapabilityId (capabilityName "Show")) (CapabilityId (capabilityName "Show"), mkIdentifier "show") SemanticText
 
 deferredConstraint :: Text -> ExpressionType -> DeferredExplicitConstraint
@@ -229,10 +215,8 @@ deferredConstraint constraintName argumentType =
   DeferredExplicitConstraint
     { deferredConstraintName = CapabilityId (capabilityName constraintName),
       deferredMethodKey = Nothing,
-      deferredWasInferred = False,
       deferredArgumentType = argumentType,
-      deferredVisibleFacts = emptyFacts,
-      deferredStructuralFacts = emptyFacts
+      deferredVisibleFacts = emptyFacts
     }
   where
     emptyFacts :: ScopeCapabilityFacts
@@ -245,15 +229,8 @@ testSchemeConstraintDeduplicationOrder =
     [middleConstraint, repeatedConstraint]
     (dedupeTypeSchemeConstraints [repeatedConstraint, middleConstraint, repeatedConstraint])
   where
-    repeatedConstraint = TypeSchemeConstraint (CapabilityId (capabilityName "Eq")) (SemanticVariable 0)
-    middleConstraint = TypeSchemeInferredConstraint (CapabilityId (capabilityName "Ord")) (SemanticVariable 1)
-
-testEmptySchemeConstraintsSkipCapabilityFacts :: IO ()
-testEmptySchemeConstraintsSkipCapabilityFacts =
-  assertEqual
-    "empty constraints own no capability facts"
-    emptyScopeCapabilityFacts
-    (typeSchemeReferencedCapabilityFacts [] (error "empty constraints forced capability facts"))
+    repeatedConstraint = TypeSchemeConstraint (CapabilityId (capabilityName "Equatable")) (SemanticVariable 0)
+    middleConstraint = TypeSchemeConstraint (CapabilityId (capabilityName "Comparable")) (SemanticVariable 1)
 
 testTypeOpsCollectRecursiveFreeVariables :: IO ()
 testTypeOpsCollectRecursiveFreeVariables =
@@ -358,7 +335,7 @@ testTypeOpsCollectConstraintFreeVariables = do
     "class constraint free variables"
     (Set.fromList [1, 2])
     ( freeTypeVariablesInTypeSchemeConstraints
-        [ TypeSchemeConstraint (CapabilityId (capabilityName "Eq")) (SemanticList (SemanticVariable 1)),
+        [ TypeSchemeConstraint (CapabilityId (capabilityName "Equatable")) (SemanticList (SemanticVariable 1)),
           TypeSchemeMethodConstraint (CapabilityId (capabilityName "Show")) (CapabilityId (capabilityName "Show"), mkIdentifier "show") (SemanticVariable 2)
         ]
     )
@@ -681,32 +658,19 @@ inferenceOnlyResult mode expressionType state =
     InferConcreteFunctions ->
       error "expected inference-only callback invocation"
 
-testOperatorRulePresenceAndSectionSupport :: IO ()
-testOperatorRulePresenceAndSectionSupport = do
-  mapM_
-    (assertEqual "operator rule" True . hasOperatorRule)
-    ["+", "-", "*", "/", "<", "<=", ">", ">=", "==", "!=", "$"]
-  mapM_ (assertEqual "missing operator rule" False . hasOperatorRule) ["|", "%%"]
-  mapM_
-    (assertEqual "section support" True . builtinSectionOperatorSymbol)
-    ["+", "-", "*", "/", "<", "<=", ">", ">=", "==", "!="]
-  mapM_
-    (assertEqual "unsupported section" False . builtinSectionOperatorSymbol)
-    ["$", "|", "%%"]
-
 -- The first tuple unification would bind a variable before failing on Bool.
 -- The next body must still see that variable unbound, while retaining the
 -- first diagnostic and method result in source order.
 testImplChecksPreserveRollback :: IO ()
 testImplChecksPreserveRollback = do
   let (variable, allocated) = freshTypeVar initialInferState
-      signature = ClassMethodType "a" (SemanticTuple [SemanticInt, SemanticInt])
+      signature = ClassMethodScheme "a" (SemanticScheme (quantifiedVariablesFromPreferred ["a"] (Set.singleton "a")) [] [] (SemanticTuple [SemanticInt, SemanticInt]))
       inferBody _ current expected expression =
         case expression of
           ELit _ _ -> ((Just (SemanticTuple [variable, SemanticBool]), resolveType current variable), current)
           _ -> ((Just expected, resolveType current variable), current)
   case resolvedProgram "class Probe(a) { first :: (Int, Int). second :: (Int, Int). }. impl Probe(Int) { first = 0. second = (1, 2). }." of
-    EBlock _ [SClass {}, SImpl _ capability _ methods] -> do
+    EBlock _ [SClass {}, SImpl _ capability _ methods _] -> do
       let initialState =
             modifyDeclarationState
               ( \declarations ->
@@ -718,9 +682,10 @@ testImplChecksPreserveRollback = do
                     }
               )
               allocated
-          (finalState, results) = checkImplMethodBodies inferBody fst Map.empty initialState capability [SemanticInt] methods
+          targetScheme = SemanticScheme (quantifiedVariablesFromPreferred [] Set.empty) [] [] SemanticInt
+          (finalState, results) = checkImplMethodBodies inferBody fst Map.empty initialState (CapabilityId capability) targetScheme methods
       assertEqual "both bodies checked in source order" [0, 1] (map fst results)
-      assertEqual "failed tuple unification did not leak into next body" [variable, variable] (map (snd . snd) results)
+      assertEqual "failed tuple unification did not leak into next body" [variable, variable] (map (snd . snd . snd) results)
       assertEqual "one mismatch survives the successful subsequent body" 1 (inferErrorCount finalState)
       assertEqual "failed substitutions remain absent at completion" variable (resolveType finalState variable)
     _ -> failTest "expected resolved impl fixture"

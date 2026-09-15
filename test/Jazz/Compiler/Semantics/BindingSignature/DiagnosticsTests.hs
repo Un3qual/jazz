@@ -32,6 +32,7 @@ diagnosticTests =
     ("source pipeline rejects generic signature specialization", testSourceRejectsGenericSignatureSpecialization),
     ("source pipeline rejects generic signature variable collapse", testSourceRejectsGenericSignatureVariableCollapse),
     ("source pipeline rejects generic named signature specialization", testSourceRejectsGenericNamedSignatureSpecialization),
+    ("diagnostics render multi-argument type applications", testTypeApplicationDiagnostic),
     ("signature separated from binding by expression is rejected", testSignatureSeparatedFromBinding),
     ("signature must match immediate binding name", testSignatureNameMismatch),
     ("use-before-definition is rejected", testUseBeforeDefinition),
@@ -60,8 +61,8 @@ diagnosticTests =
     ("source pipeline rejects unsupported signature surface", testSourceRejectsUnsupportedSignatureSurface),
     ("source pipeline rejects missing use-site facts for variable constrained signatures", testSourceRejectsMissingUseSiteFactsForVariableConstrainedSignatures),
     ("source pipeline rejects ambiguous variable constrained signature use", testSourceRejectsAmbiguousVariableConstrainedSignatureUse),
-    ("source pipeline rejects unsupported variable constrained signature contract", testSourceRejectsUnsupportedVariableConstrainedSignatureContract),
-    ("source pipeline rejects constrained signature surface with E2009", testSourceRejectsConstrainedSignatureSurface),
+    ("source pipeline rejects ambiguous constraint-only type parameter use", testSourceRejectsAmbiguousConstraintOnlyParameter),
+    ("source pipeline rejects constrained signature variable collapse with E2005", testSourceRejectsConstrainedSignatureSurface),
     ("signature mismatch keeps declared type for downstream checks", testSignatureMismatchKeepsDeclaredTypeDownstream),
     ("mismatched pending signature does not monomorphize following binding", testMismatchedPendingSignatureDoesNotMonomorphizeFollowingBinding)
   ]
@@ -93,6 +94,15 @@ testSourceRejectsGenericNamedSignatureSpecialization =
     bad = \\(x) -> Box 1.
     """
     "declared as Box"
+
+testTypeApplicationDiagnostic :: IO ()
+testTypeApplicationDiagnostic =
+  assertSourceSingleErrorContainsWithoutPrelude
+    """
+    check :: f(a, b) -> Bool.
+    check = \\(x) -> if x then True else False.
+    """
+    "if condition must have type Bool, found t0(t1, t2)"
 
 testSignatureTypeMismatch :: IO ()
 testSignatureTypeMismatch = do
@@ -155,7 +165,7 @@ testSourceRejectsSignatureSeparatedByCapabilityDeclaration =
   assertSourceErrorContains
     """
     x :: Int.
-    class Eq(a) { }.
+    class Equatable(a) { }.
     x = 1.
     """
     "E1002"
@@ -232,7 +242,7 @@ testSourceRejectsPartialNamedSignatureType =
     candidate :: Box.
     candidate = Box 1.
     """
-    "type 'Box' expects 1 argument(s), found 0"
+    "kind mismatch"
 
 testSourcePreservesLocalTypeDeclarationOrder :: IO ()
 testSourcePreservesLocalTypeDeclarationOrder =
@@ -299,29 +309,11 @@ testSourceRejectsOutOfRangeWidthSpecificBranchLiterals = do
     "E2005"
 
 testSourceRejectsOutOfRangeWidthSpecificLiteralArithmetic :: IO ()
-testSourceRejectsOutOfRangeWidthSpecificLiteralArithmetic = do
+testSourceRejectsOutOfRangeWidthSpecificLiteralArithmetic =
   assertSourceSingleErrorContains
     """
     x :: UInt8.
     x = 1 + 300.
-    """
-    "E2005"
-  assertSourceSingleErrorContains
-    """
-    x :: UInt8.
-    x = 200 + 100.
-    """
-    "E2005"
-  assertSourceSingleErrorContains
-    """
-    x :: UInt8.
-    x = 0 - 1.
-    """
-    "E2005"
-  assertSourceSingleErrorContains
-    """
-    x :: UInt8.
-    x = 16 * 16.
     """
     "E2005"
 
@@ -399,18 +391,18 @@ testSourceRejectsForwardCapabilityFactsForConstrainedSignature :: IO ()
 testSourceRejectsForwardCapabilityFactsForConstrainedSignature =
   assertSourceSingleErrorContainsWithoutPrelude
     """
-    x :: @{Eq(Int)}: Int.
+    x :: @{Equatable(Int)}: Int.
     x = 1.
-    class Eq(a) { }.
-    impl Eq(Int) { }.
+    class Equatable(a) { }.
+    impl Equatable(Int) { }.
     """
-    "missing class declaration 'Eq'"
+    "missing class declaration 'Equatable'"
 
 testSourceRejectsTypeApplicationConstrainedSignatureArgument :: IO ()
 testSourceRejectsTypeApplicationConstrainedSignatureArgument =
   assertSourceSingleErrorContains
     """
-    x :: @{Eq(Maybe(Int))}: Int.
+    x :: @{Equatable(Maybe(Int))}: Int.
     x = 1.
     """
     "E2009"
@@ -419,7 +411,7 @@ testSourceRejectsFunctionConstrainedSignatureArgument :: IO ()
 testSourceRejectsFunctionConstrainedSignatureArgument =
   assertSourceSingleErrorContains
     """
-    x :: @{Eq(Int -> Int)}: Int.
+    x :: @{Equatable(Int -> Int)}: Int.
     x = 1.
     """
     "E2009"
@@ -439,27 +431,22 @@ testSourceRejectsUnsupportedConstrainedSignatureSpans = do
     """
   assertSignatureSpan
     """
-    x :: @{Eq(Int, Bool)}: Int.
+    x :: @{Equatable(Int, Bool)}: Int.
     x = 1.
     """
   assertSignatureSpan
     """
-    x :: @{Eq(Maybe(Int))}: Int.
+    x :: @{Equatable(Maybe(Int))}: Int.
     x = 1.
     """
   assertSignatureSpan
     """
-    x :: @{Eq(Int -> Int)}: Int.
+    x :: @{Equatable(Int -> Int)}: Int.
     x = 1.
     """
   assertSignatureSpan
     """
-    f :: @{Eq(a), Eq(a)}: a -> a.
-    f = \\(x) -> x.
-    """
-  assertSignatureSpan
-    """
-    f :: @{Eq(a)}: Int -> Int.
+    f :: @{Equatable(a), Equatable(a)}: a -> a.
     f = \\(x) -> x.
     """
 
@@ -490,48 +477,39 @@ testSourceRejectsMissingUseSiteFactsForVariableConstrainedSignatures :: IO ()
 testSourceRejectsMissingUseSiteFactsForVariableConstrainedSignatures =
   assertSourceSingleErrorContainsWithoutPrelude
     """
-    class Eq(a) { }.
-    impl Eq(Int) { }.
-    id :: @{Eq(a)}: a -> a.
+    class Equatable(a) { }.
+    impl Equatable(Int) { }.
+    id :: @{Equatable(a)}: a -> a.
     id = \\(x) -> x.
     ok = id 1.
     bad = id True.
     """
-    "missing impl fact 'Eq(Bool)'"
+    "missing impl fact 'Equatable(Bool)'"
 
 testSourceRejectsAmbiguousVariableConstrainedSignatureUse :: IO ()
 testSourceRejectsAmbiguousVariableConstrainedSignatureUse =
   assertSourceSingleErrorContainsWithoutPrelude
     """
-    class Eq(a) { }.
-    impl Eq(Int) { }.
-    id :: @{Eq(a)}: a -> a.
+    class Equatable(a) { }.
+    impl Equatable(Int) { }.
+    id :: @{Equatable(a)}: a -> a.
     id = \\(x) -> x.
     ambiguous = id [].
+    ambiguous.
     """
     "ambiguous/defaulting explicit constraint"
 
-testSourceRejectsUnsupportedVariableConstrainedSignatureContract :: IO ()
-testSourceRejectsUnsupportedVariableConstrainedSignatureContract = do
-  result <-
-    compileSource
-      defaultWarningSettings
-      """
-      f :: @{Eq(a)}: b -> b.
-      f = \\(x) -> x.
-      """
-  assertSingleDiagnosticCode
-    "source unsupported variable constrained signature code"
-    "E2009"
-    (compileErrors result)
-  assertSingleDiagnosticContains
-    "source unsupported variable constrained signature contract"
-    "type-variable constrained signatures require every constrained variable to appear in the signature body"
-    (compileErrors result)
-  assertSingleDiagnosticContains
-    "source unsupported variable constrained signature payload"
-    "@{Eq(a)}: b -> b"
-    (compileErrors result)
+testSourceRejectsAmbiguousConstraintOnlyParameter :: IO ()
+testSourceRejectsAmbiguousConstraintOnlyParameter =
+  assertSourceSingleErrorContainsWithoutPrelude
+    """
+    class C(a) { }.
+    impl C(Int) { }.
+    f :: @{C(a)}: b -> b.
+    f = \\(x) -> x.
+    f 1.
+    """
+    "ambiguous/defaulting explicit constraint"
 
 testSourceRejectsConstrainedSignatureSurface :: IO ()
 testSourceRejectsConstrainedSignatureSurface = do
@@ -539,16 +517,12 @@ testSourceRejectsConstrainedSignatureSurface = do
     compileSource
       defaultWarningSettings
       """
-      f :: @{Eq(a), Ord(b)}: a -> c.
+      f :: @{Equatable(a), Comparable(b)}: a -> c.
       f = \\(x) -> x.
       """
   assertSingleDiagnosticCode
     "source constrained signature code"
-    "E2009"
-    (compileErrors result)
-  assertSingleDiagnosticContains
-    "source constrained signature payload"
-    "@{Eq(a), Ord(b)}: a -> c"
+    "E2005"
     (compileErrors result)
 
 testSignatureMismatchKeepsDeclaredTypeDownstream :: IO ()

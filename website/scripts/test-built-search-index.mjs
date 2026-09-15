@@ -45,7 +45,7 @@ test('production Pagefind index includes document content and excludes Docusauru
   try {
     const pagefind = await import(`${pathToFileURL(modulePath).href}?scope-test`);
     index = pagefind.createInstance({basePath: `${origin}/pagefind/`});
-    const documentResults = await index.search('maybeMap');
+    const documentResults = await index.search('map');
     const shellResults = await index.search('Skip to main content');
 
     assert.ok(documentResults.results.length > 0, 'document content was not indexed');

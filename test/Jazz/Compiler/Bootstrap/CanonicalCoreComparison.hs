@@ -294,18 +294,25 @@ coreStatementRuntimeValue statement =
         <*> coreNameRuntimeValue name
         <*> listRuntimeValue coreNameRuntimeValue parameters
         <*> listRuntimeValue coreDataConstructorRuntimeValue constructors
-    SClass node name parameters methods ->
-      constructor4 "CoreClassStatement"
-        <$> coreSpanRuntimeValue (coreNodeSpan node)
-        <*> coreNameRuntimeValue name
-        <*> listRuntimeValue coreNameRuntimeValue parameters
-        <*> listRuntimeValue coreClassMethodRuntimeValue methods
-    SImpl node name arguments methods ->
-      constructor4 "CoreImplStatement"
-        <$> coreSpanRuntimeValue (coreNodeSpan node)
-        <*> coreNameRuntimeValue name
-        <*> listRuntimeValue coreSignatureTypeRuntimeValue arguments
-        <*> listRuntimeValue coreImplMethodRuntimeValue methods
+    SClass node name parameters methods prerequisites defaults ->
+      canonicalConstructor "CoreClassStatement"
+        <$> sequence
+          [ coreSpanRuntimeValue (coreNodeSpan node),
+            coreNameRuntimeValue name,
+            listRuntimeValue coreNameRuntimeValue parameters,
+            listRuntimeValue coreClassMethodRuntimeValue methods,
+            listRuntimeValue coreSignatureConstraintRuntimeValue prerequisites,
+            listRuntimeValue coreImplMethodRuntimeValue defaults
+          ]
+    SImpl node name arguments methods prerequisites ->
+      canonicalConstructor "CoreImplStatement"
+        <$> sequence
+          [ coreSpanRuntimeValue (coreNodeSpan node),
+            coreNameRuntimeValue name,
+            listRuntimeValue coreSignatureTypeRuntimeValue arguments,
+            listRuntimeValue coreImplMethodRuntimeValue methods,
+            listRuntimeValue coreSignatureConstraintRuntimeValue prerequisites
+          ]
     SModule node path ->
       constructor2 "CoreModuleStatement"
         <$> coreSpanRuntimeValue (coreNodeSpan node)

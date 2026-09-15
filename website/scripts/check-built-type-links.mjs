@@ -210,8 +210,11 @@ const builtins = new Set([
   'Float64',
 ]);
 const capabilities = new Set([
-  'Eq',
-  'Ord',
+  'Equatable',
+  'Comparable',
+  'Mappable',
+  'Reducible',
+  'Combinable',
   'Num',
   'Integral',
   'Fractional',

@@ -1,10 +1,10 @@
 module Main {
-  import List.
-  import Queue.
+  import List as List.
+  import Queue as Queue.
   import Traversal.
 
-  original = queueSingleton 1.
+  original = Queue::singleton 1.
   visited = breadthFirst 1.
-  (visited, queueToList original, listLength visited,
-   listFoldLeft (\(total, item) -> total + item) 0 visited).
+  (visited, Queue::toList original, List::length visited,
+   List::foldLeft (\(total, item) -> total + item) 0 visited).
 }

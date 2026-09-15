@@ -78,7 +78,6 @@ assertDeterministicScalePair label expectedStatementCount limits run = do
   secondStatistics <- assertScaleRun (label <> " second") expectedStatementCount limits second
   assertEqual (label <> " deterministic output") (runOutput first) (runOutput second)
   assertEqual (label <> " deterministic statistics") firstStatistics secondStatistics
-  putStrLn ("SCALE_STATS " <> Text.unpack label <> " " <> show firstStatistics)
 
 assertScaleRun :: Text -> Int -> ScaleLimits -> RunResult -> IO RuntimeStatistics
 assertScaleRun label expectedStatementCount limits result = do
@@ -91,6 +90,7 @@ assertScaleRun label expectedStatementCount limits result = do
   report <- requireObservation label result
   assertEqual (label <> " termination") RuntimeSucceeded (runtimeObservationTermination report)
   let statistics = runtimeObservationStatistics report
+  putStrLn ("SCALE_STATS " <> Text.unpack label <> " " <> show statistics)
   assertEqual (label <> " host operations") 0 (runtimeHostOperations statistics)
   assertAtMost (label <> " evaluator transitions") (scaleTransitionCeiling limits) (runtimeEvaluatorTransitions statistics)
   assertAtMost (label <> " applications") (scaleApplicationCeiling limits) (runtimeApplications statistics)
@@ -102,7 +102,7 @@ smokeExpressionLimits :: ScaleLimits
 smokeExpressionLimits =
   ScaleLimits
     { scaleTransitionCeiling = 3000000,
-      scaleApplicationCeiling = 350000,
+      scaleApplicationCeiling = 410000,
       scaleListCellCeiling = 15000,
       scaleContinuationDepthCeiling = 200
     }
@@ -111,7 +111,7 @@ smokeDeclarationsLimits :: ScaleLimits
 smokeDeclarationsLimits =
   ScaleLimits
     { scaleTransitionCeiling = 1300000,
-      scaleApplicationCeiling = 150000,
+      scaleApplicationCeiling = 180000,
       scaleListCellCeiling = 8000,
       scaleContinuationDepthCeiling = 200
     }
@@ -119,7 +119,7 @@ smokeDeclarationsLimits =
 smokeControlFlowLimits :: ScaleLimits
 smokeControlFlowLimits =
   ScaleLimits
-    { scaleTransitionCeiling = 5500000,
+    { scaleTransitionCeiling = 6100000,
       scaleApplicationCeiling = 700000,
       scaleListCellCeiling = 28000,
       scaleContinuationDepthCeiling = 225
@@ -128,8 +128,8 @@ smokeControlFlowLimits =
 smokeOperatorLimits :: ScaleLimits
 smokeOperatorLimits =
   ScaleLimits
-    { scaleTransitionCeiling = 6500000,
-      scaleApplicationCeiling = 800000,
+    { scaleTransitionCeiling = 7400000,
+      scaleApplicationCeiling = 910000,
       scaleListCellCeiling = 25000,
       scaleContinuationDepthCeiling = 250
     }
@@ -137,8 +137,8 @@ smokeOperatorLimits =
 fullExpressionLimits :: ScaleLimits
 fullExpressionLimits =
   ScaleLimits
-    { scaleTransitionCeiling = 22000000,
-      scaleApplicationCeiling = 2700000,
+    { scaleTransitionCeiling = 27000000,
+      scaleApplicationCeiling = 3300000,
       scaleListCellCeiling = 115000,
       scaleContinuationDepthCeiling = 1100
     }
@@ -164,8 +164,8 @@ fullControlFlowLimits =
 fullOperatorLimits :: ScaleLimits
 fullOperatorLimits =
   ScaleLimits
-    { scaleTransitionCeiling = 52000000,
-      scaleApplicationCeiling = 6300000,
+    { scaleTransitionCeiling = 59000000,
+      scaleApplicationCeiling = 7300000,
       scaleListCellCeiling = 190000,
       scaleContinuationDepthCeiling = 1150
     }

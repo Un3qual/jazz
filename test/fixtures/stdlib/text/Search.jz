@@ -1,10 +1,10 @@
 module Stdlib::Text::Search {
-  import Text.
+  import Text as Text.
 
-  (textStartsWith "🙂é" "🙂é🙂", textStartsWith "" "Jazz", textStartsWith "é" "🙂é",
-   textEndsWith "é🙂" "🙂é🙂", textEndsWith "" "Jazz", textEndsWith "🙂é" "🙂é🙂",
-   textContains "é🙂" "🙂é🙂", textContains "z" "🙂é🙂",
-   textFind "é🙂" "🙂é🙂", textFind "" "Jazz", textFind "z" "🙂é🙂",
-   textReplaceAll "aa" "b" "aaaaa", textReplaceAll "" "x" "unchanged",
-   textReplaceAll "é" "x" "🙂é🙂é").
+  (Text::startsWith "🙂é" "🙂é🙂", Text::startsWith "" "Jazz", Text::startsWith "é" "🙂é",
+   Text::endsWith "é🙂" "🙂é🙂", Text::endsWith "" "Jazz", Text::endsWith "🙂é" "🙂é🙂",
+   Text::contains "é🙂" "🙂é🙂", Text::contains "z" "🙂é🙂",
+   Text::find "é🙂" "🙂é🙂", Text::find "" "Jazz", Text::find "z" "🙂é🙂",
+   Text::replaceAll "aa" "b" "aaaaa", Text::replaceAll "" "x" "unchanged",
+   Text::replaceAll "é" "x" "🙂é🙂é").
 }

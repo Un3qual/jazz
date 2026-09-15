@@ -67,7 +67,8 @@ module ParserToken (
     PunctuationKind,
     CanonicalToken
   ).
-  import Maybe.
+  import Maybe as Maybe.
+  import Maybe (Nothing, Just).
   import ParserCore (
     Parser,
     ParserSucceeded,
@@ -98,9 +99,9 @@ module ParserToken (
   # Complete ParserTypes imports keep the exported polymorphic failure
   # signatures available to grammar owners without importing ParserCore.
   import ParserTypes.
-  import Text (textLength).
+  import Text as Text.
 
-  data ParserGrammarFailure = ParserGrammarFailure Maybe(CanonicalSpan) ParserFailureReason.
+  data ParserGrammarFailure = ParserGrammarFailure Maybe::Maybe(CanonicalSpan) ParserFailureReason.
 
   data TokenParser item = TokenParser Parser(CanonicalToken, ParserGrammarFailure, item).
 
@@ -123,13 +124,13 @@ module ParserToken (
     | CanonicalToken kind lexeme span -> span
   }.
 
-  canonicalTokenEncountered :: Maybe(CanonicalToken) -> ParserEncountered.
+  canonicalTokenEncountered :: Maybe::Maybe(CanonicalToken) -> ParserEncountered.
   canonicalTokenEncountered = \(current) -> case current {
     | Nothing -> EndOfInput
     | Just token -> FoundToken (canonicalTokenKind token) (canonicalTokenLexeme token)
   }.
 
-  selectedTokenSpan :: Maybe(CanonicalToken) -> Maybe(CanonicalSpan).
+  selectedTokenSpan :: Maybe::Maybe(CanonicalToken) -> Maybe::Maybe(CanonicalSpan).
   selectedTokenSpan = \(current) -> case current {
     | Nothing -> Nothing
     | Just token -> Just (canonicalTokenSpan token)
@@ -139,7 +140,7 @@ module ParserToken (
   tokensAreAdjacent = \(earlier, later) -> case canonicalTokenSpan earlier {
     | CanonicalSpan earlierLine earlierColumn -> case canonicalTokenSpan later {
       | CanonicalSpan laterLine laterColumn -> if earlierLine == laterLine then
-        laterColumn == earlierColumn + textLength (canonicalTokenLexeme earlier)
+        laterColumn == earlierColumn + Text::length (canonicalTokenLexeme earlier)
         else False
     }
   }.
@@ -181,7 +182,7 @@ module ParserToken (
     | TokenParser parser -> TokenParser (parserAttempt parser)
   }.
 
-  tokenOptional :: TokenParser(item) -> TokenParser(Maybe(item)).
+  tokenOptional :: TokenParser(item) -> TokenParser(Maybe::Maybe(item)).
   tokenOptional = \(tokenParser) -> case tokenParser {
     | TokenParser parser -> TokenParser (parserOptional parser)
   }.
@@ -196,7 +197,7 @@ module ParserToken (
     | TokenParser parser -> TokenParser (parserMany parser)
   }.
 
-  tokenPeek :: TokenParser(Maybe(CanonicalToken)).
+  tokenPeek :: TokenParser(Maybe::Maybe(CanonicalToken)).
   tokenPeek = TokenParser parserPeek.
 
   tokenRemaining :: TokenParser([CanonicalToken]).
@@ -204,7 +205,7 @@ module ParserToken (
     ParserSucceeded (parserCursorRemaining cursor) cursor Unconsumed
   )).
 
-  tokenFailAt :: Maybe(CanonicalSpan) -> ParserFailureReason -> TokenParser(item).
+  tokenFailAt :: Maybe::Maybe(CanonicalSpan) -> ParserFailureReason -> TokenParser(item).
   tokenFailAt = \(span, reason) -> TokenParser (parserFail (ParserGrammarFailure span reason)).
 
   tokenFailAtSpan :: CanonicalSpan -> ParserFailureReason -> TokenParser(item).
@@ -332,7 +333,7 @@ module ParserToken (
     })
     (punctuationLabel punctuation).
 
-  tokenSpanAt :: Int -> [CanonicalToken] -> Maybe(CanonicalSpan).
+  tokenSpanAt :: Int -> [CanonicalToken] -> Maybe::Maybe(CanonicalSpan).
   tokenSpanAt = \(offset, tokens) -> case tokens {
     | [] -> Nothing
     | [first | remaining] -> if offset == 0 then

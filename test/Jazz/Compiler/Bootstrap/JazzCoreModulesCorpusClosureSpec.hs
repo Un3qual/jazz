@@ -553,7 +553,7 @@ composedSourceFixtures =
   [ composedFixture "module-free" "1.",
     composedFixture "module-no-exports" "module App::Main { 1. }",
     composedFixture "module-empty-exports" "module App::Main () { 1. }",
-    composedFixture "module-named-exports" "module App::Main (value answer, constructor Some, type Maybe, class Eq) { answer = 1. }",
+    composedFixture "module-named-exports" "module App::Main (value answer, constructor Some, type Maybe, class Equatable) { answer = 1. }",
     composedFixture "module-type-exports" "module App::Main (type Hidden, type Choice(..), type Pair(Pair, Unit)) { 1. }",
     composedFixture "import-plain" "module App::Main { import Core::List. 1. }",
     composedFixture "import-alias" "module App::Main { import Core::Text as Text. Text::length. }",
@@ -578,13 +578,13 @@ composedFixture name source =
 mixedFullSurfaceSource :: Text.Text
 mixedFullSurfaceSource =
   """
-  module App::Main (value main, type Maybe(..), class Eq) {
+  module App::Main (value main, type Maybe(..), class Equatable) {
     import Core::List as List.
     operator %% tier 2.
     main :: Int.
     data Maybe a = None | Some a.
-    class Eq(a) { equals :: a -> a -> Bool. }.
-    impl Eq(Int) { equals = \\(left, right) -> left == right. }.
+    class Equatable(a) { equals :: a -> a -> Bool. }.
+    impl Equatable(Int) { equals = \\(left, right) -> left == right. }.
     main = case Some 1 {
       | Some item if True -> if False then 0 else item %% 2
       | _ -> 0
@@ -639,7 +639,7 @@ directModuleFixtures =
                 ModuleExportSelector (Just ValueNamespace) "item",
                 ModuleExportSelector (Just ConstructorNamespace) "Some",
                 ModuleExportSelector (Just TypeNamespace) "Maybe",
-                ModuleExportSelector (Just CapabilityNamespace) "Eq"
+                ModuleExportSelector (Just CapabilityNamespace) "Equatable"
               ]
           )
       ),
@@ -755,14 +755,17 @@ completeSpanExpression =
           SSData span1 "Box" ["a"] [SurfaceDataConstructor "Box" [TypeVariable "a"]],
           SSClass
             span2
-            "Eq"
+            "Equatable"
             ["a"]
-            [SurfaceClassMethodSignature "equals" span3 (SignatureType TypeBool)],
+            [SurfaceClassMethodSignature "equals" span3 (SignatureType TypeBool)]
+            []
+            [],
           SSImpl
             span3
-            (SurfaceName "Eq" span3 Nothing)
+            (SurfaceName "Equatable" span3 Nothing)
             [TypeInt]
-            [SurfaceImplMethod "equals" span4 (e span4 (SEBlock [SSExpr span1 (e span1 (SELit (LBool True)))]))],
+            [SurfaceImplMethod "equals" span4 (e span4 (SEBlock [SSExpr span1 (e span1 (SELit (LBool True)))]))]
+            [],
           SSLet
             "nested"
             span4

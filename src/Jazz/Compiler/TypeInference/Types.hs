@@ -3,10 +3,12 @@
 -- | Internal type model shared by inference subsystems.
 module Jazz.Compiler.TypeInference.Types
   ( ClassMethodType (..),
+    ClassDefinition (..),
     ConstructorArgumentType (..),
     DataTypeBinding (..),
     ExpressionType,
-    ImplMethodType (..),
+    ImplementationTemplate (..),
+    implementationTarget,
     InferenceVariable (..),
     IntegerLiteralRange (..),
     NumericConstraint (..),
@@ -39,10 +41,11 @@ import Jazz.Compiler.Name
   ( ResolvedName,
   )
 import Jazz.Compiler.SemanticDeclarations
-  ( ClassMethodType (..),
+  ( ClassDefinition (..),
+    ClassMethodType (..),
     ConstructorArgumentType (..),
     DataTypeBinding (..),
-    ImplMethodType (..),
+    ImplementationTemplate (..),
     IntegerLiteralRange (..),
     NumericConstraint (..),
     QuantifiedVariables,
@@ -52,6 +55,7 @@ import Jazz.Compiler.SemanticDeclarations
     SemanticBinding (..),
     SemanticScheme (..),
     emptyScopeCapabilityFacts,
+    implementationTarget,
     instantiateDeclarationType,
     quantifiedVariablesFromPreferred,
     quantifiedVariablesMembershipSet,

@@ -7,7 +7,7 @@ module Jazz.Compiler.TypeInference.Solver
     applySubstitution,
     bindTypeVar,
     combineIntegerLiteralRanges,
-    constrainNumericOperatorType,
+    constrainNumericType,
     freshTypeVar,
     freshTypeVars,
     freshTypeVariable,
@@ -20,6 +20,7 @@ module Jazz.Compiler.TypeInference.Solver
     supportsRuntimeEqualityType,
     typeSatisfiesNumericConstraint,
     unifyTypes,
+    unifyTypesExactly,
   )
 where
 
@@ -104,36 +105,41 @@ applySubstitution substitution = resolve
 unifyTypes :: ExpressionType -> ExpressionType -> InferState -> Maybe InferState
 unifyTypes leftType rightType state =
   {-# SCC "jazz-stage:constraint-solving" #-}
-  unifyTypesWithoutCostCentre leftType rightType state
+  unifyTypesWithMatching False leftType rightType state
 
-unifyTypesWithoutCostCentre :: ExpressionType -> ExpressionType -> InferState -> Maybe InferState
-unifyTypesWithoutCostCentre leftType rightType state =
+-- Head identity deliberately excludes ordinary numeric compatibility.
+unifyTypesExactly :: ExpressionType -> ExpressionType -> InferState -> Maybe InferState
+unifyTypesExactly = unifyTypesWithMatching True
+
+unifyTypesWithMatching :: Bool -> ExpressionType -> ExpressionType -> InferState -> Maybe InferState
+unifyTypesWithMatching exact leftType rightType state =
   let (resolvedLeft, stateAfterLeft) = dereferenceType state leftType
       (resolvedRight, stateAfterDereference) = dereferenceType stateAfterLeft rightType
    in case (resolvedLeft, resolvedRight) of
         (SemanticInt, SemanticInt) -> Just stateAfterDereference
         (SemanticFloat, SemanticFloat) -> Just stateAfterDereference
-        (SemanticFloat, SemanticNumeric NumericFloat64) -> Just stateAfterDereference
-        (SemanticNumeric NumericFloat64, SemanticFloat) -> Just stateAfterDereference
-        (SemanticInt, SemanticNumeric NumericInt64) -> Just stateAfterDereference
-        (SemanticNumeric NumericInt64, SemanticInt) -> Just stateAfterDereference
+        (SemanticFloat, SemanticNumeric NumericFloat64) | not exact -> Just stateAfterDereference
+        (SemanticNumeric NumericFloat64, SemanticFloat) | not exact -> Just stateAfterDereference
+        (SemanticInt, SemanticNumeric NumericInt64) | not exact -> Just stateAfterDereference
+        (SemanticNumeric NumericInt64, SemanticInt) | not exact -> Just stateAfterDereference
         (SemanticNumeric leftNumericType, SemanticNumeric rightNumericType)
           | leftNumericType == rightNumericType -> Just stateAfterDereference
         (SemanticBool, SemanticBool) -> Just stateAfterDereference
         (SemanticChar, SemanticChar) -> Just stateAfterDereference
         (SemanticText, SemanticText) -> Just stateAfterDereference
-        (SemanticData leftName leftArguments, SemanticData rightName rightArguments)
-          | leftName == rightName ->
-              unifyTypeListsWithoutCostCentre leftArguments rightArguments stateAfterDereference
-        (SemanticList leftElementType, SemanticList rightElementType) ->
-          unifyTypesWithoutCostCentre leftElementType rightElementType stateAfterDereference
+        (SemanticNamedConstructor leftName, SemanticNamedConstructor rightName)
+          | leftName == rightName -> Just stateAfterDereference
+        (SemanticListConstructor, SemanticListConstructor) -> Just stateAfterDereference
+        (SemanticApplication leftHead leftArgument, SemanticApplication rightHead rightArgument) -> do
+          afterHead <- unifyTypesWithMatching exact leftHead rightHead stateAfterDereference
+          unifyTypesWithMatching exact leftArgument rightArgument afterHead
         (SemanticTuple leftElementTypes, SemanticTuple rightElementTypes) ->
-          unifyTypeListsWithoutCostCentre leftElementTypes rightElementTypes stateAfterDereference
+          unifyTypeListsWithMatching exact leftElementTypes rightElementTypes stateAfterDereference
         ( SemanticFunction leftInputType leftOutputType,
           SemanticFunction rightInputType rightOutputType
           ) -> do
-            stateAfterInput <- unifyTypesWithoutCostCentre leftInputType rightInputType stateAfterDereference
-            unifyTypesWithoutCostCentre leftOutputType rightOutputType stateAfterInput
+            stateAfterInput <- unifyTypesWithMatching exact leftInputType rightInputType stateAfterDereference
+            unifyTypesWithMatching exact leftOutputType rightOutputType stateAfterInput
         (SemanticVariable leftVar, SemanticVariable rightVar)
           | leftVar == rightVar ->
               Just stateAfterDereference
@@ -183,12 +189,12 @@ dereferenceType state expressionType =
           (replacementType, state)
     _ -> (expressionType, state)
 
-unifyTypeListsWithoutCostCentre :: [ExpressionType] -> [ExpressionType] -> InferState -> Maybe InferState
-unifyTypeListsWithoutCostCentre [] [] state = Just state
-unifyTypeListsWithoutCostCentre (leftType : leftTypes) (rightType : rightTypes) state = do
-  nextState <- unifyTypesWithoutCostCentre leftType rightType state
-  unifyTypeListsWithoutCostCentre leftTypes rightTypes nextState
-unifyTypeListsWithoutCostCentre _ _ _ = Nothing
+unifyTypeListsWithMatching :: Bool -> [ExpressionType] -> [ExpressionType] -> InferState -> Maybe InferState
+unifyTypeListsWithMatching _ [] [] state = Just state
+unifyTypeListsWithMatching exact (leftType : leftTypes) (rightType : rightTypes) state = do
+  nextState <- unifyTypesWithMatching exact leftType rightType state
+  unifyTypeListsWithMatching exact leftTypes rightTypes nextState
+unifyTypeListsWithMatching _ _ _ _ = Nothing
 
 bindTypeVar :: InferenceVariable -> ExpressionType -> InferState -> Maybe InferState
 bindTypeVar typeVar replacementType state
@@ -295,8 +301,8 @@ applyNumericConstraintToReplacement numericConstraint replacementType
   | typeSatisfiesNumericConstraint numericConstraint replacementType = Just replacementType
   | otherwise = Nothing
 
-constrainNumericOperatorType :: NumericConstraint -> ExpressionType -> InferState -> Maybe InferState
-constrainNumericOperatorType numericConstraint expressionType state =
+constrainNumericType :: NumericConstraint -> ExpressionType -> InferState -> Maybe InferState
+constrainNumericType numericConstraint expressionType state =
   case resolveType state expressionType of
     SemanticVariable typeVar -> Just (addNumericTypeVarConstraint typeVar numericConstraint state)
     resolvedType

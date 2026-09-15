@@ -143,12 +143,9 @@ import Jazz.Compiler.RuntimeHost
     productionRuntimeHost,
   )
 import Jazz.Compiler.SemanticFacts
-  ( AnalyzedMethodSignature (..),
-    AnalyzedNumericConstraint (..),
+  ( AnalyzedNumericConstraint (..),
     AnalyzedPrimitiveConstraint (..),
     AnalyzedScheme (..),
-    BinaryOperandTyping (..),
-    BinaryOperation (..),
     EvidenceReference (..),
     ExpressionFacts (..),
     InstantiationTarget (..),
@@ -162,7 +159,7 @@ import Jazz.Compiler.SemanticFacts
   )
 import Jazz.Compiler.SourceProgram (parseAndLowerStandaloneSource)
 import Jazz.Compiler.TypeInference (CheckedExpr (..), InferenceInputs (..), inferExpressionWork)
-import Jazz.Compiler.TypeInference.Analyzed (draftExpressionNode, draftStatementNode, finalizeCheckedExpression, projectAnalyzedMethodSignature)
+import Jazz.Compiler.TypeInference.Analyzed (draftExpressionNode, draftStatementNode, finalizeCheckedExpression)
 import Jazz.Compiler.TypeInference.Result (inferredDiagnostics)
 import Jazz.Compiler.TypeInference.Solver (freshIntegerLiteralType)
 import Jazz.Compiler.TypeInference.State
@@ -177,6 +174,7 @@ import Jazz.Compiler.TypeInference.Types
     IntegerLiteralRange (..),
     NumericConstraint (..),
     SchemePrimitiveConstraint (..),
+    ScopeCapabilityFacts (scopeClassMethodSignatures),
     SemanticBinding (..),
     SemanticScheme (..),
     SemanticType (..),
@@ -184,7 +182,7 @@ import Jazz.Compiler.TypeInference.Types
     quantifiedVariablesFromPreferred,
   )
 import Jazz.Compiler.TypeRepresentation
-  ( NumericType (NumericFloat64, NumericInt8),
+  ( NumericType (NumericInt8),
     SignaturePayload (..),
     SignatureType (..),
   )
@@ -209,13 +207,11 @@ tests =
     ("imported monomorphic aliases retain declaration sharing", testImportedMonomorphicAliasSharing),
     ("nominal types retain identity across their module boundary", testNominalTypeIdentity),
     ("runtime consumes analyzed declarations after source types are erased", testRuntimeUsesAnalyzedDeclarations),
-    ("operation facts retain the numeric rule decision across equivalent aliases", testBinaryOperandAliasSelection),
-    ("analyzed operations retain operand typing and alias selection", testAnalyzedBinaryOperations),
+    ("analyzed operators use ordinary calls and checked types", testAnalyzedOperatorFunctions),
     ("analyzed expressions preserve literal-range constraints for numeric specialization", testAnalyzedLiteralRangeFacts),
     ("checked subtrees own their facts before finalization", testCheckedSubtreeOwnership),
     ("successful inference attaches complete analyzed facts", testAnalyzedProgramFactsAreComplete),
-    ("analyzed methods identify used and unused class parameters", testAnalyzedMethodParameterIdentity),
-    ("method projection rejects variables outside the class binder", testAnalyzedMethodParameterBoundary),
+    ("checked method schemes identify used and unused class parameters", testCheckedMethodParameterIdentity),
     ("checked-tree finalization rejects incomplete semantic nodes", testAnalyzedFactInvariantFailures),
     ("dependency expressions are checked but not executed", testDependencyExpressionContract),
     ("analyzed interfaces expose only declared exports", testAnalyzedInterfacesExposeOnlyDeclaredExports),
@@ -298,7 +294,7 @@ testSingleModuleAnalysis = do
   let factsInterface = interfaces Map.! nominalModulePath ("Lib" :| ["Facts"])
   assertEqual
     "dependency interface excludes private and transitive values"
-    (Set.fromList [ModuleExport ValueNamespace "identity", ModuleExport ConstructorNamespace "Box"])
+    (Set.fromList [ModuleExport ValueNamespace "equals", ModuleExport ValueNamespace "identity", ModuleExport ConstructorNamespace "Box"])
     (Map.keysSet (interfaceValueBindings factsInterface))
   assertEqual
     "unreachable private type metadata remains module-owned"
@@ -319,8 +315,8 @@ testSingleModuleAnalysis = do
   where
     sources =
       Map.fromList
-        [ ("src/App/Main.jz", "module App::Main (result) { import Lib::Facts as Facts. import Lib::Facts (Box). result = Facts::identity @Int (case Facts::Box 1 { | Box item -> if Facts::Eq::equals item 1 then item else 0 }). result. }"),
-          ("src/Lib/Facts.jz", "module Lib::Facts (identity, type Box(Box), Eq) { import Lib::Hidden. privateHelper = \\(item) -> item. identity :: a -> a. identity = \\(item) -> privateHelper item. data Box a = Box a. data Unused = Unused. class Eq(a) { equals :: a -> a -> Bool. }. impl Eq(Int) { equals = \\(left, right) -> left == right + hiddenZero. }. }"),
+        [ ("src/App/Main.jz", "module App::Main (result) { import Lib::Facts as Facts. import Lib::Facts (Box). result = Facts::identity @Int (case Facts::Box 1 { | Box item -> if Facts::Equatable::equals item 1 then item else 0 }). result. }"),
+          ("src/Lib/Facts.jz", "module Lib::Facts (identity, type Box(Box), Equatable) { import Lib::Hidden. privateHelper = \\(item) -> item. identity :: a -> a. identity = \\(item) -> privateHelper item. data Box a = Box a. data Unused = Unused. class Equatable(a) { equals :: a -> a -> Bool. }. impl Equatable(Int) { equals = \\(left, right) -> __kernel_equals left (__kernel_add right hiddenZero). }. }"),
           ("src/Lib/Hidden.jz", "module Lib::Hidden { hiddenZero = 0. }")
         ]
     dependencyInterface scope interfaces importDecl =
@@ -375,92 +371,25 @@ testNominalTypeIdentity = do
       binding <- maybe (fail "missing exported value") pure (Map.lookup (ModuleExport ValueNamespace name) (interfaceValueBindings (analyzedInterface checked)))
       pure (interfaceBindingType binding)
 
-testBinaryOperandAliasSelection :: IO ()
-testBinaryOperandAliasSelection = do
+testAnalyzedOperatorFunctions :: IO ()
+testAnalyzedOperatorFunctions = do
   (_, analyzed) <-
     analyzeFixtureProgram
-      ( Map.singleton
-          "src/App/Main.jz"
-          "module App::Main { a :: Float. a = 1.0. b :: Float64. b = 2.0. a + b. }"
-      )
+      (Map.singleton "src/App/Main.jz" "module App::Main { add = __kernel_add. equals = __kernel_equals. x :: Int8. x = 1. x == 2. x + 3. }")
   coreModule <-
     maybe
       (fail "missing analyzed module")
       pure
       (lookupCoreModule (nominalModulePath ("App" :| ["Main"])) analyzed)
   case coreModuleExpr coreModule of
-    EBlock _ statements -> case [coreNodeFacts node | SExpr _ (EBinary node _ _ _) <- statements] of
-      [facts] -> do
-        assertEqual
-          "numeric rule selects the concrete alias"
-          (SemanticNumeric NumericFloat64)
-          (expressionSemanticType facts)
-        assertEqual
-          "operand fact preserves that exact decision"
-          (Just (UniformBinaryOperands (SemanticNumeric NumericFloat64)))
-          (binaryOperationOperandTyping <$> expressionBinaryOperation facts)
-      _ -> fail "missing binary operation"
-    _ -> fail "expected analyzed block"
-
-testAnalyzedBinaryOperations :: IO ()
-testAnalyzedBinaryOperations = do
-  (_, analyzed) <-
-    analyzeFixtureProgram
-      ( Map.singleton
-          "src/App/Main.jz"
-          "module App::Main { add = (+). x :: Int8. x = 1. x == 2. add x 3. 1 + 2.0. }"
-      )
-  coreModule <-
-    maybe
-      (fail "missing analyzed module")
-      pure
-      (lookupCoreModule (nominalModulePath ("App" :| ["Main"])) analyzed)
-  case coreModuleExpr coreModule of
-    EBlock _ statements ->
-      case [expression | SExpr _ expression <- statements] of
-        [ EBinary comparisonNode _ (EVar leftNode _) (ELit rightNode _),
-          EApply applicationNode (EApply _ _ (EVar aliasLeftNode _)) (ELit aliasRightNode _),
-          EBinary promotionNode _ (ELit promotionLeftNode _) (ELit promotionRightNode _)
-          ] -> do
-            assertEqual
-              "comparison result remains Bool"
-              SemanticBool
-              (expressionSemanticType (coreNodeFacts comparisonNode))
-            assertEqual
-              "comparison operands use the signed context"
-              ( Just
-                  ( BinaryOperation
-                      "=="
-                      (UniformBinaryOperands (SemanticNumeric NumericInt8))
-                      (coreNodeId leftNode)
-                      (coreNodeId rightNode)
-                  )
-              )
-              (expressionBinaryOperation (coreNodeFacts comparisonNode))
-            assertEqual
-              "operator alias retains its selected primitive and original operands"
-              ( Just
-                  ( BinaryOperation
-                      "+"
-                      (UniformBinaryOperands (SemanticNumeric NumericInt8))
-                      (coreNodeId aliasLeftNode)
-                      (coreNodeId aliasRightNode)
-                  )
-              )
-              (expressionBinaryOperation (coreNodeFacts applicationNode))
-            assertEqual
-              "implicit promotion is distinct from uniform operand typing"
-              ( Just
-                  ( BinaryOperation
-                      "+"
-                      Float64PromotedOperands
-                      (coreNodeId promotionLeftNode)
-                      (coreNodeId promotionRightNode)
-                  )
-              )
-              (expressionBinaryOperation (coreNodeFacts promotionNode))
-        expressions -> fail ("unexpected operation fixture: " <> show expressions)
-    expression -> fail ("expected analyzed block: " <> show expression)
+    EBlock _ statements -> case [body | SExpr _ body <- statements] of
+      [EApply comparison (EApply _ (EVar _ equalityName) _) _, EApply addition (EApply _ (EVar _ additionName) _) _] -> do
+        assertEqual "comparison function" "equals" (identifierText equalityName)
+        assertEqual "arithmetic function" "add" (identifierText additionName)
+        assertEqual "comparison call result" SemanticBool (expressionSemanticType (coreNodeFacts comparison))
+        assertEqual "arithmetic call preserves numeric width" (SemanticNumeric NumericInt8) (expressionSemanticType (coreNodeFacts addition))
+      other -> fail ("expected ordinary calls: " <> show other)
+    other -> fail ("expected checked block: " <> show other)
 
 testAnalyzedLiteralRangeFacts :: IO ()
 testAnalyzedLiteralRangeFacts = do
@@ -499,12 +428,12 @@ assertAnalyzedProgramFacts :: CoreProgram 'Resolved -> CoreProgram 'Analyzed -> 
 assertAnalyzedProgramFacts resolvedProgram analyzedProgram = do
   mapM_ assertModule (NonEmpty.toList (coreProgramModules resolvedProgram))
   case foldMap (expressionEvidenceInventory . coreModuleExpr) (coreProgramModules analyzedProgram) of
-    [evidence] -> do
+    [evidence@EvidenceReference {evidenceMethod = Just selectedMethod}] -> do
       assertEqual "capability evidence target" SemanticInt (evidenceType evidence)
       assertEqual
         "capability evidence preserves the selected canonical identities"
         (expectedEvidenceIdentities resolvedProgram)
-        [(evidenceCapability evidence, evidenceImplementation evidence, evidenceMethod evidence)]
+        [(evidenceCapability evidence, evidenceImplementation evidence, selectedMethod)]
     evidence -> fail ("expected exactly one selected capability evidence fact, got " <> show evidence)
   let analyzedBinders = foldMap moduleBinderIds (coreProgramModules analyzedProgram)
       instantiations = foldMap (expressionInstantiationInventory . coreModuleExpr) (coreProgramModules analyzedProgram)
@@ -550,8 +479,8 @@ assertAnalyzedProgramFacts resolvedProgram analyzedProgram = do
               assertEqual "import target survives checking" (Just target) (resolvedNodeImportTarget (statementResolution facts))
             declarationFact -> fail ("unexpected analyzed import declaration fact: " <> show declarationFact)
 
-testAnalyzedMethodParameterIdentity :: IO ()
-testAnalyzedMethodParameterIdentity = do
+testCheckedMethodParameterIdentity :: IO ()
+testCheckedMethodParameterIdentity = do
   (_, analyzed) <-
     analyzeFixtureProgram
       ( Map.singleton
@@ -561,38 +490,20 @@ testAnalyzedMethodParameterIdentity = do
   let methods =
         Map.fromList
           [ (identifierText name, signature)
-          | SClass _ _ _ declarations <- coreModuleStatements (NonEmpty.head (coreProgramModules analyzed)),
-            ClassMethodSignature node name _ <- declarations,
-            MethodDeclaration _ signature <- [statementDeclarationFact (coreNodeFacts node)]
+          | ((_, name), signature) <- Map.toList (scopeClassMethodSignatures (interfaceCapabilities (analyzedInterface (NonEmpty.head (coreProgramModules analyzed)))))
           ]
   case (Map.lookup "nested" methods, Map.lookup "constant" methods) of
     (Just nested, Just constant) -> do
-      let parameter = SemanticVariable (analyzedMethodClassParameter nested)
+      let parameter = SemanticVariable (classMethodParameter nested)
       assertEqual
         "nested occurrences refer to the explicit class parameter"
         (SemanticFunction (SemanticList parameter) (SemanticList parameter))
-        (analyzedMethodType nested)
+        (schemeResultType (classMethodScheme nested))
       assertEqual
         "a method can leave its class parameter unused"
         (SemanticFunction SemanticInt SemanticBool)
-        (analyzedMethodType constant)
+        (schemeResultType (classMethodScheme constant))
     _ -> fail "missing analyzed Probe methods"
-
-testAnalyzedMethodParameterBoundary :: IO ()
-testAnalyzedMethodParameterBoundary =
-  mapM_
-    checkRejected
-    [ SemanticFunction foreignVariable foreignVariable,
-      SemanticFunction classVariable foreignVariable
-    ]
-  where
-    classVariable = SemanticVariable "a"
-    foreignVariable = SemanticVariable "b"
-    checkRejected signatureType =
-      assertEqual
-        "an unexpected variable fails projection instead of dropping or guessing the binder"
-        (Left (InvalidAnalyzedMethodSignature "Probe::bad"))
-        (projectAnalyzedMethodSignature "Probe::bad" (ClassMethodType "a" signatureType))
 
 -- Finalization may read the solver, but the checker must already own the tree
 -- and its decisions. Erasing all output facts must leave that tree intact.
@@ -603,9 +514,9 @@ testCheckedSubtreeOwnership = do
         EIf
           (node 1)
           (ELit (node 2) (LBool True))
-          (ETuple (node 3) [EList (node 4) [ELit (node 5) (LInt 1)], EBinary (node 11) "==" (ELit (node 12) (LBool True)) (ELit (node 6) (LBool True))])
+          (ETuple (node 3) [EList (node 4) [ELit (node 5) (LInt 1)], EIf (node 11) (ELit (node 12) (LBool True)) (ELit (node 6) (LBool True)) (ELit (node 13) (LBool False))])
           (ETuple (node 7) [EList (node 8) [ELit (node 9) (LInt 2)], ELit (node 10) (LBool False)])
-      inputs = InferenceInputs Nothing defaultWarningSettings Set.empty Map.empty Map.empty Map.empty emptyScopeCapabilityFacts Set.empty Nothing
+      inputs = InferenceInputs Nothing defaultWarningSettings Set.empty Map.empty Map.empty Map.empty emptyScopeCapabilityFacts Set.empty
       (checked, state, _) = inferExpressionWork inputs expression
       erased = state {inferOutput = inferOutput initialInferState}
   expected <- either (fail . show) pure (finalizeCheckedExpression state checked)
@@ -613,16 +524,13 @@ testCheckedSubtreeOwnership = do
   assertEqual "owned checked subtree survives output erasure" expected actual
   mapM_
     (assertOwned inputs)
-    [ "(\\(x) -> x) (1 + 2)",
-      "(+) 1 1.5",
-      "($) (1 +) 1.5",
-      "($) (+ 1.5) 1",
-      "case (1, [2]) { | (item, [other]) | (other, [item]) if item > 0 -> item + other | _ -> 0 }"
+    [ "(\\(x) -> x) (__kernel_add 1 2)",
+      "case (1, [2]) { | (item, [other]) | (other, [item]) if __kernel_greaterThan item 0 -> __kernel_add item other | _ -> 0 }"
     ]
   mapM_
     (assertOwnedBlock inputs)
     [ "identity :: a -> a. identity = \\(item) -> item. first = identity @Int 1. identity = True. (first, identity).",
-      "data Box a = Box a. class Eq(a) { equals :: a -> a -> Bool. }. impl Eq(Int) { equals = \\(left, right) -> left == right. }. result = case Box 1 { | Box item -> Eq::equals @Int item 1 }. result.",
+      "data Box a = Box a. class Equatable(a) { equals :: a -> a -> Bool. }. impl Equatable(Int) { equals = __kernel_equals. }. result = case Box 1 { | Box item -> Equatable::equals @Int item 1 }. result.",
       "left = \\(item) -> if True then item else right item. between = left 1. right = \\(item) -> left item. (between, right True)."
     ]
   where
@@ -682,7 +590,6 @@ testAnalyzedFactInvariantFailures = do
           { schemeQuantifiedVariables = quantifiedVariablesFromPreferred [variable] (Set.singleton variable),
             schemeClassConstraints = [],
             schemePrimitiveConstraints = [TypeSchemeNumericConstraint (IntegralLiteralNumericConstraint (IntegerLiteralRange 1 1)) (SemanticVariable variable)],
-            schemeDefiningCapabilities = emptyScopeCapabilityFacts,
             schemeResultType = SemanticVariable variable
           }
   case finalizeBinding (SchemeTypeBinding scheme) of
@@ -743,9 +650,9 @@ statementNodeIdentities statement =
       SLet _ _ value -> exprNodeIdentities value
       SData _ _ _ constructors ->
         [nodeIdentity node | DataConstructor node _ _ <- constructors]
-      SClass _ _ _ methods ->
+      SClass _ _ _ methods _ _ ->
         [nodeIdentity node | ClassMethodSignature node _ _ <- methods]
-      SImpl _ _ _ methods ->
+      SImpl _ _ _ methods _ ->
         foldMap (\(ImplMethod node _ body) -> nodeIdentity node : exprNodeIdentities body) methods
       SExpr _ value -> exprNodeIdentities value
       _ -> []
@@ -799,7 +706,7 @@ expressionEvidenceInventory expression =
     statementEvidence statement =
       case statement of
         SLet _ _ value -> expressionEvidenceInventory value
-        SImpl _ _ _ methods -> foldMap (\(ImplMethod _ _ body) -> expressionEvidenceInventory body) methods
+        SImpl _ _ _ methods _ -> foldMap (\(ImplMethod _ _ body) -> expressionEvidenceInventory body) methods
         SExpr _ value -> expressionEvidenceInventory value
         _ -> []
 
@@ -828,7 +735,7 @@ expressionInstantiationInventory expression =
     statementInstantiations statement =
       case statement of
         SLet _ _ value -> expressionInstantiationInventory value
-        SImpl _ _ _ methods -> foldMap (\(ImplMethod _ _ body) -> expressionInstantiationInventory body) methods
+        SImpl _ _ _ methods _ -> foldMap (\(ImplMethod _ _ body) -> expressionInstantiationInventory body) methods
         SExpr _ value -> expressionInstantiationInventory value
         _ -> []
 
@@ -843,8 +750,8 @@ moduleBinderIds = foldMap statementBinderInventory . moduleStatements
       nodeBinders (statementCoreNode statement)
         <> case statement of
           SData _ _ _ constructors -> foldMap (\(DataConstructor node _ _) -> nodeBinders node) constructors
-          SClass _ _ _ methods -> foldMap (\(ClassMethodSignature node _ _) -> nodeBinders node) methods
-          SImpl _ _ _ methods -> foldMap (\(ImplMethod node _ _) -> nodeBinders node) methods
+          SClass _ _ _ methods _ _ -> foldMap (\(ClassMethodSignature node _ _) -> nodeBinders node) methods
+          SImpl _ _ _ methods _ -> foldMap (\(ImplMethod node _ _) -> nodeBinders node) methods
           _ -> []
     nodeBinders (CoreNode _ _ facts) = foldMap (\(binder, _) -> [binder]) (statementBinding facts)
 
@@ -859,8 +766,8 @@ moduleSchemes = foldMap statementSchemes . moduleStatements
       nodeSchemes (statementCoreNode statement)
         <> case statement of
           SData _ _ _ constructors -> foldMap (\(DataConstructor node _ _) -> nodeSchemes node) constructors
-          SClass _ _ _ methods -> foldMap (\(ClassMethodSignature node _ _) -> nodeSchemes node) methods
-          SImpl _ _ _ methods -> foldMap (\(ImplMethod node _ _) -> nodeSchemes node) methods
+          SClass _ _ _ methods _ _ -> foldMap (\(ClassMethodSignature node _ _) -> nodeSchemes node) methods
+          SImpl _ _ _ methods _ -> foldMap (\(ImplMethod node _ _) -> nodeSchemes node) methods
           _ -> []
     nodeSchemes (CoreNode _ _ facts) = foldMap (\(_, scheme) -> [scheme]) (statementBinding facts)
 
@@ -888,7 +795,7 @@ expectedEvidenceIdentities program =
     )
   | coreModule <- NonEmpty.toList (coreProgramModules program),
     statement <- moduleStatements coreModule,
-    SImpl implementationNode capabilityName [_] methods <- [statement],
+    SImpl implementationNode capabilityName [_] methods _ <- [statement],
     let implementationId = ImplId (NamedSourceUnit (coreModulePath coreModule), coreNodeId implementationNode),
     ImplMethod _ methodName _ <- methods,
     identifierText methodName == "equals"
@@ -947,13 +854,13 @@ assertStatementFacts statement = do
         SData _ name _ constructors -> do
           assertEqual "data declaration fact" (DataDeclaration name [constructorName | DataConstructor _ constructorName _ <- constructors]) (statementDeclarationFact facts)
           mapM_ assertConstructorFacts constructors
-        SClass _ name parameters methods -> do
+        SClass _ name parameters methods _ _ -> do
           assertEqual "capability declaration fact" (CapabilityDeclaration name parameters) (statementDeclarationFact facts)
           mapM_ assertClassMethodFacts methods
-        SImpl _ name _ methods -> do
+        SImpl _ name _ methods _ -> do
           case statementDeclarationFact facts of
-            ImplementationDeclaration factName [_] -> assertEqual "implementation declaration identity" name factName
-            other -> fail ("missing analyzed implementation target: " <> show other)
+            ImplementationDeclaration factName -> assertEqual "implementation declaration identity" name factName
+            other -> fail ("missing checked implementation declaration: " <> show other)
           mapM_ assertImplMethodFacts methods
         SModule _ path -> case statementDeclarationFact facts of
           ModuleDeclaration target -> assertEqual "module declaration fact" path (NonEmpty.toList (modulePathTextSegments target))
@@ -974,8 +881,8 @@ assertStatementFacts statement = do
     assertConstructorFacts (DataConstructor (CoreNode _ _ facts) name _) = assertBindingStatement (ValueDeclaration name) facts
     assertClassMethodFacts (ClassMethodSignature (CoreNode _ _ facts) name _) =
       case statementDeclarationFact facts of
-        MethodDeclaration factName _ -> assertEqual "class method declaration identity" name factName
-        other -> fail ("missing analyzed method signature: " <> show other)
+        MethodDeclaration factName -> assertEqual "class method declaration identity" name factName
+        other -> fail ("missing checked method declaration: " <> show other)
     assertImplMethodFacts (ImplMethod (CoreNode _ _ facts) name body) = do
       assertEqual "impl method declaration fact" (ValueDeclaration name) (statementDeclarationFact facts)
       assertExprFacts body
@@ -1017,8 +924,8 @@ statementCoreNode statement =
     SLet node _ _ -> node
     SSignature node _ _ -> node
     SData node _ _ _ -> node
-    SClass node _ _ _ -> node
-    SImpl node _ _ _ -> node
+    SClass node _ _ _ _ _ -> node
+    SImpl node _ _ _ _ -> node
     SModule node _ -> node
     SImport node _ _ _ -> node
     SExpr node _ -> node
@@ -1030,22 +937,22 @@ factCompletenessSources =
         """
         module App::Main (result) {
         import Lib::Facts.
-        result = identity @Int (case Box 1 { | Box item -> if Eq::equals item 1 then item else 0 }).
+        result = identity @Int (case Box 1 { | Box item -> if Equatable::equals item 1 then item else 0 }).
         result.
         }
         """
       ),
       ( "src/Lib/Facts.jz",
         """
-        module Lib::Facts (identity, countdown, increment, type Box(Box), Eq) {
+        module Lib::Facts (identity, countdown, increment, type Box(Box), Equatable) {
         identity :: a -> a.
         identity = \\(item) -> item.
         countdown :: Int -> Int.
-        countdown = \\(number) -> if number == 0 then 0 else countdown (number - 1).
-        increment = \\(number) -> number + 1.
+        countdown = \\(number) -> if __kernel_equals number 0 then 0 else countdown (__kernel_subtract number 1).
+        increment = \\(number) -> __kernel_add number 1.
         data Box a = Box a.
-        class Eq(a) { equals :: a -> a -> Bool. }.
-        impl Eq(Int) { equals = \\(left, right) -> left == right. }.
+        class Equatable(a) { equals :: a -> a -> Bool. }.
+        impl Equatable(Int) { equals = __kernel_equals. }.
         }
         """
       )
@@ -1095,9 +1002,9 @@ testRuntimeUsesAnalyzedDeclarations = do
     eraseStatement statement = case statement of
       SData node name parameters constructors ->
         SData node name parameters [DataConstructor child constructorName [] | DataConstructor child constructorName _ <- constructors]
-      SClass node name parameters methods ->
-        SClass node name parameters [ClassMethodSignature child methodName (SignatureType TypeBool) | ClassMethodSignature child methodName _ <- methods]
-      SImpl node name _ methods -> SImpl node name [] methods
+      SClass node name parameters methods prerequisites defaults ->
+        SClass node name parameters [ClassMethodSignature child methodName (SignatureType TypeBool) | ClassMethodSignature child methodName _ <- methods] prerequisites defaults
+      SImpl node name _ methods prerequisites -> SImpl node name [] methods prerequisites
       _ -> statement
 
 testLexicalBindersShadowImportedAndBuiltinNames :: IO ()
@@ -1302,7 +1209,7 @@ identityDefinitionBinderIds expression =
         SLet (CoreNode _ _ facts) name value ->
           [binder | identifierText name == "identity", Just (binder, _) <- [statementBinding facts]]
             <> identityDefinitionBinderIds value
-        SImpl _ _ _ methods -> foldMap (\(ImplMethod _ _ body) -> identityDefinitionBinderIds body) methods
+        SImpl _ _ _ methods _ -> foldMap (\(ImplMethod _ _ body) -> identityDefinitionBinderIds body) methods
         SExpr _ value -> identityDefinitionBinderIds value
         _ -> []
 
@@ -1372,11 +1279,19 @@ testRuntimeModulePublishesPublicClassMethodsOnly = do
     Right runtime ->
       case lookupRuntimeModule ["Lib", "Facts"] runtime of
         Nothing -> fail "missing runtime Lib::Facts module"
-        Just runtimeModule ->
+        Just runtimeModule -> do
+          let exports = Map.keysSet (runtimeModuleExports runtimeModule)
+              publicExport RuntimeImplementationMethodExport {} = False
+              publicExport RuntimeDefaultMethodExport {} = False
+              publicExport _ = True
           assertEqual
-            "public class method runtime exports"
-            (Set.singleton (RuntimeCapabilityMethodExport (CapabilityId (resolvedImportedName (nominalModulePath ("Lib" :| ["Facts"])) CapabilityNamespace (mkIdentifier "Eq"))) (mkIdentifier "equals")))
-            (Map.keysSet (runtimeModuleExports runtimeModule))
+            "public class includes its ordinary method, without private method names"
+            (Set.singleton (RuntimeBindingExport (ModuleExport ValueNamespace "equals")))
+            (Set.filter publicExport exports)
+          assertEqual
+            "both implementation cells survive name selection"
+            2
+            (length [() | RuntimeImplementationMethodExport {} <- Set.toList exports])
 
 explicitExportSources :: Map.Map FilePath Text
 explicitExportSources =
@@ -1392,7 +1307,7 @@ explicitExportSources =
       ( "src/Lib/Value.jz",
         """
         module Lib::Value (answer) {
-        helper = \\(x) -> x + 1.
+        helper = \\(x) -> __kernel_add x 1.
         answer = \\(x) -> helper x.
         }
         """
@@ -1405,21 +1320,21 @@ explicitCapabilitySources =
     [ ( "src/App/Main.jz",
         """
         module App::Main {
-        import Lib::Facts (Eq).
-        Eq::equals 1 1.
+        import Lib::Facts (Equatable).
+        Equatable::equals 1 1.
         }
         """
       ),
       ( "src/Lib/Facts.jz",
         """
-        module Lib::Facts (Eq) {
-        class Eq(a) {
+        module Lib::Facts (Equatable) {
+        class Equatable(a) {
         equals :: a -> a -> Bool.
         }.
         class Hidden(a) {
         secret :: a -> Bool.
         }.
-        impl Eq(Int) {
+        impl Equatable(Int) {
         equals = \\(left, right) -> True.
         }.
         impl Hidden(Int) {
@@ -1437,17 +1352,17 @@ testModuleExportIdentityPreservesNamespaces = do
     Nothing -> fail "missing analyzed Lib::Maybe module"
     Just maybeModule -> do
       let bindings = Map.filterWithKey (\moduleExport _ -> moduleExportName moduleExport == "Just") (interfaceValueBindings (analyzedInterface maybeModule))
-          binder namespace = interfaceBindingId <$> Map.lookup (ModuleExport namespace "Just") bindings
+          binder namespace = interfaceBindingReference <$> Map.lookup (ModuleExport namespace "Just") bindings
       assertEqual "analyzed shadowed export identities" expectedExports (Map.keysSet bindings)
       case coreModuleStatements maybeModule of
         [SData _ _ _ [DataConstructor constructorNode _ _], SLet valueNode _ _] -> do
           assertEqual
             "constructor interface retains its declaration ID"
-            (resolvedNodeBinder (statementResolution (coreNodeFacts constructorNode)))
+            (LexicalReference <$> resolvedNodeBinder (statementResolution (coreNodeFacts constructorNode)))
             (binder ConstructorNamespace)
           assertEqual
             "value interface retains its distinct declaration ID"
-            (resolvedNodeBinder (statementResolution (coreNodeFacts valueNode)))
+            (LexicalReference <$> resolvedNodeBinder (statementResolution (coreNodeFacts valueNode)))
             (binder ValueNamespace)
         _ -> fail "unexpected constructor/value declaration fixture"
       case lookupCoreModule (nominalModulePath ("App" :| ["Main"])) analyzed of
@@ -1455,7 +1370,7 @@ testModuleExportIdentityPreservesNamespaces = do
           | [SExpr _ (EVar node _)] <- coreModuleStatements entry ->
               assertEqual
                 "imported use retains the interface declaration ID"
-                (LexicalReference <$> binder ValueNamespace)
+                (binder ValueNamespace)
                 (resolvedNodeReference (expressionResolution (coreNodeFacts node)))
         _ -> fail "unexpected imported value fixture"
   case evaluateAnalyzedProgram analyzed of
@@ -1472,7 +1387,8 @@ testModuleExportIdentityPreservesNamespaces = do
                     ( \runtimeExport _ ->
                         case runtimeExport of
                           RuntimeBindingExport moduleExport -> moduleExportName moduleExport == "Just"
-                          RuntimeCapabilityMethodExport {} -> False
+                          RuntimeImplementationMethodExport {} -> False
+                          RuntimeDefaultMethodExport {} -> False
                     )
                     (runtimeModuleExports runtimeModule)
                 )
@@ -1619,9 +1535,9 @@ testScopeStorageDefinitionSites = do
   let source =
         Text.unlines
           [ "offset = 1.",
-            "first = \\(n) -> if n == 0 then offset else second (n - 1).",
+            "first = \\(n) -> if __kernel_equals n 0 then offset else second (__kernel_subtract n 1).",
             "offset = 9.",
-            "second = \\(n) -> if n == 0 then offset else first (n - 1).",
+            "second = \\(n) -> if __kernel_equals n 0 then offset else first (__kernel_subtract n 1).",
             "(first 1, second 1)."
           ]
       hostSource = "if False then __kernel_writeStdoutRaw! \"unused\" else (True, \"\", \"\", \"\"). " <> source
@@ -1664,7 +1580,7 @@ testRunResultProjectionInvariants =
           ("not-executed", Nothing, Nothing, Nothing)
         ),
         ( "runtime failed",
-          runProjectionFixture disabledRuntimeHost "module App::Main { 1 / 0. }",
+          runProjectionFixture disabledRuntimeHost "module App::Main { __kernel_divide 1 0. }",
           ("runtime-failed", Nothing, Nothing, Nothing)
         ),
         ( "explicit exit",
@@ -1838,7 +1754,7 @@ dependencyExpressionSources :: Map.Map FilePath Text
 dependencyExpressionSources =
   Map.fromList
     [ ("src/App/Main.jz", "module App::Main { import Lib::Value. result. }"),
-      ("src/Lib/Value.jz", "module Lib::Value { result = 1. 1 / 0. }")
+      ("src/Lib/Value.jz", "module Lib::Value { result = 1. __kernel_divide 1 0. }")
     ]
 
 testAnalyzedInterfacesExposeOnlyDeclaredExports :: IO ()
@@ -1882,7 +1798,7 @@ testDependencyExpressionContract = do
     localDependencyExpressionSources =
       Map.fromList
         [ ("src/App/Main.jz", "module App::Main { import Lib::Value. result. }"),
-          ("src/Lib/Value.jz", "module Lib::Value { result = 1. 1 / 0. }")
+          ("src/Lib/Value.jz", "module Lib::Value { result = 1. __kernel_divide 1 0. }")
         ]
 
 testAliasIsolationContract :: IO ()

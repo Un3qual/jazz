@@ -308,7 +308,8 @@ statementContainsPartialApplication :: Map Text Int -> SurfaceStatement -> Bool
 statementContainsPartialApplication arities statement =
   case statement of
     SSLet _ _ body -> containsPartialApplication arities body
-    SSImpl _ _ _ methods ->
+    SSClass _ _ _ _ _ defaults -> any (implMethodContainsPartialApplication arities) defaults
+    SSImpl _ _ _ methods _ ->
       any (implMethodContainsPartialApplication arities) methods
     SSExpr _ body -> containsPartialApplication arities body
     _ -> False
@@ -374,16 +375,17 @@ inventoryStatement statement =
                ]
         )
         <> Set.unions (map inventoryDataConstructor constructors)
-    SSClass _ _ _ methods ->
+    SSClass _ _ _ methods prerequisites defaults ->
       Set.insert
         ClassFeature
-        (Set.unions (map inventoryClassMethod methods))
-    SSImpl _ _ arguments methods ->
+        (Set.unions (map inventoryClassMethod methods <> map inventorySignatureConstraint prerequisites <> map inventoryImplMethod defaults))
+    SSImpl _ _ arguments methods prerequisites ->
       Set.insert
         ImplFeature
         ( Set.unions
             ( map inventorySignatureType arguments
                 <> map inventoryImplMethod methods
+                <> map inventorySignatureConstraint prerequisites
             )
         )
     SSModule _ _ exports ->

@@ -706,8 +706,7 @@ hiddenConstructorInputs =
           ),
       inferenceImportedConstructorWitnessNames = Map.empty,
       inferenceImportedCapabilities = emptyScopeCapabilityFacts,
-      inferenceImportedClassNames = Set.empty,
-      inferenceCurrentModulePath = Nothing
+      inferenceImportedClassNames = Set.empty
     }
 
 data ExpectedCoverageFailure

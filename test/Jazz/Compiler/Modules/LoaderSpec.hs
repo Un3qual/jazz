@@ -14,6 +14,7 @@ import Data.IORef
   )
 import Data.Text (Text)
 import qualified Data.Text as Text
+import Jazz.Compiler.BundledPrelude (bundledPreludeSource)
 import Jazz.Compiler.Driver
   ( RunResult,
     runCompileErrors,
@@ -113,7 +114,7 @@ testImportedTailRecursiveClosureIsStackSafe = do
       module Library::Counter (countDown) {
       countDown = \\(remaining) -> case remaining {
       | 0 -> 0
-      | _ -> countDown (remaining - 1)
+      | _ -> countDown (__kernel_subtract remaining 1)
       }.
       }
       """
@@ -133,7 +134,7 @@ testBootstrapMaybeAndResultModules = do
   result <-
     runModuleGraphWithPrelude
       defaultWarningSettings
-      Nothing
+      (Just bundledPreludeSource)
       resolverConfig
       ["App", "Main"]
       lookupSource
@@ -144,11 +145,11 @@ testBootstrapMaybeAndResultModules = do
     entrySource =
       """
       module App::Main {
-      import Maybe.
-      import Result.
-      maybeValue :: Maybe(Int).
+      import Maybe as Maybe. import Maybe (Nothing, Just).
+      import Result as Result. import Result (Err, Ok).
+      maybeValue :: Maybe::Maybe(Int).
       maybeValue = Just 41.
-      resultValue :: Result(Text, Int).
+      resultValue :: Result::Result(Text, Int).
       resultValue = Ok 1.
       maybeNumber = case maybeValue { | Nothing -> 0 | Just item -> item }.
       resultNumber = case resultValue { | Err message -> 0 | Ok item -> item }.
@@ -175,13 +176,13 @@ testBootstrapTextModule = do
     entrySource =
       """
       module App::Main {
-      import Text.
-      import Maybe.
-      case textUncons \"🙂x\" {
-      | Nothing -> (textIsEmpty textEmpty, textLength \"a🙂é\", textUncons \"\" == Nothing, '?', '?', False)
-      | Just (first, rest) -> case textUncons rest {
-      | Nothing -> (textIsEmpty textEmpty, textLength \"a🙂é\", textUncons \"\" == Nothing, first, '?', False)
-      | Just (second, tail) -> (textIsEmpty textEmpty, textLength \"a🙂é\", textUncons \"\" == Nothing, first, second, textIsEmpty tail)
+      import Text as Text.
+      import Maybe as Maybe. import Maybe (Nothing, Just).
+      case Text::uncons \"🙂x\" {
+      | Nothing -> (Text::isEmpty Text::empty, Text::length \"a🙂é\", Text::uncons \"\" == Nothing, '?', '?', False)
+      | Just (first, rest) -> case Text::uncons rest {
+      | Nothing -> (Text::isEmpty Text::empty, Text::length \"a🙂é\", Text::uncons \"\" == Nothing, first, '?', False)
+      | Just (second, tail) -> (Text::isEmpty Text::empty, Text::length \"a🙂é\", Text::uncons \"\" == Nothing, first, second, Text::isEmpty tail)
       }
       }.
       }
@@ -207,13 +208,13 @@ testBootstrapCollectionScalarModules = do
     entrySource =
       """
       module App::Main {
-      import List.
-      import Char.
-      import Text.
-      items = listPrepend \"first\" [\"second\"].
+      import List as List.
+      import Char as Char.
+      import Text as Text.
+      items = List::prepend \"first\" [\"second\"].
       surrogate :: UInt32.
       surrogate = 55296.
-      (listReverse items, listLength items, charFromUInt32 (charToUInt32 '🙂'), charFromUInt32 surrogate, (charIsAlpha 'é', charIsAlphaNum '9', charIsDigit '9', charIsSpace '\\t', charIsHexDigit 'F', charIsNewline '\\n'), textAppendChar (textAppend \"Ja\" \"z\") 'z').
+      (List::reverse items, List::length items, Char::fromUInt32 (Char::toUInt32 '🙂'), Char::fromUInt32 surrogate, (Char::isAlpha 'é', Char::isAlphaNum '9', Char::isDigit '9', Char::isSpace '\\t', Char::isHexDigit 'F', Char::isNewline '\\n'), Text::appendChar (Text::append \"Ja\" \"z\") 'z').
       }
       """
     lookupSource "src/App/Main.jz" = pure (Just entrySource)
@@ -234,7 +235,7 @@ testBootstrapListReversePreservesConcreteHints = do
     entrySource =
       """
       module App::Main {
-      import List.
+      import List as List.
       class RuntimePick(a) { pick :: [a] -> Bool. }.
       impl RuntimePick(Bool) { pick = \\(values) -> True. }.
       impl RuntimePick(Int64) { pick = \\(values) -> False. }.
@@ -242,7 +243,7 @@ testBootstrapListReversePreservesConcreteHints = do
       values = [1].
       emptyValues :: [Int64].
       emptyValues = [].
-      (RuntimePick::pick (listReverse values), RuntimePick::pick (listReverse emptyValues)).
+      (RuntimePick::pick (List::reverse values), RuntimePick::pick (List::reverse emptyValues)).
       }
       """
     lookupSource "src/App/Main.jz" = pure (Just entrySource)
@@ -257,7 +258,7 @@ testBootstrapIOSuccesses = do
     runModuleGraphWithPreludeAndHost
       (successfulIOHost callsRef)
       defaultWarningSettings
-      Nothing
+      (Just bundledPreludeSource)
       resolverConfig
       ["App", "Main"]
       lookupSource
@@ -300,7 +301,7 @@ testBootstrapIOErrors = do
     runModuleGraphWithPreludeAndHost
       failingIOHost
       defaultWarningSettings
-      Nothing
+      (Just bundledPreludeSource)
       resolverConfig
       ["App", "Main"]
       lookupSource

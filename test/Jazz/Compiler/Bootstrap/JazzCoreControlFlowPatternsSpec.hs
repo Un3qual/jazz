@@ -88,7 +88,7 @@ testUnsupportedBoundary = do
   assertEqual "unsupported fixture names" expectedUnsupportedFixtureNames (map fst unsupportedFixtures)
   first <- runJazzControlFlowPatternsBatch unsupportedExpressions
   second <- runJazzControlFlowPatternsBatch unsupportedExpressions
-  let expected = Just ("[" <> Text.intercalate ", " (replicate 12 "Nothing") <> "]")
+  let expected = Just ("[" <> Text.intercalate ", " (replicate (length expectedUnsupportedFixtureNames) "Nothing") <> "]")
   assertEqual "unsupported first compile errors" [] (runCompileErrors first)
   assertEqual "unsupported first runtime errors" [] (runRuntimeErrors first)
   assertEqual "unsupported first output" expected (runOutput first)
@@ -277,7 +277,6 @@ expectedUnsupportedFixtureNames =
     "type-application-case-scrutinee",
     "type-application-case-guard",
     "type-application-lambda-body",
-    "dollar-case-body",
     "signature-if-block",
     "data-case-block",
     "class-lambda-block",
@@ -305,11 +304,6 @@ unsupportedFixtures =
         (SurfaceLambdaIdentifier span1 "value" :| [])
         (seTypeApplication (seVar "identity") span1 TypeInt)
     ),
-    ( "dollar-case-body",
-      seCase
-        (seVar "value")
-        [SurfaceCaseArm spWildcard Nothing (seBinary "$" (seVar "function") (seInt 1))]
-    ),
     ( "signature-if-block",
       seIf
         (seVar "condition")
@@ -324,12 +318,12 @@ unsupportedFixtures =
     ( "class-lambda-block",
       seLambda
         (SurfaceLambdaIdentifier span1 "value" :| [])
-        (seBlock [SSClass span1 "Show" ["a"] []])
+        (seBlock [SSClass span1 "Show" ["a"] [] [] []])
     ),
     ( "impl-lambda-block",
       seLambda
         (SurfaceLambdaIdentifier span1 "value" :| [])
-        (seBlock [SSImpl span1 (SurfaceName "Show" span1 Nothing) [TypeText] []])
+        (seBlock [SSImpl span1 (SurfaceName "Show" span1 Nothing) [TypeText] [] []])
     ),
     ( "operator-storage-nested-block",
       seBlock
@@ -355,9 +349,6 @@ se = SurfaceExpr span1
 
 sp :: SurfacePatternForm -> SurfacePattern
 sp = SurfacePattern span1
-
-seBinary :: Text.Text -> SurfaceExpr -> SurfaceExpr -> SurfaceExpr
-seBinary operator left right = se (SEBinary operator left right)
 
 seBlock :: [SurfaceStatement] -> SurfaceExpr
 seBlock = se . SEBlock

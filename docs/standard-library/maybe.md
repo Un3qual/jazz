@@ -27,27 +27,27 @@ Both constructors are available to
 
 ## Transforming
 
-### `maybeMap`
+### `map`
 
 ```jazz jazz-signature
-maybeMap :: (a -> b) -> Maybe(a) -> Maybe(b).
+map :: (a -> b) -> Maybe(a) -> Maybe(b).
 ```
 
 Calls the function for `Just`; `Nothing` passes through unchanged.
 
-### `maybeAndThen`
+### `andThen`
 
 ```jazz jazz-signature
-maybeAndThen :: (a -> Maybe(b)) -> Maybe(a) -> Maybe(b).
+andThen :: (a -> Maybe(b)) -> Maybe(a) -> Maybe(b).
 ```
 
 Calls the function for `Just` without nesting its `Maybe` result. `Nothing`
 skips the function.
 
-### `maybeFilter`
+### `filter`
 
 ```jazz jazz-signature
-maybeFilter :: (a -> Bool) -> Maybe(a) -> Maybe(a).
+filter :: (a -> Bool) -> Maybe(a) -> Maybe(a).
 ```
 
 Keeps a present value when the predicate returns `True`; otherwise returns
@@ -57,18 +57,18 @@ These transformations are `O(1)` apart from callback work.
 
 ## Defaults and alternatives
 
-### `maybeWithDefault`
+### `withDefault`
 
 ```jazz jazz-signature
-maybeWithDefault :: a -> Maybe(a) -> a.
+withDefault :: a -> Maybe(a) -> a.
 ```
 
 Returns the first argument only for `Nothing`.
 
-### `maybeOrElse`
+### `orElse`
 
 ```jazz jazz-signature
-maybeOrElse :: Maybe(a) -> Maybe(a) -> Maybe(a).
+orElse :: Maybe(a) -> Maybe(a) -> Maybe(a).
 ```
 
 Returns the second argument when it is `Just`; otherwise returns the fallback
@@ -76,35 +76,39 @@ passed first.
 
 ## Inspection
 
-### `maybeIsJust`
+### `isJust`
 
 ```jazz jazz-signature
-maybeIsJust :: Maybe(a) -> Bool.
+isJust :: Maybe(a) -> Bool.
 ```
 
-### `maybeIsNothing`
+### `isNothing`
 
 ```jazz jazz-signature
-maybeIsNothing :: Maybe(a) -> Bool.
+isNothing :: Maybe(a) -> Bool.
 ```
 
 ## Conversion
 
-### `maybeToList`
+### `toList`
 
 ```jazz jazz-signature
-maybeToList :: Maybe(a) -> [a].
+toList :: Maybe(a) -> [a].
 ```
 
 Maps `Nothing` to `[]` and `Just value` to `[value]`.
 
-### `maybeFromList`
+### `fromList`
 
 ```jazz jazz-signature
-maybeFromList :: [a] -> Maybe(a).
+fromList :: [a] -> Maybe(a).
 ```
 
 Uses the first list value, or returns `Nothing` for an empty list. The remainder
 is ignored.
 
 Use [Result](result.md) instead when the absent branch should carry an error.
+
+## Generic methods
+
+Importing Maybe supplies element-based Equatable, Mappable, and Reducible instances. Mapping preserves Nothing; either fold returns its initial value for Nothing.

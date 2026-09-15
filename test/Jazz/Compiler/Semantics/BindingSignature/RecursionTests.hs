@@ -246,7 +246,7 @@ testSourceKeepsLaterRebindingOverRecursiveScheme =
     left = \\(x) -> x + 1.
     bad = left True.
     """
-    "cannot apply function of type Int64 -> Int64 to argument of type Bool"
+    "cannot apply function of type Int -> Int to argument of type Bool"
 
 testSourceRejectsInterleavedUseConstrainedByLaterRecursiveMember :: IO ()
 testSourceRejectsInterleavedUseConstrainedByLaterRecursiveMember =
@@ -338,10 +338,10 @@ testSourceInstantiatesRecursiveConstrainedSignaturePerUse :: IO ()
 testSourceInstantiatesRecursiveConstrainedSignaturePerUse =
   assertSourceOkWithoutPrelude
     """
-    class Eq(a) { }.
-    impl Eq(Int) { }.
-    impl Eq(Bool) { }.
-    choose :: @{Eq(a)}: a -> a.
+    class Equatable(a) { }.
+    impl Equatable(Int) { }.
+    impl Equatable(Bool) { }.
+    choose :: @{Equatable(a)}: a -> a.
     choose = if True then \\(x) -> x else choose.
     intValue = choose 1.
     boolValue = choose True.
@@ -354,4 +354,4 @@ testSourceReportsSignedRecursiveRhsTypeError =
     x :: Bool.
     x = x + 1.
     """
-    "E2003"
+    "E2006"

@@ -10,16 +10,13 @@ module Jazz.Compiler.TypeInference.Diagnostics
     annotateNewErrorsWithContext,
     mkAmbiguousDeferredConstraintError,
     mkAmbiguousQualifiedMethodBodyError,
-    mkAmbiguousQualifiedMethodBodyForArgumentsError,
     mkApplyTypeError,
-    mkBinaryTypeError,
     mkBindingTypeMismatchError,
     mkCaseGuardTypeError,
     mkConstructorPatternArityError,
     mkDuplicateDataTypeDeclarationError,
     mkDuplicatePatternBinderError,
     mkEmptyOrPatternError,
-    mkExplicitConstraintArityError,
     mkInvalidExplicitTypeApplicationArgumentError,
     mkExplicitTypeApplicationTargetError,
     mkIfBranchTypeMismatchError,
@@ -27,30 +24,24 @@ module Jazz.Compiler.TypeInference.Diagnostics
     mkImplMethodMissingClassMethodError,
     mkImplMethodTypeMismatchError,
     mkInvalidImplTargetError,
+    mkInvalidCapabilityDeclarationError,
     mkInvalidSignatureTypeError,
-    mkInvalidQualifiedMethodSignatureError,
-    mkMethodLocalTypeVariableError,
     mkListElementTypeMismatchError,
     mkListPatternTypeMismatchError,
     mkMissingClassMethodError,
-    mkMissingExplicitConstraintClassError,
     mkMissingExplicitConstraintImplFactError,
     mkMissingImplMethodBodyError,
     mkMissingOperatorBindingError,
     mkNoMatchingQualifiedMethodBodyError,
-    mkNumericBinaryTypeError,
     mkNumericConversionFloatLiteralOverflowError,
     mkNumericConversionFractionalLiteralTypeError,
     mkNumericConversionLiteralTypeError,
-    mkNumericSectionOperandTypeError,
     mkNonExhaustivePatternMatchError,
     mkOrPatternBinderSetMismatchError,
     mkOrPatternBinderTypeMismatchError,
     mkPatternBranchTypeMismatchError,
     mkPatternTypeMismatchError,
     mkSignatureTypeMismatchError,
-    mkStrictEqualityTypeError,
-    mkStrictEqualityUnsupportedTypeError,
     mkTargetedFractionalLiteralOverflowError,
     mkTuplePatternArityMismatchError,
     mkTuplePatternTypeMismatchError,
@@ -62,18 +53,15 @@ module Jazz.Compiler.TypeInference.Diagnostics
     mkUnreachablePatternArmError,
     mkInvalidConstructorPayloadTypeError,
     mkUnsupportedOperatorValueError,
-    mkUnsupportedSectionOperatorError,
     targetedFloatLiteralDiagnostic,
     renderSignaturePayload,
     renderType,
   )
 where
 
-import Data.Bifoldable (bifoldMap)
 import Data.Bifunctor (first)
 import Data.Foldable (asum)
 import qualified Data.Map.Strict as Map
-import Data.Monoid (Any (..))
 import Data.Set (Set)
 import qualified Data.Set as Set
 import Data.Text (Text)
@@ -89,12 +77,6 @@ import Jazz.Compiler.AST
 import Jazz.Compiler.BuiltinCatalog
   ( numericTypeFloatMax,
     renderNumericTypeName,
-  )
-import Jazz.Compiler.CapabilityFacts
-  ( concreteConstraintArgument,
-    concreteImplFact,
-    identifierLooksLikeTypeVariable,
-    renderConcreteImplFact,
   )
 import Jazz.Compiler.CoreIdentity (CapabilityId (..), CapabilityMethodKey, renderCapabilityId, renderCapabilityMethodKey)
 import Jazz.Compiler.DiagnosticCatalog
@@ -129,7 +111,6 @@ import Jazz.Compiler.TypeInference.State
   ( InferState (..),
     InferenceOutput (..),
     inferClassFacts,
-    inferConcreteImplFacts,
     inferErrorCount,
     inferErrorsRev,
     modifyInferenceOutput,
@@ -199,21 +180,6 @@ annotateNewErrorsWithContext context spanValue previousState nextState =
 mkInferenceTypeError :: ErrorCode -> TypeErrorCause ExpressionType -> Diagnostic
 mkInferenceTypeError code = mkTypeErrorDiagnostic code . fmap (first identifierText)
 
-mkNumericBinaryTypeError :: Text -> ExpressionType -> ExpressionType -> Diagnostic
-mkNumericBinaryTypeError = mkBinaryTypeError
-
-mkBinaryTypeError :: Text -> ExpressionType -> ExpressionType -> Diagnostic
-mkBinaryTypeError operatorSymbol leftType rightType =
-  mkInferenceTypeError E2003 (BinaryOperandTypeMismatch operatorSymbol leftType rightType)
-
-mkStrictEqualityTypeError :: Text -> ExpressionType -> ExpressionType -> Diagnostic
-mkStrictEqualityTypeError operatorSymbol leftType rightType =
-  mkInferenceTypeError E2004 (StrictEqualityTypeMismatch operatorSymbol leftType rightType)
-
-mkStrictEqualityUnsupportedTypeError :: Text -> ExpressionType -> Diagnostic
-mkStrictEqualityUnsupportedTypeError operatorSymbol foundType =
-  mkInferenceTypeError E2004 (UnsupportedStrictEqualityType operatorSymbol foundType)
-
 mkDuplicateDataTypeDeclarationError :: Text -> SourceSpan -> Diagnostic
 mkDuplicateDataTypeDeclarationError typeName spanValue =
   setDiagnosticSubject typeName $ setDiagnosticPrimarySpan spanValue $ mkErrorDiagnostic E2014 CompilationOrigin ("duplicate data type declaration '" <> typeName <> "'")
@@ -270,15 +236,8 @@ mkListElementTypeMismatchError :: ExpressionType -> ExpressionType -> Diagnostic
 mkListElementTypeMismatchError expectedType foundType =
   mkInferenceTypeError E2007 (ListElementTypeMismatch expectedType foundType)
 
-mkUnsupportedSectionOperatorError :: Text -> Diagnostic
-mkUnsupportedSectionOperatorError symbol = mkErrorDiagnostic E2008 CompilationOrigin ("unsupported operator section '" <> symbol <> "'")
-
 mkUnsupportedOperatorValueError :: Text -> Diagnostic
 mkUnsupportedOperatorValueError symbol = mkErrorDiagnostic E2003 CompilationOrigin ("builtin operator '" <> symbol <> "' has no value type rule")
-
-mkNumericSectionOperandTypeError :: Text -> ExpressionType -> Diagnostic
-mkNumericSectionOperandTypeError symbol operandType =
-  mkInferenceTypeError E2003 (NumericSectionOperandType symbol operandType)
 
 mkTypeSchemeNumericConstraintError :: NumericConstraint -> ExpressionType -> Diagnostic
 mkTypeSchemeNumericConstraintError _ foundType = mkInferenceTypeError E2003 (UnsatisfiedNumericConstraint foundType)
@@ -300,31 +259,10 @@ mkAmbiguousQualifiedMethodBodyError methodKey = withSubject key $ mkErrorDiagnos
   where
     key = renderCapabilityMethodKey methodKey
 
-mkNoMatchingQualifiedMethodBodyError, mkAmbiguousQualifiedMethodBodyForArgumentsError :: CapabilityMethodKey -> [ExpressionType] -> Diagnostic
+mkNoMatchingQualifiedMethodBodyError :: CapabilityMethodKey -> [ExpressionType] -> Diagnostic
 mkNoMatchingQualifiedMethodBodyError methodKey types = withSubject key $ mkInferenceTypeError E2015 (NoMatchingMethodArguments key types)
   where
     key = renderCapabilityMethodKey methodKey
-mkAmbiguousQualifiedMethodBodyForArgumentsError methodKey types = withSubject key $ mkInferenceTypeError E2015 (AmbiguousMethodArguments key types)
-  where
-    key = renderCapabilityMethodKey methodKey
-
-mkInvalidQualifiedMethodSignatureError :: Text -> SignaturePayload 'Resolved -> Diagnostic
-mkInvalidQualifiedMethodSignatureError key payload =
-  withSubject key $ mkErrorDiagnostic E2015 CompilationOrigin ("invalid or unsupported class method signature for '" <> key <> "': '" <> renderSignaturePayload payload <> "'")
-
-mkMethodLocalTypeVariableError :: Text -> Text -> SourceSpan -> Diagnostic
-mkMethodLocalTypeVariableError methodKey variableName methodSpan =
-  withSubject methodKey $
-    setDiagnosticPrimarySpan methodSpan $
-      mkErrorDiagnostic
-        E2009
-        CompilationOrigin
-        ( "class method '"
-            <> methodKey
-            <> "' uses unsupported method-local type variable '"
-            <> variableName
-            <> "'; only declared class parameters may appear"
-        )
 
 mkUndeclaredSignatureConstraintError :: Text -> Bool -> Text -> ExpressionType -> SourceSpan -> Diagnostic
 mkUndeclaredSignatureConstraintError bindingName primitive constraintName argumentType signatureSpan =
@@ -345,22 +283,12 @@ mkInvalidConstructorPayloadTypeError :: Text -> Diagnostic
 mkInvalidConstructorPayloadTypeError detail =
   mkErrorDiagnostic E2013 CompilationOrigin ("invalid constructor payload type: " <> detail)
 
-mkMissingExplicitConstraintClassError :: CapabilityId -> Diagnostic
-mkMissingExplicitConstraintClassError capability = mkErrorDiagnostic E2009 CompilationOrigin ("missing class declaration '" <> name <> "'")
-  where
-    name = renderCapabilityId capability
-
-mkExplicitConstraintArityError :: CapabilityId -> Int -> Diagnostic
-mkExplicitConstraintArityError capability arity = mkErrorDiagnostic E2009 CompilationOrigin ("constraint '" <> name <> "' expects " <> tshow arity <> " argument(s), got 1")
-  where
-    name = renderCapabilityId capability
-
 mkMissingExplicitConstraintImplFactError :: Text -> Diagnostic
 mkMissingExplicitConstraintImplFactError key = mkErrorDiagnostic E2009 CompilationOrigin ("missing impl fact '" <> key <> "'")
 
-mkAmbiguousDeferredConstraintError :: Bool -> CapabilityId -> ExpressionType -> Diagnostic
-mkAmbiguousDeferredConstraintError inferred name argumentType =
-  mkInferenceTypeError E2009 (AmbiguousDeferredConstraint inferred (renderCapabilityId name) argumentType)
+mkAmbiguousDeferredConstraintError :: CapabilityId -> ExpressionType -> Diagnostic
+mkAmbiguousDeferredConstraintError name argumentType =
+  mkInferenceTypeError E2009 (AmbiguousDeferredConstraint (renderCapabilityId name) argumentType)
 
 mkPatternTypeMismatchError :: ExpressionType -> ExpressionType -> Diagnostic
 mkPatternTypeMismatchError scrutineeType patternType = mkInferenceTypeError E2011 (PatternTypeMismatch patternType scrutineeType)
@@ -520,12 +448,10 @@ invalidSignatureSummary state symbol signaturePayload =
     reason = case signaturePayloadNamedTypeFailure state signaturePayload of
       Just failure -> failure
       Nothing -> case signaturePayload of
-        ConstrainedSignature constraints signatureType
+        ConstrainedSignature constraints _
           | Just duplicateName <- Signature.duplicateConstraintName constraints ->
               "duplicate constraint '" <> duplicateName <> "' in " <> quotedPayload
-          | constrainedSignatureHasTypeVariable constraints signatureType ->
-              "type-variable constrained signatures require every constrained variable to appear in the signature body before inference can accept " <> quotedPayload
-          | Just failure <- concreteConstraintFailureSummary state constraints ->
+          | Just failure <- signatureConstraintFailureSummary state constraints ->
               failure <> " in " <> quotedPayload
         _ -> quotedPayload
 
@@ -567,8 +493,8 @@ declarationSignatureTypeFailureSummary state signatureType =
     Left failure -> Just (Signature.renderSignatureTypeFailure failure)
     Right () -> Nothing
 
-concreteConstraintFailureSummary :: InferState -> [SignatureConstraint 'Resolved] -> Maybe Text
-concreteConstraintFailureSummary state constraints
+signatureConstraintFailureSummary :: InferState -> [SignatureConstraint 'Resolved] -> Maybe Text
+signatureConstraintFailureSummary state constraints
   | null constraints = Nothing
   | otherwise = asum (map constraintFailureSummary constraints)
   where
@@ -585,26 +511,12 @@ concreteConstraintFailureSummary state constraints
                 <> " argument(s), got "
                 <> Text.pack (show (length arguments))
             )
-      | [argument] <- arguments,
-        concreteConstraintArgument argument,
-        Just implFact <- concreteImplFact constraintName [argument],
-        Set.notMember implFact (inferConcreteImplFacts state) =
-          Just ("missing impl fact '" <> renderConcreteImplFact implFact <> "'")
       | otherwise =
           Nothing
       where
         constraintNameText = identifierText constraintName
-        maybeClassArity = Map.lookup (CapabilityId constraintName) (inferClassFacts state)
+        maybeClassArity = 1 <$ Map.lookup (CapabilityId constraintName) (inferClassFacts state)
 
-constrainedSignatureHasTypeVariable :: [SignatureConstraint 'Resolved] -> SignatureType 'Resolved -> Bool
-constrainedSignatureHasTypeVariable constraints signatureType =
-  any constraintHasTypeVariable constraints
-    || constraintTypeHasTypeVariable signatureType
-
-constraintHasTypeVariable :: SignatureConstraint 'Resolved -> Bool
-constraintHasTypeVariable (SignatureConstraint _ arguments) =
-  any constraintTypeHasTypeVariable arguments
-
-constraintTypeHasTypeVariable :: SignatureType 'Resolved -> Bool
-constraintTypeHasTypeVariable signatureType =
-  getAny (bifoldMap (Any . identifierLooksLikeTypeVariable) (const (Any True)) signatureType)
+mkInvalidCapabilityDeclarationError :: SourceSpan -> Text -> Diagnostic
+mkInvalidCapabilityDeclarationError spanValue message =
+  setDiagnosticPrimarySpan spanValue (mkErrorDiagnostic E2009 CompilationOrigin message)

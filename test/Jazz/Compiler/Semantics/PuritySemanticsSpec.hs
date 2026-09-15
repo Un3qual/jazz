@@ -42,7 +42,7 @@ main = runTestSuite "PuritySemantics" tests
 tests :: [NamedTest]
 tests =
   [ ("pure binding cannot call impure builtin", testPureBindingCannotCallImpureBuiltin),
-    ("pure binding cannot call impure builtin through dollar application", testPureBindingCannotCallImpureBuiltinThroughDollarApplication),
+    ("dollar follows ordinary higher-order purity checking", testDollarHigherOrderPurity),
     ("pure binding cannot call impure qualified method", testPureBindingCannotCallImpureQualifiedMethod),
     ("pure binding cannot call impure callee through explicit type application", testPureBindingCannotCallImpureCalleeThroughExplicitTypeApplication),
     ("pure impl method cannot call impure callee", testPureImplMethodCannotCallImpureCallee),
@@ -74,39 +74,22 @@ testPureBindingCannotCallImpureBuiltin = do
     "E1010"
     (compileErrors result)
 
-testPureBindingCannotCallImpureBuiltinThroughDollarApplication :: IO ()
-testPureBindingCannotCallImpureBuiltinThroughDollarApplication = do
-  result <-
-    compileSource
-      defaultWarningSettings
-      """
-      x = print! $ 1.
-      x.
-      """
-  assertSingleErrorContains
-    "pure binding calling impure builtin through dollar application"
-    "E1010"
-    (compileErrors result)
+testDollarHigherOrderPurity :: IO ()
+testDollarHigherOrderPurity = do
+  direct <- compileSource defaultWarningSettings "x = apply print! 1."
+  operator <- compileSource defaultWarningSettings "x = print! $ 1."
+  assertEqual "ordinary higher-order call compiles" [] (compileErrors direct)
+  assertEqual "dollar has ordinary higher-order purity rules" (compileErrors direct) (compileErrors operator)
 
 testPureBindingCannotCallImpureQualifiedMethod :: IO ()
-testPureBindingCannotCallImpureQualifiedMethod = do
-  result <-
-    compileSource
-      defaultWarningSettings
-      """
-      class Effect(a) {
-      run! :: a -> a.
-      }.
-      impl Effect(Int) {
-      run! = \\(candidate) -> candidate.
-      }.
-      x = Effect::run! 1.
-      x.
-      """
-  assertSingleErrorContains
-    "pure binding calling impure qualified method"
-    "E1010"
-    (compileErrors result)
+testPureBindingCannotCallImpureQualifiedMethod = mapM_ check ["Effect::run! 1", "run! 1", "stored! 1"]
+  where
+    check invocation = do
+      result <-
+        compileSource
+          defaultWarningSettings
+          ("class Effect(a) { run! :: a -> a. }. impl Effect(Int) { run! = \\(candidate) -> candidate. }. stored! = run!. x = " <> invocation <> ". x.")
+      assertSingleErrorContains "pure binding calling an impure method or alias" "E1010" (compileErrors result)
 
 testPureBindingCannotCallImpureCalleeThroughExplicitTypeApplication :: IO ()
 testPureBindingCannotCallImpureCalleeThroughExplicitTypeApplication = do

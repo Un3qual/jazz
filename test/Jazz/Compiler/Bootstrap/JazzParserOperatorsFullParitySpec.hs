@@ -204,7 +204,7 @@ lookupOperatorSource expression sourcePath =
                 expression
                 """
                 module App::Main {
-                  import Maybe.
+                  import Maybe as Maybe. import Maybe (Nothing, Just).
                   import ParserContext.
                   import ParserOperator.
                   __EXPRESSION__.

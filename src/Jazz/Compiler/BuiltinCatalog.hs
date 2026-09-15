@@ -50,7 +50,14 @@ data BuiltinOwnership
 
 -- | Stable builtin symbol set shared by all compiler/runtime phases.
 data BuiltinSymbol
-  = BuiltinMap
+  = BuiltinAdd
+  | BuiltinSubtract
+  | BuiltinMultiply
+  | BuiltinDivide
+  | BuiltinEquals
+  | BuiltinLessThan
+  | BuiltinGreaterThan
+  | BuiltinMap
   | BuiltinFilter
   | BuiltinHd
   | BuiltinTl
@@ -112,9 +119,16 @@ kernelBuiltinNames =
 builtinSymbolOwnership :: BuiltinSymbol -> BuiltinOwnership
 builtinSymbolOwnership builtinSymbol =
   case builtinSymbol of
+    BuiltinAdd -> KernelIntrinsic
+    BuiltinSubtract -> KernelIntrinsic
+    BuiltinMultiply -> KernelIntrinsic
+    BuiltinDivide -> KernelIntrinsic
+    BuiltinEquals -> KernelIntrinsic
+    BuiltinLessThan -> KernelIntrinsic
+    BuiltinGreaterThan -> KernelIntrinsic
+    BuiltinMap -> KernelIntrinsic
     -- Compatibility window: these runtime helpers remain kernel-backed for now,
     -- but the ownership contract marks them as prelude-targeted APIs.
-    BuiltinMap -> PreludeTarget
     BuiltinFilter -> PreludeTarget
     BuiltinHd -> PreludeTarget
     BuiltinTl -> PreludeTarget
@@ -163,6 +177,13 @@ builtinSymbolOwnership builtinSymbol =
 builtinSymbolName :: BuiltinSymbol -> Text
 builtinSymbolName builtinSymbol =
   case builtinSymbol of
+    BuiltinAdd -> "add"
+    BuiltinSubtract -> "subtract"
+    BuiltinMultiply -> "multiply"
+    BuiltinDivide -> "divide"
+    BuiltinEquals -> "equals"
+    BuiltinLessThan -> "lessThan"
+    BuiltinGreaterThan -> "greaterThan"
     BuiltinMap -> "map"
     BuiltinFilter -> "filter"
     BuiltinHd -> "hd"
@@ -216,6 +237,13 @@ builtinSymbolKernelName builtinSymbol =
 builtinSymbolArity :: BuiltinSymbol -> Int
 builtinSymbolArity builtinSymbol =
   case builtinSymbol of
+    BuiltinAdd -> 2
+    BuiltinSubtract -> 2
+    BuiltinMultiply -> 2
+    BuiltinDivide -> 2
+    BuiltinEquals -> 2
+    BuiltinLessThan -> 2
+    BuiltinGreaterThan -> 2
     BuiltinMap -> 2
     BuiltinFilter -> 2
     BuiltinHd -> 1

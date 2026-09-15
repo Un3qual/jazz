@@ -315,7 +315,7 @@ statementInventory =
     loweredSignature
       (sourceName (mkIdentifier "constrained"))
       span1
-      (ConstrainedSignature [SignatureConstraint (sourceName (mkIdentifier "Eq")) [TypeVariable (sourceName (mkIdentifier "a"))]] (TypeVariable (sourceName (mkIdentifier "a")))),
+      (ConstrainedSignature [SignatureConstraint (sourceName (mkIdentifier "Equatable")) [TypeVariable (sourceName (mkIdentifier "a"))]] (TypeVariable (sourceName (mkIdentifier "a")))),
     loweredSignature (sourceName (mkIdentifier "unsupported")) span1 (UnsupportedSignature signatureTokenInventory),
     loweredData
       span1
@@ -329,12 +329,12 @@ statementInventory =
       ],
     loweredClass
       span1
-      (sourceName (mkIdentifier "Eq"))
+      (sourceName (mkIdentifier "Equatable"))
       [sourceName (mkIdentifier "a")]
       [loweredClassMethodSignature (sourceName (mkIdentifier "equals")) span2 (SignatureType signatureInventory)],
     loweredImpl
       span1
-      (sourceName (mkIdentifier "Eq"))
+      (sourceName (mkIdentifier "Equatable"))
       [TypeInt]
       [loweredImplMethod (sourceName (mkIdentifier "equals")) span2 (loweredLiteral (LBool True))],
     loweredModule span1 ["App", "Main"],

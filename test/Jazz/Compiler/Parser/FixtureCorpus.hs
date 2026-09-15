@@ -1010,13 +1010,13 @@ observedParserFixtures =
     ParserFixture
       { parserFixtureName = "parser-corpus-0052",
         parserFixturePath = "fixtures/parser/parser-corpus-0052.jz",
-        parserFixtureSource = Text.pack "class Eq { }.",
+        parserFixtureSource = Text.pack "class Equatable { }.",
         parserFixtureExpectation = ParserRejected
       },
     ParserFixture
       { parserFixtureName = "parser-corpus-0053",
         parserFixturePath = "fixtures/parser/parser-corpus-0053.jz",
-        parserFixtureSource = Text.pack "class Eq(Int) { }.",
+        parserFixtureSource = Text.pack "class Equatable(Int) { }.",
         parserFixtureExpectation = ParserRejected
       },
     ParserFixture
@@ -1025,7 +1025,7 @@ observedParserFixtures =
         parserFixtureSource =
           Text.pack
             """
-            class Eq(a) {
+            class Equatable(a) {
             equals :: a -> a -> Bool.
             notEquals :: a -> a -> Bool.
             }.
@@ -1035,25 +1035,25 @@ observedParserFixtures =
     ParserFixture
       { parserFixtureName = "parser-corpus-0055",
         parserFixturePath = "fixtures/parser/parser-corpus-0055.jz",
-        parserFixtureSource = Text.pack "class Eq(a) { 1. }.",
+        parserFixtureSource = Text.pack "class Equatable(a) { 1. }.",
         parserFixtureExpectation = ParserRejected
       },
     ParserFixture
       { parserFixtureName = "parser-corpus-0056",
         parserFixturePath = "fixtures/parser/parser-corpus-0056.jz",
-        parserFixtureSource = Text.pack "class Eq(a) { equals :: Int. equals :: Bool. }.",
+        parserFixtureSource = Text.pack "class Equatable(a) { equals :: Int. equals :: Bool. }.",
         parserFixtureExpectation = ParserRejected
       },
     ParserFixture
       { parserFixtureName = "parser-corpus-0057",
         parserFixturePath = "fixtures/parser/parser-corpus-0057.jz",
-        parserFixtureSource = Text.pack "class Eq(a) { equals = \\item -> item. }.",
+        parserFixtureSource = Text.pack "class Equatable(a) { equals = \\item -> item. }.",
         parserFixtureExpectation = ParserRejected
       },
     ParserFixture
       { parserFixtureName = "parser-corpus-0058",
         parserFixturePath = "fixtures/parser/parser-corpus-0058.jz",
-        parserFixtureSource = Text.pack "class Eq(a) { }.",
+        parserFixtureSource = Text.pack "class Equatable(a) { }.",
         parserFixtureExpectation = ParserAccepted
       },
     ParserFixture
@@ -1062,21 +1062,21 @@ observedParserFixtures =
         parserFixtureSource =
           Text.pack
             """
-            class Eq(a) { }.
-            impl Eq(Int) { }.
+            class Equatable(a) { }.
+            impl Equatable(Int) { }.
             """,
         parserFixtureExpectation = ParserAccepted
       },
     ParserFixture
       { parserFixtureName = "parser-corpus-0060",
         parserFixturePath = "fixtures/parser/parser-corpus-0060.jz",
-        parserFixtureSource = Text.pack "class Eq(a, a) { }.",
+        parserFixtureSource = Text.pack "class Equatable(a, a) { }.",
         parserFixtureExpectation = ParserRejected
       },
     ParserFixture
       { parserFixtureName = "parser-corpus-0061",
         parserFixturePath = "fixtures/parser/parser-corpus-0061.jz",
-        parserFixtureSource = Text.pack "class Eq(a, b) { }.",
+        parserFixtureSource = Text.pack "class Equatable(a, b) { }.",
         parserFixtureExpectation = ParserRejected
       },
     ParserFixture
@@ -1179,7 +1179,7 @@ observedParserFixtures =
         parserFixtureSource =
           Text.pack
             """
-            f :: @{Eq(a), Ord(b)}: a -> b -> c.
+            f :: @{Equatable(a), Comparable(b)}: a -> b -> c.
             f = combine.
             """,
         parserFixtureExpectation = ParserAccepted
@@ -1190,7 +1190,7 @@ observedParserFixtures =
         parserFixtureSource =
           Text.pack
             """
-            f :: @{Eq(a)}: a -> a.
+            f :: @{Equatable(a)}: a -> a.
             f = identity.
             """,
         parserFixtureExpectation = ParserAccepted
@@ -1376,7 +1376,7 @@ observedParserFixtures =
         parserFixtureSource =
           Text.pack
             """
-            impl Eq(Int) {
+            impl Equatable(Int) {
             equals = \\(left, right) -> left == right.
             }.
             """,
@@ -1385,31 +1385,31 @@ observedParserFixtures =
     ParserFixture
       { parserFixtureName = "parser-corpus-0104",
         parserFixturePath = "fixtures/parser/parser-corpus-0104.jz",
-        parserFixtureSource = Text.pack "impl Eq(Int) { equals :: Int. }.",
+        parserFixtureSource = Text.pack "impl Equatable(Int) { equals :: Int. }.",
         parserFixtureExpectation = ParserRejected
       },
     ParserFixture
       { parserFixtureName = "parser-corpus-0105",
         parserFixturePath = "fixtures/parser/parser-corpus-0105.jz",
-        parserFixtureSource = Text.pack "impl Eq(Int) { equals = 1. equals = 2. }.",
+        parserFixtureSource = Text.pack "impl Equatable(Int) { equals = 1. equals = 2. }.",
         parserFixtureExpectation = ParserRejected
       },
     ParserFixture
       { parserFixtureName = "parser-corpus-0106",
         parserFixturePath = "fixtures/parser/parser-corpus-0106.jz",
-        parserFixtureSource = Text.pack "impl Eq(Int) { }.",
+        parserFixtureSource = Text.pack "impl Equatable(Int) { }.",
         parserFixtureExpectation = ParserAccepted
       },
     ParserFixture
       { parserFixtureName = "parser-corpus-0107",
         parserFixturePath = "fixtures/parser/parser-corpus-0107.jz",
-        parserFixtureSource = Text.pack "impl Eq(a) { equals = 1. }.",
+        parserFixtureSource = Text.pack "impl Equatable(a) { equals = 1. }.",
         parserFixtureExpectation = ParserRejected
       },
     ParserFixture
       { parserFixtureName = "parser-corpus-0108",
         parserFixturePath = "fixtures/parser/parser-corpus-0108.jz",
-        parserFixtureSource = Text.pack "impl Eq(a) { }.",
+        parserFixtureSource = Text.pack "impl Equatable(a) { }.",
         parserFixtureExpectation = ParserRejected
       },
     ParserFixture
@@ -1672,8 +1672,8 @@ observedParserFixtures =
           Text.pack
             """
             module App::Core {
-            class Eq(a) { }.
-            impl Eq(Int) { }.
+            class Equatable(a) { }.
+            impl Equatable(Int) { }.
             }
             """,
         parserFixtureExpectation = ParserAccepted
@@ -1725,7 +1725,7 @@ observedParserFixtures =
           Text.pack
             """
             module App::Core {
-            trait Eq { }.
+            trait Equatable { }.
             }
             """,
         parserFixtureExpectation = ParserRejected
@@ -2252,7 +2252,7 @@ observedParserFixtures =
         parserFixtureSource =
           Text.pack
             """
-            result = Eq::equals 1 1.
+            result = Equatable::equals 1 1.
             result.
             """,
         parserFixtureExpectation = ParserAccepted
@@ -2322,7 +2322,7 @@ observedParserFixtures =
     ParserFixture
       { parserFixtureName = "parser-corpus-0202",
         parserFixturePath = "fixtures/parser/parser-corpus-0202.jz",
-        parserFixtureSource = Text.pack "trait Eq { }.",
+        parserFixtureSource = Text.pack "trait Equatable { }.",
         parserFixtureExpectation = ParserRejected
       },
     ParserFixture
@@ -2467,7 +2467,7 @@ observedParserFixtures =
           Text.pack
             """
             x :: Int
-            class Eq { }.
+            class Equatable { }.
             """,
         parserFixtureExpectation = ParserRejected
       },
@@ -3276,7 +3276,7 @@ typesDeclarationsModulesFixtures =
     fixture
       "foundational-impl-method"
       """
-      impl Eq(Int) { equals = 1. }.
+      impl Equatable(Int) { equals = 1. }.
       """,
     fixture
       "applied-explicit-type-application"

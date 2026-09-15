@@ -547,23 +547,17 @@ test('published combined standard-library routes redirect to canonical module pa
   ]]);
 });
 
-test('public docs retain non-obvious numeric, complexity, and module-root contracts', () => {
-  const operators = read('docs/language/operators.md');
-  const operatorSection = operators.split('## Executable built-ins', 2)[1];
-  assert.match(operatorSection, /same numeric type/i);
-  assert.match(operatorSection, /integral[^\n]+(?:`Float`|`Float64`)/i);
-  assert.match(operatorSection, /explicit conversion/i);
-
+test('public docs retain non-obvious complexity and module-root contracts', () => {
   const overview = read('docs/standard-library/overview.md');
   assert.match(overview, /--module-root[^\n]+--module-root/s);
   assert.match(overview, /jazz\/stdlib/);
 
   const queue = read('docs/standard-library/queue.md');
   const queueIntroduction = queue.split('## Type', 1)[0];
-  assert.match(queueIntroduction, /`queueEmpty` and `queueSingleton`[\s\S]+`O\(1\)`/);
+  assert.match(queueIntroduction, /`empty` and `singleton`[\s\S]+`O\(1\)`/);
 
   const text = read('docs/standard-library/text.md');
-  const repeatSection = text.split('### `textRepeat`', 2)[1].split('\n### ', 1)[0];
+  const repeatSection = text.split('### `repeat`', 2)[1].split('\n### ', 1)[0];
   assert.match(repeatSection, /non-positive[\s\S]+`O\(1\)`/i);
   assert.match(repeatSection, /positive[\s\S]+repetition count plus the output size/i);
 });
@@ -589,6 +583,7 @@ test('standard library navigation exposes one page per module', async () => {
     'standard-library/queue',
     'standard-library/map',
     'standard-library/set',
+    'standard-library/reduce',
     'standard-library/char',
     'standard-library/text',
     'standard-library/io',

@@ -283,12 +283,12 @@ testProgramBoundaryFailures =
     """
     ( parseComponentTokens "True = 1."
     , parseComponentTokens "False = 1."
-    , parseComponentTokens "class Eq(a) { }."
-    , parseComponentTokens "impl Eq(Int) { }."
-    , parseComponentTokens "trait Eq(a) { }."
+    , parseComponentTokens "class Equatable(a) { }."
+    , parseComponentTokens "impl Equatable(Int) { }."
+    , parseComponentTokens "trait Equatable(a) { }."
     )
     """
-    "(CanonicalParserFailure(CanonicalSourcePath(\"fixtures/parser/component.jz\"), ParserFailure(\"E0001\", Just(CanonicalSpan(1, 1)), DeclarationFailure(ReservedLiteralName(BindingName, \"True\")))), CanonicalParserFailure(CanonicalSourcePath(\"fixtures/parser/component.jz\"), ParserFailure(\"E0001\", Just(CanonicalSpan(1, 1)), DeclarationFailure(ReservedLiteralName(BindingName, \"False\")))), CanonicalParserSuccess(CanonicalSourcePath(\"fixtures/parser/component.jz\"), BlockExpression([ClassStatement(CanonicalSpan(1, 1), \"Eq\", [\"a\"], [])])), CanonicalParserSuccess(CanonicalSourcePath(\"fixtures/parser/component.jz\"), BlockExpression([ImplStatement(CanonicalSpan(1, 1), \"Eq\", [IntType], [])])), CanonicalParserFailure(CanonicalSourcePath(\"fixtures/parser/component.jz\"), ParserFailure(\"E0001\", Just(CanonicalSpan(1, 1)), UnsupportedSyntax(AbstractionSyntax(\"trait\")))))"
+    "(CanonicalParserFailure(CanonicalSourcePath(\"fixtures/parser/component.jz\"), ParserFailure(\"E0001\", Just(CanonicalSpan(1, 1)), DeclarationFailure(ReservedLiteralName(BindingName, \"True\")))), CanonicalParserFailure(CanonicalSourcePath(\"fixtures/parser/component.jz\"), ParserFailure(\"E0001\", Just(CanonicalSpan(1, 1)), DeclarationFailure(ReservedLiteralName(BindingName, \"False\")))), CanonicalParserSuccess(CanonicalSourcePath(\"fixtures/parser/component.jz\"), BlockExpression([ClassStatement(CanonicalSpan(1, 1), \"Equatable\", [\"a\"], [], [], [])])), CanonicalParserSuccess(CanonicalSourcePath(\"fixtures/parser/component.jz\"), BlockExpression([ImplStatement(CanonicalSpan(1, 1), \"Equatable\", [IntType], [], [])])), CanonicalParserFailure(CanonicalSourcePath(\"fixtures/parser/component.jz\"), ParserFailure(\"E0001\", Just(CanonicalSpan(1, 1)), UnsupportedSyntax(AbstractionSyntax(\"trait\")))))"
 
 testOperatorDeclarationBoundary :: IO ()
 testOperatorDeclarationBoundary = do
@@ -374,7 +374,7 @@ lookupSource expression sourcePath =
                 module App::Main {
                   import LexerTypes.
                   import Lexer (lexSource).
-                  import Maybe (Nothing, Just).
+                  import Maybe as Maybe. import Maybe (Nothing, Just).
                   import Parser (parseSource, parseTokens).
                   import ParserExpression (parseFoundationalExpression).
                   import ParserToken.

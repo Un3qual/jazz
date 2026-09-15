@@ -466,11 +466,11 @@ testParsesParameterizedClassCapabilityDeclaration =
     ( Right
         ( e 1 1 $
             SEBlock
-              [ SSClass (SourceSpan 1 1) "Eq" ["a"] []
+              [ SSClass (SourceSpan 1 1) "Equatable" ["a"] [] [] []
               ]
         )
     )
-    (parseSurfaceProgramPoints "class Eq(a) { }.")
+    (parseSurfaceProgramPoints "class Equatable(a) { }.")
 
 testParsesImplCapabilityDeclaration :: IO ()
 testParsesImplCapabilityDeclaration =
@@ -481,13 +481,14 @@ testParsesImplCapabilityDeclaration =
             SEBlock
               [ SSImpl
                   (SourceSpan 1 1)
-                  (SurfaceName "Eq" (SourceSpan 1 6) Nothing)
+                  (SurfaceName "Equatable" (SourceSpan 1 6) Nothing)
                   [TypeInt]
+                  []
                   []
               ]
         )
     )
-    (parseSurfaceProgramPoints "impl Eq(Int) { }.")
+    (parseSurfaceProgramPoints "impl Equatable(Int) { }.")
 
 testLowersCapabilityDeclarations :: IO ()
 testLowersCapabilityDeclarations =
@@ -495,16 +496,16 @@ testLowersCapabilityDeclarations =
     "surface parse"
     ( parseSurfaceProgramPoints
         """
-        class Eq(a) { }.
-        impl Eq(Int) { }.
+        class Equatable(a) { }.
+        impl Equatable(Int) { }.
         """
     )
     ( \surfaceProgram ->
         assertLoweredCoreEqual
           "lowered capability declarations"
           ( loweredBlock
-              [ loweredClass (SourceSpan 1 1) "Eq" ["a"] [],
-                loweredImpl (SourceSpan 2 1) "Eq" [TypeInt] []
+              [ loweredClass (SourceSpan 1 1) "Equatable" ["a"] [],
+                loweredImpl (SourceSpan 2 1) "Equatable" [TypeInt] []
               ]
           )
           (lowerSurfaceExpr surfaceProgram)
@@ -516,7 +517,7 @@ testParsesImplMethodBindingMetadata =
     "surface impl method binding metadata parse"
     ( parseSurfaceProgramPoints
         """
-        impl Eq(Int) {
+        impl Equatable(Int) {
         equals = \\(left, right) -> left == right.
         }.
         """
@@ -527,7 +528,7 @@ testParsesImplMethodBindingMetadata =
           ( SEBlock
               [ SSImpl
                   _
-                  (SurfaceName "Eq" _ _)
+                  (SurfaceName "Equatable" _ _)
                   [TypeInt]
                   [ SurfaceImplMethod
                       "equals"
@@ -540,6 +541,7 @@ testParsesImplMethodBindingMetadata =
                             )
                         )
                     ]
+                  []
                 ]
             ) -> pure ()
         other -> failTest ("unexpected surface impl method shape: " <> Text.pack (show other))
@@ -551,7 +553,7 @@ testLowersImplMethodBindingMetadata =
     "surface impl method binding metadata parse"
     ( parseSurfaceProgramPoints
         """
-        impl Eq(Int) {
+        impl Equatable(Int) {
         equals = \\(left, right) -> left == right.
         }.
         """
@@ -562,13 +564,14 @@ testLowersImplMethodBindingMetadata =
             _
             [ SImpl
                 _
-                "Eq"
+                "Equatable"
                 [TypeInt]
                 [ ImplMethod
                     _
                     "equals"
                     (ELambda _ "left" (ELambda _ "right" (EBinary _ "==" (EVar _ "left") (EVar _ "right"))))
                   ]
+                []
               ] -> pure ()
           other -> failTest ("unexpected lowered impl method shape: " <> Text.pack (show other))
     )

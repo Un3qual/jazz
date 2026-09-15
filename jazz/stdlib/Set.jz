@@ -1,94 +1,100 @@
 module Set (
   type Set,
-  value setEmpty,
-  value setSingleton,
-  value setFromList,
-  value setToList,
-  value setSize,
-  value setIsEmpty,
-  value setContains,
-  value setInsert,
-  value setRemove,
-  value setUnion,
-  value setIntersection,
-  value setDifference,
-  value setIsSubset,
-  value setFilter,
-  value setMap,
-  value setFoldLeft,
-  value setFoldRight
+  value empty,
+  value singleton,
+  value fromList,
+  value toList,
+  value size,
+  value isEmpty,
+  value contains,
+  value insert,
+  value remove,
+  value union,
+  value intersection,
+  value difference,
+  value isSubset,
+  value filter,
+  value map,
+  value foldLeft,
+  value foldRight
 ) {
-  import List.
-  import Map.
+  import List as List.
+  import Map as Map.
 
-  data Set a = Set Map(a, ()).
+  data Set a = Set Map::Map(a, ()).
 
-  setEmpty :: Set(a).
-  setEmpty = Set mapEmpty.
+  empty :: Set(a).
+  empty = Set Map::empty.
 
-  setSingleton :: a -> Set(a).
-  setSingleton = \(item) -> Set (mapSingleton item ()).
+  singleton :: a -> Set(a).
+  singleton = \(item) -> Set (Map::singleton item ()).
 
-  setInsert :: @{Ord(a)}: Set(a) -> a -> Set(a).
-  setInsert = \(set, item) -> case set {
-    | Set map -> Set (mapInsert map item ())
+  insert :: @{Comparable(a)}: Set(a) -> a -> Set(a).
+  insert = \(set, item) -> case set {
+    | Set map -> Set (Map::insert map item ())
   }.
 
-  setFromList :: @{Ord(a)}: [a] -> Set(a).
-  setFromList = \(values) -> listFoldLeft setInsert setEmpty values.
+  fromList :: @{Comparable(a)}: [a] -> Set(a).
+  fromList = \(values) -> List::foldLeft insert empty values.
 
-  setToList :: Set(a) -> [a].
-  setToList = \(set) -> case set {
-    | Set map -> mapKeys map
+  toList :: Set(a) -> [a].
+  toList = \(set) -> case set {
+    | Set map -> Map::keys map
   }.
 
-  setSize :: Set(a) -> Int.
-  setSize = \(set) -> case set {
-    | Set map -> mapSize map
+  size :: Set(a) -> Int.
+  size = \(set) -> case set {
+    | Set map -> Map::size map
   }.
 
-  setIsEmpty :: Set(a) -> Bool.
-  setIsEmpty = \(set) -> setSize set == 0.
+  isEmpty :: Set(a) -> Bool.
+  isEmpty = \(set) -> size set == 0.
 
-  setContains :: @{Ord(a)}: Set(a) -> a -> Bool.
-  setContains = \(set, item) -> case set {
-    | Set map -> mapContainsKey map item
+  contains :: @{Comparable(a)}: Set(a) -> a -> Bool.
+  contains = \(set, item) -> case set {
+    | Set map -> Map::containsKey map item
   }.
 
-  setRemove :: @{Ord(a)}: Set(a) -> a -> Set(a).
-  setRemove = \(set, item) -> case set {
-    | Set map -> Set (mapRemove map item)
+  remove :: @{Comparable(a)}: Set(a) -> a -> Set(a).
+  remove = \(set, item) -> case set {
+    | Set map -> Set (Map::remove map item)
   }.
 
-  setFoldLeft :: Set(a) -> b -> (b -> a -> b) -> b.
-  setFoldLeft = \(set, initial, combine) -> case set {
-    | Set map -> mapFoldLeft map initial (\(result, key, unit) -> combine result key)
+  foldLeft :: Set(a) -> b -> (b -> a -> b) -> b.
+  foldLeft = \(set, initial, combine) -> case set {
+    | Set map -> Map::foldLeft map initial (\(result, key, unit) -> combine result key)
   }.
 
-  setFoldRight :: Set(a) -> b -> (a -> b -> b) -> b.
-  setFoldRight = \(set, initial, combine) -> case set {
-    | Set map -> mapFoldRight map initial (\(key, unit, result) -> combine key result)
+  foldRight :: Set(a) -> b -> (a -> b -> b) -> b.
+  foldRight = \(set, initial, combine) -> case set {
+    | Set map -> Map::foldRight map initial (\(key, unit, result) -> combine key result)
   }.
 
-  setUnion :: @{Ord(a)}: Set(a) -> Set(a) -> Set(a).
-  setUnion = \(left, right) -> setFoldLeft right left (\(result, item) -> setInsert result item).
+  union :: @{Comparable(a)}: Set(a) -> Set(a) -> Set(a).
+  union = \(left, right) -> foldLeft right left (\(result, item) -> insert result item).
 
-  setFilter :: @{Ord(a)}: Set(a) -> (a -> Bool) -> Set(a).
-  setFilter = \(set, predicate) -> case set {
-    | Set map -> Set (mapFilter map (\(key, unit) -> predicate key))
+  filter :: @{Comparable(a)}: Set(a) -> (a -> Bool) -> Set(a).
+  filter = \(set, predicate) -> case set {
+    | Set map -> Set (Map::filter map (\(key, unit) -> predicate key))
   }.
 
-  setIntersection :: @{Ord(a)}: Set(a) -> Set(a) -> Set(a).
-  setIntersection = \(left, right) -> setFilter left (\(item) -> setContains right item).
+  intersection :: @{Comparable(a)}: Set(a) -> Set(a) -> Set(a).
+  intersection = \(left, right) -> filter left (\(item) -> contains right item).
 
-  setDifference :: @{Ord(a)}: Set(a) -> Set(a) -> Set(a).
-  setDifference = \(left, right) -> setFilter left (\(item) -> if setContains right item then False else True).
+  difference :: @{Comparable(a)}: Set(a) -> Set(a) -> Set(a).
+  difference = \(left, right) -> filter left (\(item) -> not (contains right item)).
 
-  setIsSubset :: @{Ord(a)}: Set(a) -> Set(a) -> Bool.
-  setIsSubset = \(subset, superset) -> setFoldLeft subset True (\(result, item) ->
-    if result then setContains superset item else False
+  isSubset :: @{Comparable(a)}: Set(a) -> Set(a) -> Bool.
+  isSubset = \(subset, superset) -> foldLeft subset True (\(result, item) ->
+    if result then contains superset item else False
   ).
 
-  setMap :: @{Ord(b)}: Set(a) -> (a -> b) -> Set(b).
-  setMap = \(set, transform) -> setFoldLeft set setEmpty (\(result, item) -> setInsert result (transform item)).
+  map :: @{Comparable(b)}: Set(a) -> (a -> b) -> Set(b).
+  map = \(set, transform) -> foldLeft set empty (\(result, item) -> insert result (transform item)).
+
+  impl Reducible(Set) {
+    foldLeft = \(step, initial, items) -> foldLeft items initial step.
+    foldRight = \(step, initial, items) -> foldRight items initial step.
+  }.
+  impl @{Comparable(a)}: Combinable(Set(a)) { combine = union. }.
 }

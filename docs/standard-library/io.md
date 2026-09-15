@@ -11,7 +11,7 @@ Import `IO` for effectful host operations. Recoverable operations return
 ### `readText!`
 
 ```jazz jazz-signature
-readText! :: Text -> Result(IOError, Text).
+readText! :: Text -> Result::Result(IOError, Text).
 ```
 
 Reads the file at the supplied path as strict UTF-8. Success returns `Ok text`.
@@ -21,7 +21,7 @@ available.
 ### `writeText!`
 
 ```jazz jazz-signature
-writeText! :: Text -> Text -> Result(IOError, ()).
+writeText! :: Text -> Text -> Result::Result(IOError, ()).
 ```
 
 Writes the second argument to the path supplied first using strict UTF-8.
@@ -32,7 +32,7 @@ Success returns `Ok ()`; failure returns an error with the path when available.
 ### `readStdin!`
 
 ```jazz jazz-signature
-readStdin! :: () -> Result(IOError, Text).
+readStdin! :: () -> Result::Result(IOError, Text).
 ```
 
 Reads standard input as strict UTF-8. Stream errors do not attach a path.
@@ -40,7 +40,7 @@ Reads standard input as strict UTF-8. Stream errors do not attach a path.
 ### `writeStdout!`
 
 ```jazz jazz-signature
-writeStdout! :: Text -> Result(IOError, ()).
+writeStdout! :: Text -> Result::Result(IOError, ()).
 ```
 
 Writes text to standard output. Success returns `Ok ()`; stream errors do not
@@ -49,7 +49,7 @@ attach a path.
 ### `writeStderr!`
 
 ```jazz jazz-signature
-writeStderr! :: Text -> Result(IOError, ()).
+writeStderr! :: Text -> Result::Result(IOError, ()).
 ```
 
 Writes text to standard error. Success returns `Ok ()`; stream errors do not

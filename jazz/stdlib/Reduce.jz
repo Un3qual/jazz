@@ -1,0 +1,9 @@
+module Reduce (value reduce) {
+  import Maybe.
+
+  reduce :: @{Reducible(f)}: (a -> a -> a) -> f(a) -> Maybe(a).
+  reduce = \(combine, values) -> foldLeft (\(accumulator, item) -> case accumulator {
+    | Nothing -> Just item
+    | Just previous -> Just (combine previous item)
+  }) Nothing values.
+}

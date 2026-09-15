@@ -1,55 +1,56 @@
 module Char (
-  value charToUInt32,
-  value charFromUInt32,
-  value charIsAlpha,
-  value charIsAlphaNum,
-  value charIsDigit,
-  value charIsSpace,
-  value charIsHexDigit,
-  value charIsLower,
-  value charIsUpper,
-  value charToLower,
-  value charToUpper,
-  value charIsNewline
+  value toUInt32,
+  value fromUInt32,
+  value isAlpha,
+  value isAlphaNum,
+  value isDigit,
+  value isSpace,
+  value isHexDigit,
+  value isLower,
+  value isUpper,
+  value toLower,
+  value toUpper,
+  value isNewline
 ) {
-  import Maybe.
+  import Maybe as Maybe.
+  import Maybe (Nothing, Just).
 
-  charToUInt32 :: Char -> UInt32.
-  charToUInt32 = __kernel_charToUInt32.
+  toUInt32 :: Char -> UInt32.
+  toUInt32 = __kernel_charToUInt32.
 
-  charFromUInt32 :: UInt32 -> Maybe(Char).
-  charFromUInt32 = \(scalar) -> case __kernel_charFromUInt32Raw scalar {
+  fromUInt32 :: UInt32 -> Maybe::Maybe(Char).
+  fromUInt32 = \(scalar) -> case __kernel_charFromUInt32Raw scalar {
     | [] -> Nothing
     | [item | _] -> Just item
   }.
 
-  charIsAlpha :: Char -> Bool.
-  charIsAlpha = __kernel_charIsAlpha.
+  isAlpha :: Char -> Bool.
+  isAlpha = __kernel_charIsAlpha.
 
-  charIsAlphaNum :: Char -> Bool.
-  charIsAlphaNum = __kernel_charIsAlphaNum.
+  isAlphaNum :: Char -> Bool.
+  isAlphaNum = __kernel_charIsAlphaNum.
 
-  charIsDigit :: Char -> Bool.
-  charIsDigit = __kernel_charIsDigit.
+  isDigit :: Char -> Bool.
+  isDigit = __kernel_charIsDigit.
 
-  charIsSpace :: Char -> Bool.
-  charIsSpace = __kernel_charIsSpace.
+  isSpace :: Char -> Bool.
+  isSpace = __kernel_charIsSpace.
 
-  charIsHexDigit :: Char -> Bool.
-  charIsHexDigit = __kernel_charIsHexDigit.
+  isHexDigit :: Char -> Bool.
+  isHexDigit = __kernel_charIsHexDigit.
 
-  charIsLower :: Char -> Bool.
-  charIsLower = __kernel_charIsLower.
+  isLower :: Char -> Bool.
+  isLower = __kernel_charIsLower.
 
-  charIsUpper :: Char -> Bool.
-  charIsUpper = __kernel_charIsUpper.
+  isUpper :: Char -> Bool.
+  isUpper = __kernel_charIsUpper.
 
-  charToLower :: Char -> Char.
-  charToLower = __kernel_charToLower.
+  toLower :: Char -> Char.
+  toLower = __kernel_charToLower.
 
-  charToUpper :: Char -> Char.
-  charToUpper = __kernel_charToUpper.
+  toUpper :: Char -> Char.
+  toUpper = __kernel_charToUpper.
 
-  charIsNewline :: Char -> Bool.
-  charIsNewline = \(item) -> if item == '\n' then True else item == '\r'.
+  isNewline :: Char -> Bool.
+  isNewline = \(item) -> if item == '\n' then True else item == '\r'.
 }

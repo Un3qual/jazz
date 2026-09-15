@@ -26,9 +26,11 @@ module ParserCore (
   value parserPeek,
   value parserTakeIf
 ) {
-  import List.
-  import Maybe.
-  import NonEmpty.
+  import List as List.
+  import Maybe as Maybe.
+  import Maybe (Nothing, Just).
+  import NonEmpty as NonEmpty.
+  import NonEmpty (NonEmpty).
 
   data ParserCursor token = ParserCursor [token] Int.
 
@@ -155,7 +157,7 @@ module ParserCore (
     }
   }).
 
-  parserOptional :: Parser(token, problem, item) -> Parser(token, problem, Maybe(item)).
+  parserOptional :: Parser(token, problem, item) -> Parser(token, problem, Maybe::Maybe(item)).
   parserOptional = \(parser) -> parserChoice (parserTransform Just parser) (parserSucceed Nothing).
 
   parserCursorRemaining :: ParserCursor(token) -> [token].
@@ -173,7 +175,7 @@ module ParserCore (
     | ParserFailed failure -> case failure {
       | ParserFailure offset failureConsumption problem -> case problem {
         | RejectedProblem rejected -> case failureConsumption {
-          | Unconsumed -> ParserSucceeded (listReverse reversed) cursor consumption
+          | Unconsumed -> ParserSucceeded (List::reverse reversed) cursor consumption
           | Consumed -> ParserFailed (ParserFailure offset (consumptionAppend consumption failureConsumption) problem)
         }
         | ZeroProgressProblem -> ParserFailed (ParserFailure offset (consumptionAppend consumption failureConsumption) problem)
@@ -181,7 +183,7 @@ module ParserCore (
     }
     | ParserSucceeded item nextCursor stepConsumption -> if parserCursorOffset nextCursor == parserCursorOffset cursor then
       ParserFailed (ParserFailure (parserCursorOffset cursor) (consumptionAppend consumption stepConsumption) ZeroProgressProblem)
-    else parserManyFrom parser nextCursor (listPrepend item reversed) (consumptionAppend consumption stepConsumption)
+    else parserManyFrom parser nextCursor (List::prepend item reversed) (consumptionAppend consumption stepConsumption)
   }.
 
   parserMany :: Parser(token, problem, item) -> Parser(token, problem, [item]).
@@ -192,10 +194,10 @@ module ParserCore (
 
   parserSeparatedBy :: Parser(token, problem, item) -> Parser(token, problem, separator) -> Parser(token, problem, [item]).
   parserSeparatedBy = \(item, separator) -> parserChoice
-    (parserAndThen (\(first) -> parserTransform (\(rest) -> listPrepend first rest) (parserMany (parserKeepRight separator item))) item)
+    (parserAndThen (\(first) -> parserTransform (\(rest) -> List::prepend first rest) (parserMany (parserKeepRight separator item))) item)
     (parserSucceed []).
 
-  parserPeek :: Parser(token, problem, Maybe(token)).
+  parserPeek :: Parser(token, problem, Maybe::Maybe(token)).
   parserPeek = Parser (\(cursor) -> case cursor {
     | ParserCursor remaining offset -> case remaining {
       | [] -> ParserSucceeded Nothing cursor Unconsumed

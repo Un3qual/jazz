@@ -55,22 +55,22 @@ testMapModelTrace = do
       ["Stdlib", "OrderedCollections", "MapModelTrace"]
       """
       module Stdlib::OrderedCollections::MapModelTrace {
-        import Map.
-        import Maybe.
+        import Map as Map.
+        import Maybe as Maybe. import Maybe (Nothing, Just).
         build = \\(remaining, map) -> case remaining {
           | 0 -> map
-          | _ -> build (remaining - 1) (mapInsert map remaining (remaining * 2))
+          | _ -> build (remaining - 1) (Map::insert map remaining (remaining * 2))
         }.
         remove = \\(remaining, map) -> case remaining {
           | 0 -> map
-          | _ -> remove (remaining - 1) (mapRemove map remaining)
+          | _ -> remove (remaining - 1) (Map::remove map remaining)
         }.
-        base = remove 500 (build 1000 mapEmpty).
-        replaced = mapInsert base 750 9999.
-        final = mapUpdate replaced 1001 (\\(current) -> Just 2002).
-        (mapSize final, mapMinimum final, mapMaximum final,
-         mapLookup final 500, mapLookup final 501, mapLookup final 750,
-         mapFoldLeft final 0 (\\(total, key, entry) -> total + key + entry)).
+        base = remove 500 (build 1000 Map::empty).
+        replaced = Map::insert base 750 9999.
+        final = Map::update replaced 1001 (\\(current) -> Just 2002).
+        (Map::size final, Map::minimum final, Map::maximum final,
+         Map::lookup final 500, Map::lookup final 501, Map::lookup final 750,
+         Map::foldLeft final 0 (\\(total, key, entry) -> total + key + entry)).
       }
       """
   assertSuccessfulStdlibOutput expectedMapModel result
@@ -82,18 +82,18 @@ testSetModelTrace = do
       ["Stdlib", "OrderedCollections", "SetModelTrace"]
       """
       module Stdlib::OrderedCollections::SetModelTrace {
-        import Set.
+        import Set as Set.
         build = \\(remaining, set) -> case remaining {
           | 0 -> set
-          | _ -> build (remaining - 1) (setInsert set remaining)
+          | _ -> build (remaining - 1) (Set::insert set remaining)
         }.
         remove = \\(remaining, set) -> case remaining {
           | 0 -> set
-          | _ -> remove (remaining - 1) (setRemove set remaining)
+          | _ -> remove (remaining - 1) (Set::remove set remaining)
         }.
-        final = setInsert (remove 500 (build 1000 setEmpty)) 1001.
-        (setSize final, setContains final 500, setContains final 501,
-         setFoldLeft final 0 (\\(total, element) -> total + element)).
+        final = Set::insert (remove 500 (build 1000 Set::empty)) 1001.
+        (Set::size final, Set::contains final 500, Set::contains final 501,
+         Set::foldLeft final 0 (\\(total, element) -> total + element)).
       }
       """
   assertSuccessfulStdlibOutput expectedSetModel result
@@ -104,26 +104,26 @@ testMapInvariants = do
     runStdlibPrivateProbeValue
       ["Map"]
       """
-      leftLeft = mapFromList [(3, "c"), (2, "b"), (1, "a")].
-      rightRight = mapFromList [(1, "a"), (2, "b"), (3, "c")].
-      leftRight = mapFromList [(3, "c"), (1, "a"), (2, "b")].
-      rightLeft = mapFromList [(1, "a"), (3, "c"), (2, "b")].
+      leftLeft = fromList [(3, "c"), (2, "b"), (1, "a")].
+      rightRight = fromList [(1, "a"), (2, "b"), (3, "c")].
+      leftRight = fromList [(3, "c"), (1, "a"), (2, "b")].
+      rightLeft = fromList [(1, "a"), (3, "c"), (2, "b")].
       build = \\(remaining, map) -> case remaining {
         | 0 -> map
-        | _ -> build (remaining - 1) (mapInsert map remaining (remaining * 2))
+        | _ -> build (remaining - 1) (insert map remaining (remaining * 2))
       }.
       insertTrace = \\(remaining, map, versions) -> case remaining {
         | 0 -> __kernel_listPrependRaw map versions
-        | _ -> insertTrace (remaining - 1) (mapInsert map remaining remaining) (__kernel_listPrependRaw map versions)
+        | _ -> insertTrace (remaining - 1) (insert map remaining remaining) (__kernel_listPrependRaw map versions)
       }.
       removeTrace = \\(remaining, map, versions) -> case remaining {
         | 0 -> __kernel_listPrependRaw map versions
-        | _ -> removeTrace (remaining - 1) (mapRemove map remaining) (__kernel_listPrependRaw map versions)
+        | _ -> removeTrace (remaining - 1) (remove map remaining) (__kernel_listPrependRaw map versions)
       }.
-      large = build 1000 mapEmpty.
+      large = build 1000 empty.
       ([leftLeft, rightRight, leftRight, rightLeft],
-       insertTrace 100 mapEmpty [],
-       removeTrace 100 (build 100 mapEmpty) [],
+       insertTrace 100 empty [],
+       removeTrace 100 (build 100 empty) [],
        large).
       """
   assertEqual
@@ -214,7 +214,7 @@ testPrivateConstructors = do
     "MapNode"
     """
     module Stdlib::OrderedCollections::PrivateMap {
-      import Map.
+      import Map as Map.
       MapNode.
     }
     """
@@ -223,7 +223,7 @@ testPrivateConstructors = do
     "Set"
     """
     module Stdlib::OrderedCollections::PrivateSet {
-      import Set.
+      import Set as Set.
       Set.
     }
     """

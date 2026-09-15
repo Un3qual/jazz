@@ -36,7 +36,7 @@ import Jazz.Compiler.Runtime.Observation
   )
 
 runtimeObservationSchemaVersion :: Int
-runtimeObservationSchemaVersion = 1
+runtimeObservationSchemaVersion = 2
 
 renderRuntimeObservationHuman :: RuntimeObservationReport -> Text
 renderRuntimeObservationHuman report =
@@ -95,7 +95,6 @@ parseStatistics = withObject "runtime statistics" $ \object ->
     <*> object .: "applications"
     <*> object .: "closureApplications"
     <*> object .: "builtinApplications"
-    <*> object .: "operatorApplications"
     <*> object .: "constructorApplications"
     <*> object .: "methodApplications"
     <*> object .: "currentContinuationDepth"
@@ -126,7 +125,6 @@ statisticFields statistics =
     ("applications", "applications", runtimeApplications statistics),
     ("closureApplications", "closure applications", runtimeClosureApplications statistics),
     ("builtinApplications", "builtin applications", runtimeBuiltinApplications statistics),
-    ("operatorApplications", "operator applications", runtimeOperatorApplications statistics),
     ("constructorApplications", "constructor applications", runtimeConstructorApplications statistics),
     ("methodApplications", "method applications", runtimeMethodApplications statistics),
     ("currentContinuationDepth", "current continuation depth", runtimeCurrentContinuationDepth statistics),

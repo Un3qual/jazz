@@ -136,7 +136,7 @@ testLambdaCaptureOrder = do
     ["outside", "tail"]
     (captures (resolvedFixture "probe = \\(item) -> { local = outside. (local, outside, tail, item). }."))
 
-  case resolveStandaloneExprNames (exportInventory []) (loweredProgram "outside = 1. probe = \\(item) -> { outside = outside + 1. \\(inner) -> outside. }.") of
+  case resolveStandaloneExprNames (exportInventory []) (loweredProgram "outside = 1. probe = \\(item) -> { outside = (outside, 1). \\(inner) -> outside. }.") of
     EBlock _ [SLet outerNode _ _, SLet _ _ outer@(ELambda _ _ (EBlock _ [SLet localNode _ _, SExpr _ nested]))] -> do
       assertEqual
         "outer closure captures the earlier declaration"

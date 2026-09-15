@@ -211,13 +211,13 @@ testContextRendering :: IO ()
 testContextRendering = do
   let report =
         appendDiagnosticContext (CheckingBinding "f") $
-          appendDiagnosticContext (CheckingImplMethod "Eq::equal") $
-            appendDiagnosticContext (CheckingImplMethod "Eq::equal") $
-              appendDiagnosticContext (SatisfyingConstraint "Eq") $
+          appendDiagnosticContext (CheckingImplMethod "Equatable::equals") $
+            appendDiagnosticContext (CheckingImplMethod "Equatable::equals") $
+              appendDiagnosticContext (SatisfyingConstraint "Equatable") $
                 mkErrorDiagnostic E2005 CompilationOrigin "mismatch"
   assertEqual
     "inner context precedes its owner without duplicate hints"
-    "error: E2005: mismatch (while satisfying constraint 'Eq'; while checking impl method 'Eq::equal'; while checking binding 'f')"
+    "error: E2005: mismatch (while satisfying constraint 'Equatable'; while checking impl method 'Equatable::equals'; while checking binding 'f')"
     (renderDiagnostic report)
 
 -- Exercise report constructors, so adding normalization to a renderer without
@@ -227,8 +227,8 @@ testSemanticErrorReports = do
   mapM_ check cases
   assertEqual
     "method argument reports share names across their entire argument list"
-    "no matching qualified method body 'Eq::equal' for argument types (t0, t1, t0), t1"
-    (diagnosticSummary (Inference.mkNoMatchingQualifiedMethodBodyError (equalityCapability, mkIdentifier "equal") [pair 7, variable 8]))
+    "no matching qualified method body 'Equatable::equals' for argument types (t0, t1, t0), t1"
+    (diagnosticSummary (Inference.mkNoMatchingQualifiedMethodBodyError (equalityCapability, mkIdentifier "equals") [pair 7, variable 8]))
   assertEqual
     "pattern and scrutinee share report names in presentation order"
     "case pattern of type (t0, t1, t0) does not match scrutinee type t1"
@@ -248,23 +248,17 @@ testSemanticErrorReports = do
       assertEqual (label <> " retains semantic cause") True (isJust (diagnosticTypeError earlier))
       assertEqual (label <> " ignores allocation offsets") (renderDiagnostic earlier) (renderDiagnostic later)
     variable = SemanticVariable
-    equalityCapability = CapabilityId (resolvedLocalName CapabilityNamespace (mkIdentifier "Eq"))
+    equalityCapability = CapabilityId (resolvedLocalName CapabilityNamespace (mkIdentifier "Equatable"))
     pair offset = SemanticTuple [variable offset, variable (offset + 1), variable offset]
     name = resolvedLocalName ValueNamespace (mkIdentifier "item")
     spanValue = SourceRangeIn "src/Lib/Check.jz" 3 4 3 12
     cases =
-      [ ("binary", \n -> Inference.mkBinaryTypeError "+" (pair n) (variable (n + 1))),
-        ("strict equality", \n -> Inference.mkStrictEqualityTypeError "==" (pair n) (variable (n + 1))),
-        ("unsupported equality", \n -> Inference.mkStrictEqualityUnsupportedTypeError "==" (SemanticFunction (variable n) (variable n))),
-        ("numeric section", \n -> Inference.mkNumericSectionOperandTypeError "+" (pair n)),
-        ("numeric constraint", \n -> Inference.mkTypeSchemeNumericConstraintError AnyNumericConstraint (pair n)),
+      [ ("numeric constraint", \n -> Inference.mkTypeSchemeNumericConstraintError AnyNumericConstraint (pair n)),
         ("equality constraint", \n -> Inference.mkTypeSchemeStrictEqualityConstraintError (pair n)),
-        ("missing method match", \n -> Inference.mkNoMatchingQualifiedMethodBodyError (equalityCapability, mkIdentifier "equal") [pair n, variable (n + 1)]),
-        ("ambiguous method match", \n -> Inference.mkAmbiguousQualifiedMethodBodyForArgumentsError (equalityCapability, mkIdentifier "equal") [pair n, variable (n + 1)]),
-        ("undeclared class constraint", \n -> Inference.mkUndeclaredSignatureConstraintError "f" False "Eq" (pair n) spanValue),
+        ("missing method match", \n -> Inference.mkNoMatchingQualifiedMethodBodyError (equalityCapability, mkIdentifier "equals") [pair n, variable (n + 1)]),
+        ("undeclared class constraint", \n -> Inference.mkUndeclaredSignatureConstraintError "f" False "Equatable" (pair n) spanValue),
         ("undeclared primitive constraint", \n -> Inference.mkUndeclaredSignatureConstraintError "f" True "Numeric" (pair n) spanValue),
-        ("ambiguous inferred constraint", \n -> Inference.mkAmbiguousDeferredConstraintError True equalityCapability (pair n)),
-        ("ambiguous explicit constraint", \n -> Inference.mkAmbiguousDeferredConstraintError False equalityCapability (pair n)),
+        ("ambiguous explicit constraint", \n -> Inference.mkAmbiguousDeferredConstraintError equalityCapability (pair n)),
         ("pattern mismatch", \n -> Inference.mkPatternTypeMismatchError (variable (n + 1)) (pair n)),
         ("list pattern mismatch", \n -> Inference.mkListPatternTypeMismatchError (pair n)),
         ("tuple pattern mismatch", \n -> Inference.mkTuplePatternTypeMismatchError (pair n)),

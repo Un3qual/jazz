@@ -87,7 +87,7 @@ data ParserDuplicateNameRole
   = DataTypeParameter
   | DataConstructorName
   | ClassMethodName
-  | ImplMethodName
+  | MethodBindingName
   deriving (Eq, Ord, Show)
 
 data ParserListKind
@@ -99,7 +99,6 @@ data ParserListKind
 data ParserUnsupportedFeature
   = ExplicitTypeApplicationArgument
   | FractionalLiteralPattern
-  | ClassMethodBody Text
   | DeclarationHeaderArguments ParserDeclarationKind
   | AbstractionSyntax Text
   deriving (Eq, Ord, Show)
@@ -121,7 +120,7 @@ data ParserDeclarationFailure
   | ReservedLiteralName ParserNameRole Text
   | DeclarationOutsideAllowedScope ParserDeclarationKind
   | ImportAliasCombinedWithSymbolList
-  | ImplRequiresConcreteTarget
+  | ImplRequiresConstructorTarget
   | DuplicateName ParserDuplicateNameRole Text ParserDeclarationKind
   | DuplicateListItem ParserListKind Text
   | ExpectedOrdinaryImplMethodBinding Text
@@ -245,10 +244,6 @@ renderUnsupportedFeature feature =
     ExplicitTypeApplicationArgument ->
       "unsupported explicit type application argument after '@'"
     FractionalLiteralPattern -> "fractional literal patterns are not supported"
-    ClassMethodBody methodName ->
-      "unsupported class method body/default syntax for '"
-        <> methodName
-        <> "': only signature-only method declarations are implemented in jazz"
     DeclarationHeaderArguments declarationKind ->
       "unsupported " <> renderDeclarationKind declarationKind <> " header arguments"
     AbstractionSyntax "trait" ->
@@ -294,7 +289,7 @@ renderDeclarationFailure failure =
         ClassDeclaration -> "class declaration must remain top-level"
         ImplDeclaration -> "impl declaration must remain top-level"
     ImportAliasCombinedWithSymbolList -> "cannot combine import alias and symbol list"
-    ImplRequiresConcreteTarget -> "impl declarations require a concrete impl target"
+    ImplRequiresConstructorTarget -> "impl declarations require one constructor-headed impl target with distinct variables"
     DuplicateName role name declarationKind ->
       "duplicate "
         <> renderDuplicateNameRole role
@@ -361,7 +356,7 @@ renderDuplicateNameRole role =
     DataTypeParameter -> "type parameter"
     DataConstructorName -> "constructor declaration"
     ClassMethodName -> "method signature"
-    ImplMethodName -> "method binding"
+    MethodBindingName -> "method binding"
 
 renderNameRoleWithArticle :: ParserNameRole -> Text
 renderNameRoleWithArticle role =

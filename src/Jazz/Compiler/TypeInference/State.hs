@@ -4,18 +4,14 @@ module Jazz.Compiler.TypeInference.State
     DeferredExplicitConstraint (..),
     ExplicitInstantiationSeed (..),
     ExplicitInstantiationTarget (..),
-    ExpressionEvidenceSeed (..),
+    EvidenceReference (..),
     InferState (..),
     InferenceOutput (..),
     ModuleInferenceState (..),
     SolverState (..),
     inferClassFacts,
     inferClassMethodSignatures,
-    inferConcreteImplFacts,
-    inferConcreteImplMethods,
     inferConstructorWitnessNames,
-    inferCurrentModuleLocalCapabilityFacts,
-    inferCurrentModulePath,
     inferDataTypes,
     inferDeferredExplicitConstraintCount,
     inferDeferredExplicitConstraints,
@@ -23,7 +19,6 @@ module Jazz.Compiler.TypeInference.State
     inferErrorsRev,
     inferInferredClassConstraintCount,
     inferInferredClassConstraints,
-    inferModuleCapabilityFacts,
     inferNextTypeVar,
     inferNumericVars,
     inferPatternCoverageSites,
@@ -36,7 +31,6 @@ module Jazz.Compiler.TypeInference.State
     rejectPatternAttempt,
     modifyDeclarationState,
     modifyInferenceOutput,
-    modifyModuleInferenceState,
     recordPatternCoverageSite,
     reservePatternCoverageSite,
   )
@@ -50,17 +44,16 @@ import Data.Sequence (Seq)
 import qualified Data.Sequence as Seq
 import Data.Set (Set)
 import qualified Data.Set as Set
-import Jazz.Compiler.CoreIdentity (CapabilityId, CapabilityMethodKey, ImplId, MethodId)
+import Jazz.Compiler.CoreIdentity (CapabilityId, CapabilityMethodKey, CoreBinderId)
 import Jazz.Compiler.Diagnostics (Diagnostic)
-import Jazz.Compiler.ModuleIdentity (ModulePath)
 import Jazz.Compiler.Name (ResolvedName, UnresolvedName)
 import Jazz.Compiler.PatternCoverage (PatternCoverageSite)
-import Jazz.Compiler.SemanticDeclarations (ConcreteImplFact, DeclarationVariable)
+import Jazz.Compiler.SemanticDeclarations (ClassDefinition, DeclarationVariable)
+import Jazz.Compiler.SemanticFacts (EvidenceReference (..))
 import Jazz.Compiler.TypeInference.Types
   ( ClassMethodType,
     DataTypeBinding,
     ExpressionType,
-    ImplMethodType,
     InferenceVariable,
     NumericConstraint,
     ScopeCapabilityFacts (..),
@@ -85,11 +78,10 @@ data DeclarationState = DeclarationState
   deriving (Eq, Show)
 
 data ModuleInferenceState = ModuleInferenceState
-  { inferenceModulePath :: Maybe ModulePath,
-    inferenceLocalCapabilities :: ScopeCapabilityFacts,
-    inferenceModuleCapabilities :: Map (Maybe ModulePath) ScopeCapabilityFacts,
-    inferenceDeclarationParameters :: Map InferenceVariable DeclarationVariable,
+  { inferenceDeclarationParameters :: Map InferenceVariable DeclarationVariable,
     inferenceConstructorWitnessNames :: Map ResolvedName UnresolvedName,
+    inferenceEvidenceParameters :: Map (CapabilityId, ExpressionType) (CoreBinderId, Int, [CapabilityId]),
+    inferenceRecursiveEvidence :: Map CoreBinderId [EvidenceReference],
     inferenceVisibleTypes :: TypeEnv
   }
   deriving (Eq, Show)
@@ -101,16 +93,10 @@ data InferenceOutput = InferenceOutput
     outputErrorsRev :: [Diagnostic],
     outputErrorCount :: Int,
     outputPatternCoverageSites :: Seq PatternCoverageSite,
-    outputNextPatternCoverageOrdinal :: Int
+    outputNextPatternCoverageOrdinal :: Int,
+    outputEvidence :: Map EvidenceReference EvidenceReference
   }
   deriving (Eq, Show)
-
-data ExpressionEvidenceSeed = ExpressionEvidenceSeed
-  { evidenceSeedCapability :: CapabilityId,
-    evidenceSeedImplementation :: ImplId,
-    evidenceSeedMethod :: MethodId,
-    evidenceSeedType :: ExpressionType
-  }
 
 data ExplicitInstantiationTarget
   = ExplicitBinderInstantiation ResolvedName
@@ -132,10 +118,8 @@ data InferState = InferState
 data DeferredExplicitConstraint = DeferredExplicitConstraint
   { deferredConstraintName :: CapabilityId,
     deferredMethodKey :: Maybe CapabilityMethodKey,
-    deferredWasInferred :: Bool,
     deferredArgumentType :: ExpressionType,
-    deferredVisibleFacts :: ScopeCapabilityFacts,
-    deferredStructuralFacts :: ScopeCapabilityFacts
+    deferredVisibleFacts :: ScopeCapabilityFacts
   }
   deriving (Eq, Show)
 
@@ -146,10 +130,6 @@ modifyDeclarationState update state =
 modifyInferenceOutput :: (InferenceOutput -> InferenceOutput) -> InferState -> InferState
 modifyInferenceOutput update state =
   state {inferOutput = update (inferOutput state)}
-
-modifyModuleInferenceState :: (ModuleInferenceState -> ModuleInferenceState) -> InferState -> InferState
-modifyModuleInferenceState update state =
-  state {inferModule = update (inferModule state)}
 
 initialInferState :: InferState
 initialInferState =
@@ -169,11 +149,10 @@ initialInferState =
           },
       inferModule =
         ModuleInferenceState
-          { inferenceModulePath = Nothing,
-            inferenceLocalCapabilities = emptyScopeCapabilityFacts,
-            inferenceModuleCapabilities = Map.empty,
-            inferenceDeclarationParameters = Map.empty,
+          { inferenceDeclarationParameters = Map.empty,
             inferenceConstructorWitnessNames = Map.empty,
+            inferenceEvidenceParameters = Map.empty,
+            inferenceRecursiveEvidence = Map.empty,
             inferenceVisibleTypes = Map.empty
           },
       inferOutput =
@@ -184,7 +163,8 @@ initialInferState =
             outputErrorsRev = [],
             outputErrorCount = 0,
             outputPatternCoverageSites = Seq.empty,
-            outputNextPatternCoverageOrdinal = 0
+            outputNextPatternCoverageOrdinal = 0,
+            outputEvidence = Map.empty
           }
     }
 
@@ -206,26 +186,11 @@ inferRigidTypeVars = solverRigidTypeVars . inferSolver
 inferDataTypes :: InferState -> Map ResolvedName DataTypeBinding
 inferDataTypes = declarationDataTypes . inferDeclarations
 
-inferClassFacts :: InferState -> Map CapabilityId Int
+inferClassFacts :: InferState -> Map CapabilityId ClassDefinition
 inferClassFacts = scopeClassFacts . declarationCapabilities . inferDeclarations
-
-inferConcreteImplFacts :: InferState -> Set ConcreteImplFact
-inferConcreteImplFacts = scopeConcreteImplFacts . declarationCapabilities . inferDeclarations
 
 inferClassMethodSignatures :: InferState -> Map CapabilityMethodKey ClassMethodType
 inferClassMethodSignatures = scopeClassMethodSignatures . declarationCapabilities . inferDeclarations
-
-inferConcreteImplMethods :: InferState -> Map CapabilityMethodKey [ImplMethodType]
-inferConcreteImplMethods = scopeConcreteImplMethods . declarationCapabilities . inferDeclarations
-
-inferCurrentModulePath :: InferState -> Maybe ModulePath
-inferCurrentModulePath = inferenceModulePath . inferModule
-
-inferCurrentModuleLocalCapabilityFacts :: InferState -> ScopeCapabilityFacts
-inferCurrentModuleLocalCapabilityFacts = inferenceLocalCapabilities . inferModule
-
-inferModuleCapabilityFacts :: InferState -> Map (Maybe ModulePath) ScopeCapabilityFacts
-inferModuleCapabilityFacts = inferenceModuleCapabilities . inferModule
 
 inferConstructorWitnessNames :: InferState -> Map ResolvedName UnresolvedName
 inferConstructorWitnessNames = inferenceConstructorWitnessNames . inferModule

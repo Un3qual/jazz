@@ -27,7 +27,6 @@ import Jazz.Compiler.Diagnostics.Render
 import Jazz.Compiler.Name
   ( UnresolvedName,
     mkIdentifier,
-    qualifiedName,
     sourceName,
   )
 import Jazz.Compiler.Runtime
@@ -35,10 +34,6 @@ import Jazz.Compiler.Runtime
   )
 import Jazz.Compiler.Semantics.Runtime.Fixtures
 import Jazz.Compiler.Semantics.Runtime.ResolvedFixture
-import Jazz.Compiler.TypeRepresentation
-  ( SignaturePayload (..),
-    SignatureType (..),
-  )
 import Jazz.TestHarness
   ( NamedTest,
     assertEqual,
@@ -82,23 +77,10 @@ testLargeNestedBlockAliasScopeCompletes =
 nestedBlockAliasScope :: Int -> Expr 'Analyzed
 nestedBlockAliasScope bindingCount =
   expressionBlock
-    [ statementClass
-        (SourceSpan 1 1)
-        "RuntimeFlag"
-        ["a"]
-        [ classMethodSignature "enabled" (SourceSpan 2 1) (ConstrainedSignature [] TypeBool),
-          classMethodSignature "on" (SourceSpan 3 1) (ConstrainedSignature [] TypeBool),
-          classMethodSignature "off" (SourceSpan 4 1) (ConstrainedSignature [] TypeBool)
-        ],
-      statementImpl
-        (SourceSpan 5 1)
-        "RuntimeFlag"
-        [TypeInt]
-        [ implMethod "enabled" (SourceSpan 6 1) enabledBody,
-          implMethod "on" (SourceSpan 7 1) (expressionLiteral (LBool True)),
-          implMethod "off" (SourceSpan 8 1) (expressionLiteral (LBool False))
-        ],
-      statementExpression (SourceSpan 9 1) (expressionVariable (qualifiedName "RuntimeFlag" "enabled"))
+    [ statementLet "on" (SourceSpan 1 1) (expressionLiteral (LBool True)),
+      statementLet "off" (SourceSpan 2 1) (expressionLiteral (LBool False)),
+      statementLet "enabled" (SourceSpan 3 1) enabledBody,
+      statementExpression (SourceSpan 4 1) (expressionVariable "enabled")
     ]
   where
     enabledBody =
@@ -110,8 +92,8 @@ nestedBlockAliasScope bindingCount =
                      (SourceSpan (bindingCount + 1) 3)
                      ( expressionIf
                          (expressionVariable (indexedBindingName bindingCount))
-                         (expressionVariable (qualifiedName "RuntimeFlag" "on"))
-                         (expressionVariable (qualifiedName "RuntimeFlag" "off"))
+                         (expressionVariable "on")
+                         (expressionVariable "off")
                      ),
                    statementExpression (SourceSpan (bindingCount + 2) 3) (expressionVariable "target")
                  ]

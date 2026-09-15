@@ -29,7 +29,8 @@ import Jazz.TestHarness
 
 foundationTests :: [NamedTest]
 foundationTests =
-  [ ("list shape and slicing operations are total", runStdlibFixtureExpecting ["Stdlib", "Foundations", "ListShape"] "stdlib/foundations/ListShape.jz" expectedListShape),
+  [ ("Boolean not is an ordinary function", testBooleanNot),
+    ("list shape and slicing operations are total", runStdlibFixtureExpecting ["Stdlib", "Foundations", "ListShape"] "stdlib/foundations/ListShape.jz" expectedListShape),
     ("list transformations and folds preserve order", runStdlibFixtureExpecting ["Stdlib", "Foundations", "ListTransform"] "stdlib/foundations/ListTransform.jz" expectedListTransform),
     ("list operations define empty and clamped boundaries", runStdlibFixtureExpecting ["Stdlib", "Foundations", "ListBoundaries"] "stdlib/foundations/ListBoundaries.jz" expectedListBoundaries),
     ("list equality and ordering operations are deterministic", runStdlibFixtureExpecting ["Stdlib", "Foundations", "ListNormalize"] "stdlib/foundations/ListNormalize.jz" expectedListNormalize),
@@ -38,6 +39,19 @@ foundationTests =
     ("Maybe and Result helpers preserve alternate branches", runStdlibFixtureExpecting ["Stdlib", "Foundations", "MaybeResultBranches"] "stdlib/foundations/MaybeResultBranches.jz" expectedMaybeResultBranches),
     ("NonEmpty keeps its head-tail invariant", runStdlibFixtureExpecting ["Stdlib", "Foundations", "NonEmpty"] "stdlib/foundations/NonEmpty.jz" expectedNonEmpty)
   ]
+
+testBooleanNot :: IO ()
+testBooleanNot = do
+  result <-
+    runStdlibSource
+      ["Stdlib", "Foundations", "BooleanNot"]
+      """
+      module Stdlib::Foundations::BooleanNot {
+        flipped = map not [True, False].
+        (not True, not False, not (not True), flipped).
+      }
+      """
+  assertSuccessfulStdlibOutput "(False, True, True, [False, True])" result
 
 foundationPerformanceTests :: [NamedTest]
 foundationPerformanceTests =
@@ -53,13 +67,13 @@ testLargeListTraversal = do
       ["Stdlib", "Foundations", "LargeTraversal"]
       """
       module Stdlib::Foundations::LargeTraversal {
-        import List.
+        import List as List.
         build = \\(remaining, values) -> case remaining {
           | 0 -> values
-          | _ -> build (remaining - 1) (listPrepend remaining values)
+          | _ -> build (remaining - 1) (List::prepend remaining values)
         }.
         values = build 50000 [].
-        listLength (listMap (\\(item) -> item + 1) values).
+        List::length (List::map (\\(item) -> item + 1) values).
       }
       """
   assertSuccessfulStdlibOutput "50000" result
@@ -72,14 +86,14 @@ testStableSortWorkBound = do
       ["Stdlib", "Foundations", "SortWorkBound"]
       """
       module Stdlib::Foundations::SortWorkBound {
-        import List.
-        import Maybe.
+        import List as List.
+        import Maybe as Maybe. import Maybe (Nothing, Just).
         build = \\(remaining, values) -> case remaining {
           | 0 -> values
-          | _ -> build (remaining - 1) (listPrepend remaining values)
+          | _ -> build (remaining - 1) (List::prepend remaining values)
         }.
-        sorted = listSort (build 512 []).
-        (listLength sorted, listHead sorted, listLast sorted).
+        sorted = List::sort (build 512 []).
+        (List::length sorted, List::head sorted, List::last sorted).
       }
       """
   assertSuccessfulStdlibOutput "(512, Just(1), Just(512))" result
@@ -99,15 +113,15 @@ testListCombinationWorkBound = do
       ["Stdlib", "Foundations", "ListCombinationWorkBound"]
       """
       module Stdlib::Foundations::ListCombinationWorkBound {
-        import List.
+        import List as List.
         build = \\(remaining, values) -> case remaining {
           | 0 -> values
-          | _ -> build (remaining - 1) (listPrepend [remaining] values)
+          | _ -> build (remaining - 1) (List::prepend [remaining] values)
         }.
         nested = build 256 [].
-        combined = listConcat nested.
-        separated = listIntercalate [0] nested.
-        (listLength combined, listLength separated).
+        combined = List::concat nested.
+        separated = List::intercalate [0] nested.
+        (List::length combined, List::length separated).
       }
       """
   assertSuccessfulStdlibOutput "(256, 511)" result

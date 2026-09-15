@@ -8,6 +8,18 @@ The Prelude is loaded automatically for ordinary compilation and execution. It
 defines the core capability vocabulary and a small compatibility surface; no
 import is required.
 
+## Booleans
+
+### `not`
+
+```jazz jazz-signature
+not :: Bool -> Bool.
+```
+
+Negates a Boolean: `not True` is `False`, and `not False` is `True`.
+It is an ordinary function and can be passed to other functions, for example
+`map not [True, False]`.
+
 ## Ordering
 
 ### `Ordering`
@@ -32,14 +44,21 @@ The left value follows the right value.
 
 ## Equality and ordering capabilities
 
-### `Eq`
+### `Equatable`
 
 ```jazz jazz-signature
-class Eq(a) { equals :: a -> a -> Bool. }.
+class Equatable(a) {
+  equals :: a -> a -> Bool.
+  differs :: a -> a -> Bool.
+  differs = \(left, right) -> not (equals left right).
+}.
 ```
 
-Requires an equality operation for `a`. Built-in implementations cover scalar
-and numeric types.
+Requires an equality operation for `a`. Implementations cover scalar and numeric
+types, Unit, Ordering, lists, pairs, triples, Maybe, Result, NonEmpty, and Queue. Collections
+and tuples require `Equatable` for their elements and compare through those
+methods. Queue compares FIFO contents, independent of construction history.
+`==` calls `equals`; `!=` calls `differs`. ADTs require an explicit implementation.
 
 ### `equals`
 
@@ -47,13 +66,21 @@ and numeric types.
 equals :: a -> a -> Bool.
 ```
 
-### `Ord`
+### `differs`
 
 ```jazz jazz-signature
-class Ord(a) { compare :: a -> a -> Ordering. }.
+differs :: a -> a -> Bool.
 ```
 
-Requires a three-way ordering operation for `a`. Numeric and character values
+The default negates `equals`; an implementation may override it.
+
+### `Comparable`
+
+```jazz jazz-signature
+class @{Equatable(a)}: Comparable(a) { compare :: a -> a -> Ordering. }.
+```
+
+Requires `Equatable(a)` evidence and a three-way ordering operation for `a`. Numeric and character values
 use their ordinary order. `Text` compares lexicographically by Unicode scalar.
 
 ### `compare`
@@ -62,17 +89,44 @@ use their ordinary order. `Text` compares lexicographically by Unicode scalar.
 compare :: a -> a -> Ordering.
 ```
 
+### `lessThan`, `lessThanOrEqual`, `greaterThan`, `greaterThanOrEqual`
+
+```jazz jazz-signature
+lessThan :: @{Comparable(a)}: a -> a -> Bool.
+lessThanOrEqual :: @{Comparable(a)}: a -> a -> Bool.
+greaterThan :: @{Comparable(a)}: a -> a -> Bool.
+greaterThanOrEqual :: @{Comparable(a)}: a -> a -> Bool.
+```
+
+These functions inspect `compare`; they are also written `<`, `<=`, `>`, `>=`.
+An implementation of `Comparable` supplies all four comparisons.
+
+### `apply`
+
+```jazz jazz-signature
+apply :: (a -> b) -> a -> b.
+```
+
+Applies its first argument to its second. `$` is its low-precedence operator
+spelling: `not $ True` means `apply not True`.
+
 ## Numeric capabilities
 
 ### `Num`
 
 ```jazz jazz-signature
-class Num(a) { }.
+class Num(a) {
+  add :: a -> a -> a.
+  subtract :: a -> a -> a.
+  multiply :: a -> a -> a.
+  divide :: a -> a -> a.
+}.
 ```
 
-Supplies evidence for arithmetic and conversions over Jazz's primitive numeric
-types. Implementing `Num` for another type does not extend the set of types
-accepted by numeric expressions.
+Supplies arithmetic for `a`. Primitive numeric types have kernel-backed
+implementations; user-defined types may implement the same four methods.
+`+`, `-`, `*`, and `/` call these methods. Both operands and the result have type
+`a`. Integer division rounds down, and division by zero fails at runtime.
 
 ### `Integral`
 
@@ -126,16 +180,81 @@ uses `False`, `Char` uses `'\0'`, and `Text` uses `""`.
 defaultValue :: a.
 ```
 
-## Compatibility list helpers
+## Mapping, folding, and combination
+
+### `Mappable`
+
+```jazz jazz-signature
+class Mappable(f) { map :: (a -> b) -> f(a) -> f(b). }.
+```
+
+A mapping keeps the collection constructor and can change its element type.
+List is available from the Prelude. Importing Queue, Maybe, NonEmpty, Result,
+Map, or Dictionary supplies its instance. Result preserves errors;
+Map and Dictionary preserve keys and entry order. Text and Set have separate
+[module functions](overview.md), with character and ordering restrictions.
 
 ### `map`
 
 ```jazz jazz-signature
-map :: (a -> b) -> [a] -> [b].
+map :: (a -> b) -> f(a) -> f(b).
 ```
 
-Applies a function to every item and preserves order. Prefer
-[`listMap`](list.md#listmap) in library-oriented code.
+Applies a function to every element while preserving positions, absence, and
+errors. The class parameter `f` is the first explicit type argument.
+
+### `Reducible`
+
+```jazz jazz-signature
+class Reducible(f) {
+  foldLeft :: (b -> a -> b) -> b -> f(a) -> b.
+  foldRight :: (a -> b -> b) -> b -> f(a) -> b.
+}.
+```
+
+Instances cover the Mappable collections plus Set. Sequences use their element
+order, Map and Set use key order, and Dictionary uses insertion order. Empty
+collections, Nothing, and Err return the initial accumulator. No element
+ordering constraint is required to fold a Set. Convert Text with `Text::toChars`
+to fold its Unicode scalars.
+
+### `foldLeft`
+
+```jazz jazz-signature
+foldLeft :: (b -> a -> b) -> b -> f(a) -> b.
+```
+
+Visits elements from left to right, passing the accumulator first.
+
+### `foldRight`
+
+```jazz jazz-signature
+foldRight :: (a -> b -> b) -> b -> f(a) -> b.
+```
+
+Combines elements from right to left, passing the element first.
+
+### `Combinable`
+
+```jazz jazz-signature
+class Combinable(a) { combine :: a -> a -> a. }.
+```
+
+Instances concatenate Text, List, Queue, and NonEmpty. Set combines by union
+and requires `Comparable` for its elements. Existing module empty values remain
+available; NonEmpty keeps its nonempty invariant.
+
+### `combine`
+
+```jazz jazz-signature
+combine :: a -> a -> a.
+```
+
+Combines the left and right values using their collection implementation.
+For seedless folding that returns Nothing on empty input, import
+[Reduce](reduce.md).
+
+## Compatibility list helpers
 
 ### `filter`
 
@@ -144,7 +263,7 @@ filter :: (a -> Bool) -> [a] -> [a].
 ```
 
 Keeps the items whose predicate is `True`, preserving order. Prefer
-[`listFilter`](list.md#listfilter) in library-oriented code.
+[`List::filter`](list.md#filter) in library-oriented code.
 
 ### `hd`
 
@@ -159,8 +278,8 @@ tl :: [a] -> [a].
 ```
 
 `hd` and `tl` are partial: an empty list fails fatally with `E3009` or `E3010`,
-respectively. Prefer [`listHead`](list.md#listhead) and
-[`listTail`](list.md#listtail) when emptiness is possible.
+respectively. Prefer [`List::head`](list.md#head) and
+[`List::tail`](list.md#tail) when emptiness is possible.
 
 ## Effectful compatibility value
 

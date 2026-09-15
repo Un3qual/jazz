@@ -425,8 +425,8 @@ testParseConstrainedSignaturePayload =
                   "f"
                   (SourceSpan 1 1)
                   ( ConstrainedSignature
-                      [ SignatureConstraint (SurfaceName "Eq" (SourceSpan 1 8) Nothing) [TypeVariable "a"],
-                        SignatureConstraint (SurfaceName "Ord" (SourceSpan 1 15) Nothing) [TypeVariable "b"]
+                      [ SignatureConstraint (SurfaceName "Equatable" (SourceSpan 1 8) Nothing) [TypeVariable "a"],
+                        SignatureConstraint (SurfaceName "Comparable" (SourceSpan 1 22) Nothing) [TypeVariable "b"]
                       ]
                       ( TypeFunction
                           (TypeVariable "a")
@@ -439,7 +439,7 @@ testParseConstrainedSignaturePayload =
     )
     ( parseSurfaceProgramPoints
         """
-        f :: @{Eq(a), Ord(b)}: a -> b -> c.
+        f :: @{Equatable(a), Comparable(b)}: a -> b -> c.
         f = combine.
         """
     )
@@ -450,7 +450,7 @@ testAliasQualifiedClassConstraint =
     "parse alias-qualified class constraint"
     ( parseSurfaceProgramPoints
         """
-        same :: @{Facts::Eq(a)}: a -> a -> Bool.
+        same :: @{Facts::Equatable(a)}: a -> a -> Bool.
         same = identity.
         """
     )
@@ -464,7 +464,7 @@ testAliasQualifiedClassConstraint =
                     (SourceSpan 1 1)
                     ( ConstrainedSignature
                         [ SignatureConstraint
-                            (SurfaceName (mkQualifiedIdentifier "Facts" "Eq") (SourceSpan 1 18) (Just (SourceSpan 1 11)))
+                            (SurfaceName (mkQualifiedIdentifier "Facts" "Equatable") (SourceSpan 1 18) (Just (SourceSpan 1 11)))
                             [TypeVariable "a"]
                         ]
                         (TypeFunction (TypeVariable "a") (TypeFunction (TypeVariable "a") TypeBool))
@@ -480,7 +480,7 @@ testAliasQualifiedClassConstraint =
                   "same"
                   (SourceSpan 1 1)
                   ( ConstrainedSignature
-                      [SignatureConstraint (qualifiedName "Facts" "Eq") [TypeVariable "a"]]
+                      [SignatureConstraint (qualifiedName "Facts" "Equatable") [TypeVariable "a"]]
                       (TypeFunction (TypeVariable "a") (TypeFunction (TypeVariable "a") TypeBool))
                   ),
                 loweredLet "same" (SourceSpan 2 1) (loweredVariable "identity")
@@ -745,7 +745,7 @@ testLowerConstrainedSignatureProgram =
     "parse + lower constrained signature"
     ( parseSurfaceProgramPoints
         """
-        f :: @{Eq(a)}: a -> a.
+        f :: @{Equatable(a)}: a -> a.
         f = identity.
         """
     )
@@ -757,7 +757,7 @@ testLowerConstrainedSignatureProgram =
                   "f"
                   (SourceSpan 1 1)
                   ( ConstrainedSignature
-                      [SignatureConstraint "Eq" [TypeVariable "a"]]
+                      [SignatureConstraint "Equatable" [TypeVariable "a"]]
                       (TypeFunction (TypeVariable "a") (TypeVariable "a"))
                   ),
                 loweredLet "f" (SourceSpan 2 1) (loweredVariable "identity")
@@ -848,7 +848,7 @@ testParsesClassMethodSignatureMetadata =
     "surface class method signature parse"
     ( parseSurfaceProgramPoints
         """
-        class Eq(a) {
+        class Equatable(a) {
         equals :: a -> a -> Bool.
         notEquals :: a -> a -> Bool.
         }.
@@ -873,11 +873,13 @@ testParsesClassMethodSignatureMetadata =
               SEBlock
                 [ SSClass
                     (SourceSpan 1 1)
-                    "Eq"
+                    "Equatable"
                     ["a"]
                     [ SurfaceClassMethodSignature "equals" (SourceSpan 2 1) surfacePayload,
                       SurfaceClassMethodSignature "notEquals" (SourceSpan 3 1) surfacePayload
                     ]
+                    []
+                    []
                 ]
           )
           surfaceProgram
@@ -886,7 +888,7 @@ testParsesClassMethodSignatureMetadata =
           ( loweredBlock
               [ loweredClass
                   (SourceSpan 1 1)
-                  "Eq"
+                  "Equatable"
                   ["a"]
                   [ loweredClassMethodSignature "equals" (SourceSpan 2 1) corePayload,
                     loweredClassMethodSignature "notEquals" (SourceSpan 3 1) corePayload

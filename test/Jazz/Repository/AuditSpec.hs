@@ -281,6 +281,7 @@ testStandardLibraryModuleInventory =
               ["Maybe"],
               ["NonEmpty"],
               ["Queue"],
+              ["Reduce"],
               ["Result"],
               ["Set"],
               ["Text"]
@@ -342,6 +343,7 @@ expectedAuthoredSourcePaths =
     "jazz/stdlib/NonEmpty.jz",
     "jazz/stdlib/Prelude.jz",
     "jazz/stdlib/Queue.jz",
+    "jazz/stdlib/Reduce.jz",
     "jazz/stdlib/Result.jz",
     "jazz/stdlib/Set.jz",
     "jazz/stdlib/Text.jz",
@@ -580,7 +582,7 @@ testPreludeExemption =
   assertEqual
     "Prelude exemption"
     []
-    (validateJazzModule "jazz/stdlib/Prelude.jz" "class Eq(a) { }.")
+    (validateJazzModule "jazz/stdlib/Prelude.jz" "class Equatable(a) { }.")
 
 testPrivatePackagePolicy :: IO ()
 testPrivatePackagePolicy =
@@ -724,7 +726,7 @@ testAcceptsCompilerStdlibImport = do
     parsedSourceModule
       CompilerSource
       "jazz/compiler/Lexer.jz"
-      "module Lexer { import Text. 0. }"
+      "module Lexer { import Text as Text. 0. }"
   assertEqual
     "compiler stdlib dependency"
     []

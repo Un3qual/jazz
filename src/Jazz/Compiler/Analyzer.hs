@@ -52,7 +52,7 @@ import Jazz.Compiler.CapabilityFacts
     renderConcreteImplFact,
     splitQualifiedMethodKey,
   )
-import Jazz.Compiler.CoreIdentity (CoreBinderId, ResolvedReference (..), resolvedNodeImportTarget, resolvedNodeOwner, resolvedNodeReference, resolvedOperatorSpelling)
+import Jazz.Compiler.CoreIdentity (CoreBinderId, resolvedOperatorSpelling)
 import Jazz.Compiler.DiagnosticCatalog
   ( ErrorCode (..),
     WarningCategory (..),
@@ -72,7 +72,6 @@ import Jazz.Compiler.Diagnostics
     setDiagnosticSubject,
     sortWarnings,
   )
-import Jazz.Compiler.ModuleIdentity (ModulePath, sourceUnitOwnerModulePath)
 import Jazz.Compiler.Name
   ( ResolvedName,
     identifierPurity,
@@ -260,7 +259,6 @@ collectExprDiagnostics settings visibleBindings visibleClassNames context expr =
   case expr of
     ELit _ _ -> mempty
     EVar node _ | isJust (resolvedOperatorSpelling (coreNodeFacts node)) -> mempty
-    EVar node _ | Just (BuiltinOperatorReference _) <- resolvedNodeReference (coreNodeFacts node) -> mempty
     EVar _ name ->
       case Map.lookup (resolvedValueScopeName name) visibleBindings of
         Just _ -> mempty
@@ -323,7 +321,6 @@ collectExprDiagnostics settings visibleBindings visibleClassNames context expr =
 data AnalysisScope = AnalysisScope
   { scopeBindings :: Map ResolvedName VisibleBinding,
     classDeclarations :: Map Text SourceSpan,
-    importedClassNames :: Set Text,
     implDeclarations :: Map ConcreteImplFact SourceSpan,
     pendingSignature :: Maybe PendingSignature,
     scopeDiagnostics :: CollectedDiagnostics
@@ -363,8 +360,6 @@ collectScopeDiagnosticsWithPreparedScope (PreparedAnalysisScope statements rawRe
   flushPendingSignature (pendingSignature finalScope) (scopeDiagnostics finalScope)
   where
     indexedStatements = zip [0 ..] statements
-    moduleBaselineClassDeclarations = collectModuleBaselineClassDeclarations indexedStatements
-    moduleClassDeclarationsByPath = collectModuleClassDeclarations indexedStatements
 
     -- Build recursion groups from local binding dependencies so mutually recursive
     -- bindings can reference each other independent of declaration order.
@@ -379,14 +374,13 @@ collectScopeDiagnosticsWithPreparedScope (PreparedAnalysisScope statements rawRe
         indexedStatements
 
     finalScope =
-      foldl' step (AnalysisScope Map.empty Map.empty Set.empty Map.empty Nothing mempty) indexedStatements
+      foldl' step (AnalysisScope Map.empty Map.empty Map.empty Nothing mempty) indexedStatements
 
     step :: AnalysisScope -> (Int, Statement 'Resolved) -> AnalysisScope
     step
       current@AnalysisScope
         { scopeBindings,
           classDeclarations,
-          importedClassNames,
           implDeclarations,
           pendingSignature,
           scopeDiagnostics = diagnostics
@@ -404,17 +398,9 @@ collectScopeDiagnosticsWithPreparedScope (PreparedAnalysisScope statements rawRe
                       (contextForExpressionStatement (coreNodeSpan exprNode) context)
                       expr
               }
-          SModule {} ->
-            next {classDeclarations = moduleBaselineClassDeclarations, importedClassNames = Set.empty, implDeclarations = Map.empty}
-          SImport node _ maybeAlias maybeSymbolNames ->
-            next
-              { importedClassNames =
-                  importedClassNames
-                    <> foldMap
-                      (\target -> visibleImportedClassNames target maybeAlias maybeSymbolNames)
-                      (resolvedNodeImportTarget (coreNodeFacts node))
-              }
-          SClass classNode capabilityName _parameters methods ->
+          SModule {} -> next
+          SImport {} -> next
+          SClass classNode capabilityName _parameters methods _ defaults ->
             let classSpan = coreNodeSpan classNode
                 classNameText = identifierText capabilityName
                 (nextClassDeclarations, classErrors) =
@@ -424,18 +410,21 @@ collectScopeDiagnosticsWithPreparedScope (PreparedAnalysisScope statements rawRe
                         [mkDuplicateClassDeclarationError classNameText classSpan (Just previousSpan)]
                       )
                     Nothing
-                      | Set.member classNameText (Set.union importedClassNames outerClassNames) ->
+                      | Set.member classNameText outerClassNames ->
                           ( classDeclarations,
                             [mkDuplicateClassDeclarationError classNameText classSpan Nothing]
                           )
                     Nothing ->
                       (Map.insert classNameText classSpan classDeclarations, [])
-                methodErrors = duplicateClassMethodErrors classNameText methods
+                methodBindings = foldl' (\bindings (ClassMethodSignature node name _) -> Map.insert (resolvedValueScopeName name) (VisibleBinding (coreNodeSpan node) hideRootBindings) bindings) scopeBindings methods
+                methodErrors = duplicateClassMethodErrors classNameText methods <> methodCollisions statementIndex methods
+                defaultDiagnostics = collectImplMethodDiagnostics settings (currentVisibleBindings methodBindings) (Set.insert classNameText visibleClasses) defaults
              in next
                   { classDeclarations = nextClassDeclarations,
-                    scopeDiagnostics = scopeDiagnostics next <> errorDiagnostics (classErrors ++ methodErrors)
+                    scopeBindings = methodBindings,
+                    scopeDiagnostics = scopeDiagnostics next <> errorDiagnostics (classErrors ++ methodErrors) <> defaultDiagnostics
                   }
-          SImpl implNode capabilityName arguments methods ->
+          SImpl implNode capabilityName arguments methods _ ->
             let implSpan = coreNodeSpan implNode
                 (nextImplDeclarations, implErrors) =
                   case concreteImplFact capabilityName arguments of
@@ -523,66 +512,34 @@ collectScopeDiagnosticsWithPreparedScope (PreparedAnalysisScope statements rawRe
              in current {scopeBindings = nextScope, pendingSignature = Nothing, scopeDiagnostics = bindingDiagnostics}
         where
           visible = currentVisibleBindings scopeBindings
-          visibleClasses = currentVisibleClassNames classDeclarations importedClassNames
+          visibleClasses = currentVisibleClassNames classDeclarations
           -- Every non-binding ends signature adjacency, including a new signature.
           next = current {pendingSignature = Nothing, scopeDiagnostics = flushPendingSignature pendingSignature diagnostics}
+
+    methodCollisions index methods =
+      [ setDiagnosticRelatedSpan
+          previousSpan
+          ( setDiagnosticPrimarySpan
+              (coreNodeSpan node)
+              (mkErrorDiagnostic E1007 CompilationOrigin ("duplicate value declaration '" <> identifierText name <> "'"))
+          )
+      | ClassMethodSignature node name _ <- methods,
+        (otherIndex, other) <- indexedStatements,
+        (otherName, previousSpan) <- case other of
+          SLet otherNode otherName _ -> [(otherName, coreNodeSpan otherNode)]
+          SClass _ _ _ otherMethods _ _ | otherIndex < index -> [(otherName, coreNodeSpan otherNode) | ClassMethodSignature otherNode otherName _ <- otherMethods]
+          SData _ _ _ constructors -> [(otherName, coreNodeSpan otherNode) | DataConstructor otherNode otherName _ <- constructors]
+          _ -> [],
+        identifierText otherName == identifierText name
+      ]
 
     currentVisibleBindings :: Map ResolvedName VisibleBinding -> Map ResolvedName VisibleBinding
     -- Local scope is left-biased so inner declarations shadow outer bindings.
     currentVisibleBindings scopeBindings = scopeBindings `Map.union` outerScope
 
-    currentVisibleClassNames :: Map Text SourceSpan -> Set Text -> Set Text
-    currentVisibleClassNames classDeclarations importedClassNames =
-      Map.keysSet classDeclarations `Set.union` importedClassNames `Set.union` outerClassNames
-
-    collectModuleBaselineClassDeclarations :: [(Int, Statement 'Resolved)] -> Map Text SourceSpan
-    collectModuleBaselineClassDeclarations indexedScopeStatements =
-      case [statementIndex | (statementIndex, SModule {}) <- indexedScopeStatements] of
-        [] -> Map.empty
-        firstModuleStatementIndex : _ ->
-          Map.fromList
-            [ (identifierText className, coreNodeSpan classNode)
-            | (statementIndex, SClass classNode className _ _) <- indexedScopeStatements,
-              statementIndex < firstModuleStatementIndex
-            ]
-
-    collectModuleClassDeclarations :: [(Int, Statement 'Resolved)] -> Map ModulePath (Map Text SourceSpan)
-    collectModuleClassDeclarations =
-      snd . foldl' collectModuleClassDeclaration (Nothing, Map.empty)
-      where
-        collectModuleClassDeclaration (currentModulePath, declarationsByPath) (_, statement) =
-          case statement of
-            SModule node _ ->
-              (Just (sourceUnitOwnerModulePath (resolvedNodeOwner (coreNodeFacts node))), declarationsByPath)
-            SClass classNode className _ _ ->
-              case currentModulePath of
-                Just modulePath ->
-                  ( currentModulePath,
-                    Map.insertWith
-                      Map.union
-                      modulePath
-                      (Map.singleton (identifierText className) (coreNodeSpan classNode))
-                      declarationsByPath
-                  )
-                Nothing ->
-                  (currentModulePath, declarationsByPath)
-            _ ->
-              (currentModulePath, declarationsByPath)
-
-    visibleImportedClassNames :: ModulePath -> Maybe Text -> Maybe [Text] -> Set Text
-    visibleImportedClassNames modulePath maybeAlias maybeSymbolNames =
-      case Map.lookup modulePath moduleClassDeclarationsByPath of
-        Nothing -> Set.empty
-        Just importedClassDeclarations ->
-          case maybeAlias of
-            Just _ -> Set.empty
-            Nothing ->
-              case maybeSymbolNames of
-                Nothing -> Map.keysSet importedClassDeclarations
-                Just symbolNames ->
-                  Set.intersection
-                    (Map.keysSet importedClassDeclarations)
-                    (Set.fromList symbolNames)
+    currentVisibleClassNames :: Map Text SourceSpan -> Set Text
+    currentVisibleClassNames classDeclarations =
+      Map.keysSet classDeclarations `Set.union` outerClassNames
 
     withRecursivePeerBindings ::
       Int ->

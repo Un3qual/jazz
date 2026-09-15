@@ -1,4 +1,3 @@
-{-# LANGUAGE DataKinds #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 module Jazz.Compiler.Semantics.PrimitiveSemantics.ScalarCollection
@@ -10,28 +9,18 @@ module Jazz.Compiler.Semantics.PrimitiveSemantics.ScalarCollection
   )
 where
 
-import Jazz.Compiler.AST
-  ( CorePhase (Lowered),
-    Expr,
-    Literal (..),
-  )
 import Jazz.Compiler.Driver
   ( compileErrors,
-    compileExpr,
+    compileSource,
   )
 import Jazz.Compiler.Semantics.PrimitiveSemantics.Shared
   ( assertCompileError,
     assertCompileErrorWithBundledPrelude,
     assertCompiles,
     assertCompilesWithBundledPrelude,
-    mkProgram,
   )
 import Jazz.Compiler.WarningConfig
   ( defaultWarningSettings,
-  )
-import Jazz.TestCore
-  ( loweredBinary,
-    loweredLiteral,
   )
 import Jazz.TestHarness
   ( NamedTest,
@@ -80,7 +69,7 @@ mixedCollectionTests =
 
 testAcceptsArithmeticIntOperands :: IO ()
 testAcceptsArithmeticIntOperands = do
-  result <- compileExpr defaultWarningSettings arithmeticProgram
+  result <- compileSource defaultWarningSettings "(1 + 2) * 3 / 1 - 2."
   assertEqual "compile errors" [] (compileErrors result)
 
 testSourcePipelineTypesPrivateTextTraversalPrimitives :: IO ()
@@ -197,10 +186,10 @@ testSourcePipelineRejectsInvalidHostIOArguments =
 
 testRejectsArithmeticTypeMismatch :: IO ()
 testRejectsArithmeticTypeMismatch = do
-  result <- compileExpr defaultWarningSettings arithmeticTypeMismatchProgram
+  result <- compileSource defaultWarningSettings "1 + True."
   assertSingleDiagnosticContains
     "arithmetic type error"
-    "E2003"
+    "E2006"
     (compileErrors result)
 
 testSourcePipelineAcceptsHdListLiteral :: IO ()
@@ -270,16 +259,3 @@ testSourcePipelineRejectsMixedTypeListLiteral =
     "x = [1, True]."
     "list literal element mismatch"
     "E2007"
-
-arithmeticProgram :: Expr 'Lowered
-arithmeticProgram =
-  mkProgram
-    ( loweredBinary
-        "+"
-        (loweredBinary "*" (loweredLiteral (LInt 7)) (loweredLiteral (LInt 6)))
-        (loweredBinary "/" (loweredLiteral (LInt 8)) (loweredLiteral (LInt 2)))
-    )
-
-arithmeticTypeMismatchProgram :: Expr 'Lowered
-arithmeticTypeMismatchProgram =
-  mkProgram (loweredBinary "+" (loweredLiteral (LInt 1)) (loweredLiteral (LBool True)))

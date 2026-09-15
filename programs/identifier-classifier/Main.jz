@@ -1,7 +1,8 @@
 module Main {
-  import Char.
-  import Maybe.
-  import Text.
+  import Char as Char.
+  import Maybe as Maybe.
+  import Maybe (Nothing, Just).
+  import Text as Text.
 
   data IdentifierKind
     = Keyword Text
@@ -25,10 +26,10 @@ module Main {
               else name == "case".
 
   isIdentifierStart :: Char -> Bool.
-  isIdentifierStart = \(item) -> if (charIsAlpha item) then True else item == '_'.
+  isIdentifierStart = \(item) -> if (Char::isAlpha item) then True else item == '_'.
 
   isIdentifierContinuation :: Char -> Bool.
-  isIdentifierContinuation = \(item) -> if (charIsAlphaNum item) then
+  isIdentifierContinuation = \(item) -> if (Char::isAlphaNum item) then
     True
     else if item == '_' then
       True
@@ -37,18 +38,18 @@ module Main {
         else item == '!'.
 
   allIdentifierContinuations :: Text -> Bool.
-  allIdentifierContinuations = \(remaining) -> case textUncons remaining {
+  allIdentifierContinuations = \(remaining) -> case Text::uncons remaining {
     | Nothing -> True
     | Just (current, rest) -> if (isIdentifierContinuation current) then allIdentifierContinuations rest else False
   }.
 
   isTypeStart :: Char -> Bool.
-  isTypeStart = \(item) -> if (charIsAlpha item) then charToUInt32 item < charToUInt32 'a' else False.
+  isTypeStart = \(item) -> if (Char::isAlpha item) then Char::toUInt32 item < Char::toUInt32 'a' else False.
 
   classifyIdentifier :: Text -> IdentifierKind.
   classifyIdentifier = \(name) -> if (isKeyword name) then
     Keyword name
-    else case textUncons name {
+    else case Text::uncons name {
       | Nothing -> InvalidIdentifier name
       | Just (first, rest) -> if (isIdentifierStart first) then
         if (allIdentifierContinuations rest) then

@@ -129,7 +129,7 @@ testLowersClassQualifiedMethodReference =
     "parse + lower class-qualified method reference"
     ( parseSurfaceProgramPoints
         """
-        result = Eq::equals 1 1.
+        result = Equatable::equals 1 1.
         result.
         """
     )
@@ -141,7 +141,7 @@ testLowersClassQualifiedMethodReference =
                   "result"
                   (SourceSpan 1 1)
                   ( loweredApply
-                      (loweredApply (loweredVariable (qualifiedName "Eq" "equals")) (loweredLiteral (LInt 1)))
+                      (loweredApply (loweredVariable (qualifiedName "Equatable" "equals")) (loweredLiteral (LInt 1)))
                       (loweredLiteral (LInt 1))
                   ),
                 loweredExpression (SourceSpan 2 1) (loweredVariable "result")
@@ -154,7 +154,7 @@ testLowersAliasQualifiedClassMethodReference :: IO ()
 testLowersAliasQualifiedClassMethodReference =
   assertRight
     "parse alias-qualified class method reference"
-    (parseSurfaceProgramPoints "Facts::Eq::equals 1 1.")
+    (parseSurfaceProgramPoints "Facts::Equatable::equals 1 1.")
     ( \surfaceProgram -> do
         case surfaceProgram of
           SurfaceExpr
@@ -179,7 +179,7 @@ testLowersAliasQualifiedClassMethodReference =
               ) ->
               assertEqual
                 "alias-qualified method components"
-                ("Facts", "Eq", "equals")
+                ("Facts", "Equatable", "equals")
                 (aliasName, className, methodName)
           _ -> failTest "expected an alias-qualified class method application"
         assertLoweredCoreEqual
@@ -189,7 +189,7 @@ testLowersAliasQualifiedClassMethodReference =
                   (SourceSpan 1 1)
                   ( loweredApply
                       ( loweredApply
-                          (loweredVariable (qualifiedMethodName "Facts" "Eq" "equals"))
+                          (loweredVariable (qualifiedMethodName "Facts" "Equatable" "equals"))
                           (loweredLiteral (LInt 1))
                       )
                       (loweredLiteral (LInt 1))
@@ -203,7 +203,7 @@ testLowersAliasQualifiedImplHead :: IO ()
 testLowersAliasQualifiedImplHead =
   assertRight
     "parse alias-qualified impl head"
-    (parseSurfaceProgramPoints "impl Facts::Eq(Int) { }.")
+    (parseSurfaceProgramPoints "impl Facts::Equatable(Int) { }.")
     ( \surfaceProgram -> do
         assertEqual
           "alias-qualified impl surface name"
@@ -211,15 +211,16 @@ testLowersAliasQualifiedImplHead =
               SEBlock
                 [ SSImpl
                     (SourceSpan 1 1)
-                    (SurfaceName (mkQualifiedIdentifier "Facts" "Eq") (SourceSpan 1 13) (Just (SourceSpan 1 6)))
+                    (SurfaceName (mkQualifiedIdentifier "Facts" "Equatable") (SourceSpan 1 13) (Just (SourceSpan 1 6)))
                     [TypeInt]
+                    []
                     []
                 ]
           )
           surfaceProgram
         assertLoweredCoreEqual
           "lowered alias-qualified impl head"
-          (loweredBlock [loweredImpl (SourceSpan 1 1) (qualifiedName "Facts" "Eq") [TypeInt] []])
+          (loweredBlock [loweredImpl (SourceSpan 1 1) (qualifiedName "Facts" "Equatable") [TypeInt] []])
           (lowerSurfaceExpr surfaceProgram)
     )
 
@@ -231,16 +232,16 @@ testParsesCapabilityDeclarationsInModuleBody =
         ( e 1 1 $
             SEBlock
               [ SSModule (SourceSpan 1 1) ["App", "Core"] Nothing,
-                SSClass (SourceSpan 2 1) "Eq" ["a"] [],
-                SSImpl (SourceSpan 3 1) (SurfaceName "Eq" (SourceSpan 3 6) Nothing) [TypeInt] []
+                SSClass (SourceSpan 2 1) "Equatable" ["a"] [] [] [],
+                SSImpl (SourceSpan 3 1) (SurfaceName "Equatable" (SourceSpan 3 6) Nothing) [TypeInt] [] []
               ]
         )
     )
     ( parseSurfaceProgramPoints
         """
         module App::Core {
-        class Eq(a) { }.
-        impl Eq(Int) { }.
+        class Equatable(a) { }.
+        impl Equatable(Int) { }.
         }
         """
     )

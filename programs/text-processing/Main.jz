@@ -1,14 +1,14 @@
 module Main {
-  import List.
-  import Text.
+  import List as List.
+  import Text as Text.
 
   raw = "  Jazz🙂Jazz\r\nfunctional  languages\nJAZZ  ".
-  lowercaseNames = textReplaceAll "JAZZ" "jazz" (textReplaceAll "Jazz" "jazz" raw).
-  cleanedLines = listMap textTrim (textLines raw).
-  (textWords lowercaseNames,
-   textJoin " | " cleanedLines,
-   textSplit "" "🙂é",
-   textPadLeft 6 '.' "猫",
-   textFind "languages" raw,
-   textContains "missing" raw).
+  lowercaseNames = Text::replaceAll "JAZZ" "jazz" (Text::replaceAll "Jazz" "jazz" raw).
+  cleanedLines = List::map Text::trim (Text::lines raw).
+  (Text::words lowercaseNames,
+   Text::join " | " cleanedLines,
+   Text::split "" "🙂é",
+   Text::padLeft 6 '.' "猫",
+   Text::find "languages" raw,
+   Text::contains "missing" raw).
 }

@@ -284,11 +284,11 @@ testSourcePipelineTypesConstructorPatternBinders = do
   result <- compileSource defaultWarningSettings "data Maybe a = Nothing | Just a. subject = Just True. x = case subject { | Just item -> item + 1 | Nothing -> 0 }."
   assertSingleDiagnosticCode
     "constructor pattern binder type error code"
-    "E2003"
+    "E2006"
     (compileErrors result)
   assertSingleDiagnosticContains
     "constructor pattern binder type error text"
-    "cannot apply operator '+' to operands of type Bool and Int"
+    "cannot apply function"
     (compileErrors result)
 
 testSourcePipelineRejectsConstructorPatternScrutineeMismatch :: IO ()
@@ -536,11 +536,11 @@ testSourcePipelineTypesListPatternBinders = do
   result <- compileSource defaultWarningSettings "values = [True]. x = case values { | [head] -> head + 1 | _ -> 0 }."
   assertSingleDiagnosticCode
     "list pattern binder type error code"
-    "E2003"
+    "E2006"
     (compileErrors result)
   assertSingleDiagnosticContains
     "list pattern binder type error text"
-    "cannot apply operator '+' to operands of type Bool and Int"
+    "cannot apply function"
     (compileErrors result)
 
 testSourcePipelineAcceptsAsPatternBinders :: IO ()
@@ -775,11 +775,11 @@ testSourcePipelineTypesConsLikeHeadBinders = do
   result <- compileSource defaultWarningSettings "values = [True]. x = case values { | [head | tail] -> head + 1 | _ -> 0 }."
   assertSingleDiagnosticCode
     "cons-like head binder type error code"
-    "E2003"
+    "E2006"
     (compileErrors result)
   assertSingleDiagnosticContains
     "cons-like head binder type error text"
-    "cannot apply operator '+' to operands of type Bool and Int"
+    "cannot apply function"
     (compileErrors result)
 
 testSourcePipelineTypesConsLikeTailBinders :: IO ()
@@ -787,11 +787,11 @@ testSourcePipelineTypesConsLikeTailBinders = do
   result <- compileSource defaultWarningSettings "values = [1]. x = case values { | [head | tail] -> tail + 1 | _ -> 0 }."
   assertSingleDiagnosticCode
     "cons-like tail binder type error code"
-    "E2003"
+    "E2006"
     (compileErrors result)
   assertSingleDiagnosticContains
     "cons-like tail binder type error text"
-    "cannot apply operator '+' to operands of type [Int64] and Int"
+    "cannot apply function"
     (compileErrors result)
 
 testSourcePipelineRejectsConsLikeListPatternScrutineeMismatch :: IO ()
@@ -816,11 +816,11 @@ testSourcePipelineTypesTuplePatternBinders = do
   result <- compileSource defaultWarningSettings "pair = (True, 1). x = case pair { | (left, right) -> right + left }."
   assertSingleDiagnosticCode
     "tuple pattern binder type error code"
-    "E2003"
+    "E2006"
     (compileErrors result)
   assertSingleDiagnosticContains
     "tuple pattern binder type error text"
-    "cannot apply operator '+' to operands of type Int64 and Bool"
+    "cannot apply function"
     (compileErrors result)
 
 testSourcePipelineRejectsTuplePatternScrutineeMismatch :: IO ()

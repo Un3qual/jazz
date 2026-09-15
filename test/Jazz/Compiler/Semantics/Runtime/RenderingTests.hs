@@ -112,7 +112,7 @@ renderingTests =
     ("print! returns evaluated argument itemValue", testPrintBuiltinReturnsArgument),
     ("structural list equality evaluates at runtime", testStructuralListEqualityRuntimeSuccess),
     ("structural tuple equality evaluates at runtime", testStructuralTupleEqualityRuntimeSuccess),
-    ("structural ADT equality evaluates at runtime", testStructuralAdtEqualityRuntimeSuccess),
+    ("explicit ADT equality evaluates at runtime", testExplicitAdtEqualityRuntimeSuccess),
     ("structural ADT equality sees through runtime type hints", testStructuralAdtEqualitySeesThroughRuntimeTypeHints),
     ("structural ADT equality preserves incompatible runtime type hints", testStructuralAdtEqualityPreservesIncompatibleRuntimeTypeHints),
     ("runtime fallback rejects direct callable equality", testRuntimeFallbackRejectsDirectCallableEquality),
@@ -140,7 +140,7 @@ testCharTextLiteralRendering = do
 
 testCharTextStrictEquality :: IO ()
 testCharTextStrictEquality = do
-  result <- runSource defaultWarningSettings "('a' == 'a', 'a' != 'b', \"Jazz\" == \"Jazz\", \"Jazz\" != \"jazz\", Eq::equals 'a' 'a', Eq::equals \"Jazz\" \"Jazz\")."
+  result <- runSource defaultWarningSettings "('a' == 'a', 'a' != 'b', \"Jazz\" == \"Jazz\", \"Jazz\" != \"jazz\", Equatable::equals 'a' 'a', Equatable::equals \"Jazz\" \"Jazz\")."
   assertEqual "compile errors" [] (runCompileErrors result)
   assertEqual "runtime errors" [] (runRuntimeErrors result)
   assertEqual "runtime output" (Just "(True, True, True, True, True, True)") (runOutput result)
@@ -609,7 +609,7 @@ testTlEmptyListRuntimeError = do
 
 testRuntimeHelperRejectsCanonicalAlias :: IO ()
 testRuntimeHelperRejectsCanonicalAlias = do
-  let result = evaluateFixture (runtimeExpr (expressionVariable "map"))
+  let result = evaluateFixture (runtimeExpr (expressionVariable "filter"))
   assertRuntimeErrorContains "runtime helper canonical alias rejected" "E3002" result
 
 testRuntimeFallbackRejectsHdNonList :: IO ()
@@ -639,12 +639,12 @@ testRuntimeFallbackRejectsFilterNonFunctionPredicate = do
 
 testRuntimeFallbackRejectsFilterNonListCollection :: IO ()
 testRuntimeFallbackRejectsFilterNonListCollection = do
-  let result = evaluateFixture (runtimeExpr (expressionApply (expressionApply (expressionVariable "__kernel_filter") (expressionSectionLeft (expressionLiteral (LInt 1)) "<")) (expressionLiteral (LInt 1))))
+  let result = evaluateFixture (runtimeExpr (expressionApply (expressionApply (expressionVariable "__kernel_filter") (expressionApply (expressionKernelFunction "<") (expressionLiteral (LInt 1)))) (expressionLiteral (LInt 1))))
   assertRuntimeErrorContains "runtime fallback filter collection" "E3018" result
 
 testRuntimeFallbackRejectsFilterPredicateNonBool :: IO ()
 testRuntimeFallbackRejectsFilterPredicateNonBool = do
-  let result = evaluateFixture (runtimeExpr (expressionApply (expressionApply (expressionVariable "__kernel_filter") (expressionSectionLeft (expressionLiteral (LInt 1)) "+")) (expressionList [expressionLiteral (LInt 1)])))
+  let result = evaluateFixture (runtimeExpr (expressionApply (expressionApply (expressionVariable "__kernel_filter") (expressionApply (expressionKernelFunction "+") (expressionLiteral (LInt 1)))) (expressionList [expressionLiteral (LInt 1)])))
   assertRuntimeErrorContains "runtime fallback filter predicate bool result" "E3019" result
 
 testPrintBuiltinReturnsArgument :: IO ()
@@ -684,13 +684,20 @@ testStructuralTupleEqualityRuntimeSuccess = do
   assertEqual "runtime errors" [] (runRuntimeErrors result)
   assertEqual "runtime output" (Just "[True, True]") (runOutput result)
 
-testStructuralAdtEqualityRuntimeSuccess :: IO ()
-testStructuralAdtEqualityRuntimeSuccess = do
+testExplicitAdtEqualityRuntimeSuccess :: IO ()
+testExplicitAdtEqualityRuntimeSuccess = do
   result <-
     runSource
       defaultWarningSettings
       """
       data Maybe a = Nothing | Just a.
+      impl @{Equatable(a)}: Equatable(Maybe(a)) {
+        equals = \\(left, right) -> case (left, right) {
+          | (Nothing, Nothing) -> True
+          | (Just x, Just y) -> equals x y
+          | _ -> False
+        }.
+      }.
       same = Just 1 == Just 1.
       differentPayload = Just 1 != Just 2.
       differentCtor = Just 1 == Nothing.
@@ -709,7 +716,7 @@ testStructuralAdtEqualitySeesThroughRuntimeTypeHints = do
               [ statementData (SourceSpan 1 1) "Tag" ["a"] [dataConstructor "Tag" []],
                 statementLet "left" (SourceSpan 2 1) (typedTag NumericUInt8),
                 statementLet "right" (SourceSpan 3 1) (typedTag NumericUInt8),
-                statementExpression (SourceSpan 4 1) (expressionBinary "==" (expressionVariable "left") (expressionVariable "right"))
+                statementExpression (SourceSpan 4 1) (expressionKernelBinary "==" (expressionVariable "left") (expressionVariable "right"))
               ]
           )
   assertRuntimeBool "typed ADT structural equality runtime result" True result
@@ -727,7 +734,7 @@ testStructuralAdtEqualityPreservesIncompatibleRuntimeTypeHints = do
               [ statementData (SourceSpan 1 1) "Tag" ["a"] [dataConstructor "Tag" []],
                 statementLet "left" (SourceSpan 2 1) (typedTag NumericUInt8),
                 statementLet "right" (SourceSpan 3 1) (typedTag NumericUInt16),
-                statementExpression (SourceSpan 4 1) (expressionBinary "==" (expressionVariable "left") (expressionVariable "right"))
+                statementExpression (SourceSpan 4 1) (expressionKernelBinary "==" (expressionVariable "left") (expressionVariable "right"))
               ]
           )
   assertRuntimeBool "incompatible typed ADT structural equality runtime result" False result
@@ -741,30 +748,21 @@ testRuntimeFallbackRejectsDirectCallableEquality :: IO ()
 testRuntimeFallbackRejectsDirectCallableEquality = do
   assertCallableRuntimeEqualityRejected
     "runtime closure equality"
-    (expressionBinary "==" closureValue closureValue)
+    (expressionKernelBinary "==" closureValue closureValue)
   assertCallableRuntimeEqualityRejected
     "runtime builtin equality"
-    (expressionBinary "==" builtinValue builtinValue)
-  assertCallableRuntimeEqualityRejected
-    "runtime operator equality"
-    (expressionBinary "==" operatorValue operatorValue)
-  assertCallableRuntimeEqualityRejected
-    "runtime left section equality"
-    (expressionBinary "==" leftSectionValue leftSectionValue)
+    (expressionKernelBinary "==" builtinValue builtinValue)
 
 testRuntimeFallbackRejectsDirectCallableInequality :: IO ()
-testRuntimeFallbackRejectsDirectCallableInequality = do
+testRuntimeFallbackRejectsDirectCallableInequality =
   assertCallableRuntimeEqualityRejected
     "runtime closure inequality"
-    (expressionBinary "!=" closureValue closureValue)
-  assertCallableRuntimeEqualityRejected
-    "runtime right section inequality"
-    (expressionBinary "!=" rightSectionValue rightSectionValue)
+    (expressionKernelBinary "!=" closureValue closureValue)
 
 testRuntimeFallbackRejectsFunctionStructuralEquality :: IO ()
 testRuntimeFallbackRejectsFunctionStructuralEquality = do
   let identity = expressionLambda "x" (expressionVariable "x")
-      result = evaluateFixture (runtimeExpr (expressionBinary "==" (expressionList [identity]) (expressionList [identity])))
+      result = evaluateFixture (runtimeExpr (expressionKernelBinary "==" (expressionList [identity]) (expressionList [identity])))
   assertRuntimeErrorContains "runtime fallback function structural equality" "E3007" result
   assertRuntimeErrorContains
     "runtime fallback function structural equality callable text"
@@ -776,7 +774,7 @@ testRuntimeFallbackRejectsDifferentLengthFunctionStructuralEquality = do
   let identity = expressionLambda "x" (expressionVariable "x")
   assertCallableRuntimeEqualityRejected
     "different-length function structural equality"
-    (expressionBinary "==" (expressionList [identity]) (expressionList [identity, identity]))
+    (expressionKernelBinary "==" (expressionList [identity]) (expressionList [identity, identity]))
 
 testRuntimeFallbackRejectsDifferentSaturatedAdtConstructors :: IO ()
 testRuntimeFallbackRejectsDifferentSaturatedAdtConstructors = do
@@ -800,7 +798,7 @@ testRuntimeFallbackRejectsDifferentSaturatedAdtConstructors = do
             ],
           statementExpression
             (SourceSpan 2 1)
-            (expressionBinary "==" (expressionApply (expressionConstructor "Just") identity) (expressionConstructor "Nothing"))
+            (expressionKernelBinary "==" (expressionApply (expressionConstructor "Just") identity) (expressionConstructor "Nothing"))
         ]
 
 testDeclarationOnlyScopeHasNoOutput :: IO ()

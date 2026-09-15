@@ -6,7 +6,7 @@ import Data.List.NonEmpty (NonEmpty (..))
 import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
 import Data.Text (Text)
-import Jazz.Compiler.CoreIdentity (CapabilityId (..), CoreBinderId (..), CoreNodeId (..))
+import Jazz.Compiler.CoreIdentity (CapabilityId (..), CoreBinderId (..), CoreNodeId (..), ResolvedReference (LexicalReference))
 import Jazz.Compiler.Diagnostics (SourceSpan (..))
 import Jazz.Compiler.ModuleExports
   ( LocatedModuleExportName (..),
@@ -34,11 +34,12 @@ import Jazz.Compiler.ModuleInterface
     publishModuleInterface,
   )
 import Jazz.Compiler.Name (NameNamespace (..), mkIdentifier, resolvedLocalName)
-import Jazz.Compiler.SemanticDeclarations (ConstructorArgumentType (..), DataTypeBinding (..), ScopeCapabilityFacts (..))
+import Jazz.Compiler.SemanticDeclarations (ClassDefinition (..), ConstructorArgumentType (..), DataTypeBinding (..), ScopeCapabilityFacts (..))
 import Jazz.Compiler.TypeInference.Types
   ( SemanticBinding (PlainTypeBinding),
     SemanticType (..),
   )
+import Jazz.Compiler.TypeRepresentation (Kind (..))
 import Jazz.TestHarness (NamedTest, assertEqual, runTestSuite)
 
 main :: IO ()
@@ -69,14 +70,14 @@ sampleInventory =
       ModuleExport ConstructorNamespace "Box",
       ModuleExport TypeNamespace "Box",
       ModuleExport TypeNamespace "HiddenType",
-      ModuleExport CapabilityNamespace "Eq"
+      ModuleExport CapabilityNamespace "Equatable"
     ]
 
 testDeclarationExportNames :: IO ()
 testDeclarationExportNames =
   assertEqual
     "declaration export names include types"
-    (Set.fromList ["answer", "Box", "HiddenType", "Eq"])
+    (Set.fromList ["answer", "Box", "HiddenType", "Equatable"])
     (declarationExportNames sampleInventory)
 
 testPreservesNamespaces :: IO ()
@@ -97,7 +98,7 @@ testSelectorEligibility :: IO ()
 testSelectorEligibility =
   assertEqual
     "selector names"
-    (Set.fromList ["answer", "Box", "Eq"])
+    (Set.fromList ["answer", "Box", "Equatable"])
     (selectorEligibleNames sampleInventory)
 
 testSelectsSameTextEntries :: IO ()
@@ -272,19 +273,19 @@ testInterfaceInventory =
     "interface inventory"
     ( Set.fromList
         [ ModuleExport ValueNamespace "answer",
-          ModuleExport CapabilityNamespace "Eq"
+          ModuleExport CapabilityNamespace "Equatable"
         ]
     )
     (exportInventoryEntries (moduleInterfaceExportInventory interface))
   where
     interface =
       emptyModuleInterface
-        { interfacePublicExports = exportInventory [ModuleExport ValueNamespace "answer", ModuleExport CapabilityNamespace "Eq"],
+        { interfacePublicExports = exportInventory [ModuleExport ValueNamespace "answer", ModuleExport CapabilityNamespace "Equatable"],
           interfaceValueBindings =
             Map.singleton
               (ModuleExport ValueNamespace "answer")
-              (ModuleValueBinding (CoreBinderId (StandaloneSourceUnit standaloneModulePath, CoreNodeId 1)) (PlainTypeBinding SemanticInt)),
-          interfaceCapabilities = mempty {scopeClassFacts = Map.singleton (CapabilityId (resolvedLocalName CapabilityNamespace (mkIdentifier "Eq"))) 1}
+              (ModuleValueBinding (LexicalReference (CoreBinderId (StandaloneSourceUnit standaloneModulePath, CoreNodeId 1))) (PlainTypeBinding SemanticInt)),
+          interfaceCapabilities = mempty {scopeClassFacts = Map.singleton (CapabilityId (resolvedLocalName CapabilityNamespace (mkIdentifier "Equatable"))) (ClassDefinition TypeKind [] Set.empty)}
         }
 
 testPublicationRetainsReachablePrivateTypes :: IO ()

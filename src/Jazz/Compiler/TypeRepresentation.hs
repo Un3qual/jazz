@@ -5,14 +5,17 @@
 {-# LANGUAGE DeriveTraversable #-}
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE PatternSynonyms #-}
+{-# LANGUAGE ViewPatterns #-}
 
 -- | Shared recursive type syntax used across compiler stages.
 module Jazz.Compiler.TypeRepresentation
   ( InferenceVariable (..),
     NumericType (..),
-    SemanticType (..),
+    SemanticType (.., SemanticList, SemanticData),
+    Kind (..),
+    semanticApplicationSpine,
     substituteSemanticVariables,
-    semanticTypeToSignature,
     SignatureConstraint (..),
     SignaturePayload (..),
     SignatureToken (..),
@@ -60,6 +63,15 @@ data NumericType
   deriving stock (Bounded, Enum, Eq, Generic, Ord, Show)
   deriving anyclass (NFData)
 
+-- | Implicit constructor kinds. Inference variables are local to declaration
+-- checking; published declarations use Kind Void.
+data Kind variable
+  = TypeKind
+  | FunctionKind (Kind variable) (Kind variable)
+  | KindVariable variable
+  deriving stock (Eq, Ord, Show, Functor, Foldable, Traversable, Generic)
+  deriving anyclass (NFData)
+
 -- | Recursive semantic type shape used by inference and analyzed facts.
 -- Parameters distinguish nominal type identities and inference variables.
 data SemanticType typeName variable
@@ -69,15 +81,31 @@ data SemanticType typeName variable
   | SemanticBool
   | SemanticChar
   | SemanticText
-  | SemanticList (SemanticType typeName variable)
+  | SemanticListConstructor
+  | SemanticNamedConstructor typeName
+  | SemanticApplication (SemanticType typeName variable) (SemanticType typeName variable)
   | SemanticTuple [SemanticType typeName variable]
-  | SemanticData typeName [SemanticType typeName variable]
   | SemanticFunction
       (SemanticType typeName variable)
       (SemanticType typeName variable)
   | SemanticVariable variable
   deriving stock (Eq, Foldable, Functor, Generic, Ord, Show, Traversable)
   deriving anyclass (NFData)
+
+-- Lists and named data share the same application representation as f(a).
+pattern SemanticList :: SemanticType name variable -> SemanticType name variable
+pattern SemanticList element = SemanticApplication SemanticListConstructor element
+
+pattern SemanticData :: name -> [SemanticType name variable] -> SemanticType name variable
+pattern SemanticData name arguments <- (semanticApplicationSpine -> (SemanticNamedConstructor name, arguments))
+  where
+    SemanticData name arguments = foldl SemanticApplication (SemanticNamedConstructor name) arguments
+
+semanticApplicationSpine :: SemanticType name variable -> (SemanticType name variable, [SemanticType name variable])
+semanticApplicationSpine = go []
+  where
+    go arguments (SemanticApplication constructor argument) = go (argument : arguments) constructor
+    go arguments constructor = (constructor, arguments)
 
 instance Bifunctor SemanticType where
   bimap = bimapDefault
@@ -94,14 +122,12 @@ instance Bitraversable SemanticType where
       SemanticBool -> pure SemanticBool
       SemanticChar -> pure SemanticChar
       SemanticText -> pure SemanticText
-      SemanticList elementType ->
-        SemanticList <$> bitraverse mapTypeName mapVariable elementType
+      SemanticListConstructor -> pure SemanticListConstructor
+      SemanticNamedConstructor name -> SemanticNamedConstructor <$> mapTypeName name
+      SemanticApplication constructor argument ->
+        SemanticApplication <$> bitraverse mapTypeName mapVariable constructor <*> bitraverse mapTypeName mapVariable argument
       SemanticTuple elementTypes ->
         SemanticTuple <$> traverse (bitraverse mapTypeName mapVariable) elementTypes
-      SemanticData typeName arguments ->
-        SemanticData
-          <$> mapTypeName typeName
-          <*> traverse (bitraverse mapTypeName mapVariable) arguments
       SemanticFunction argumentType resultType ->
         SemanticFunction
           <$> bitraverse mapTypeName mapVariable argumentType
@@ -117,31 +143,14 @@ substituteSemanticVariables replace typeValue = case typeValue of
   SemanticBool -> SemanticBool
   SemanticChar -> SemanticChar
   SemanticText -> SemanticText
-  SemanticList element -> SemanticList (recur element)
+  SemanticListConstructor -> SemanticListConstructor
+  SemanticNamedConstructor name -> SemanticNamedConstructor name
+  SemanticApplication constructor argument -> SemanticApplication (recur constructor) (recur argument)
   SemanticTuple elements -> SemanticTuple (map recur elements)
-  SemanticData name arguments -> SemanticData name (map recur arguments)
   SemanticFunction argument result -> SemanticFunction (recur argument) (recur result)
   SemanticVariable variable -> replace variable
   where
     recur = substituteSemanticVariables replace
-
--- | Reify a checked type for signature diagnostics and authored constraint views.
-semanticTypeToSignature :: SemanticType name variable -> SignatureType name variable
-semanticTypeToSignature semanticType = case semanticType of
-  SemanticInt -> TypeInt
-  SemanticFloat -> TypeFloat
-  SemanticNumeric numeric -> TypeNumeric numeric
-  SemanticBool -> TypeBool
-  SemanticChar -> TypeChar
-  SemanticText -> TypeText
-  SemanticVariable variable -> TypeVariable variable
-  SemanticList element -> TypeList (recur element)
-  SemanticTuple elements -> TypeTuple (map recur elements)
-  SemanticData name [] -> TypeName name
-  SemanticData name arguments -> TypeApplication name (map recur arguments)
-  SemanticFunction argument result -> TypeFunction (recur argument) (recur result)
-  where
-    recur = semanticTypeToSignature
 
 -- | Recursive syntax shared by surface and resolved signatures. The first
 -- parameter identifies named types; the second identifies type variables.

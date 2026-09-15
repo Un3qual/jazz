@@ -1,6 +1,8 @@
 module IO (value readText!, value writeText!, value readStdin!, value writeStdout!, value writeStderr!, value arguments!, value exit!) {
-  import Maybe.
-  import Result.
+  import Maybe as Maybe.
+  import Maybe (Nothing, Just).
+  import Result as Result.
+  import Result (Err, Ok).
   import IOError.
 
   decodeIOErrorCategory :: Text -> IOErrorCategory.
@@ -16,31 +18,31 @@ module IO (value readText!, value writeText!, value readStdin!, value writeStdou
     | _ -> Other
   }.
 
-  readText! :: Text -> Result(IOError, Text).
+  readText! :: Text -> Result::Result(IOError, Text).
   readText! = \(path) -> case __kernel_readTextRaw! path {
     | (True, payload, _, _) -> Ok payload
     | (False, _, category, message) -> Err (IOError (decodeIOErrorCategory category) (Just path) message)
   }.
 
-  writeText! :: Text -> Text -> Result(IOError, ()).
+  writeText! :: Text -> Text -> Result::Result(IOError, ()).
   writeText! = \(path, contents) -> case __kernel_writeTextRaw! path contents {
     | (True, _, _, _) -> Ok ()
     | (False, _, category, message) -> Err (IOError (decodeIOErrorCategory category) (Just path) message)
   }.
 
-  readStdin! :: () -> Result(IOError, Text).
+  readStdin! :: () -> Result::Result(IOError, Text).
   readStdin! = \(unit) -> case __kernel_readStdinRaw! unit {
     | (True, payload, _, _) -> Ok payload
     | (False, _, category, message) -> Err (IOError (decodeIOErrorCategory category) Nothing message)
   }.
 
-  writeStdout! :: Text -> Result(IOError, ()).
+  writeStdout! :: Text -> Result::Result(IOError, ()).
   writeStdout! = \(contents) -> case __kernel_writeStdoutRaw! contents {
     | (True, _, _, _) -> Ok ()
     | (False, _, category, message) -> Err (IOError (decodeIOErrorCategory category) Nothing message)
   }.
 
-  writeStderr! :: Text -> Result(IOError, ()).
+  writeStderr! :: Text -> Result::Result(IOError, ()).
   writeStderr! = \(contents) -> case __kernel_writeStderrRaw! contents {
     | (True, _, _, _) -> Ok ()
     | (False, _, category, message) -> Err (IOError (decodeIOErrorCategory category) Nothing message)

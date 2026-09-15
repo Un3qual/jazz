@@ -79,6 +79,8 @@ root-modules = []
 # result head, so a retained type in a constraint cannot root a new wrapper.
 # New types and source files require review before entering this baseline.
 root-instances = [
+  # RFC 0019 retains the shared Kind structural and traversal interfaces.
+  { module = '^src/Jazz/Compiler/TypeRepresentation\.hs$', instance = '(^|=> )(Eq|Ord|Show|Generic|NFData|Functor|Foldable|Traversable) (\(Kind variable\)|Kind)$' },
   # Persisted benchmark metadata readers are part of the artifact format API.
   { instance = '^FromJSON (BenchmarkBuildMode|BenchmarkTimeMode|BenchmarkEnvironment)$' },
   { instance = '^FromJSON value => FromJSON \(EnvironmentFact value\)$' },
@@ -93,7 +95,7 @@ root-instances = [
   { module = '^src/Jazz/Compiler/DiagnosticCatalog\.hs$', instance = '(^|=> )(Eq|Ord|Show|Generic|NFData|Enum|Bounded|Functor|Foldable|Traversable) (DiagnosticCode|DiagnosticMetadata|DiagnosticSeverity|DiagnosticSubsystem)$' },
   { module = '^src/Jazz/Compiler/Diagnostics\.hs$', instance = '(^|=> )(Eq|Ord|Show|Generic|NFData|Enum|Bounded|Functor|Foldable|Traversable) (Diagnostic|DiagnosticContext|DiagnosticLabel|DiagnosticMessage|DiagnosticOrigin)$' },
   { module = '^src/Jazz/Compiler/Driver\.hs$', instance = '(^|=> )(Eq|Ord|Show|Generic|NFData|Enum|Bounded|Functor|Foldable|Traversable) (CompileResult|RunExecution|RunResult)$' },
-  { module = '^src/Jazz/Compiler/ModuleExports\.hs$', instance = '(^|=> )(Eq|Ord|Show|Generic|NFData|Enum|Bounded|Functor|Foldable|Traversable) (LocatedModuleExportName|ModuleExportSelector|ModuleImportMode|ModuleTypeConstructorSelector)$' },
+  { module = '^src/Jazz/Compiler/ModuleExports\.hs$', instance = '(^|=> )(Eq|Ord|Show|Generic|NFData|Enum|Bounded|Functor|Foldable|Traversable) (LocatedModuleExportName|ModuleExportSelector|ModuleTypeConstructorSelector)$' },
   { module = '^src/Jazz/Compiler/ModuleGraph\.hs$', instance = '(^|=> )(Eq|Ord|Show|Generic|NFData|Enum|Bounded|Functor|Foldable|Traversable) (DeclaredImportExposure|DeclaredModuleExports|DeclaredModuleFacts|ProgramInvariantFailure|ResolvedModuleFacts)$' },
   { module = '^src/Jazz/Compiler/ModuleIdentity\.hs$', instance = '(^|=> )(Eq|Ord|Show|Generic|NFData|Enum|Bounded|Functor|Foldable|Traversable) (ModuleIdentity|ModuleQualifier|SourceFile|SourceUnitOwner)$' },
   { module = '^src/Jazz/Compiler/ModuleResolver\.hs$', instance = '(^|=> )(Eq|Ord|Show|Generic|NFData|Enum|Bounded|Functor|Foldable|Traversable) (ModuleResolutionConfig)$' },
@@ -110,7 +112,7 @@ root-instances = [
   { module = '^src/Jazz/Compiler/Runtime/Observation\.hs$', instance = '(^|=> )(Eq|Ord|Show|Generic|NFData|Enum|Bounded|Functor|Foldable|Traversable) (\(RuntimeObservationResult value\)|RuntimeApplicationKind|RuntimeBuiltinKind|RuntimeConstructionKind|RuntimeDeferredCacheKind|RuntimeHostOperationKind|RuntimeObservationRequest|RuntimeProfileEvent|RuntimeProfileFrame|RuntimeTermination)$' },
   { module = '^src/Jazz/Compiler/Runtime/Types\.hs$', instance = '(^|=> )(Eq|Ord|Show|Generic|NFData|Enum|Bounded|Functor|Foldable|Traversable) (DeferredHostBindingKey|DeferredHostScopeId|ModuleEvaluationMode|RuntimeConstructorShape|RuntimeExplicitResultHints|RuntimeFloatMetadata|RuntimeIntMetadata)$' },
   { module = '^src/Jazz/Compiler/RuntimeHost\.hs$', instance = '(^|=> )(Eq|Ord|Show|Generic|NFData|Enum|Bounded|Functor|Foldable|Traversable) (HostIOCategory|RuntimeHostExit)$' },
-  { module = '^src/Jazz/Compiler/SemanticFacts\.hs$', instance = '(^|=> )(Eq|Ord|Show|Generic|NFData|Enum|Bounded|Functor|Foldable|Traversable) (AnalyzedMethodSignature|AnalyzedNumericConstraint|AnalyzedPrimitiveConstraint|AnalyzedScheme|AnalyzedSchemeConstraint|EvidenceReference|PatternConstructorFact|PatternRefutability|SemanticFactInvariantFailure|SemanticInstantiation)$' },
+  { module = '^src/Jazz/Compiler/SemanticFacts\.hs$', instance = '(^|=> )(Eq|Ord|Show|Generic|NFData|Enum|Bounded|Functor|Foldable|Traversable) (AnalyzedNumericConstraint|AnalyzedPrimitiveConstraint|AnalyzedScheme|AnalyzedSchemeConstraint|EvidenceReference|PatternConstructorFact|PatternRefutability|SemanticFactInvariantFailure|SemanticInstantiation)$' },
   { module = '^src/Jazz/Compiler/TypeInference/DiagnosticCause\.hs$', instance = '(^|=> )(Eq|Ord|Show|Generic|NFData|Enum|Bounded|Functor|Foldable|Traversable) (\(TypeErrorCause typeValue\))$' },
   { module = '^src/Jazz/Compiler/TypeInference/Pattern\.hs$', instance = '(^|=> )(Eq|Ord|Show|Generic|NFData|Enum|Bounded|Functor|Foldable|Traversable) (PatternBindings)$' },
   { module = '^src/Jazz/Compiler/TypeInference/Result\.hs$', instance = '(^|=> )(Eq|Ord|Show|Generic|NFData|Enum|Bounded|Functor|Foldable|Traversable) (InferenceResult)$' },

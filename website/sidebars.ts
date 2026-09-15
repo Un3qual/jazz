@@ -72,6 +72,7 @@ const sidebars: SidebarsConfig = {
         'standard-library/queue',
         'standard-library/map',
         'standard-library/set',
+        'standard-library/reduce',
       ],
     },
     {

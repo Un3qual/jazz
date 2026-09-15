@@ -38,11 +38,17 @@ bundledPreludeIdentity =
 bundledPreludeSource :: Text
 bundledPreludeSource =
   Text.unlines $
-    ["data Ordering = LT | EQ | GT.", ""]
+    [ "data Ordering = LT | EQ | GT.",
+      "",
+      "not :: Bool -> Bool.",
+      "not = \\(condition) -> if condition then False else True.",
+      ""
+    ]
       <> map renderCapabilityClass canonicalCapabilityClasses
-      <> ["", compareTextBinding]
+      <> ["", operatorFunctionBindings, "", compareTextBinding]
       <> [""]
       <> map renderDefaultCapabilityImpl defaultCapabilityImpls
+      <> ["", collectionCapabilityImpls]
       <> [""]
       <> map renderKernelBridge allBuiltinSymbols
       <> [""]
@@ -72,6 +78,9 @@ data CapabilityClass
   | FractionalClass
   | ShowableClass
   | DefaultClass
+  | MappingClass
+  | ReductionClass
+  | CombinationClass
 
 data PreludeTargetType
   = PreludeInt
@@ -89,12 +98,12 @@ data OrderedPreludeTargetType
   | OrderedPreludeNumeric NumericType
 
 data MarkerCapability
-  = NumericMarker
-  | IntegralMarker
+  = IntegralMarker
   | FractionalMarker
 
 data DefaultCapabilityImpl
-  = EqualityImpl PreludeTargetType
+  = ArithmeticImpl PreludeTargetType
+  | EqualityImpl PreludeTargetType
   | OrderingImpl OrderedPreludeTargetType
   | MarkerImpl MarkerCapability PreludeTargetType
   | ShowableImpl PreludeTargetType
@@ -104,11 +113,30 @@ renderCapabilityClass :: CapabilityClass -> Text
 renderCapabilityClass capabilityClass =
   case capabilityClass of
     EqualityClass ->
-      renderClassWithMethod "Eq" "equals :: a -> a -> Bool."
+      Text.intercalate
+        "\n"
+        [ "class Equatable(a) {",
+          "equals :: a -> a -> Bool.",
+          "differs :: a -> a -> Bool.",
+          "differs = \\(left, right) -> not (equals left right).",
+          "}."
+        ]
     OrderingClass ->
-      renderClassWithMethod "Ord" "compare :: a -> a -> Ordering."
+      Text.intercalate
+        "\n"
+        [ "class @{Equatable(a)}: Comparable(a) {",
+          "compare :: a -> a -> Ordering.",
+          "}."
+        ]
     NumericClass ->
-      renderMarkerClass "Num"
+      Text.unlines
+        [ "class Num(a) {",
+          "add :: a -> a -> a.",
+          "subtract :: a -> a -> a.",
+          "multiply :: a -> a -> a.",
+          "divide :: a -> a -> a.",
+          "}."
+        ]
     IntegralClass ->
       renderMarkerClass "Integral"
     FractionalClass ->
@@ -117,6 +145,28 @@ renderCapabilityClass capabilityClass =
       renderClassWithMethod "Showable" "show :: a -> Text."
     DefaultClass ->
       renderClassWithMethod "Default" "defaultValue :: a."
+    MappingClass ->
+      Text.intercalate
+        "\n"
+        [ "class Mappable(f) {",
+          "map :: (a -> b) -> f(a) -> f(b).",
+          "}."
+        ]
+    ReductionClass ->
+      Text.intercalate
+        "\n"
+        [ "class Reducible(f) {",
+          "foldLeft :: (b -> a -> b) -> b -> f(a) -> b.",
+          "foldRight :: (a -> b -> b) -> b -> f(a) -> b.",
+          "}."
+        ]
+    CombinationClass ->
+      Text.intercalate
+        "\n"
+        [ "class Combinable(a) {",
+          "combine :: a -> a -> a.",
+          "}."
+        ]
 
 renderClassWithMethod :: Text -> Text -> Text
 renderClassWithMethod className methodSignature =
@@ -136,16 +186,25 @@ renderDefaultCapabilityImpl capabilityImpl =
   case capabilityImpl of
     EqualityImpl targetType ->
       renderMethodImpl
-        "Eq"
+        "Equatable"
         (renderPreludeTargetType targetType)
         "equals"
-        "\\(left, right) -> left == right"
+        "__kernel_equals"
     OrderingImpl targetType ->
       renderMethodImpl
-        "Ord"
+        "Comparable"
         (renderOrderedPreludeTargetType targetType)
         "compare"
         (orderingExpression targetType)
+    ArithmeticImpl targetType ->
+      Text.unlines
+        [ "impl Num(" <> renderPreludeTargetType targetType <> ") {",
+          "add = __kernel_add.",
+          "subtract = __kernel_subtract.",
+          "multiply = __kernel_multiply.",
+          "divide = __kernel_divide.",
+          "}."
+        ]
     MarkerImpl marker targetType ->
       renderEmptyImpl
         (renderMarkerCapability marker)
@@ -198,7 +257,6 @@ renderOrderedPreludeTargetType targetType =
 renderMarkerCapability :: MarkerCapability -> Text
 renderMarkerCapability marker =
   case marker of
-    NumericMarker -> "Num"
     IntegralMarker -> "Integral"
     FractionalMarker -> "Fractional"
 
@@ -206,7 +264,7 @@ orderingExpression :: OrderedPreludeTargetType -> Text
 orderingExpression targetType =
   case targetType of
     OrderedPreludeChar ->
-      "\\(left, right) -> if __kernel_charToUInt32 left < __kernel_charToUInt32 right then LT else if __kernel_charToUInt32 left > __kernel_charToUInt32 right then GT else EQ"
+      "\\(left, right) -> if __kernel_lessThan (__kernel_charToUInt32 left) (__kernel_charToUInt32 right) then LT else if __kernel_greaterThan (__kernel_charToUInt32 left) (__kernel_charToUInt32 right) then GT else EQ"
     OrderedPreludeText ->
       "__prelude_compareText"
     OrderedPreludeInt ->
@@ -218,7 +276,7 @@ orderingExpression targetType =
 
 numericOrderingExpression :: Text
 numericOrderingExpression =
-  "\\(left, right) -> if left < right then LT else if left > right then GT else EQ"
+  "\\(left, right) -> if __kernel_lessThan left right then LT else if __kernel_greaterThan left right then GT else EQ"
 
 defaultValueExpression :: PreludeTargetType -> Text
 defaultValueExpression targetType =
@@ -254,7 +312,7 @@ compareTextBinding =
       "  }",
       "| [(leftFirst, leftRest) | _] -> case __kernel_textUnconsRaw right {",
       "  | [] -> GT",
-      "  | [(rightFirst, rightRest) | _] -> if __kernel_charToUInt32 leftFirst < __kernel_charToUInt32 rightFirst then LT else if __kernel_charToUInt32 leftFirst > __kernel_charToUInt32 rightFirst then GT else __prelude_compareText leftRest rightRest",
+      "  | [(rightFirst, rightRest) | _] -> if __kernel_lessThan (__kernel_charToUInt32 leftFirst) (__kernel_charToUInt32 rightFirst) then LT else if __kernel_greaterThan (__kernel_charToUInt32 leftFirst) (__kernel_charToUInt32 rightFirst) then GT else __prelude_compareText leftRest rightRest",
       "  }",
       "}."
     ]
@@ -273,7 +331,10 @@ canonicalCapabilityClasses =
     IntegralClass,
     FractionalClass,
     ShowableClass,
-    DefaultClass
+    DefaultClass,
+    MappingClass,
+    ReductionClass,
+    CombinationClass
   ]
 
 defaultCapabilityImpls :: [DefaultCapabilityImpl]
@@ -293,8 +354,8 @@ defaultAliasCapabilityImpls =
     OrderingImpl OrderedPreludeFloat,
     OrderingImpl OrderedPreludeChar,
     OrderingImpl OrderedPreludeText,
-    MarkerImpl NumericMarker PreludeInt,
-    MarkerImpl NumericMarker PreludeFloat,
+    ArithmeticImpl PreludeInt,
+    ArithmeticImpl PreludeFloat,
     MarkerImpl IntegralMarker PreludeInt,
     MarkerImpl FractionalMarker PreludeFloat,
     DefaultImpl PreludeInt,
@@ -313,7 +374,7 @@ numericCapabilityImpls :: MarkerCapability -> NumericType -> [DefaultCapabilityI
 numericCapabilityImpls marker numericType =
   [ EqualityImpl targetType,
     OrderingImpl (OrderedPreludeNumeric numericType),
-    MarkerImpl NumericMarker targetType,
+    ArithmeticImpl targetType,
     MarkerImpl marker targetType,
     DefaultImpl targetType,
     ShowableImpl targetType
@@ -348,3 +409,60 @@ floatingWidthTypes =
 loadBundledPreludeSource :: IO Text
 loadBundledPreludeSource =
   pure bundledPreludeSource
+
+operatorFunctionBindings :: Text
+operatorFunctionBindings =
+  Text.intercalate
+    "\n"
+    [ "apply :: (a -> b) -> a -> b.",
+      "apply = \\(function, argument) -> function argument.",
+      "lessThan :: @{Comparable(a)}: a -> a -> Bool.",
+      "lessThan = \\(left, right) -> case compare left right { | LT -> True | EQ -> False | GT -> False }.",
+      "lessThanOrEqual :: @{Comparable(a)}: a -> a -> Bool.",
+      "lessThanOrEqual = \\(left, right) -> case compare left right { | LT -> True | EQ -> True | GT -> False }.",
+      "greaterThan :: @{Comparable(a)}: a -> a -> Bool.",
+      "greaterThan = \\(left, right) -> case compare left right { | LT -> False | EQ -> False | GT -> True }.",
+      "greaterThanOrEqual :: @{Comparable(a)}: a -> a -> Bool.",
+      "greaterThanOrEqual = \\(left, right) -> case compare left right { | LT -> False | EQ -> True | GT -> True }."
+    ]
+
+collectionCapabilityImpls :: Text
+collectionCapabilityImpls =
+  Text.intercalate
+    "\n"
+    [ "impl Equatable(()) {",
+      "equals = __kernel_equals.",
+      "}.",
+      "impl Equatable(Ordering) {",
+      "equals = __kernel_equals.",
+      "}.",
+      "impl @{Equatable(a)}: Equatable([a]) {",
+      "equals = \\(left, right) -> case (left, right) {",
+      "| ([], []) -> True",
+      "| ([x | xs], [y | ys]) -> if equals x y then equals xs ys else False",
+      "| _ -> False",
+      "}.",
+      "}.",
+      "impl @{Equatable(a), Equatable(b)}: Equatable((a, b)) {",
+      "equals = \\((a, b), (x, y)) -> if equals a x then equals b y else False.",
+      "}.",
+      "impl @{Equatable(a), Equatable(b), Equatable(c)}: Equatable((a, b, c)) {",
+      "equals = \\((a, b, c), (x, y, z)) -> if equals a x then if equals b y then equals c z else False else False.",
+      "}.",
+      "impl Mappable(List) {",
+      "map = __kernel_map.",
+      "}.",
+      "impl Reducible(List) {",
+      "foldLeft = \\(step, initial, values) -> case values {",
+      "| [] -> initial",
+      "| [first | rest] -> foldLeft step (step initial first) rest",
+      "}.",
+      "foldRight = \\(step, initial, values) -> foldLeft (\\(acc, item) -> step item acc) initial (__kernel_listReverseRaw values).",
+      "}.",
+      "impl Combinable([a]) {",
+      "combine = \\(left, right) -> foldRight __kernel_listPrependRaw right left.",
+      "}.",
+      "impl Combinable(Text) {",
+      "combine = __kernel_textAppend.",
+      "}."
+    ]

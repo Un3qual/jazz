@@ -6,14 +6,12 @@
 -- neutral vocabulary; checking constructs the facts and execution consumes them.
 module Jazz.Compiler.SemanticFacts
   ( AnalyzedType,
-    AnalyzedMethodSignature (..),
     AnalyzedNumericConstraint (..),
     AnalyzedPrimitiveConstraint (..),
     AnalyzedScheme (..),
     AnalyzedSchemeConstraint (..),
-    BinaryOperation (..),
-    BinaryOperandTyping (..),
     EvidenceReference (..),
+    mapEvidenceTypes,
     ExpressionFacts (..),
     PatternConstructorFact (..),
     PatternFacts (..),
@@ -29,11 +27,11 @@ where
 import Control.DeepSeq (NFData)
 import Data.List.NonEmpty (NonEmpty)
 import Data.Map.Strict (Map)
-import Data.Text (Text)
+import Data.Set (Set)
 import GHC.Generics (Generic)
-import Jazz.Compiler.CoreIdentity (CapabilityId, CapabilityMethodKey, CoreBinderId, CoreNodeId, ImplId, MethodId, ResolvedNodeFacts)
+import Jazz.Compiler.CoreIdentity (CapabilityId, CapabilityMethodKey, CoreBinderId, CoreNodeId, ImplId, MethodId, ResolvedNodeFacts, ResolvedReference)
 import Jazz.Compiler.ModuleIdentity (ModulePath)
-import Jazz.Compiler.Name (ResolvedName)
+import Jazz.Compiler.Name (Identifier, ResolvedName)
 import Jazz.Compiler.TypeRepresentation
   ( InferenceVariable,
     SemanticType,
@@ -54,40 +52,47 @@ data SemanticInstantiation = SemanticInstantiation
   deriving stock (Eq, Generic, Ord, Show)
   deriving anyclass (NFData)
 
-data EvidenceReference = EvidenceReference
-  { evidenceCapability :: CapabilityId,
-    evidenceImplementation :: ImplId,
-    evidenceMethod :: MethodId,
-    evidenceType :: AnalyzedType
-  }
+data EvidenceReference
+  = EvidenceReference
+      { evidenceCapability :: CapabilityId,
+        evidenceImplementation :: ImplId,
+        evidenceMethod :: Maybe MethodId,
+        evidenceType :: AnalyzedType,
+        evidencePrerequisites :: [EvidenceReference]
+      }
+  | PendingEvidence
+      { evidenceCapability :: CapabilityId,
+        evidenceMember :: Maybe Identifier,
+        evidenceType :: AnalyzedType
+      }
+  | ParameterEvidence
+      { evidenceParameterOwner :: CoreBinderId,
+        evidenceParameterIndex :: Int,
+        evidenceProjection :: [CapabilityId],
+        evidenceCapability :: CapabilityId,
+        evidenceMember :: Maybe Identifier,
+        evidenceType :: AnalyzedType
+      }
   deriving stock (Eq, Generic, Ord, Show)
   deriving anyclass (NFData)
 
--- | The primitive operation selected by inference, including the original
--- operand identities when application syntax or an alias selected the operator.
--- This is a decision attached to the existing tree, not a second expression.
-data BinaryOperation = BinaryOperation
-  { binaryOperationSymbol :: Text,
-    binaryOperationOperandTyping :: BinaryOperandTyping,
-    binaryOperationLeftOperand :: CoreNodeId,
-    binaryOperationRightOperand :: CoreNodeId
-  }
-  deriving stock (Eq, Generic, Show)
-  deriving anyclass (NFData)
-
-data BinaryOperandTyping
-  = UniformBinaryOperands AnalyzedType
-  | Float64PromotedOperands
-  deriving stock (Eq, Generic, Show)
-  deriving anyclass (NFData)
+mapEvidenceTypes :: (AnalyzedType -> AnalyzedType) -> EvidenceReference -> EvidenceReference
+mapEvidenceTypes transform reference = case reference of
+  EvidenceReference {} ->
+    reference
+      { evidenceType = transform (evidenceType reference),
+        evidencePrerequisites = map (mapEvidenceTypes transform) (evidencePrerequisites reference)
+      }
+  _ -> reference {evidenceType = transform (evidenceType reference)}
 
 data ExpressionFacts = ExpressionFacts
   { expressionResolution :: ResolvedNodeFacts,
     expressionSemanticType :: AnalyzedType,
-    expressionBinaryOperation :: Maybe BinaryOperation,
     expressionNumericConstraints :: Map InferenceVariable AnalyzedNumericConstraint,
     expressionInstantiations :: [SemanticInstantiation],
     expressionEvidence :: [EvidenceReference],
+    -- | Dictionary cells needed by a lambda body, prepared during analysis.
+    expressionEvidenceCaptures :: Set ResolvedReference,
     -- | Closed representation enforced on return. Generalized definitions may
     -- suppress this even when a particular checked use has a concrete type.
     expressionResultRepresentation :: Maybe AnalyzedType
@@ -132,8 +137,8 @@ data StatementDeclarationFact
   | SignatureDeclaration ResolvedName
   | DataDeclaration ResolvedName [ResolvedName]
   | CapabilityDeclaration ResolvedName [ResolvedName]
-  | MethodDeclaration ResolvedName AnalyzedMethodSignature
-  | ImplementationDeclaration ResolvedName [AnalyzedType]
+  | MethodDeclaration ResolvedName
+  | ImplementationDeclaration ResolvedName
   | ModuleDeclaration ModulePath
   | ImportDeclaration ModulePath
   | ExpressionDeclaration
@@ -157,7 +162,6 @@ data SemanticFactInvariantFailure
   | MissingStatementBinder CoreNodeId
   | MissingStatementScheme CoreNodeId CoreBinderId
   | AnalyzedModuleRootNotBlock CoreNodeId
-  | InvalidAnalyzedMethodSignature Text
   deriving stock (Eq, Generic, Ord, Show)
   deriving anyclass (NFData)
 
@@ -175,7 +179,6 @@ data AnalyzedScheme = AnalyzedScheme
 
 data AnalyzedSchemeConstraint
   = AnalyzedExplicitCapabilityConstraint CapabilityId AnalyzedType
-  | AnalyzedInferredCapabilityConstraint CapabilityId AnalyzedType
   | AnalyzedMethodCapabilityConstraint CapabilityId CapabilityMethodKey AnalyzedType
   deriving stock (Eq, Generic, Ord, Show)
   deriving anyclass (NFData)
@@ -192,12 +195,5 @@ data AnalyzedNumericConstraint
   | AnalyzedRuntimeComparisonNumericConstraint
   | AnalyzedIntegralNumericConstraint
   | AnalyzedIntegralLiteralNumericConstraint Integer Integer
-  deriving stock (Eq, Generic, Ord, Show)
-  deriving anyclass (NFData)
-
-data AnalyzedMethodSignature = AnalyzedMethodSignature
-  { analyzedMethodClassParameter :: InferenceVariable,
-    analyzedMethodType :: AnalyzedType
-  }
   deriving stock (Eq, Generic, Ord, Show)
   deriving anyclass (NFData)

@@ -3,7 +3,7 @@ title: Set
 description: Use a persistent ordered set with logarithmic membership and update.
 ---
 
-Import `Set` for unique, ordered values. Values require `Ord(a)`, and views
+Import `Set` for unique, ordered values. Values require `Comparable(a)`, and views
 traverse them in ascending order. The representation and constructor are
 private. Membership and single-value updates are `O(log n)`; ordered traversal
 is `O(n)`.
@@ -16,105 +16,105 @@ is `O(n)`.
 
 ## Construction
 
-### `setEmpty`
+### `empty`
 
 ```jazz jazz-signature
-setEmpty :: Set(a).
+empty :: Set(a).
 ```
 
-### `setSingleton`
+### `singleton`
 
 ```jazz jazz-signature
-setSingleton :: a -> Set(a).
+singleton :: a -> Set(a).
 ```
 
-### `setFromList`
+### `fromList`
 
 ```jazz jazz-signature
-setFromList :: @{Ord(a)}: [a] -> Set(a).
+fromList :: @{Comparable(a)}: [a] -> Set(a).
 ```
 
 Inserts values from left to right and removes duplicates. This is
 `O(n log n)`.
 
-### `setToList`
+### `toList`
 
 ```jazz jazz-signature
-setToList :: Set(a) -> [a].
+toList :: Set(a) -> [a].
 ```
 
 Returns values in ascending order in `O(n)`.
 
 ## Querying
 
-### `setSize`
+### `size`
 
 ```jazz jazz-signature
-setSize :: Set(a) -> Int.
+size :: Set(a) -> Int.
 ```
 
-### `setIsEmpty`
+### `isEmpty`
 
 ```jazz jazz-signature
-setIsEmpty :: Set(a) -> Bool.
+isEmpty :: Set(a) -> Bool.
 ```
 
-### `setContains`
+### `contains`
 
 ```jazz jazz-signature
-setContains :: @{Ord(a)}: Set(a) -> a -> Bool.
+contains :: @{Comparable(a)}: Set(a) -> a -> Bool.
 ```
 
 ## Updating and combining
 
-### `setInsert`
+### `insert`
 
 ```jazz jazz-signature
-setInsert :: @{Ord(a)}: Set(a) -> a -> Set(a).
+insert :: @{Comparable(a)}: Set(a) -> a -> Set(a).
 ```
 
 Inserting a duplicate does not change the set.
 
-### `setRemove`
+### `remove`
 
 ```jazz jazz-signature
-setRemove :: @{Ord(a)}: Set(a) -> a -> Set(a).
+remove :: @{Comparable(a)}: Set(a) -> a -> Set(a).
 ```
 
 Removes a value when present. An absent value returns an equivalent set. This
 is `O(log n)`.
 
-### `setUnion`
+### `union`
 
 ```jazz jazz-signature
-setUnion :: @{Ord(a)}: Set(a) -> Set(a) -> Set(a).
+union :: @{Comparable(a)}: Set(a) -> Set(a) -> Set(a).
 ```
 
 Returns every value present in either set. The implementation is
 `O(m log(n + m))` for inputs of sizes `n` and `m`.
 
-### `setIntersection`
+### `intersection`
 
 ```jazz jazz-signature
-setIntersection :: @{Ord(a)}: Set(a) -> Set(a) -> Set(a).
+intersection :: @{Comparable(a)}: Set(a) -> Set(a) -> Set(a).
 ```
 
 Returns values present in both sets. This is `O(n × (log n + log m))` worst
 case.
 
-### `setDifference`
+### `difference`
 
 ```jazz jazz-signature
-setDifference :: @{Ord(a)}: Set(a) -> Set(a) -> Set(a).
+difference :: @{Comparable(a)}: Set(a) -> Set(a) -> Set(a).
 ```
 
 Returns values from the first set that are absent from the second. This is
 `O(n × (log n + log m))` worst case.
 
-### `setIsSubset`
+### `isSubset`
 
 ```jazz jazz-signature
-setIsSubset :: @{Ord(a)}: Set(a) -> Set(a) -> Bool.
+isSubset :: @{Comparable(a)}: Set(a) -> Set(a) -> Bool.
 ```
 
 Returns whether every value in the first set occurs in the second. After a
@@ -123,37 +123,41 @@ the first set continues. This is `O(n log m)` worst case.
 
 ## Transforming and traversal
 
-### `setFilter`
+### `filter`
 
 ```jazz jazz-signature
-setFilter :: @{Ord(a)}: Set(a) -> (a -> Bool) -> Set(a).
+filter :: @{Comparable(a)}: Set(a) -> (a -> Bool) -> Set(a).
 ```
 
 Keeps values whose predicate returns `True`. Callbacks run in ascending order;
 rebuilding the result is `O(n log n)` worst case.
 
-### `setMap`
+### `map`
 
 ```jazz jazz-signature
-setMap :: @{Ord(b)}: Set(a) -> (a -> b) -> Set(b).
+map :: @{Comparable(b)}: Set(a) -> (a -> b) -> Set(b).
 ```
 
 Transforms values in ascending input order and rebuilds ordering for `b`.
 Duplicate outputs collapse to one value. This is `O(n log n)` plus callback
 work.
 
-### `setFoldLeft`
+### `foldLeft`
 
 ```jazz jazz-signature
-setFoldLeft :: Set(a) -> b -> (b -> a -> b) -> b.
+foldLeft :: Set(a) -> b -> (b -> a -> b) -> b.
 ```
 
 Folds values from least to greatest in `O(n)` plus callback work.
 
-### `setFoldRight`
+### `foldRight`
 
 ```jazz jazz-signature
-setFoldRight :: Set(a) -> b -> (a -> b -> b) -> b.
+foldRight :: Set(a) -> b -> (a -> b -> b) -> b.
 ```
 
 Folds values from greatest to least in `O(n)` plus callback work.
+
+## Generic methods
+
+Importing Set supplies Reducible without an element ordering constraint and Combinable when elements are Comparable. Set has no Mappable instance. Use its collection-first map for ordered, deduplicated output, or convert with Set::toList before generic mapping.

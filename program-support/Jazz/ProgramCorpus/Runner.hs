@@ -202,7 +202,6 @@ runtimeMetricValue metric statistics =
     ForcedValuesBudget -> runtimeForcedValues statistics
     ClosureApplicationsBudget -> runtimeClosureApplications statistics
     BuiltinApplicationsBudget -> runtimeBuiltinApplications statistics
-    OperatorApplicationsBudget -> runtimeOperatorApplications statistics
     ConstructorApplicationsBudget -> runtimeConstructorApplications statistics
     MethodApplicationsBudget -> runtimeMethodApplications statistics
     ClosuresCreatedBudget -> runtimeClosuresCreated statistics

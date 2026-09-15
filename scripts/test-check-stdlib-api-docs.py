@@ -275,7 +275,7 @@ sampleMap :: a -> a.
         document = (ROOT / "docs" / "standard-library" / "list.md").read_text(
             encoding="utf-8"
         )
-        section = document.split("### `listGroupBy`", 1)[1].split("\n## ", 1)[0]
+        section = document.split("### `groupBy`", 1)[1].split("\n## ", 1)[0]
         self.assertIn("adjacent", section.casefold())
         self.assertNotIn("run's first value", section)
 

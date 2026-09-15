@@ -1,5 +1,5 @@
 module MergeSort (value mergeSort, value mergeSortSummary) {
-  import List.
+  import List as List.
 
   splitAlternating =
     \|([]) -> ([], [])
@@ -7,7 +7,7 @@ module MergeSort (value mergeSort, value mergeSortSummary) {
      |([left | [right | rest]]) ->
       case splitAlternating rest {
         | (lefts, rights) ->
-          (listPrepend left lefts, listPrepend right rights)
+          (List::prepend left lefts, List::prepend right rights)
       }.
 
   merge =
@@ -15,9 +15,9 @@ module MergeSort (value mergeSort, value mergeSortSummary) {
      |(lefts, []) -> lefts
      |([left | lefts], [right | rights]) ->
       if left <= right then
-        listPrepend left $ merge lefts (listPrepend right rights)
+        List::prepend left $ merge lefts (List::prepend right rights)
       else
-        listPrepend right $ merge (listPrepend left lefts) rights.
+        List::prepend right $ merge (List::prepend left lefts) rights.
 
   mergeSort =
     \|([]) -> []
@@ -40,7 +40,7 @@ module MergeSort (value mergeSort, value mergeSortSummary) {
       if index > upper then
         []
       else
-        listPrepend (nextItem index) $ generateFrom (index + 1) upper.
+        List::prepend (nextItem index) $ generateFrom (index + 1) upper.
 
   firstItem =
     \|([]) -> 0
@@ -59,7 +59,7 @@ module MergeSort (value mergeSort, value mergeSortSummary) {
   mergeSortSummary =
     case mergeSort (generateFrom 1 128) {
       | sorted ->
-        ( listLength sorted,
+        ( List::length sorted,
           firstItem sorted,
           lastItem sorted,
           weightedChecksumFrom 1 sorted 0 )

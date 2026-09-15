@@ -84,7 +84,6 @@ data ProgramBudgetMetric
   | ForcedValuesBudget
   | ClosureApplicationsBudget
   | BuiltinApplicationsBudget
-  | OperatorApplicationsBudget
   | ConstructorApplicationsBudget
   | MethodApplicationsBudget
   | ClosuresCreatedBudget
@@ -235,7 +234,6 @@ programBudgetMetricName metric =
     ForcedValuesBudget -> "forcedValues"
     ClosureApplicationsBudget -> "closureApplications"
     BuiltinApplicationsBudget -> "builtinApplications"
-    OperatorApplicationsBudget -> "operatorApplications"
     ConstructorApplicationsBudget -> "constructorApplications"
     MethodApplicationsBudget -> "methodApplications"
     ClosuresCreatedBudget -> "closuresCreated"

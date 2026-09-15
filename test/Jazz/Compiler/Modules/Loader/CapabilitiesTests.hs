@@ -34,7 +34,9 @@ import Jazz.TestHarness
 
 capabilitiesTests :: [NamedTest]
 capabilitiesTests =
-  [ ("compile module graph default helper exposes bundled capability facts in modules", testCompileModuleGraphDefaultExposesBundledCapabilityFactsInModules),
+  [ ("generic instance overlap is rejected independently of import order", testGenericInstanceOverlap),
+    ("empty and aliased imports transport generic instances and lexical defaults", testGenericInstanceImports),
+    ("compile module graph default helper exposes bundled capability facts in modules", testCompileModuleGraphDefaultExposesBundledCapabilityFactsInModules),
     ("compile module graph hides capability facts excluded by explicit import list", testCompileModuleGraphExplicitImportListHidesCapabilityFacts),
     ("compile module graph keeps alias-qualified ADT equality distinct from local ADT", testCompileModuleGraphKeepsAliasQualifiedAdtEqualityDistinct),
     ("compile module graph resolves alias-qualified impl method references", testCompileModuleGraphResolvesAliasQualifiedImplMethodReferences),
@@ -42,7 +44,7 @@ capabilitiesTests =
     ("compile module graph keeps module ADT impl facts distinct", testCompileModuleGraphKeepsModuleAdtImplFactsDistinct),
     ("compile module graph preserves constrained schemes through export bridges", testCompileModuleGraphPreservesConstrainedSchemesThroughExportBridges),
     ("run module graph retains local capabilities needed by inferred equality export", testRunModuleGraphRetainsLocalCapabilitiesNeededByInferredEqualityExport),
-    ("run module graph allows structural equality through hidden inferred equality export", testRunModuleGraphAllowsStructuralEqualityThroughHiddenInferredEqualityExport),
+    ("run module graph uses explicit list equality through hidden inferred equality export", testRunModuleGraphUsesExplicitEqualityThroughHiddenInferredEqualityExport),
     ("run module graph keeps inferred equality export facts scoped to hidden capability", testRunModuleGraphKeepsInferredEqualityExportFactsScopedToHiddenCapability),
     ("run module graph keeps helper-only inferred equality hidden despite direct sibling import", testRunModuleGraphKeepsHelperOnlyInferredEqualityHiddenDespiteDirectSiblingImport),
     ("compile module graph keeps inferred equality export facts scoped to hidden capability", testCompileModuleGraphKeepsInferredEqualityExportFactsScopedToHiddenCapability),
@@ -137,7 +139,7 @@ testCompileModuleGraphDefaultExposesBundledCapabilityFactsInModules = do
         [ ( "src/App/Main.jz",
             """
             module App::Main {
-            x :: @{Eq(Int)}: Int.
+            x :: @{Equatable(Int)}: Int.
             x = 1.
             }
             """
@@ -197,7 +199,7 @@ testCompileModuleGraphKeepsAliasQualifiedAdtEqualityDistinct = do
     [err] ->
       assertContains
         "alias-qualified ADT equality mismatch"
-        "E2004"
+        "E2006"
         (renderDiagnostic err)
     _ -> failTest "expected exactly one alias-qualified ADT equality mismatch"
   where
@@ -209,6 +211,7 @@ testCompileModuleGraphKeepsAliasQualifiedAdtEqualityDistinct = do
             data Box a = Box a.
             left = L::Box 1.
             right = Box 1.
+            equals = __kernel_equals.
             same = left == right.
             """
           ),
@@ -289,7 +292,7 @@ testCompileModuleGraphKeepsModuleAdtImplFactsDistinct = do
     [err] ->
       assertContains
         "module ADT impl fact isolation"
-        "missing impl fact 'Eq(Box(Int))'"
+        "missing impl fact 'Equatable(Box(Int))'"
         (renderDiagnostic err)
     errors ->
       failTest
@@ -303,16 +306,16 @@ testCompileModuleGraphKeepsModuleAdtImplFactsDistinct = do
             """
             import Lib::Box (Box).
             data Box a = Box a.
-            class Eq(a) { }.
-            use :: @{Eq(Box(Int))}: Int.
+            class Equatable(a) { }.
+            use :: @{Equatable(Box(Int))}: Int.
             use = 1.
             """
           ),
           ( "src/Lib/Box.jz",
             """
             data Box a = Box a.
-            class Eq(a) { }.
-            impl Eq(Box(Int)) { }.
+            class Equatable(a) { }.
+            impl Equatable(Box(Int)) { }.
             """
           )
         ]
@@ -346,10 +349,10 @@ testCompileModuleGraphPreservesConstrainedSchemesThroughExportBridges = do
           ( "src/Lib/Poly.jz",
             """
             module Lib::Poly {
-            class Eq(a) { }.
-            impl Eq(Int) { }.
-            impl Eq(Bool) { }.
-            id :: @{Eq(a)}: a -> a.
+            class Equatable(a) { }.
+            impl Equatable(Int) { }.
+            impl Equatable(Bool) { }.
+            id :: @{Equatable(a)}: a -> a.
             id = \\(x) -> x.
             }
             """
@@ -384,8 +387,8 @@ testRunModuleGraphRetainsLocalCapabilitiesNeededByInferredEqualityExport = do
           ( "src/Lib/Poly.jz",
             """
             module Lib::Poly {
-            class Eq(a) { }.
-            impl Eq(Int) { }.
+            class Equatable(a) { equals :: a -> a -> Bool. }.
+            impl Equatable(Int) { equals = __kernel_equals. }.
             same = \\(x) -> x == x.
             }
             """
@@ -393,8 +396,8 @@ testRunModuleGraphRetainsLocalCapabilitiesNeededByInferredEqualityExport = do
         ]
     lookupSource path = pure (Map.lookup path sourceMap)
 
-testRunModuleGraphAllowsStructuralEqualityThroughHiddenInferredEqualityExport :: IO ()
-testRunModuleGraphAllowsStructuralEqualityThroughHiddenInferredEqualityExport = do
+testRunModuleGraphUsesExplicitEqualityThroughHiddenInferredEqualityExport :: IO ()
+testRunModuleGraphUsesExplicitEqualityThroughHiddenInferredEqualityExport = do
   result <-
     runModuleGraphWithPrelude
       defaultWarningSettings
@@ -420,7 +423,8 @@ testRunModuleGraphAllowsStructuralEqualityThroughHiddenInferredEqualityExport = 
           ( "src/Lib/Poly.jz",
             """
             module Lib::Poly {
-            class Eq(a) { }.
+            class Equatable(a) { equals :: a -> a -> Bool. }.
+            impl Equatable([Int]) { equals = __kernel_equals. }.
             same = \\(xs) -> xs == xs.
             }
             """
@@ -457,14 +461,14 @@ testRunModuleGraphKeepsInferredEqualityExportFactsScopedToHiddenCapability =
       case runCompileErrors result of
         [err] -> do
           assertContains
-            (label <> " hidden Eq impl error")
+            (label <> " hidden Equatable impl error")
             "missing impl fact"
             (renderDiagnostic err)
           assertContains
-            (label <> " hidden Eq fact name")
-            "Lib::Poly::Eq(Bool)"
+            (label <> " hidden Equatable fact name")
+            "Lib::Poly::Equatable(Bool)"
             (renderDiagnostic err)
-        _ -> failTest (label <> ": expected exactly one hidden Eq compile error")
+        _ -> failTest (label <> ": expected exactly one hidden Equatable compile error")
 
     lookupSource sameDefinition appUse path =
       pure (Map.lookup path (sourceMap sameDefinition appUse))
@@ -473,10 +477,10 @@ testRunModuleGraphKeepsInferredEqualityExportFactsScopedToHiddenCapability =
       -- Explicit fragments are intentional: these programs embed test-specific declarations.
       Map.fromList
         [ ( "src/App/Main.jz",
-            "module App::Main {\nimport Lib::Poly (same).\nclass Eq(a) { }.\nimpl Eq(Bool) { }.\n" <> appUse <> "\n}"
+            "module App::Main {\nimport Lib::Poly (same).\nclass Equatable(a) { equals :: a -> a -> Bool. }.\nimpl Equatable(Bool) { equals = __kernel_equals. }.\n" <> appUse <> "\n}"
           ),
           ( "src/Lib/Poly.jz",
-            "module Lib::Poly {\nclass Eq(a) { }.\nimpl Eq(Int) { }.\n" <> sameDefinition <> "\n}"
+            "module Lib::Poly {\nclass Equatable(a) { equals :: a -> a -> Bool. }.\nimpl Equatable(Int) { equals = __kernel_equals. }.\n" <> sameDefinition <> "\n}"
           )
         ]
 
@@ -492,16 +496,16 @@ testRunModuleGraphKeepsHelperOnlyInferredEqualityHiddenDespiteDirectSiblingImpor
   case runCompileErrors result of
     [err] -> do
       assertContains
-        "helper-only import hidden Eq impl error"
+        "helper-only import hidden Equatable impl error"
         "missing impl fact"
         (renderDiagnostic err)
       assertContains
-        "helper-only import hidden Eq fact name"
-        "Lib::Poly::Eq(Bool)"
+        "helper-only import hidden Equatable fact name"
+        "Lib::Poly::Equatable(Bool)"
         (renderDiagnostic err)
     errors ->
       failTest
-        ( "expected exactly one hidden Eq compile error, got "
+        ( "expected exactly one hidden Equatable compile error, got "
             <> Text.pack (show (map renderDiagnostic errors))
         )
   where
@@ -520,7 +524,7 @@ testRunModuleGraphKeepsHelperOnlyInferredEqualityHiddenDespiteDirectSiblingImpor
           ( "src/App/Direct.jz",
             """
             module App::Direct {
-            import Lib::Poly (Eq).
+            import Lib::Poly (Equatable).
             direct = 0.
             }
             """
@@ -529,8 +533,8 @@ testRunModuleGraphKeepsHelperOnlyInferredEqualityHiddenDespiteDirectSiblingImpor
             """
             module App::HelperOnly {
             import Lib::Poly (same).
-            class Eq(a) { }.
-            impl Eq(Bool) { }.
+            class Equatable(a) { equals :: a -> a -> Bool. }.
+            impl Equatable(Bool) { equals = __kernel_equals. }.
             helperResult = same True.
             }
             """
@@ -538,8 +542,8 @@ testRunModuleGraphKeepsHelperOnlyInferredEqualityHiddenDespiteDirectSiblingImpor
           ( "src/Lib/Poly.jz",
             """
             module Lib::Poly {
-            class Eq(a) { }.
-            impl Eq(Int) { }.
+            class Equatable(a) { equals :: a -> a -> Bool. }.
+            impl Equatable(Int) { equals = __kernel_equals. }.
             same = \\(x) -> x == x.
             }
             """
@@ -559,14 +563,14 @@ testCompileModuleGraphKeepsInferredEqualityExportFactsScopedToHiddenCapability =
   case compileErrors result of
     [err] -> do
       assertContains
-        "compile hidden Eq impl error"
+        "compile hidden Equatable impl error"
         "missing impl fact"
         (renderDiagnostic err)
       assertContains
-        "compile hidden Eq fact name"
-        "Lib::Poly::Eq(Bool)"
+        "compile hidden Equatable fact name"
+        "Lib::Poly::Equatable(Bool)"
         (renderDiagnostic err)
-    _ -> failTest "expected exactly one compile-time hidden Eq error"
+    _ -> failTest "expected exactly one compile-time hidden Equatable error"
   where
     sourceMap =
       Map.fromList
@@ -574,8 +578,8 @@ testCompileModuleGraphKeepsInferredEqualityExportFactsScopedToHiddenCapability =
             """
             module App::Main {
             import Lib::Poly (same).
-            class Eq(a) { }.
-            impl Eq(Bool) { }.
+            class Equatable(a) { equals :: a -> a -> Bool. }.
+            impl Equatable(Bool) { equals = __kernel_equals. }.
             result = same True.
             }
             """
@@ -583,8 +587,8 @@ testCompileModuleGraphKeepsInferredEqualityExportFactsScopedToHiddenCapability =
           ( "src/Lib/Poly.jz",
             """
             module Lib::Poly {
-            class Eq(a) { }.
-            impl Eq(Int) { }.
+            class Equatable(a) { equals :: a -> a -> Bool. }.
+            impl Equatable(Int) { equals = __kernel_equals. }.
             same = \\(x) -> x == x.
             }
             """
@@ -619,8 +623,8 @@ testCompileModuleGraphRetainsImportedCapabilityFactsReferencedByInferredExport =
           ( "src/Lib/Facts.jz",
             """
             module Lib::Facts {
-            class Eq(a) { }.
-            impl Eq(Int) { }.
+            class Equatable(a) { equals :: a -> a -> Bool. }.
+            impl Equatable(Int) { equals = __kernel_equals. }.
             }
             """
           ),
@@ -662,15 +666,15 @@ testRunModuleGraphKeepsImportedClassImplVisibleWhenHelperIsSelected = do
           ( "src/Lib/Facts.jz",
             """
             module Lib::Facts {
-            class Eq(a) { }.
+            class Equatable(a) { equals :: a -> a -> Bool. }.
             }
             """
           ),
           ( "src/Lib/Wrapper.jz",
             """
             module Lib::Wrapper {
-            import Lib::Facts (Eq).
-            impl Eq(Int) { }.
+            import Lib::Facts (Equatable).
+            impl Equatable(Int) { equals = __kernel_equals. }.
             same = \\(x) -> x == x.
             }
             """
@@ -691,7 +695,7 @@ testCompileModuleGraphKeepsSiblingCapabilityFactsIsolated = do
     [err] ->
       assertContains
         "sibling capability fact isolation error"
-        "missing class declaration 'Eq'"
+        "missing class declaration 'Equatable'"
         (renderDiagnostic err)
     _ -> failTest "expected exactly one sibling capability fact isolation error"
   where
@@ -706,14 +710,14 @@ testCompileModuleGraphKeepsSiblingCapabilityFactsIsolated = do
           ),
           ( "src/Lib/Facts.jz",
             """
-            class Eq(a) { }.
-            impl Eq(Int) { }.
+            class Equatable(a) { }.
+            impl Equatable(Int) { }.
             facts = 0.
             """
           ),
           ( "src/Lib/UsesEq.jz",
             """
-            uses :: @{Eq(Int)}: Int.
+            uses :: @{Equatable(Int)}: Int.
             uses = 1.
             """
           )
@@ -736,14 +740,14 @@ testCompileModuleGraphExposesCapabilityFactsThroughVisibleImports = do
         [ ( "src/App/Main.jz",
             """
             import Lib::Facts.
-            use :: @{Eq(Int)}: Int.
+            use :: @{Equatable(Int)}: Int.
             use = 1.
             """
           ),
           ( "src/Lib/Facts.jz",
             """
-            class Eq(a) { }.
-            impl Eq(Int) { }.
+            class Equatable(a) { }.
+            impl Equatable(Int) { }.
             facts = 0.
             """
           )
@@ -767,7 +771,7 @@ testRunModuleGraphAllowsBundledClassQualifiedMethodLookup = do
         [ ( "src/App/Main.jz",
             """
             module App::Main {
-            Eq::equals 1 1.
+            Equatable::equals 1 1.
             }
             """
           )
@@ -827,18 +831,18 @@ testRunModuleGraphAllowsImportedClassQualifiedMethodLookup = do
             """
             module App::Main {
             import Lib::Facts.
-            Eq::equals 1 1.
+            Equatable::equals 1 1.
             }
             """
           ),
           ( "src/Lib/Facts.jz",
             """
             module Lib::Facts {
-            class Eq(a) {
+            class Equatable(a) {
             equals :: a -> a -> Bool.
             }.
-            impl Eq(Int) {
-            equals = \\(left, right) -> left == right.
+            impl Equatable(Int) {
+            equals = __kernel_equals.
             }.
             }
             """
@@ -859,7 +863,7 @@ testCompileModuleGraphRejectsAliasOnlyImportedClassQualifiedMethodLookup = do
     [err] -> do
       let rendered = renderDiagnostic err
       assertContains "alias-only class-qualified import code" "E4013" rendered
-      assertContains "hidden capability class name" "Eq" rendered
+      assertContains "hidden capability class name" "Equatable" rendered
       assertContains "method name" "equals" rendered
     _ -> failTest "expected exactly one alias-only class-qualified import error"
   where
@@ -869,18 +873,18 @@ testCompileModuleGraphRejectsAliasOnlyImportedClassQualifiedMethodLookup = do
             """
             module App::Main {
             import Lib::Facts as Facts.
-            Eq::equals 1 1.
+            Equatable::equals 1 1.
             }
             """
           ),
           ( "src/Lib/Facts.jz",
             """
             module Lib::Facts {
-            class Eq(a) {
+            class Equatable(a) {
             equals :: a -> a -> Bool.
             }.
-            impl Eq(Int) {
-            equals = \\(left, right) -> left == right.
+            impl Equatable(Int) {
+            equals = __kernel_equals.
             }.
             }
             """
@@ -907,17 +911,17 @@ testRunModuleGraphAllowsImportedPreModuleClassQualifiedMethodLookup = do
             """
             module App::Main {
             import Lib::Facts.
-            Eq::equals 1 1.
+            Equatable::equals 1 1.
             }
             """
           ),
           ( "src/Lib/Facts.jz",
             """
-            class Eq(a) {
+            class Equatable(a) {
             equals :: a -> a -> Bool.
             }.
-            impl Eq(Int) {
-            equals = \\(left, right) -> left == right.
+            impl Equatable(Int) {
+            equals = __kernel_equals.
             }.
             """
           )
@@ -1049,7 +1053,7 @@ testRunModuleGraphRetainsLocalCapabilitiesNeededByImportedCapabilityBodies = do
             pick :: a -> Bool.
             }.
             impl Choice(Int) {
-            pick = \\(candidate) -> Flag::enabled.
+            pick = \\(candidate) -> Flag::enabled @Int.
             }.
             }
             """
@@ -1082,7 +1086,7 @@ testRunModuleGraphNamespacesCapabilitiesNeededByDirectlyImportedCapabilityBodies
             impl Flag(Int) {
             enabled = False.
             }.
-            (Choice::pick 1, Flag::enabled).
+            (Choice::pick 1, Flag::enabled @Int).
             }
             """
           ),
@@ -1099,7 +1103,7 @@ testRunModuleGraphNamespacesCapabilitiesNeededByDirectlyImportedCapabilityBodies
             pick :: a -> Bool.
             }.
             impl Choice(Int) {
-            pick = \\(candidate) -> Flag::enabled.
+            pick = \\(candidate) -> Flag::enabled @Int.
             }.
             }
             """
@@ -1629,7 +1633,7 @@ testRunModuleGraphExposesDataReferencedByImportedClassMethods = do
             """
             module App::Main {
             import Lib::Api (Make).
-            Make::make.
+            (Make::make @Int).
             }
             """
           ),
@@ -1760,7 +1764,7 @@ testRunModuleGraphRebasesDependencyClassMethodResultHints = do
             """
             module App::Main {
             import Lib::Factory.
-            (\\(Box item) -> item + 255) (Make::make 0).
+            (\\(Box item) -> __kernel_add item 255) (Make::make 0).
             }
             """
           ),
@@ -1810,7 +1814,7 @@ testRunModuleGraphRebasesImportedClassMethodResultHintsFromClassOrigin = do
             impl Make(Int) {
             make = \\(candidate) -> Box 1.
             }.
-            (\\(Box item) -> item + 255) (Make::make 0).
+            (\\(Box item) -> __kernel_add item 255) (Make::make 0).
             }
             """
           ),
@@ -1840,7 +1844,7 @@ testCompileModuleGraphRejectsAmbientClassCollision = do
       let rendered = renderDiagnostic diagnostic
        in do
             assertContains "ambient class collision code" "E1004" rendered
-            assertContains "ambient class collision summary" "duplicate class declaration 'Eq'" rendered
+            assertContains "ambient class collision summary" "duplicate class declaration 'Equatable'" rendered
     diagnostics ->
       failTest
         ( "expected one ambient class collision, got "
@@ -1852,7 +1856,7 @@ testCompileModuleGraphRejectsAmbientClassCollision = do
         [ ( "src/App/Main.jz",
             """
             module App::Main {
-            class Eq(a) {
+            class Equatable(a) {
             equals :: a -> a -> Bool.
             }.
             }
@@ -1875,7 +1879,7 @@ testCompileModuleGraphRejectsImportedClassCollision = do
       let rendered = renderDiagnostic diagnostic
        in do
             assertContains "imported class collision code" "E1004" rendered
-            assertContains "imported class collision summary" "duplicate class declaration 'Eq'" rendered
+            assertContains "imported class collision summary" "duplicate class declaration 'Equatable'" rendered
     diagnostics ->
       failTest
         ( "expected one imported class collision, got "
@@ -1887,8 +1891,8 @@ testCompileModuleGraphRejectsImportedClassCollision = do
         [ ( "src/App/Main.jz",
             """
             module App::Main {
-            import Lib::Facts (Eq).
-            class Eq(a) {
+            import Lib::Facts (Equatable).
+            class Equatable(a) {
             equals :: a -> a -> Bool.
             }.
             }
@@ -1897,7 +1901,7 @@ testCompileModuleGraphRejectsImportedClassCollision = do
           ( "src/Lib/Facts.jz",
             """
             module Lib::Facts {
-            class Eq(a) {
+            class Equatable(a) {
             equals :: a -> a -> Bool.
             }.
             }
@@ -1920,7 +1924,7 @@ testCompileModuleGraphDoesNotReexportImportedClasses = do
       assertContains "non-transitive class code" "E4007" (renderDiagnostic diagnostic)
       assertContains
         "non-transitive class export"
-        "import symbol 'Eq' is not exported by module 'Lib::Wrapper'"
+        "import symbol 'Equatable' is not exported by module 'Lib::Wrapper'"
         (renderDiagnostic diagnostic)
     diagnostics ->
       failTest
@@ -1933,7 +1937,7 @@ testCompileModuleGraphDoesNotReexportImportedClasses = do
         [ ( "src/App/Main.jz",
             """
             module App::Main {
-            import Lib::Wrapper (Eq).
+            import Lib::Wrapper (Equatable).
             x = 1.
             }
             """
@@ -1941,7 +1945,7 @@ testCompileModuleGraphDoesNotReexportImportedClasses = do
           ( "src/Lib/Wrapper.jz",
             """
             module Lib::Wrapper {
-            import Lib::Facts (Eq).
+            import Lib::Facts (Equatable).
             wrapper = 0.
             }
             """
@@ -1949,7 +1953,7 @@ testCompileModuleGraphDoesNotReexportImportedClasses = do
           ( "src/Lib/Facts.jz",
             """
             module Lib::Facts {
-            class Eq(a) { }.
+            class Equatable(a) { }.
             }
             """
           )
@@ -1968,20 +1972,20 @@ testRunModuleGraphPublishesExplicitlyExportedClass = do
         [ ( "src/App/Main.jz",
             """
             module App::Main {
-            import Lib::Facts (Eq).
-            Eq::equals 1 1.
+            import Lib::Facts (Equatable).
+            Equatable::equals 1 1.
             }
             """
           ),
           ( "src/Lib/Facts.jz",
             """
-            module Lib::Facts (Eq) {
-            class Eq(a) {
+            module Lib::Facts (Equatable) {
+            class Equatable(a) {
             equals :: a -> a -> Bool.
             }.
             class Hidden(a) { }.
-            impl Eq(Int) {
-            equals = \\(left, right) -> left == right.
+            impl Equatable(Int) {
+            equals = __kernel_equals.
             }.
             }
             """
@@ -2010,13 +2014,13 @@ testCompileModuleGraphRejectsPrivateExplicitClassImport = do
           ),
           ( "src/Lib/Facts.jz",
             """
-            module Lib::Facts (Eq) {
-            class Eq(a) {
+            module Lib::Facts (Equatable) {
+            class Equatable(a) {
             equals :: a -> a -> Bool.
             }.
             class Hidden(a) { }.
-            impl Eq(Int) {
-            equals = \\(left, right) -> left == right.
+            impl Equatable(Int) {
+            equals = __kernel_equals.
             }.
             }
             """
@@ -2042,11 +2046,70 @@ testCompileModuleGraphAllowsLocalClassMatchingPrivateDependencyClass = do
           ),
           ( "src/Lib/Facts.jz",
             """
-            module Lib::Facts (Eq) {
-            class Eq(a) { }.
+            module Lib::Facts (Equatable) {
+            class Equatable(a) { }.
             class Hidden(a) { }.
             }
             """
           )
         ]
     lookupSource path = pure (Map.lookup path sourceMap)
+
+testGenericInstanceImports :: IO ()
+testGenericInstanceImports = mapM_ check ["import Lib::Instances.", "import Lib::Instances as Instances.", "import Lib::Instances as First. import Lib::Instances as Second."]
+  where
+    check instanceImport = do
+      let sources =
+            Map.fromList
+              [ ("src/App/Main.jz", "module App::Main { import Lib::Class (different). " <> instanceImport <> " different [1] [2]. }"),
+                ( "src/Lib/Class.jz",
+                  """
+                  module Lib::Class (class Same) {
+                    helper = \\(answer) -> if answer then False else True.
+                    class Same(a) {
+                      same :: a -> a -> Bool.
+                      different :: a -> a -> Bool.
+                      different = \\(left, right) -> helper (same left right).
+                    }.
+                  }
+                  """
+                ),
+                ( "src/Lib/Instances.jz",
+                  """
+                  module Lib::Instances () {
+                    import Lib::Class.
+                    helper = \\(answer) -> False.
+                    impl Same(Int) { same = __kernel_equals. }.
+                    impl @{Same(a)}: Same([a]) {
+                      same = \\(left, right) -> case (left, right) {
+                        | ([], []) -> True
+                        | ([x | xs], [y | ys]) -> if same x y then same xs ys else False
+                        | _ -> False
+                      }.
+                    }.
+                  }
+                  """
+                )
+              ]
+      result <- runModuleGraphWithPrelude defaultWarningSettings Nothing resolverConfig ["App", "Main"] (lookupSourceIn sources)
+      assertEqual "compile errors" [] (runCompileErrors result)
+      assertEqual "runtime errors" [] (runRuntimeErrors result)
+      assertEqual "runtime output" (Just "True") (runOutput result)
+
+testGenericInstanceOverlap :: IO ()
+testGenericInstanceOverlap =
+  mapM_
+    check
+    ["import Lib::Generic. import Lib::Concrete.", "import Lib::Concrete as Concrete. import Lib::Generic as Generic."]
+  where
+    check imports = do
+      let sources =
+            Map.fromList
+              [ ("src/App/Main.jz", "module App::Main { " <> imports <> " 1. }"),
+                ("src/Lib/Class.jz", "module Lib::Class { class Same(a) { same :: a -> Bool. }. }"),
+                ("src/Lib/Generic.jz", "module Lib::Generic () { import Lib::Class. impl Same([a]) { same = \\(xs) -> True. }. }"),
+                ("src/Lib/Concrete.jz", "module Lib::Concrete () { import Lib::Class. impl Same([Int]) { same = \\(xs) -> False. }. }")
+              ]
+      result <- compileModuleGraphWithPrelude defaultWarningSettings Nothing resolverConfig ["App", "Main"] (lookupSourceIn sources)
+      assertEqual "one overlap diagnostic" 1 (length (compileErrors result))
+      assertContains "overlap does not depend on source-visible names" "overlapping impl declarations" (Text.unlines (map renderDiagnostic (compileErrors result)))

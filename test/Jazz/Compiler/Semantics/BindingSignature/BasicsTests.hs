@@ -26,7 +26,6 @@ import Jazz.Compiler.TypeInference.Types
   ( SemanticScheme (..),
     SemanticType (..),
     TypeScheme,
-    emptyScopeCapabilityFacts,
     quantifiedVariablesFromPreferred,
     quantifiedVariablesMembershipSet,
     quantifiedVariablesOrderedList,
@@ -49,7 +48,7 @@ basicTests =
     ("source pipeline accepts adjacent signature and binding", testSourceAcceptsSignatureAdjacency),
     ("source pipeline accepts Char and Text signatures", testSourceAcceptsCharTextSignatures),
     ("source pipeline preserves numeric defaults through final solver phase", testSourcePreservesNumericDefaultsThroughFinalSolverPhase),
-    ("source pipeline preserves Float alias hint across numeric operator dispatch", testSourcePreservesFloatAliasHintAcrossNumericOperatorDispatch),
+    ("source pipeline preserves Float alias hint across kernel arithmetic", testSourcePreservesFloatAliasHintAcrossKernelArithmetic),
     ("source pipeline uses binding signatures to contextualize RHS lambdas", testSourceUsesBindingSignaturesToContextualizeRhsLambdas),
     ("compiler keeps nested capability facts scoped", testSourceKeepsNestedCapabilityFactsScoped),
     ("compiler hides alias-only imported capability facts in signatures", testCompilerHidesAliasOnlyImportedCapabilityFactsInSignatures),
@@ -99,7 +98,6 @@ testTypeSchemeRecordPreservesFields = do
         { schemeQuantifiedVariables = quantifiedVariablesFromPreferred [1, 0] (Set.fromList [0, 1]),
           schemeClassConstraints = [],
           schemePrimitiveConstraints = [],
-          schemeDefiningCapabilities = emptyScopeCapabilityFacts,
           schemeResultType = SemanticFunction (SemanticVariable 0) (SemanticVariable 0)
         }
 
@@ -142,8 +140,8 @@ testSourcePreservesNumericDefaultsThroughFinalSolverPhase =
     result.
     """
 
-testSourcePreservesFloatAliasHintAcrossNumericOperatorDispatch :: IO ()
-testSourcePreservesFloatAliasHintAcrossNumericOperatorDispatch = do
+testSourcePreservesFloatAliasHintAcrossKernelArithmetic :: IO ()
+testSourcePreservesFloatAliasHintAcrossKernelArithmetic = do
   result <-
     runSourceWithPrelude
       defaultWarningSettings
@@ -163,7 +161,7 @@ testSourcePreservesFloatAliasHintAcrossNumericOperatorDispatch = do
         right :: Float.
         right = 2.25.
         result :: Bool.
-        result = RuntimeFlag::flag (left + right).
+        result = RuntimeFlag::flag (__kernel_add left right).
         result.
         """
       )
@@ -197,12 +195,12 @@ testSourceKeepsNestedCapabilityFactsScoped = do
   result <- compileExpr defaultWarningSettings program
   assertSingleDiagnosticContains
     "nested capability fact isolation"
-    "missing class declaration 'Eq'"
+    "missing class declaration 'Equatable'"
     (compileErrors result)
   where
     program =
-      case ( loweredProgram "seed = 0. x :: @{Eq(Int)}: Int. x = 1.",
-             loweredProgram "class Eq(a) { }. impl Eq(Int) { }. 0."
+      case ( loweredProgram "seed = 0. x :: @{Equatable(Int)}: Int. x = 1.",
+             loweredProgram "class Equatable(a) { }. impl Equatable(Int) { }. 0."
            ) of
         (EBlock blockNode (SLet bindingNode name _ : statements), nestedProgram) ->
           EBlock blockNode (SLet bindingNode name nestedProgram : statements)
@@ -210,7 +208,11 @@ testSourceKeepsNestedCapabilityFactsScoped = do
 
 testCompilerHidesAliasOnlyImportedCapabilityFactsInSignatures :: IO ()
 testCompilerHidesAliasOnlyImportedCapabilityFactsInSignatures = do
-  result <- compileExpr defaultWarningSettings aliasOnlyImportedCapabilityFactsProgram
+  result <-
+    compileModuleSources
+      [ ("src/Lib.jz", "module Lib { class RemoteEq(a) { }. impl RemoteEq(Int) { }. }"),
+        ("src/App.jz", "module App { import Lib as Lib. x :: @{RemoteEq(Int)}: Int. x = 1. }")
+      ]
   assertSingleDiagnosticContains
     "alias-only capability fact isolation"
     "missing class declaration 'RemoteEq'"
@@ -396,9 +398,9 @@ testSourceAcceptsConcreteConstrainedSignature :: IO ()
 testSourceAcceptsConcreteConstrainedSignature =
   assertSourceOkWithoutPrelude
     """
-    class Eq(a) { }.
-    impl Eq(Int) { }.
-    x :: @{Eq(Int)}: Int.
+    class Equatable(a) { }.
+    impl Equatable(Int) { }.
+    x :: @{Equatable(Int)}: Int.
     x = 1.
     """
 
@@ -406,7 +408,7 @@ testSourceAcceptsBundledConcreteConstrainedSignatureFacts :: IO ()
 testSourceAcceptsBundledConcreteConstrainedSignatureFacts =
   assertSourceOk
     """
-    x :: @{Eq(Int)}: Int.
+    x :: @{Equatable(Int)}: Int.
     x = 1.
     """
 
@@ -465,9 +467,9 @@ testSourceAcceptsAdditionalConcreteConstrainedSignatures = do
     """
   assertSourceOkWithoutPrelude
     """
-    class Ord(a) { }.
-    impl Ord(Int) { }.
-    x :: @{Ord(Int)}: Int.
+    class Comparable(a) { }.
+    impl Comparable(Int) { }.
+    x :: @{Comparable(Int)}: Int.
     x = 1.
     """
   assertSourceOkWithoutPrelude
@@ -482,9 +484,9 @@ testSourceAcceptsConcreteTupleConstrainedSignatureArgument :: IO ()
 testSourceAcceptsConcreteTupleConstrainedSignatureArgument =
   assertSourceOkWithoutPrelude
     """
-    class Eq(a) { }.
-    impl Eq((Int, Bool)) { }.
-    pair :: @{Eq((Int, Bool))}: (Int, Bool).
+    class Equatable(a) { }.
+    impl Equatable((Int, Bool)) { }.
+    pair :: @{Equatable((Int, Bool))}: (Int, Bool).
     pair = (1, True).
     """
 
@@ -493,9 +495,9 @@ testSourceAcceptsAdtApplicationConstrainedSignatureArgument =
   assertSourceOkWithoutPrelude
     """
     data Box a = Box a.
-    class Eq(a) { }.
-    impl Eq(Box(Int)) { }.
-    x :: @{Eq(Box(Int))}: Int.
+    class Equatable(a) { }.
+    impl Equatable(Box(Int)) { }.
+    x :: @{Equatable(Box(Int))}: Int.
     x = 1.
     """
 
@@ -503,7 +505,7 @@ testSourceAcceptsVariableConstrainedSignatureAsMonomorphic :: IO ()
 testSourceAcceptsVariableConstrainedSignatureAsMonomorphic =
   assertSourceOk
     """
-    id :: @{Eq(a)}: a -> a.
+    id :: @{Equatable(a)}: a -> a.
     id = \\(x) -> x.
     id 1.
     """
@@ -512,10 +514,10 @@ testSourceHonorsVisibleFactsForVariableConstrainedSignatures :: IO ()
 testSourceHonorsVisibleFactsForVariableConstrainedSignatures =
   assertSourceOkWithoutPrelude
     """
-    class Eq(a) { }.
-    impl Eq(Int) { }.
-    impl Eq(Bool) { }.
-    id :: @{Eq(a)}: a -> a.
+    class Equatable(a) { }.
+    impl Equatable(Int) { }.
+    impl Equatable(Bool) { }.
+    id :: @{Equatable(a)}: a -> a.
     id = \\(x) -> x.
     x = id 1.
     y = id True.

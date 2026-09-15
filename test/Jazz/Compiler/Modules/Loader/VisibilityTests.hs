@@ -186,7 +186,7 @@ testRunModuleGraphPreservesNestedMutualRecursionDuringSequentialResolution = do
     sourceMap =
       Map.fromList
         [ ( "src/App/Main.jz",
-            "module App::Main { { even = \\(n) -> if n == 0 then True else odd (n - 1). odd = \\(n) -> if n == 0 then False else even (n - 1). even 4. }. }"
+            "module App::Main { { even = \\(n) -> if __kernel_equals n 0 then True else odd (__kernel_subtract n 1). odd = \\(n) -> if __kernel_equals n 0 then False else even (__kernel_subtract n 1). even 4. }. }"
           )
         ]
     lookupSource path = pure (Map.lookup path sourceMap)
@@ -1171,7 +1171,7 @@ testRunModuleGraphResolvesImportedConstructorsInOrPatternAlternatives = do
             """
             import Lib::Maybe.
             selected = Also 41.
-            case selected { | Just item | Also item -> item + 1 | Nothing -> 0 }.
+            case selected { | Just item | Also item -> __kernel_add item 1 | Nothing -> 0 }.
             """
           ),
           ( "src/Lib/Maybe.jz",
@@ -1202,7 +1202,7 @@ testRunModuleGraphResolvesImportedConstructorsInLambdaOrPatternAlternatives = do
         [ ( "src/App/Main.jz",
             """
             import Lib::Maybe.
-            choose = \\|(Just item | Also item) -> item + 1
+            choose = \\|(Just item | Also item) -> __kernel_add item 1
                       |(Nothing) -> 0.
             choose (Also 41).
             """
@@ -1579,7 +1579,7 @@ testRunModuleGraphExecutesPublicClosureWithPrivateHelper = do
           ( "src/Lib/Value.jz",
             """
             module Lib::Value (answer) {
-            helper = \\(x) -> x + 1.
+            helper = \\(x) -> __kernel_add x 1.
             answer = \\(x) -> helper x.
             }
             """
@@ -1789,7 +1789,7 @@ testStandalonePreludePattern :: IO ()
 testStandalonePreludePattern =
   mapM_ check [source, "module App::Main { " <> source <> " }"]
   where
-    source = "matches = \\(item) -> case item { | LT -> True | _ -> False }. (case LT { | LT -> True | _ -> False }, matches (Ord::compare 1 2))."
+    source = "matches = \\(item) -> case item { | LT -> True | _ -> False }. (case LT { | LT -> True | _ -> False }, matches (Comparable::compare 1 2))."
     check program = do
       result <- runSource defaultWarningSettings program
       assertEqual "Prelude pattern compile errors" [] (runCompileErrors result)
@@ -1798,7 +1798,7 @@ testStandalonePreludePattern =
 
 testFutureConstructorBinding :: IO ()
 testFutureConstructorBinding = do
-  let sources = Map.singleton "src/App/Main.jz" "module App::Main { Just = \\(x) -> if x == 0 then 7 else Just (x - 1). result = Just 2. data Marker = Just. result. }"
+  let sources = Map.singleton "src/App/Main.jz" "module App::Main { Just = \\(x) -> if __kernel_equals x 0 then 7 else Just (__kernel_subtract x 1). result = Just 2. data Marker = Just. result. }"
   result <- runModuleGraphWithPrelude defaultWarningSettings Nothing resolverConfig ["App", "Main"] (lookupSourceIn sources)
   assertEqual "future constructor compile errors" [] (runCompileErrors result)
   assertEqual "future constructor runtime errors" [] (runRuntimeErrors result)

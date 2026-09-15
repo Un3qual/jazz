@@ -168,7 +168,7 @@ testRuntimeSupportsAsPatternLambdaParameters = do
 
 testRuntimeComparesConstructorValuesInsidePatternArms :: IO ()
 testRuntimeComparesConstructorValuesInsidePatternArms = do
-  result <- runSource defaultWarningSettings "data Maybe a = Nothing | Just a. subject = Just 41. case subject { | whole @ Just item -> whole == Just item | Nothing -> False }."
+  result <- runSource defaultWarningSettings "data Maybe a = Nothing | Just a. impl Equatable(Maybe(Int)) { equals = __kernel_equals. }. subject = Just 41. case subject { | whole @ Just item -> whole == Just item | Nothing -> False }."
   assertSuccessfulRuntime "constructor equality in pattern arm" (Just "True") result
 
 testRuntimeSelectsFirstMatchingOrPatternAlternative :: IO ()

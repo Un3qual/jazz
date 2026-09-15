@@ -107,6 +107,7 @@ import Jazz.Compiler.ModuleExports
     moduleExportSelectorNamespace,
     renderModuleExportSelector,
     selectValidatedModuleExportSelectors,
+    withClassMethods,
   )
 import qualified Jazz.Compiler.ModuleGraph as ModuleGraph
 import Jazz.Compiler.ModuleIdentity
@@ -160,6 +161,7 @@ import Jazz.Compiler.Parser.AST
     SurfacePattern (..),
     SurfacePatternForm (..),
     SurfacePatternLambdaClause (..),
+    SurfaceSignatureConstraint,
     SurfaceSignaturePayload,
     SurfaceSignatureType,
     SurfaceStatement (..),
@@ -167,6 +169,7 @@ import Jazz.Compiler.Parser.AST
 import Jazz.Compiler.Parser.Lower
   ( lowerSurfaceModule,
   )
+import Jazz.Compiler.Parser.Operator (builtinOperatorFunction)
 import Jazz.Compiler.SourceProgram (standaloneSourceModule)
 import Jazz.Compiler.TypeRepresentation
   ( pattern ConstrainedSignature,
@@ -611,7 +614,10 @@ discoverModuleFacts surfaceExpr =
             rest
 
     finalize exportsRev operatorBindings constructorOwners referenceFacts =
-      let localInventory = exportInventory (reverse exportsRev)
+      let localInventory =
+            withClassMethods
+              (Map.fromList [(identifierText name, Set.fromList [identifierText method | SurfaceClassMethodSignature method _ _ <- methods]) | SSClass _ name _ methods _ _ <- case surfaceExprForm surfaceExpr of SEBlock body -> body; _ -> []])
+              (exportInventory (reverse exportsRev))
           topLevelBindings =
             Set.unions
               [ operatorBindings,
@@ -644,8 +650,9 @@ discoverModuleFacts surfaceExpr =
             )
             (ModuleExport TypeNamespace (identifierText typeName) : exportsRev)
             constructors
-        SSClass _ className _ _ ->
-          ModuleExport CapabilityNamespace (identifierText className) : exportsRev
+        SSClass _ className _ methods _ _ ->
+          [ModuleExport ValueNamespace (identifierText method) | SurfaceClassMethodSignature method _ _ <- methods]
+            <> (ModuleExport CapabilityNamespace (identifierText className) : exportsRev)
         _ -> exportsRev
 
     collectConstructorOwners statement owners =
@@ -784,7 +791,7 @@ collectExprReferenceFacts boundNames surfaceExpr facts =
         (\current clause -> collectPatternLambdaClauseReferenceFacts boundNames clause current)
         facts
         (NonEmpty.toList clauses)
-    SEOperatorValue _ -> facts
+    SEOperatorValue symbol -> operatorFacts symbol
     SEList items -> collectExprReferenceFactList boundNames items facts
     SETuple items -> collectExprReferenceFactList boundNames items facts
     SEApply function argument ->
@@ -803,14 +810,18 @@ collectExprReferenceFacts boundNames surfaceExpr facts =
         (\current arm -> collectCaseArmReferenceFacts boundNames arm current)
         (collectExprReferenceFacts boundNames scrutinee facts)
         arms
-    SEBinary _ left right ->
+    SEBinary symbol left right ->
       collectExprReferenceFacts
         boundNames
         right
-        (collectExprReferenceFacts boundNames left facts)
-    SESectionLeft left _ -> collectExprReferenceFacts boundNames left facts
-    SESectionRight _ right -> collectExprReferenceFacts boundNames right facts
+        (collectExprReferenceFacts boundNames left (operatorFacts symbol))
+    SESectionLeft left symbol -> collectExprReferenceFacts boundNames left (operatorFacts symbol)
+    SESectionRight symbol right -> collectExprReferenceFacts boundNames right (operatorFacts symbol)
     SEBlock statements -> collectBlockReferenceFacts boundNames statements facts
+  where
+    operatorFacts symbol = case builtinOperatorFunction symbol of
+      Just name | Set.notMember name boundNames -> facts {referenceFactUnqualified = Set.insert name (referenceFactUnqualified facts)}
+      _ -> facts
 
 collectExprReferenceFactList :: Set Text -> [SurfaceExpr] -> ReferenceInventory -> ReferenceInventory
 collectExprReferenceFactList boundNames expressions initialFacts =
@@ -846,15 +857,19 @@ collectStatementReferenceFacts boundNames statement facts =
         | SurfaceDataConstructor _ fieldTypes <- constructors,
           fieldType <- fieldTypes
         ]
-    SSClass _ _ _ methods ->
-      foldl'
-        (\current (SurfaceClassMethodSignature _ _ payload) -> collectSignaturePayloadReferenceFacts payload current)
-        facts
-        methods
-    SSImpl _ className arguments methods ->
+    SSClass _ _ _ methods context defaults ->
       foldl'
         (\current (SurfaceImplMethod _ _ body) -> collectExprReferenceFacts boundNames body current)
-        (foldl' (flip collectSignatureTypeReferenceFacts) (collectClassNameReference className facts) arguments)
+        ( foldl'
+            (\current (SurfaceClassMethodSignature _ _ payload) -> collectSignaturePayloadReferenceFacts payload current)
+            (foldl' (flip collectSignatureConstraintReferenceFacts) facts context)
+            methods
+        )
+        defaults
+    SSImpl _ className arguments methods context ->
+      foldl'
+        (\current (SurfaceImplMethod _ _ body) -> collectExprReferenceFacts boundNames body current)
+        (foldl' (flip collectSignatureConstraintReferenceFacts) (foldl' (flip collectSignatureTypeReferenceFacts) (collectClassNameReference className facts) arguments) context)
         methods
     SSModule {} -> facts
     SSImport {} -> facts
@@ -943,14 +958,12 @@ collectSignaturePayloadReferenceFacts payload facts =
     ConstrainedSignature constraints signatureType ->
       collectSignatureTypeReferenceFacts
         signatureType
-        (foldl' collectConstraint facts constraints)
-      where
-        collectConstraint current (SignatureConstraint name arguments) =
-          foldl'
-            (flip collectSignatureTypeReferenceFacts)
-            (collectClassNameReference name current)
-            arguments
+        (foldl' (flip collectSignatureConstraintReferenceFacts) facts constraints)
     UnsupportedSignature _ -> facts
+
+collectSignatureConstraintReferenceFacts :: SurfaceSignatureConstraint -> ReferenceInventory -> ReferenceInventory
+collectSignatureConstraintReferenceFacts (SignatureConstraint name arguments) facts =
+  foldl' (flip collectSignatureTypeReferenceFacts) (collectClassNameReference name facts) arguments
 
 collectClassNameReference :: SurfaceName -> ReferenceInventory -> ReferenceInventory
 collectClassNameReference name facts =

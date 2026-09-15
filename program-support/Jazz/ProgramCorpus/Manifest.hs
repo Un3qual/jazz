@@ -87,7 +87,6 @@ parseBudgets = withObject "program budgets" $ \object -> do
         [ optionalBudget ForcedValuesBudget <$> object .:? "forcedValues",
           optionalBudget ClosureApplicationsBudget <$> object .:? "closureApplications",
           optionalBudget BuiltinApplicationsBudget <$> object .:? "builtinApplications",
-          optionalBudget OperatorApplicationsBudget <$> object .:? "operatorApplications",
           optionalBudget ConstructorApplicationsBudget <$> object .:? "constructorApplications",
           optionalBudget MethodApplicationsBudget <$> object .:? "methodApplications",
           optionalBudget ClosuresCreatedBudget <$> object .:? "closuresCreated",

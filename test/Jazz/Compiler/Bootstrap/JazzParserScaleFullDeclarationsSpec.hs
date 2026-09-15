@@ -2,6 +2,7 @@
 
 module Main (main) where
 
+import Control.Monad (void)
 import Jazz.Compiler.Bootstrap.JazzParserScale
   ( runJazzParserDeclarationsScale,
   )
@@ -29,5 +30,4 @@ main =
 testFullDeclarationsScale :: IO ()
 testFullDeclarationsScale = do
   result <- runJazzParserDeclarationsScale RuntimeObservationStatistics (scaleWorkloadDeclarationGroupCount fullScaleWorkload)
-  statistics <- assertScaleRun "full declarations" (scaleWorkloadExpectedStatementCount fullScaleWorkload) fullDeclarationsLimits result
-  putStrLn ("SCALE_STATS full-declarations " <> show statistics)
+  void $ assertScaleRun "full declarations" (scaleWorkloadExpectedStatementCount fullScaleWorkload) fullDeclarationsLimits result

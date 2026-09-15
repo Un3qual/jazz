@@ -23,39 +23,39 @@ The constructor is available to
 
 ## Construction and conversion
 
-### `nonEmptySingleton`
+### `singleton`
 
 ```jazz jazz-signature
-nonEmptySingleton :: a -> NonEmpty(a).
+singleton :: a -> NonEmpty(a).
 ```
 
-### `nonEmptyFromList`
+### `fromList`
 
 ```jazz jazz-signature
-nonEmptyFromList :: [a] -> Maybe(NonEmpty(a)).
+fromList :: [a] -> Maybe::Maybe(NonEmpty(a)).
 ```
 
 Returns `Nothing` for `[]`; otherwise stores the list head and tail without
 traversing them. This is `O(1)`.
 
-### `nonEmptyToList`
+### `toList`
 
 ```jazz jazz-signature
-nonEmptyToList :: NonEmpty(a) -> [a].
+toList :: NonEmpty(a) -> [a].
 ```
 
-### `nonEmptyPrepend`
+### `prepend`
 
 ```jazz jazz-signature
-nonEmptyPrepend :: a -> NonEmpty(a) -> NonEmpty(a).
+prepend :: a -> NonEmpty(a) -> NonEmpty(a).
 ```
 
 Adds a new first value in `O(1)`.
 
-### `nonEmptyAppendList`
+### `appendList`
 
 ```jazz jazz-signature
-nonEmptyAppendList :: NonEmpty(a) -> [a] -> NonEmpty(a).
+appendList :: NonEmpty(a) -> [a] -> NonEmpty(a).
 ```
 
 Appends an ordinary list after the non-empty sequence. This is `O(n)` in the
@@ -63,63 +63,67 @@ original sequence tail.
 
 ## Access
 
-### `nonEmptyHead`
+### `head`
 
 ```jazz jazz-signature
-nonEmptyHead :: NonEmpty(a) -> a.
+head :: NonEmpty(a) -> a.
 ```
 
 Total and `O(1)`.
 
-### `nonEmptyTail`
+### `tail`
 
 ```jazz jazz-signature
-nonEmptyTail :: NonEmpty(a) -> [a].
+tail :: NonEmpty(a) -> [a].
 ```
 
 The result may be empty. This is `O(1)`.
 
-### `nonEmptyLast`
+### `last`
 
 ```jazz jazz-signature
-nonEmptyLast :: NonEmpty(a) -> a.
+last :: NonEmpty(a) -> a.
 ```
 
 Returns the final value. The function is total and `O(n)`.
 
-### `nonEmptyLength`
+### `length`
 
 ```jazz jazz-signature
-nonEmptyLength :: NonEmpty(a) -> Int.
+length :: NonEmpty(a) -> Int.
 ```
 
 Returns the number of values, which is always at least one. This is `O(n)`.
 
 ## Transforming and folding
 
-### `nonEmptyMap`
+### `map`
 
 ```jazz jazz-signature
-nonEmptyMap :: (a -> b) -> NonEmpty(a) -> NonEmpty(b).
+map :: (a -> b) -> NonEmpty(a) -> NonEmpty(b).
 ```
 
 Transforms every value in order and preserves non-emptiness. This is `O(n)`
 plus callback work.
 
-### `nonEmptyFoldLeft`
+### `foldLeft`
 
 ```jazz jazz-signature
-nonEmptyFoldLeft :: (b -> a -> b) -> b -> NonEmpty(a) -> b.
+foldLeft :: (b -> a -> b) -> b -> NonEmpty(a) -> b.
 ```
 
 Combines values from head to last, beginning with the supplied accumulator.
 This is `O(n)` plus callback work.
 
-### `nonEmptyFoldRight`
+### `foldRight`
 
 ```jazz jazz-signature
-nonEmptyFoldRight :: (a -> b -> b) -> b -> NonEmpty(a) -> b.
+foldRight :: (a -> b -> b) -> b -> NonEmpty(a) -> b.
 ```
 
 Combines values from last to head, beginning with the supplied terminal value.
 This is `O(n)` plus callback work.
+
+## Generic methods
+
+Importing NonEmpty supplies element-based Equatable, Mappable, Reducible, and Combinable instances. Mapping and concatenation preserve the nonempty invariant.

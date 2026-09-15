@@ -2,6 +2,7 @@
 
 module Main (main) where
 
+import Control.Monad (void)
 import Jazz.Compiler.Bootstrap.JazzParserScale
   ( runJazzParserOperatorScale,
   )
@@ -29,5 +30,4 @@ main =
 testFullOperatorScale :: IO ()
 testFullOperatorScale = do
   result <- runJazzParserOperatorScale RuntimeObservationStatistics (scaleWorkloadBindingCount fullScaleWorkload)
-  statistics <- assertScaleRun "full operator" (scaleWorkloadExpectedStatementCount fullScaleWorkload) fullOperatorLimits result
-  putStrLn ("SCALE_STATS full-operator " <> show statistics)
+  void $ assertScaleRun "full operator" (scaleWorkloadExpectedStatementCount fullScaleWorkload) fullOperatorLimits result

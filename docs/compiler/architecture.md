@@ -37,9 +37,9 @@ interfaces and its private local inventory. Explicit export lists determine the
 typed interface published to consumers.
 
 Resolution publishes lexical groups, captures, and validated import visibility
-once. Operator values become callable references; declared binary operators and
-sections become applications and capturing lambdas. Primitive operations retain
-their distinct evaluation and promotion rules. Public interfaces carry the
+once. All executable operators become ordinary function references, applications,
+and capturing lambdas. Primitive implementations are kernel functions selected
+through ordinary library methods. Public interfaces carry the
 exported names, closed schemes, and capability identities needed by consumers.
 
 ## Analyze
@@ -47,7 +47,9 @@ exported names, closed schemes, and capability identities needed by consumers.
 Semantic analysis checks scopes, binding relationships, patterns, signatures,
 types, capability requirements, and the current purity rules. Type inference
 adds types where no signature is written and validates explicit signatures
-where they are present.
+where they are present. Each module receives its complete imported instance
+environment from the program coordinator. Function schemes carry quantified types
+and constraints; concrete evidence remains attached to checked expressions.
 
 Checking returns each subtree with its type, binding schemes, patterns, explicit
 instantiation arguments, and selected method evidence. Finalization applies solved

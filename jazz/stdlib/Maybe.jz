@@ -1,68 +1,87 @@
 module Maybe (
   type Maybe(..),
-  value maybeMap,
-  value maybeAndThen,
-  value maybeWithDefault,
-  value maybeOrElse,
-  value maybeFilter,
-  value maybeIsJust,
-  value maybeIsNothing,
-  value maybeToList,
-  value maybeFromList
+  value map,
+  value andThen,
+  value withDefault,
+  value orElse,
+  value filter,
+  value isJust,
+  value isNothing,
+  value toList,
+  value fromList
 ) {
   data Maybe a = Nothing | Just a.
 
-  maybeMap :: (a -> b) -> Maybe(a) -> Maybe(b).
-  maybeMap = \(transform, maybeValue) -> case maybeValue {
+  map :: (a -> b) -> Maybe(a) -> Maybe(b).
+  map = \(transform, maybeValue) -> case maybeValue {
     | Nothing -> Nothing
     | Just item -> Just (transform item)
   }.
 
-  maybeAndThen :: (a -> Maybe(b)) -> Maybe(a) -> Maybe(b).
-  maybeAndThen = \(transform, maybeValue) -> case maybeValue {
+  andThen :: (a -> Maybe(b)) -> Maybe(a) -> Maybe(b).
+  andThen = \(transform, maybeValue) -> case maybeValue {
     | Nothing -> Nothing
     | Just item -> transform item
   }.
 
-  maybeWithDefault :: a -> Maybe(a) -> a.
-  maybeWithDefault = \(defaultValue, maybeValue) -> case maybeValue {
+  withDefault :: a -> Maybe(a) -> a.
+  withDefault = \(defaultValue, maybeValue) -> case maybeValue {
     | Nothing -> defaultValue
     | Just item -> item
   }.
 
-  maybeOrElse :: Maybe(a) -> Maybe(a) -> Maybe(a).
-  maybeOrElse = \(fallback, maybeValue) -> case maybeValue {
+  orElse :: Maybe(a) -> Maybe(a) -> Maybe(a).
+  orElse = \(fallback, maybeValue) -> case maybeValue {
     | Nothing -> fallback
     | Just item -> Just item
   }.
 
-  maybeFilter :: (a -> Bool) -> Maybe(a) -> Maybe(a).
-  maybeFilter = \(predicate, maybeValue) -> case maybeValue {
+  filter :: (a -> Bool) -> Maybe(a) -> Maybe(a).
+  filter = \(predicate, maybeValue) -> case maybeValue {
     | Nothing -> Nothing
     | Just item -> if predicate item then Just item else Nothing
   }.
 
-  maybeIsJust :: Maybe(a) -> Bool.
-  maybeIsJust = \(maybeValue) -> case maybeValue {
+  isJust :: Maybe(a) -> Bool.
+  isJust = \(maybeValue) -> case maybeValue {
     | Nothing -> False
     | Just item -> True
   }.
 
-  maybeIsNothing :: Maybe(a) -> Bool.
-  maybeIsNothing = \(maybeValue) -> case maybeValue {
+  isNothing :: Maybe(a) -> Bool.
+  isNothing = \(maybeValue) -> case maybeValue {
     | Nothing -> True
     | Just item -> False
   }.
 
-  maybeToList :: Maybe(a) -> [a].
-  maybeToList = \(maybeValue) -> case maybeValue {
+  toList :: Maybe(a) -> [a].
+  toList = \(maybeValue) -> case maybeValue {
     | Nothing -> []
     | Just item -> [item]
   }.
 
-  maybeFromList :: [a] -> Maybe(a).
-  maybeFromList = \(values) -> case values {
+  fromList :: [a] -> Maybe(a).
+  fromList = \(values) -> case values {
     | [] -> Nothing
     | [first | rest] -> Just first
+  }.
+
+  impl @{Equatable(a)}: Equatable(Maybe(a)) {
+    equals = \(left, right) -> case (left, right) {
+      | (Nothing, Nothing) -> True
+      | (Just x, Just y) -> equals x y
+      | _ -> False
+    }.
+  }.
+  impl Mappable(Maybe) { map = map. }.
+  impl Reducible(Maybe) {
+    foldLeft = \(step, initial, item) -> case item {
+      | Nothing -> initial
+      | Just x -> step initial x
+    }.
+    foldRight = \(step, initial, item) -> case item {
+      | Nothing -> initial
+      | Just x -> step x initial
+    }.
   }.
 }

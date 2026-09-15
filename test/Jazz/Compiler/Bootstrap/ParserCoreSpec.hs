@@ -180,10 +180,10 @@ testLargeTraversal =
     "large traversal"
     """
     { one = parserTakeIf (\\(token) -> token == 1) "one".
-      reply = parserRun (parserMany one) (listRepeat 20000 1).
+      reply = parserRun (parserMany one) (List::repeat 20000 1).
       case reply {
         | ParserSucceeded values cursor consumption ->
-          (listLength values, listLength (parserCursorRemaining cursor), parserCursorOffset cursor)
+          (List::length values, List::length (parserCursorRemaining cursor), parserCursorOffset cursor)
         | ParserFailed failure -> (0, 0, 0)
       }.
     }
@@ -196,7 +196,7 @@ testLongFarthestFailure =
     60000000
     "long farthest failure"
     """
-    { input = listAppend (listRepeat 10000 1) (listPrepend 2 (listRepeat 9999 1)).
+    { input = List::append (List::repeat 10000 1) (List::prepend 2 (List::repeat 9999 1)).
       one = parserTakeIf (\\(token) -> token == 1) "one".
       positive = parserTakeIf (\\(token) -> token > 0) "positive".
       short = parserAttempt (parserKeepRight (parserMany one) (parserFail "short")).
@@ -286,7 +286,7 @@ lookupSource expression sourcePath =
         ( Just
             ( "module App::Main {\n"
                 <> "  import ParserCore.\n"
-                <> "  import List.\n"
+                <> "  import List as List.\n"
                 <> "  "
                 <> expression
                 <> ".\n"

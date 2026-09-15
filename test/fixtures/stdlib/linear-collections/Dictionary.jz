@@ -1,30 +1,31 @@
 module Stdlib::LinearCollections::Dictionary {
-  import Dictionary.
-  import Maybe.
-  import Text.
-  start = dictionaryFromList [("first", 1), ("second", 2), ("first", 3)].
-  replaced = dictionaryInsert start "second" 20.
-  removed = dictionaryRemove replaced "first".
-  reinserted = dictionaryInsert removed "first" 30.
-  updated = dictionaryUpdate reinserted "second" (\(current) -> case current {
+  import Dictionary as Dictionary.
+  import Maybe as Maybe.
+  import Maybe (Nothing, Just).
+  import Text as Text.
+  start = Dictionary::fromList [("first", 1), ("second", 2), ("first", 3)].
+  replaced = Dictionary::insert start "second" 20.
+  removed = Dictionary::remove replaced "first".
+  reinserted = Dictionary::insert removed "first" 30.
+  updated = Dictionary::update reinserted "second" (\(current) -> case current {
     | Nothing -> Nothing
     | Just item -> Just (item + 1)
   }).
-  insertedByUpdate = dictionaryUpdate updated "third" (\(current) -> Just 40).
-  unchanged = dictionaryUpdate insertedByUpdate "missing" (\(current) -> Nothing).
-  removedByUpdate = dictionaryUpdate unchanged "first" (\(current) -> Nothing).
-  replacedPresent = dictionaryReplace start "second" 22.
-  replacedMissing = dictionaryReplace start "missing" 0.
-  (dictionaryToList dictionaryEmpty, dictionarySize dictionaryEmpty, dictionaryIsEmpty dictionaryEmpty,
-   dictionaryToList (dictionarySingleton "only" 7), dictionaryToList start,
-   dictionaryLookup start "first", dictionaryLookup start "missing",
-   dictionaryGetOr start "missing" 9, dictionaryContainsKey start "second",
-   dictionaryToList replaced,
-   maybeMap dictionaryToList replacedPresent, replacedMissing,
-   dictionaryToList removed, dictionaryToList reinserted, dictionaryToList removedByUpdate,
-   dictionaryKeys start, dictionaryValues start,
-   dictionaryToList (dictionaryMapValues start (\(item) -> item * 10)),
-   dictionaryToList (dictionaryFilter start (\(key, item) -> item > 2)),
-   dictionaryFoldLeft start "" (\(result, key, item) -> textAppend result key),
-   dictionaryFoldRight start "" (\(key, item, result) -> textAppend key result)).
+  insertedByUpdate = Dictionary::update updated "third" (\(current) -> Just 40).
+  unchanged = Dictionary::update insertedByUpdate "missing" (\(current) -> Nothing).
+  removedByUpdate = Dictionary::update unchanged "first" (\(current) -> Nothing).
+  replacedPresent = Dictionary::replace start "second" 22.
+  replacedMissing = Dictionary::replace start "missing" 0.
+  (Dictionary::toList Dictionary::empty, Dictionary::size Dictionary::empty, Dictionary::isEmpty Dictionary::empty,
+   Dictionary::toList (Dictionary::singleton "only" 7), Dictionary::toList start,
+   Dictionary::lookup start "first", Dictionary::lookup start "missing",
+   Dictionary::getOr start "missing" 9, Dictionary::containsKey start "second",
+   Dictionary::toList replaced,
+   Maybe::map Dictionary::toList replacedPresent, replacedMissing,
+   Dictionary::toList removed, Dictionary::toList reinserted, Dictionary::toList removedByUpdate,
+   Dictionary::keys start, Dictionary::values start,
+   Dictionary::toList (Dictionary::mapValues start (\(item) -> item * 10)),
+   Dictionary::toList (Dictionary::filter start (\(key, item) -> item > 2)),
+   Dictionary::foldLeft start "" (\(result, key, item) -> Text::append result key),
+   Dictionary::foldRight start "" (\(key, item, result) -> Text::append key result)).
 }

@@ -334,7 +334,7 @@ output they traverse, except that repeated transformations necessarily make
 repeated passes.
 
 Use semantic statistics to explain a timing change before attributing it to
-host noise. For example, more `operatorApplications` in `sorted-index` can
+host noise. For example, more `methodApplications` in `sorted-index` can
 indicate extra comparisons, while more `listCellsConstructed` in
 `text-processing` can indicate an avoidable intermediate representation.
 `bindingsCaptured` includes imported runtime environments, so adding public
@@ -344,6 +344,9 @@ guards; recorded machine timings remain evidence and are not universal
 pass/fail thresholds.
 
 ## Jazz runtime statistics
+
+Runtime observation JSON uses schema version 2. Operators now contribute ordinary
+function and method calls; there is no separate operator-application counter.
 
 Runtime observation is opt-in and implemented inside the Jazz evaluator. The
 ordinary disabled path does not collect counters or profile events. Statistics
@@ -376,6 +379,16 @@ live heap.
 Successful and runtime-failed evaluations produce reports; a runtime failure is
 marked failed and contains work collected before failure. Compilation failure
 does not start evaluation and therefore has no runtime report.
+
+The operator-to-function migration rebased exceeded corpus and parser work
+ceilings from measured runs, with 10% headroom rounded up to two significant
+digits; unchanged ceilings remain in place. Ordinary dispatch includes
+dictionaries, closures, and kernel calls that the old operator path bypassed.
+For example, merge-sort now
+records 449,432 evaluator transitions and 60,016 applications; prime-sieve records
+197,348,007 transitions and 27,082,319 applications. These counts describe the
+interpreter's work, not elapsed-time ratios. Corpus outputs and the independent
+list-allocation, tree-shape, and stack-safety contracts remain checked.
 
 ## Deterministic Jazz semantic flame graphs
 

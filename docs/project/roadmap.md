@@ -10,7 +10,6 @@ documentation.
 
 ## Language completion
 
-- extend capability dispatch beyond the current concrete profile;
 - design effect typing beyond the name-based purity contract;
 - close remaining numeric, pattern, and cross-module semantic edges; and
 - keep diagnostics, reference pages, and standard-library contracts aligned.

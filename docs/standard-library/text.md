@@ -9,34 +9,34 @@ implicitly normalize text or apply locale-sensitive rules.
 
 ## Constants and shape
 
-### `textEmpty`
+### `empty`
 
 ```jazz jazz-signature
-textEmpty :: Text.
+empty :: Text.
 ```
 
 The empty text value, equivalent to `""`.
 
-### `textLength`
+### `length`
 
 ```jazz jazz-signature
-textLength :: Text -> Int.
+length :: Text -> Int.
 ```
 
 Returns the number of Unicode scalars in `O(n)`.
 
-### `textIsEmpty`
+### `isEmpty`
 
 ```jazz jazz-signature
-textIsEmpty :: Text -> Bool.
+isEmpty :: Text -> Bool.
 ```
 
 Returns `True` only for empty text. This is constant-time at the API boundary.
 
-### `textUncons`
+### `uncons`
 
 ```jazz jazz-signature
-textUncons :: Text -> Maybe((Char, Text)).
+uncons :: Text -> Maybe::Maybe((Char, Text)).
 ```
 
 Returns the first scalar and remaining text as `Just`, or `Nothing` for empty
@@ -44,37 +44,37 @@ text. This is constant-time at the API boundary.
 
 ## Access and slicing
 
-### `textAt`
+### `at`
 
 ```jazz jazz-signature
-textAt :: Int -> Text -> Maybe(Char).
+at :: Int -> Text -> Maybe::Maybe(Char).
 ```
 
 Returns the scalar at a zero-based index. Negative and out-of-range indices
 return `Nothing`. The cost is linear in the traversed prefix.
 
-### `textTake`
+### `take`
 
 ```jazz jazz-signature
-textTake :: Int -> Text -> Text.
+take :: Int -> Text -> Text.
 ```
 
 Returns at most the first `count` scalars. Negative counts clamp to zero. The
 cost is linear in the returned prefix.
 
-### `textDrop`
+### `drop`
 
 ```jazz jazz-signature
-textDrop :: Int -> Text -> Text.
+drop :: Int -> Text -> Text.
 ```
 
 Skips at most the first `count` scalars. Negative counts clamp to zero. The
 cost is linear in the skipped prefix.
 
-### `textSlice`
+### `slice`
 
 ```jazz jazz-signature
-textSlice :: Int -> Int -> Text -> Text.
+slice :: Int -> Int -> Text -> Text.
 ```
 
 Drops `start` scalars and then takes `count` scalars. Negative starts and counts
@@ -82,54 +82,54 @@ clamp to zero. The cost is linear in the traversed prefix and output.
 
 ## Construction
 
-### `textAppend`
+### `append`
 
 ```jazz jazz-signature
-textAppend :: Text -> Text -> Text.
+append :: Text -> Text -> Text.
 ```
 
 Returns the first text followed by the second. The cost is linear in the
 resulting text size.
 
-### `textAppendChar`
+### `appendChar`
 
 ```jazz jazz-signature
-textAppendChar :: Text -> Char -> Text.
+appendChar :: Text -> Char -> Text.
 ```
 
 Appends one scalar to the end of the text.
 
-### `textFromChars`
+### `fromChars`
 
 ```jazz jazz-signature
-textFromChars :: [Char] -> Text.
+fromChars :: [Char] -> Text.
 ```
 
 Constructs text from scalars in list order in `O(n)`.
 
-### `textRepeat`
+### `repeat`
 
 ```jazz jazz-signature
-textRepeat :: Int -> Text -> Text.
+repeat :: Int -> Text -> Text.
 ```
 
-Repeats text `count` times. Non-positive counts return `textEmpty` in `O(1)`
+Repeats text `count` times. Non-positive counts return `empty` in `O(1)`
 time and temporary space. For positive counts, time and temporary space are
 linear in the repetition count plus the output size.
 
-### `textConcat`
+### `concat`
 
 ```jazz jazz-signature
-textConcat :: [Text] -> Text.
+concat :: [Text] -> Text.
 ```
 
 Concatenates fragments in list order without a repeated pairwise-append chain.
 The cost is linear in fragment count and total output.
 
-### `textJoin`
+### `join`
 
 ```jazz jazz-signature
-textJoin :: Text -> [Text] -> Text.
+join :: Text -> [Text] -> Text.
 ```
 
 Places the delimiter between adjacent fragments and concatenates them. No
@@ -137,56 +137,56 @@ delimiter appears before the first or after the last fragment.
 
 ## Conversion and traversal
 
-### `textToChars`
+### `toChars`
 
 ```jazz jazz-signature
-textToChars :: Text -> [Char].
+toChars :: Text -> [Char].
 ```
 
 Returns the Unicode scalars in source order in `O(n)`.
 
-### `textReverse`
+### `reverse`
 
 ```jazz jazz-signature
-textReverse :: Text -> Text.
+reverse :: Text -> Text.
 ```
 
 Reverses by Unicode scalar, not by grapheme cluster, in `O(n)`.
 
 ## Search
 
-### `textStartsWith`
+### `startsWith`
 
 ```jazz jazz-signature
-textStartsWith :: Text -> Text -> Bool.
+startsWith :: Text -> Text -> Bool.
 ```
 
 Tests whether the second argument begins with the prefix supplied first. An
 empty prefix always matches. The cost is `O(m)` in the prefix length.
 
-### `textEndsWith`
+### `endsWith`
 
 ```jazz jazz-signature
-textEndsWith :: Text -> Text -> Bool.
+endsWith :: Text -> Text -> Bool.
 ```
 
 Tests whether the second argument ends with the suffix supplied first. An empty
 suffix always matches. The implementation traverses the text to find the
 suffix boundary.
 
-### `textContains`
+### `contains`
 
 ```jazz jazz-signature
-textContains :: Text -> Text -> Bool.
+contains :: Text -> Text -> Bool.
 ```
 
 Tests whether the second argument contains the needle supplied first. An empty
 needle matches. Naive search is `O(n × m)` worst case.
 
-### `textFind`
+### `find`
 
 ```jazz jazz-signature
-textFind :: Text -> Text -> Maybe(Int).
+find :: Text -> Text -> Maybe::Maybe(Int).
 ```
 
 Returns the scalar index of the first left-to-right match, or `Nothing`. An
@@ -194,30 +194,30 @@ empty needle returns `Just 0`. Naive search is `O(n × m)` worst case.
 
 ## Splitting
 
-### `textSplit`
+### `split`
 
 ```jazz jazz-signature
-textSplit :: Text -> Text -> [Text].
+split :: Text -> Text -> [Text].
 ```
 
 Splits the second argument at non-overlapping occurrences of the delimiter
 supplied first. An empty delimiter produces one text value per scalar.
 
-Example: `textSplit "" "ab"` produces `["a", "b"]`.
+Example: `split "" "ab"` produces `["a", "b"]`.
 
-### `textLines`
+### `lines`
 
 ```jazz jazz-signature
-textLines :: Text -> [Text].
+lines :: Text -> [Text].
 ```
 
 Splits lines at LF, CRLF, or CR. Line terminators are excluded. Empty input
 returns `[]`, and a trailing terminator does not add a final empty line.
 
-### `textWords`
+### `words`
 
 ```jazz jazz-signature
-textWords :: Text -> [Text].
+words :: Text -> [Text].
 ```
 
 Splits at runs of Unicode whitespace and omits empty words. Traversal is
@@ -225,37 +225,37 @@ Splits at runs of Unicode whitespace and omits empty words. Traversal is
 
 ## Replacement and cleanup
 
-### `textReplaceAll`
+### `replaceAll`
 
 ```jazz jazz-signature
-textReplaceAll :: Text -> Text -> Text -> Text.
+replaceAll :: Text -> Text -> Text -> Text.
 ```
 
 Replaces non-overlapping matches of the first argument with the second in the
 third argument, scanning left to right. An empty needle returns the input
 unchanged. Naive replacement is `O(n × m)` plus output work.
 
-### `textTrim`
+### `trim`
 
 ```jazz jazz-signature
-textTrim :: Text -> Text.
+trim :: Text -> Text.
 ```
 
 Removes Unicode whitespace from both ends in `O(n)`.
 
-### `textTrimStart`
+### `trimStart`
 
 ```jazz jazz-signature
-textTrimStart :: Text -> Text.
+trimStart :: Text -> Text.
 ```
 
 Removes Unicode whitespace from the beginning and leaves trailing whitespace
 unchanged.
 
-### `textTrimEnd`
+### `trimEnd`
 
 ```jazz jazz-signature
-textTrimEnd :: Text -> Text.
+trimEnd :: Text -> Text.
 ```
 
 Removes Unicode whitespace from the end and leaves leading whitespace
@@ -263,19 +263,19 @@ unchanged.
 
 ## Padding
 
-### `textPadLeft`
+### `padLeft`
 
 ```jazz jazz-signature
-textPadLeft :: Int -> Char -> Text -> Text.
+padLeft :: Int -> Char -> Text -> Text.
 ```
 
 Prepends the padding scalar until the text reaches the requested scalar width.
 If the text is already wide enough, it is returned unchanged.
 
-### `textPadRight`
+### `padRight`
 
 ```jazz jazz-signature
-textPadRight :: Int -> Char -> Text -> Text.
+padRight :: Int -> Char -> Text -> Text.
 ```
 
 Appends the padding scalar until the text reaches the requested scalar width.
@@ -284,3 +284,14 @@ If the text is already wide enough, it is returned unchanged.
 Literal spelling and escapes are defined by the
 [lexical grammar](../reference/lexical-grammar.md). Use [Char](char.md) for
 single-scalar classification and case mapping.
+
+## `map`
+
+```jazz jazz-signature
+map :: (Char -> Char) -> Text -> Text.
+```
+
+Transforms Unicode scalars and returns Text. The callback is the first argument
+and must return Char. The implementation converts to scalars, maps once, and
+rebuilds Text in linear time. For another element type, use the Prelude's generic
+`map change (Text::toChars text)` to produce a List.

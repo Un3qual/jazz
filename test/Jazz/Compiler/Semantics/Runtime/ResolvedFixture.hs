@@ -26,7 +26,6 @@ import Jazz.Compiler.CoreIdentity
 import Jazz.Compiler.Diagnostics (Diagnostic)
 import Jazz.Compiler.ModuleIdentity (SourceUnitOwner (..), standaloneModulePath)
 import Jazz.Compiler.Name
-import Jazz.Compiler.Parser.Operator (isBuiltinOperatorSymbol)
 import Jazz.Compiler.RecursiveBindings (publishResolvedCaptures, resolveLexicalScopes)
 import Jazz.Compiler.Runtime (RuntimeValue)
 import qualified Jazz.Compiler.Runtime as Runtime
@@ -65,7 +64,6 @@ resolveRuntimeFixtureWith owner external fixture =
       Just target -> target
       Nothing -> case name of
         BuiltinName identifier -> BuiltinReference identifier
-        GeneratedName (OperatorBinding symbol) | isBuiltinOperatorSymbol symbol -> BuiltinOperatorReference symbol
         UserName (ResolvedUserName origin _ identifier)
           | Just _ <- lookupKernelBuiltinSymbol (identifierText identifier) -> BuiltinReference identifier
           | [capability, method] <- Text.splitOn "::" (identifierText identifier) ->
@@ -74,10 +72,7 @@ resolveRuntimeFixtureWith owner external fixture =
     allocateExpression _ binder target (CoreNode _ spanValue facts) = state $ \(next, es, ps, ss) ->
       let index = CoreNodeId next
           resolution = nodeFacts index binder target
-          operatorResolution = case resolvedNodeReference (expressionResolution facts) of
-            Just operatorReference@BuiltinOperatorReference {} -> resolution {resolvedNodeReference = Just operatorReference}
-            _ -> resolution
-       in (CoreNode index spanValue operatorResolution, (next + 1, Map.insert index facts es, ps, ss))
+       in (CoreNode index spanValue resolution, (next + 1, Map.insert index facts es, ps, ss))
     allocatePattern binder target (CoreNode _ spanValue facts) = state $ \(next, es, ps, ss) ->
       let index = CoreNodeId next
        in (CoreNode index spanValue (nodeFacts index binder target), (next + 1, es, Map.insert index facts ps, ss))
@@ -158,8 +153,8 @@ traverseFixture expressionNodeVisit patternNodeVisit statementNodeVisit = expres
       SLet n name body -> SLet <$> bindingStatement n <*> pure name <*> expression body
       SSignature n name signature -> SSignature <$> bindingStatement n <*> pure name <*> pure signature
       SData n name parameters constructors -> SData <$> plainStatement n <*> pure name <*> pure parameters <*> traverse constructor constructors
-      SClass n name parameters methods -> SClass <$> plainStatement n <*> pure name <*> pure parameters <*> traverse (classMethod name) methods
-      SImpl n name targets methods -> SImpl <$> plainStatement n <*> pure name <*> pure targets <*> traverse (implMethod name) methods
+      SClass n name parameters methods prerequisites defaults -> SClass <$> plainStatement n <*> pure name <*> pure parameters <*> traverse (classMethod name) methods <*> pure prerequisites <*> traverse (implMethod name) defaults
+      SImpl n name targets methods prerequisites -> SImpl <$> plainStatement n <*> pure name <*> pure targets <*> traverse (implMethod name) methods <*> pure prerequisites
       SExpr n body -> SExpr <$> plainStatement n <*> expression body
       SModule n path -> SModule <$> plainStatement n <*> pure path
       SImport n path alias symbols -> SImport <$> plainStatement n <*> pure path <*> pure alias <*> pure symbols

@@ -52,7 +52,6 @@ import Jazz.Compiler.Runtime
   ( RuntimeValue (..),
     renderRuntimeValue,
     runtimeExplicitResultHintsInOrder,
-    runtimeValueExactlyMatchesConstraint,
   )
 import Jazz.Compiler.Runtime.ScopePlan
   ( RuntimeScopePlan,
@@ -62,6 +61,7 @@ import Jazz.Compiler.Runtime.ScopePlan
     scopePlanModulePathForStatement,
   )
 import Jazz.Compiler.Runtime.Semantics (runtimeDefinitionName)
+import Jazz.Compiler.Runtime.Types (RuntimeIntMetadata (..))
 import Jazz.Compiler.RuntimeHost
   ( RuntimeHost (..),
     RuntimeHostExit (..),
@@ -184,11 +184,11 @@ testExplicitlyHintedTailRecursionPreservesResultObligations :: IO ()
 testExplicitlyHintedTailRecursionPreservesResultObligations = do
   let recursionDepth :: Int
       recursionDepth = 1000
-      isZero = expressionBinary "==" (expressionVariable "remaining") (expressionLiteral (LInt 0))
+      isZero = expressionKernelBinary "==" (expressionVariable "remaining") (expressionLiteral (LInt 0))
       recurse =
         expressionApply
           (expressionTypeApplication (expressionVariable "collect") (SourceSpan 2 20) TypeInt)
-          (expressionBinary "-" (expressionVariable "remaining") (expressionLiteral (LInt 1)))
+          (expressionKernelBinary "-" (expressionVariable "remaining") (expressionLiteral (LInt 1)))
       expression =
         expressionBlock
           [ statementLet
@@ -263,20 +263,16 @@ testMixedExplicitResultHintsPreserveOrderAndMultiplicity = do
     _ -> failTest "expected pending result annotations on the callable"
   appliedValue <- requireRuntimeValue "mixed explicit result hint application" appliedExpression
   assertEqual "mixed explicit result hint application renders" "7" (renderRuntimeValue appliedValue)
-  assertEqual
-    "mixed explicit result hint application retains final UInt8 result"
-    True
-    (runtimeValueExactlyMatchesConstraint uint8 appliedValue)
-  assertEqual
-    "mixed explicit result hint application does not retain intermediate Int result"
-    False
-    (runtimeValueExactlyMatchesConstraint SemanticInt appliedValue)
+  case appliedValue of
+    VInt _ metadata ->
+      assertEqual "mixed explicit result hints retain final UInt8 representation" (Just NumericUInt8) (runtimeIntTargetType metadata)
+    _ -> failTest "mixed explicit result hints did not produce an integer"
 
 mixedExplicitlyHintedCallable :: Int -> Expr 'Analyzed
 mixedExplicitlyHintedCallable recursionDepth =
   let uint8 = TypeNumeric NumericUInt8
-      isZero = expressionBinary "==" (expressionVariable "remaining") (expressionLiteral (LInt 0))
-      decrement = expressionBinary "-" (expressionVariable "remaining") (expressionLiteral (LInt 1))
+      isZero = expressionKernelBinary "==" (expressionVariable "remaining") (expressionLiteral (LInt 0))
+      decrement = expressionKernelBinary "-" (expressionVariable "remaining") (expressionLiteral (LInt 1))
       hintedCall functionName line typeHint =
         expressionApply
           (expressionTypeApplication (expressionVariable functionName) (SourceSpan line 20) typeHint)
@@ -297,11 +293,11 @@ mixedExplicitlyHintedCallable recursionDepth =
 
 explicitlyHintedCallable :: Int -> Expr 'Analyzed
 explicitlyHintedCallable recursionDepth =
-  let isZero = expressionBinary "==" (expressionVariable "remaining") (expressionLiteral (LInt 0))
+  let isZero = expressionKernelBinary "==" (expressionVariable "remaining") (expressionLiteral (LInt 0))
       recurse =
         expressionApply
           (expressionTypeApplication (expressionVariable "collect") (SourceSpan 2 20) TypeInt)
-          (expressionBinary "-" (expressionVariable "remaining") (expressionLiteral (LInt 1)))
+          (expressionKernelBinary "-" (expressionVariable "remaining") (expressionLiteral (LInt 1)))
    in expressionBlock
         [ statementLet
             "collect"
@@ -539,7 +535,7 @@ testPatternCaseBinderPreservesAliasDefinitionRecursiveVisibility = do
   assertEqual "runtime output" (Just "0") (runOutput result)
   where
     executableWitnessSource =
-      "f = { target = \\(x) -> if x == 0 then 0 else f (x - 1). alias = target. case True { | target -> alias }. }. f 1."
+      "f = { target = \\(x) -> if __kernel_equals x 0 then 0 else f (__kernel_subtract x 1). alias = target. case True { | target -> alias }. }. f 1."
 
 testBuiltinNameDoesNotGainSelfRecursiveVisibility :: IO ()
 testBuiltinNameDoesNotGainSelfRecursiveVisibility = do
@@ -683,7 +679,7 @@ testNestedRecursiveForwardAliasRuntimeSuccess = do
   assertEqual "runtime output" (Just "0") (runOutput result)
   where
     source =
-      "f = { a = b. b = if False then a else \\(x) -> if x == 0 then 0 else f (x - 1). a. }. f 3."
+      "f = { a = b. b = if False then a else \\(x) -> if __kernel_equals x 0 then 0 else f (__kernel_subtract x 1). a. }. f 3."
 
 testRecursiveDeclaredUserOperatorRuntimeSuccess :: IO ()
 testRecursiveDeclaredUserOperatorRuntimeSuccess = do
@@ -804,10 +800,10 @@ testQualifiedMethodDispatchRejectsMutualMethodAliasCycle = do
                 other :: Bool.
                 }.
                 impl RuntimeFlag(Int) {
-                enabled = RuntimeFlag::other.
-                other = RuntimeFlag::enabled.
+                enabled = (RuntimeFlag::other @Int).
+                other = (RuntimeFlag::enabled @Int).
                 }.
-                RuntimeFlag::enabled.
+                (RuntimeFlag::enabled @Int).
                 """
               )
           ) ::
@@ -826,6 +822,6 @@ testQualifiedMethodDispatchRejectsMutualMethodAliasCycle = do
         (runRuntimeErrors result)
       assertSingleDiagnosticContains
         "mutual qualified method alias runtime text"
-        "recursive qualified method alias cycle"
+        "recursive dictionary binding"
         (runRuntimeErrors result)
       assertEqual "runtime output is suppressed on runtime failure" Nothing (runOutput result)

@@ -10,7 +10,7 @@ import Data.Maybe (fromMaybe)
 import qualified Data.Set as Set
 import Data.Text (Text)
 import qualified Data.Text as Text
-import Data.Void (Void)
+import Data.Void (Void, absurd)
 import Jazz.Compiler.AST
   ( Expr (EBlock, ELit),
     Literal (LInt),
@@ -18,7 +18,7 @@ import Jazz.Compiler.AST
   )
 import qualified Jazz.Compiler.AST as AST
 import Jazz.Compiler.CapabilityFacts
-  ( ConcreteImplFact,
+  ( ConcreteImplFact (..),
     concreteImplFact,
   )
 import Jazz.Compiler.CoreIdentity (CapabilityId (..), CoreBinderId (..), CoreNodeId (..), ImplId (..), MethodId (..), ResolvedNodeFacts (..), emptyResolvedNodeFacts)
@@ -58,11 +58,14 @@ import Jazz.Compiler.StableSet
     stableSetSingleton,
   )
 import Jazz.Compiler.TypeInference.Types
-  ( ClassMethodType (ClassMethodType),
+  ( ClassDefinition (..),
+    ClassMethodType (ClassMethodScheme),
     DataTypeBinding (DataTypeBinding),
-    ImplMethodType (ImplMethodType),
+    ImplementationTemplate (..),
     ScopeCapabilityFacts (..),
+    SemanticScheme (..),
     emptyScopeCapabilityFacts,
+    quantifiedVariablesFromPreferred,
   )
 import Jazz.Compiler.TypeRepresentation
   ( SignatureConstraint (..),
@@ -234,49 +237,45 @@ testScopeCapabilityFacts = do
   assertMonoidLaws "scope capability facts" first second third
   assertEqual
     "class facts remain left-biased"
-    (Just 1)
+    (Just (ClassDefinition TypeRepresentation.TypeKind [] Set.empty))
     (Map.lookup comparable (scopeClassFacts combined))
   assertEqual
     "method facts remain left-biased"
-    (Just (ClassMethodType "Left" TypeRepresentation.SemanticInt))
+    (Just (method "Left" TypeRepresentation.SemanticInt))
     (Map.lookup compareMethod (scopeClassMethodSignatures combined))
+  assertEqual "distinct implementations are retained" 2 (Map.size (scopeImplementations combined))
   assertEqual
-    "implementation methods preserve left-to-right order"
-    (Just [fixtureImplMethod TypeRepresentation.SemanticInt, fixtureImplMethod TypeRepresentation.SemanticBool])
-    (Map.lookup compareMethod (scopeConcreteImplMethods combined))
-  assertEqual
-    "three-way implementation collisions preserve left-to-right order"
-    (Just [fixtureImplMethod TypeRepresentation.SemanticInt, fixtureImplMethod TypeRepresentation.SemanticBool, fixtureImplMethod TypeRepresentation.SemanticBool])
-    (Map.lookup compareMethod (scopeConcreteImplMethods (first <> second <> third)))
+    "repeated implementation identities deduplicate with left bias"
+    (scopeImplementations combined)
+    (scopeImplementations (first <> second <> third))
   where
     comparable = CapabilityId (localCapabilityName "Comparable")
     compareMethod = (comparable, mkIdentifier "compare")
+    method parameter result = ClassMethodScheme parameter (SemanticScheme (quantifiedVariablesFromPreferred [parameter] (Set.singleton parameter)) [] [] result)
     combined = first <> second
     first =
       mempty
-        { scopeClassFacts = Map.singleton comparable 1,
+        { scopeClassFacts = Map.singleton comparable (ClassDefinition TypeRepresentation.TypeKind [] Set.empty),
           scopeClassMethodSignatures =
-            Map.singleton compareMethod (ClassMethodType "Left" TypeRepresentation.SemanticInt),
-          scopeConcreteImplMethods =
-            Map.singleton compareMethod [fixtureImplMethod TypeRepresentation.SemanticInt]
+            Map.singleton compareMethod (method "Left" TypeRepresentation.SemanticInt),
+          scopeImplementations =
+            Map.singleton (fixtureImplId 0) (fixtureImplementation 0 comparable TypeRepresentation.SemanticInt)
         }
     second =
       mempty
-        { scopeClassFacts = Map.singleton comparable 2,
+        { scopeClassFacts = Map.singleton comparable (ClassDefinition (TypeRepresentation.FunctionKind TypeRepresentation.TypeKind TypeRepresentation.TypeKind) [] Set.empty),
           scopeClassMethodSignatures =
-            Map.singleton compareMethod (ClassMethodType "Right" TypeRepresentation.SemanticBool),
-          scopeConcreteImplMethods =
-            Map.singleton compareMethod [fixtureImplMethod TypeRepresentation.SemanticBool]
+            Map.singleton compareMethod (method "Right" TypeRepresentation.SemanticBool),
+          scopeImplementations =
+            Map.singleton (fixtureImplId 1) (fixtureImplementation 1 comparable TypeRepresentation.SemanticBool)
         }
     third =
       mempty
-        { scopeClassFacts = Map.singleton comparable 3,
+        { scopeClassFacts = Map.singleton comparable (ClassDefinition (TypeRepresentation.FunctionKind TypeRepresentation.TypeKind (TypeRepresentation.FunctionKind TypeRepresentation.TypeKind TypeRepresentation.TypeKind)) [] Set.empty),
           scopeClassMethodSignatures =
-            Map.singleton compareMethod (ClassMethodType "Third" TypeRepresentation.SemanticInt),
-          scopeConcreteImplMethods =
-            Map.singleton compareMethod [fixtureImplMethod TypeRepresentation.SemanticBool],
-          scopeGeneratedEqualityClassFacts = Set.singleton (CapabilityId (localCapabilityName "Eq")),
-          scopeConcreteImplFacts = Set.singleton (fixtureConcreteImplFact (localCapabilityName "Comparable") TypeInt)
+            Map.singleton compareMethod (method "Third" TypeRepresentation.SemanticInt),
+          scopeImplementations =
+            Map.singleton (fixtureImplId 1) (fixtureImplementation 1 comparable TypeRepresentation.SemanticInt)
         }
 
 testConcreteImplFactsUseNominalIdentity :: IO ()
@@ -348,11 +347,11 @@ assertImportedConstraintFactAccepted label sourceArgument importedArgument = do
           inferenceImportedConstructorWitnessNames = Map.empty,
           inferenceImportedCapabilities =
             emptyScopeCapabilityFacts
-              { scopeClassFacts = Map.singleton (CapabilityId (localCapabilityName "Marked")) 1,
-                scopeConcreteImplFacts = Set.singleton (fixtureConcreteImplFact (localCapabilityName "Marked") factArgument)
+              { scopeClassFacts = Map.singleton (CapabilityId (localCapabilityName "Marked")) (ClassDefinition TypeRepresentation.TypeKind [] Set.empty),
+                scopeImplementations = case fixtureConcreteImplFact (localCapabilityName "Marked") factArgument of
+                  ConcreteImplFact capability target -> Map.singleton (fixtureImplId 0) (fixtureImplementation 0 capability target)
               },
-          inferenceImportedClassNames = Set.singleton "Marked",
-          inferenceCurrentModulePath = Nothing
+          inferenceImportedClassNames = Set.singleton "Marked"
         }
 
     constrainedProgram constraintArgument =
@@ -423,5 +422,15 @@ testModuleExportInventory = do
     third :: ModuleExportInventory
     third = exportInventory [ModuleExport ValueNamespace "other"]
 
-fixtureImplMethod :: TypeRepresentation.SemanticType ResolvedName Void -> ImplMethodType
-fixtureImplMethod target = ImplMethodType target (CapabilityId (resolvedLocalName CapabilityNamespace (mkIdentifier "Comparable"))) (MethodId (ImplId (StandaloneSourceUnit standaloneModulePath, CoreNodeId 0), mkIdentifier "compare"))
+fixtureImplId :: Int -> ImplId
+fixtureImplId index = ImplId (StandaloneSourceUnit standaloneModulePath, CoreNodeId index)
+
+fixtureImplementation :: Int -> CapabilityId -> TypeRepresentation.SemanticType ResolvedName Void -> ImplementationTemplate
+fixtureImplementation index capability target =
+  ImplementationTemplate
+    identity
+    capability
+    (SemanticScheme (quantifiedVariablesFromPreferred [] Set.empty) [] [] (fmap absurd target))
+    (Map.singleton (mkIdentifier "compare") (MethodId (identity, mkIdentifier "compare")))
+  where
+    identity = fixtureImplId index

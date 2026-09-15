@@ -2,7 +2,7 @@ module ParserExpression (
   value parseFoundationalExpression,
   value parseFoundationalExpressionWithContext
 ) {
-  import Char (charToUInt32).
+  import Char as Char.
   import LexerTypes (
     CanonicalToken,
     IdentifierKind,
@@ -29,8 +29,10 @@ module ParserExpression (
     DotPunctuation,
     AtPunctuation
   ).
-  import List (listAll, listAny, listFoldLeft, listLength, listMap, listPrepend, listReverse).
-  import Maybe.
+  import List as List.
+  import Maybe as Maybe.
+  import Maybe (Nothing, Just).
+  import NonEmpty as NonEmpty.
   import NonEmpty (NonEmpty).
   import ParserContext.
   import ParserOperator.
@@ -68,8 +70,8 @@ module ParserExpression (
   # expose constructors and values, but not the abstract type names required by
   # recursive signatures. ParserCore stays isolated behind TokenParser.
   import ParserTypes.
-  import Set.
-  import Text (textLength, textUncons, textAppend).
+  import Set as Set.
+  import Text as Text.
 
   # This FIRST set intentionally mirrors parsePrimary. Classifying into an
   # intermediate item adds allocation and evaluator work at every application
@@ -93,29 +95,29 @@ module ParserExpression (
   float64MaximumWhole = "179769313486231570814527423731704356798070567525844996598917476803157260780028538760589558632766878171540458953514382464234321326889464182768467546703537516986049910576551282076245490090389328944075868508455133942304583236903222948165808559332123348274797826204144723168738177180919299881250404026184124858368".
 
   decimalDigitsGreater :: Text -> Text -> Bool.
-  decimalDigitsGreater = \(left, right) -> case textUncons left {
+  decimalDigitsGreater = \(left, right) -> case Text::uncons left {
     | Nothing -> False
-    | Just (leftDigit, leftRest) -> case textUncons right {
+    | Just (leftDigit, leftRest) -> case Text::uncons right {
       | Nothing -> True
-      | Just (rightDigit, rightRest) -> if charToUInt32 leftDigit > charToUInt32 rightDigit then
+      | Just (rightDigit, rightRest) -> if Char::toUInt32 leftDigit > Char::toUInt32 rightDigit then
         True
-        else if charToUInt32 leftDigit < charToUInt32 rightDigit then
+        else if Char::toUInt32 leftDigit < Char::toUInt32 rightDigit then
           False
           else decimalDigitsGreater leftRest rightRest
     }
   }.
 
   decimalDigitsContainNonZero :: Text -> Bool.
-  decimalDigitsContainNonZero = \(digits) -> case textUncons digits {
+  decimalDigitsContainNonZero = \(digits) -> case Text::uncons digits {
     | Nothing -> False
     | Just (digit, rest) -> if digit == '0' then decimalDigitsContainNonZero rest else True
   }.
 
   fractionalExceedsFloat64 :: Text -> Text -> Bool.
   fractionalExceedsFloat64 = \(wholeDigits, fractionalDigits) ->
-    if textLength wholeDigits > textLength float64MaximumWhole then
+    if Text::length wholeDigits > Text::length float64MaximumWhole then
       True
-      else if textLength wholeDigits < textLength float64MaximumWhole then
+      else if Text::length wholeDigits < Text::length float64MaximumWhole then
         False
         else if decimalDigitsGreater wholeDigits float64MaximumWhole then
           True
@@ -123,13 +125,13 @@ module ParserExpression (
             decimalDigitsContainNonZero fractionalDigits
             else False.
 
-  consumeSuffixIfAdjacent :: CanonicalToken -> CanonicalToken -> SurfaceNumericType -> TokenParser(Maybe(SurfaceNumericType)).
+  consumeSuffixIfAdjacent :: CanonicalToken -> CanonicalToken -> SurfaceNumericType -> TokenParser(Maybe::Maybe(SurfaceNumericType)).
   consumeSuffixIfAdjacent = \(fractionalToken, suffixToken, targetType) ->
     if tokensAreAdjacent fractionalToken suffixToken then
       tokenKeepRight tokenIdentifier (tokenSucceed (Just targetType))
       else tokenSucceed Nothing.
 
-  parseFractionalSuffix :: CanonicalToken -> TokenParser(Maybe(SurfaceNumericType)).
+  parseFractionalSuffix :: CanonicalToken -> TokenParser(Maybe::Maybe(SurfaceNumericType)).
   parseFractionalSuffix = \(fractionalToken) -> tokenAndThen
     (\(current) -> case current {
       | Just suffixToken -> case canonicalTokenKind suffixToken {
@@ -148,7 +150,7 @@ module ParserExpression (
       (\(fractionalToken) -> tokenAndThen
         (\(targetType) -> {
           fractionalDigits = canonicalTokenLexeme fractionalToken.
-          literalText = textAppend (textAppend (canonicalTokenLexeme wholeToken) ".") fractionalDigits.
+          literalText = Text::append (Text::append (canonicalTokenLexeme wholeToken) ".") fractionalDigits.
           if fractionalExceedsFloat64 whole fractionalDigits then
             tokenFailAtSpan (canonicalTokenSpan wholeToken) (InvalidFractionalLiteral literalText)
             else tokenSucceed (LiteralExpression (FractionalLiteral whole fractionalDigits targetType)).
@@ -183,18 +185,18 @@ module ParserExpression (
   parseQualifiedNamePart = \(part, separatorToken) -> tokenAndThen
     (\(current) -> case current {
       | Nothing -> tokenFailAt Nothing
-        (ExpectedSyntax (textAppend part " name") (EndOfInputAfter "'::'"))
+        (ExpectedSyntax (Text::append part " name") (EndOfInputAfter "'::'"))
       | Just memberToken -> case canonicalTokenKind memberToken {
         | IdentifierKind member -> if tokensAreAdjacent separatorToken memberToken then
           tokenIdentifier
           else tokenFailAtSpan
             (canonicalTokenSpan memberToken)
             (ExpectedSyntax
-              (textAppend "adjacent " (textAppend part " name after '::'"))
+              (Text::append "adjacent " (Text::append part " name after '::'"))
               (canonicalTokenEncountered current))
         | other -> tokenFailAtSpan
           (canonicalTokenSpan memberToken)
-          (ExpectedSyntax (textAppend part " name after '::'") (canonicalTokenEncountered current))
+          (ExpectedSyntax (Text::append part " name after '::'") (canonicalTokenEncountered current))
       }
     })
     tokenPeek.
@@ -262,14 +264,14 @@ module ParserExpression (
         | Just token -> case canonicalTokenKind token {
           | PunctuationKind CommaPunctuation -> tokenKeepRight
             (tokenPunctuation CommaPunctuation)
-            (parseTupleElements parseExpressionUntil (listPrepend next reversed))
+            (parseTupleElements parseExpressionUntil (List::prepend next reversed))
           | other -> tokenKeepRight
             (tokenPunctuation RightParenPunctuation)
-            (tokenSucceed (TupleExpression (listReverse (listPrepend next reversed))))
+            (tokenSucceed (TupleExpression (List::reverse (List::prepend next reversed))))
         }
         | Nothing -> tokenKeepRight
           (tokenPunctuation RightParenPunctuation)
-          (tokenSucceed (TupleExpression (listReverse (listPrepend next reversed))))
+          (tokenSucceed (TupleExpression (List::reverse (List::prepend next reversed))))
       })
       tokenPeek)
     (parseExpressionUntil neverStops).
@@ -377,15 +379,15 @@ module ParserExpression (
         | PunctuationKind CommaPunctuation -> tokenKeepRight
           (tokenPunctuation CommaPunctuation)
           (tokenAndThen
-            (\(next) -> parseListElements parseExpressionUntil (listPrepend next reversed))
+            (\(next) -> parseListElements parseExpressionUntil (List::prepend next reversed))
             (parseExpressionUntil neverStops))
         | other -> tokenKeepRight
           (tokenPunctuation RightBracketPunctuation)
-          (tokenSucceed (ListExpression (listReverse reversed)))
+          (tokenSucceed (ListExpression (List::reverse reversed)))
       }
       | Nothing -> tokenKeepRight
         (tokenPunctuation RightBracketPunctuation)
-        (tokenSucceed (ListExpression (listReverse reversed)))
+        (tokenSucceed (ListExpression (List::reverse reversed)))
     })
     tokenPeek.
 
@@ -526,7 +528,7 @@ module ParserExpression (
   guardTokensEndAtArrow :: [CanonicalToken] -> Bool.
   guardTokensEndAtArrow = \(tokens) ->
     if hasTopLevelArrowBeforeTerminator tokens then
-      if hasTopLevelElseBeforeArrow tokens then False else True
+      not (hasTopLevelElseBeforeArrow tokens)
       else False.
 
   hasTopLevelArmArrowFrom :: [CanonicalToken] -> Int -> Int -> Int -> Bool.
@@ -586,47 +588,47 @@ module ParserExpression (
     | [] -> False
   }.
 
-  patternBinderNames :: SurfacePattern -> Set(Text).
+  patternBinderNames :: SurfacePattern -> Set::Set(Text).
   patternBinderNames = \(pattern) -> case pattern {
-    | WildcardPattern -> setEmpty
-    | VariablePattern name -> setSingleton name
-    | LiteralPattern literal -> setEmpty
-    | ConstructorPattern name arguments -> listFoldLeft
-      (\(names, argument) -> setUnion names (patternBinderNames argument))
-      setEmpty
+    | WildcardPattern -> Set::empty
+    | VariablePattern name -> Set::singleton name
+    | LiteralPattern literal -> Set::empty
+    | ConstructorPattern name arguments -> List::foldLeft
+      (\(names, argument) -> Set::union names (patternBinderNames argument))
+      Set::empty
       arguments
-    | ListPattern elements -> listFoldLeft
-      (\(names, element) -> setUnion names (patternBinderNames element))
-      setEmpty
+    | ListPattern elements -> List::foldLeft
+      (\(names, element) -> Set::union names (patternBinderNames element))
+      Set::empty
       elements
     | ConsListPattern headPattern tailPattern ->
-      setUnion (patternBinderNames headPattern) (patternBinderNames tailPattern)
-    | TuplePattern elements -> listFoldLeft
-      (\(names, element) -> setUnion names (patternBinderNames element))
-      setEmpty
+      Set::union (patternBinderNames headPattern) (patternBinderNames tailPattern)
+    | TuplePattern elements -> List::foldLeft
+      (\(names, element) -> Set::union names (patternBinderNames element))
+      Set::empty
       elements
-    | AsPattern name nested -> setInsert (patternBinderNames nested) name
+    | AsPattern name nested -> Set::insert (patternBinderNames nested) name
     | OrPattern alternatives -> commonPatternBinderNames alternatives
   }.
 
-  commonPatternBinderNames :: [SurfacePattern] -> Set(Text).
+  commonPatternBinderNames :: [SurfacePattern] -> Set::Set(Text).
   commonPatternBinderNames = \(alternatives) -> case alternatives {
-    | [] -> setEmpty
-    | [first | rest] -> listFoldLeft
-      (\(names, alternative) -> setIntersection names (patternBinderNames alternative))
+    | [] -> Set::empty
+    | [first | rest] -> List::foldLeft
+      (\(names, alternative) -> Set::intersection names (patternBinderNames alternative))
       (patternBinderNames first)
       rest
   }.
 
-  setsEqual :: Set(Text) -> Set(Text) -> Bool.
-  setsEqual = \(left, right) -> if setIsSubset left right then setIsSubset right left else False.
+  setsEqual :: Set::Set(Text) -> Set::Set(Text) -> Bool.
+  setsEqual = \(left, right) -> if Set::isSubset left right then Set::isSubset right left else False.
 
   alternativesBindSameNames :: [SurfacePattern] -> Bool.
   alternativesBindSameNames = \(alternatives) -> case alternatives {
     | [] -> False
     | [first | rest] -> {
       expected = patternBinderNames first.
-      if setIsEmpty expected then False else listAll
+      if Set::isEmpty expected then False else List::all
         (\(alternative) -> setsEqual expected (patternBinderNames alternative))
         rest.
     }
@@ -653,16 +655,16 @@ module ParserExpression (
 
   orPatternStartsDefiniteArmBoundary :: [SurfacePattern] -> Bool.
   orPatternStartsDefiniteArmBoundary = \(alternatives) ->
-    if listAny patternIsWildcard alternatives then True
-    else if listAll patternIsVariable alternatives then True
-    else if listAll patternIsLiteral alternatives then True
+    if List::any patternIsWildcard alternatives then True
+    else if List::all patternIsVariable alternatives then True
+    else if List::all patternIsLiteral alternatives then True
     else if alternativesBindSameNames alternatives then True
     else case alternatives {
       | [first | rest] -> patternCanStartOrArmBoundary first
       | [] -> False
     }.
 
-  casePipeCanContinueExpression :: ParserContext -> Maybe(Text) -> Int -> SurfaceExpr -> Bool.
+  casePipeCanContinueExpression :: ParserContext -> Maybe::Maybe(Text) -> Int -> SurfaceExpr -> Bool.
   casePipeCanContinueExpression = \(context, parentOperator, minimum, left) -> {
     pipePrecedence = case parserContextLookupOperator context "|" {
       | Just info -> operatorInfoPrecedence info
@@ -686,16 +688,16 @@ module ParserExpression (
       | other -> True
     }.
     if minimum < pipePrecedence then
-      if leftHasBoundaryPrecedenceRoot then False else True
+      not (leftHasBoundaryPrecedenceRoot)
       else if minimum == pipePrecedence then
         samePrecedencePipeCanBind
         else False.
   }.
 
-  parsedPatternStartsArmBoundary :: ParserContext -> Maybe(Text) -> Int -> SurfaceExpr -> SurfacePattern -> Bool.
+  parsedPatternStartsArmBoundary :: ParserContext -> Maybe::Maybe(Text) -> Int -> SurfaceExpr -> SurfacePattern -> Bool.
   parsedPatternStartsArmBoundary = \(context, parentOperator, minimum, left, pattern) -> case pattern {
-    | OrPattern alternatives -> if listAll patternIsLiteral alternatives then
-      if casePipeCanContinueExpression context parentOperator minimum left then False else True
+    | OrPattern alternatives -> if List::all patternIsLiteral alternatives then
+      not (casePipeCanContinueExpression context parentOperator minimum left)
       else orPatternStartsDefiniteArmBoundary alternatives
     | other -> True
   }.
@@ -706,7 +708,7 @@ module ParserExpression (
     | other -> True
   }.
 
-  peekCaseArmPatternPrefix :: TokenParser(Maybe((SurfacePattern, [CanonicalToken]))).
+  peekCaseArmPatternPrefix :: TokenParser(Maybe::Maybe((SurfacePattern, [CanonicalToken]))).
   peekCaseArmPatternPrefix = tokenOptional (tokenAttempt (tokenLookAhead
     (tokenKeepRight
       tokenOperator
@@ -716,7 +718,7 @@ module ParserExpression (
           tokenRemaining)
         parseCaseArmPattern)))).
 
-  pipeStartsCaseArmBoundary :: ParserContext -> Maybe(Text) -> Int -> SurfaceExpr -> TokenParser(Bool).
+  pipeStartsCaseArmBoundary :: ParserContext -> Maybe::Maybe(Text) -> Int -> SurfaceExpr -> TokenParser(Bool).
   pipeStartsCaseArmBoundary = \(context, parentOperator, minimum, left) -> tokenAndThen
     (\(prefix) -> case prefix {
       | Just (pattern, remaining) -> case remaining {
@@ -742,14 +744,14 @@ module ParserExpression (
     })
     peekCaseArmPatternPrefix.
 
-  pipeStartsCaseGuardBoundary :: ParserContext -> Maybe(Text) -> Int -> SurfaceExpr -> TokenParser(Bool).
+  pipeStartsCaseGuardBoundary :: ParserContext -> Maybe::Maybe(Text) -> Int -> SurfaceExpr -> TokenParser(Bool).
   pipeStartsCaseGuardBoundary = \(context, parentOperator, minimum, left) -> tokenAndThen
     (\(prefix) -> case prefix {
       | Just (pattern, remaining) -> case remaining {
         | [first | rest] -> case canonicalTokenKind first {
           | PunctuationKind ArrowPunctuation -> tokenSucceed
             (if guardBoundaryPatternIsDefinite pattern then
-              if casePipeCanContinueExpression context parentOperator minimum left then False else True
+              not (casePipeCanContinueExpression context parentOperator minimum left)
               else False)
           | KeywordKind IfKeyword -> tokenSucceed
             (if guardBoundaryPatternIsDefinite pattern then guardTokensEndAtArrow rest else False)
@@ -760,15 +762,6 @@ module ParserExpression (
       | Nothing -> tokenSucceed False
     })
     peekCaseArmPatternPrefix.
-
-  stopsAtPipeOr :: ([CanonicalToken] -> Bool) -> [CanonicalToken] -> Bool.
-  stopsAtPipeOr = \(outerStop, tokens) -> if outerStop tokens then True else case tokens {
-    | [token | rest] -> case canonicalTokenKind token {
-      | OperatorKind "|" -> True
-      | other -> False
-    }
-    | [] -> False
-  }.
 
   stopsAtCaseBodyTerminator :: [CanonicalToken] -> Bool.
   stopsAtCaseBodyTerminator = \(tokens) -> case tokens {
@@ -857,7 +850,7 @@ module ParserExpression (
     })
     (tokenOptional (tokenAttempt parseSignatureType)).
 
-  parseCaseOperatorContinuation :: ParserContext -> Bool -> ([CanonicalToken] -> Bool) -> TokenParser([SurfaceStatement]) -> Maybe(Text) -> Int -> SurfaceExpr -> CanonicalToken -> Text -> TokenParser(SurfaceExpr).
+  parseCaseOperatorContinuation :: ParserContext -> Bool -> ([CanonicalToken] -> Bool) -> TokenParser([SurfaceStatement]) -> Maybe::Maybe(Text) -> Int -> SurfaceExpr -> CanonicalToken -> Text -> TokenParser(SurfaceExpr).
   parseCaseOperatorContinuation = \(context, guardMode, stop, parseBlock, parentOperator, minimum, left, operatorToken, symbol) ->
     case parserContextLookupOperator context symbol {
       | Nothing -> tokenFailAtSpan
@@ -886,7 +879,7 @@ module ParserExpression (
               (operatorNextMinimum info)))
     }.
 
-  parseCasePipeExpressionTailFrom :: ParserContext -> Bool -> ([CanonicalToken] -> Bool) -> TokenParser([SurfaceStatement]) -> Maybe(Text) -> Int -> [CanonicalToken] -> SurfaceExpr -> TokenParser(SurfaceExpr).
+  parseCasePipeExpressionTailFrom :: ParserContext -> Bool -> ([CanonicalToken] -> Bool) -> TokenParser([SurfaceStatement]) -> Maybe::Maybe(Text) -> Int -> [CanonicalToken] -> SurfaceExpr -> TokenParser(SurfaceExpr).
   parseCasePipeExpressionTailFrom = \(context, guardMode, stop, parseBlock, parentOperator, minimum, remaining, left) ->
     if stop remaining then tokenSucceed left else case remaining {
       | [operatorToken | afterOperator] -> case canonicalTokenKind operatorToken {
@@ -921,12 +914,12 @@ module ParserExpression (
       | [] -> tokenSucceed left
     }.
 
-  parseCasePipeExpressionTail :: ParserContext -> Bool -> ([CanonicalToken] -> Bool) -> TokenParser([SurfaceStatement]) -> Maybe(Text) -> Int -> SurfaceExpr -> TokenParser(SurfaceExpr).
+  parseCasePipeExpressionTail :: ParserContext -> Bool -> ([CanonicalToken] -> Bool) -> TokenParser([SurfaceStatement]) -> Maybe::Maybe(Text) -> Int -> SurfaceExpr -> TokenParser(SurfaceExpr).
   parseCasePipeExpressionTail = \(context, guardMode, stop, parseBlock, parentOperator, minimum, left) -> tokenAndThen
     (\(remaining) -> parseCasePipeExpressionTailFrom context guardMode stop parseBlock parentOperator minimum remaining left)
     tokenRemaining.
 
-  parseCasePipeExpressionWithMinimum :: ParserContext -> Bool -> ([CanonicalToken] -> Bool) -> TokenParser([SurfaceStatement]) -> Maybe(Text) -> Int -> TokenParser(SurfaceExpr).
+  parseCasePipeExpressionWithMinimum :: ParserContext -> Bool -> ([CanonicalToken] -> Bool) -> TokenParser([SurfaceStatement]) -> Maybe::Maybe(Text) -> Int -> TokenParser(SurfaceExpr).
   parseCasePipeExpressionWithMinimum = \(context, guardMode, stop, parseBlock, parentOperator, minimum) -> {
     parseExpressionUntil = \(nestedStop) ->
       parseCasePipeExpressionWithMinimum context guardMode nestedStop parseBlock Nothing 1.
@@ -1042,13 +1035,13 @@ module ParserExpression (
       | Just token -> case canonicalTokenKind token {
         | PunctuationKind RightBracePunctuation -> tokenKeepRight
           (tokenPunctuation RightBracePunctuation)
-          (tokenSucceed (listReverse reversed))
+          (tokenSucceed (List::reverse reversed))
         | other -> tokenAndThen
-          (\(next) -> collectCaseArms context parseBlock (listPrepend next reversed))
+          (\(next) -> collectCaseArms context parseBlock (List::prepend next reversed))
           (parseCaseArm context parseBlock)
       }
       | Nothing -> tokenAndThen
-        (\(next) -> collectCaseArms context parseBlock (listPrepend next reversed))
+        (\(next) -> collectCaseArms context parseBlock (List::prepend next reversed))
         (parseCaseArm context parseBlock)
     })
     tokenPeek.
@@ -1101,11 +1094,11 @@ module ParserExpression (
         | PunctuationKind CommaPunctuation -> tokenKeepRight
           (tokenPunctuation CommaPunctuation)
           (tokenAndThen
-            (\(next) -> collectLambdaParameters first (listPrepend next reversed))
+            (\(next) -> collectLambdaParameters first (List::prepend next reversed))
             parseLambdaParameter)
         | PunctuationKind RightParenPunctuation -> tokenKeepRight
           (tokenPunctuation RightParenPunctuation)
-          (tokenSucceed (NonEmpty first (listReverse reversed)))
+          (tokenSucceed (NonEmpty first (List::reverse reversed)))
         | other -> tokenFailAtSpan
           (canonicalTokenSpan token)
           (ExpectedSyntax "',' or ')'" (FoundToken (canonicalTokenKind token) (canonicalTokenLexeme token)))
@@ -1138,12 +1131,7 @@ module ParserExpression (
   lambdaParameterPatterns :: NonEmpty(SurfaceLambdaParameter) -> NonEmpty(SurfacePattern).
   lambdaParameterPatterns = \(parameters) -> case parameters {
     | NonEmpty first rest ->
-      NonEmpty (lambdaParameterPattern first) (listMap lambdaParameterPattern rest)
-  }.
-
-  nonEmptyLength :: NonEmpty(item) -> Int.
-  nonEmptyLength = \(items) -> case items {
-    | NonEmpty first rest -> 1 + listLength rest
+      NonEmpty (lambdaParameterPattern first) (List::map lambdaParameterPattern rest)
   }.
 
   patternLambdaHeadEndsAtArrowFrom :: [CanonicalToken] -> Int -> Bool.
@@ -1217,21 +1205,21 @@ module ParserExpression (
     (\(remaining) -> if patternLambdaClauseStarts remaining then tokenAndThen
       (\(next) -> case next {
         | SurfacePatternLambdaClause span patterns body -> {
-          actualArity = nonEmptyLength patterns.
+          actualArity = NonEmpty::length patterns.
           if actualArity == expectedArity then
             collectPatternLambdaClauses
               parseExpressionUntil
               stop
               expectedArity
               first
-              (listPrepend next reversed)
+              (List::prepend next reversed)
           else tokenFailAtSpan
             span
             (PatternFailure (PatternLambdaClauseArityMismatch expectedArity actualArity)).
         }
       })
       (parsePatternLambdaClause parseExpressionUntil stop)
-    else tokenSucceed (PatternLambdaExpression (NonEmpty first (listReverse reversed))))
+    else tokenSucceed (PatternLambdaExpression (NonEmpty first (List::reverse reversed))))
     tokenRemaining.
 
   parsePatternLambda :: (([CanonicalToken] -> Bool) -> TokenParser(SurfaceExpr)) -> ([CanonicalToken] -> Bool) -> TokenParser(SurfaceExpr).
@@ -1241,7 +1229,7 @@ module ParserExpression (
         collectPatternLambdaClauses
           parseExpressionUntil
           stop
-          (nonEmptyLength patterns)
+          (NonEmpty::length patterns)
           first
           []
     })

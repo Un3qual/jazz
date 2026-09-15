@@ -2159,15 +2159,15 @@ testAcceptsExplicitClassImportSymbol = do
       Map.fromList
         [ ( "src/App/Main.jz",
             """
-            import Lib::Facts (Eq).
-            x :: @{Eq(Int)}: Int.
+            import Lib::Facts (Equatable).
+            x :: @{Equatable(Int)}: Int.
             x = 1.
             """
           ),
           ( "src/Lib/Facts.jz",
             """
-            class Eq(a) { }.
-            impl Eq(Int) { }.
+            class Equatable(a) { }.
+            impl Equatable(Int) { }.
             """
           )
         ]
@@ -2200,7 +2200,7 @@ testReportsClassImportCollision = do
   assertLeftDiagnosticCodeAndContains
     "class import collision"
     "E4008"
-    "import binding collision for symbol 'Eq'"
+    "import binding collision for symbol 'Equatable'"
     result
   where
     sources =
@@ -2212,8 +2212,8 @@ testReportsClassImportCollision = do
             x = 1.
             """
           ),
-          ("src/A/Facts.jz", "class Eq(a) { }."),
-          ("src/B/Facts.jz", "class Eq(a) { }.")
+          ("src/A/Facts.jz", "class Equatable(a) { }."),
+          ("src/B/Facts.jz", "class Equatable(a) { }.")
         ]
     lookupSource path = pure (Map.lookup path sources)
 
@@ -2252,14 +2252,14 @@ testKeepsRepeatedClassImportsIdempotent = do
             """
             import Lib::Facts.
             import Lib::Facts.
-            x :: @{Eq(Int)}: Int.
+            x :: @{Equatable(Int)}: Int.
             x = 1.
             """
           ),
           ( "src/Lib/Facts.jz",
             """
-            class Eq(a) { }.
-            impl Eq(Int) { }.
+            class Equatable(a) { }.
+            impl Equatable(Int) { }.
             """
           )
         ]

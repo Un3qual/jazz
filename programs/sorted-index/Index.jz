@@ -1,15 +1,23 @@
 module Index (value summarizeIndex) {
-  import Map.
-  import Maybe.
-  import Set.
+  import Map as Map.
+  import Maybe as Maybe.
+  import Maybe (Nothing, Just).
+  import Set as Set.
 
-  summarizeIndex :: [(Int, Text)] -> [Text] -> ([(Int, Text)], Maybe((Int, Text)), Maybe((Int, Text)), [Text], [Text], [Text]).
-  summarizeIndex = \(entries, labels) -> {
-    index = mapFromList entries.
-    labelSet = setFromList labels.
-    required = setFromList ["compiler", "runtime", "stdlib"].
-    (mapToList index, mapMinimum index, mapMaximum index,
-     setToList labelSet, setToList (setIntersection labelSet required),
-     setToList (setDifference required labelSet)).
+  summarizeEntries :: [(Int, Text)] -> ([(Int, Text)], Maybe::Maybe((Int, Text)), Maybe::Maybe((Int, Text))).
+  summarizeEntries = \(entries) -> {
+    index = Map::fromList entries.
+    (Map::toList index, Map::minimum index, Map::maximum index).
+  }.
+
+  summarizeIndex :: [(Int, Text)] -> [Text] -> ([(Int, Text)], Maybe::Maybe((Int, Text)), Maybe::Maybe((Int, Text)), [Text], [Text], [Text]).
+  summarizeIndex = \(entries, labels) -> case summarizeEntries entries {
+    | (ordered, first, last) -> {
+      labelSet = Set::fromList labels.
+      required = Set::fromList ["compiler", "runtime", "stdlib"].
+      (ordered, first, last,
+       Set::toList labelSet, Set::toList (Set::intersection labelSet required),
+       Set::toList (Set::difference required labelSet)).
+    }
   }.
 }

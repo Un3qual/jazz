@@ -7,11 +7,13 @@ module CoreLower (
 ) {
   import CoreTypes.
   import LexerTypes (CanonicalSourcePath, CanonicalSpan).
-  import List (listLength, listPrepend, listReverse).
-  import Maybe.
+  import List as List.
+  import Maybe as Maybe.
+  import Maybe (Nothing, Just).
+  import NonEmpty as NonEmpty.
   import NonEmpty (NonEmpty).
   import ParserTypes.
-  import Text (textIsEmpty, textSplit, textStartsWith).
+  import Text as Text.
 
   data LoweringProfile
     = FoundationProfile
@@ -20,7 +22,7 @@ module CoreLower (
     | ModulesCorpusClosureProfile.
 
   data CollectedModuleDeclaration
-    = CollectedModuleDeclaration CoreModuleDeclaration Maybe([CoreModuleExportSelector]).
+    = CollectedModuleDeclaration CoreModuleDeclaration Maybe::Maybe([CoreModuleExportSelector]).
 
   profileAllows :: LoweringProfile -> LoweringProfile -> Bool.
   profileAllows = \(available, required) -> case available {
@@ -58,7 +60,7 @@ module CoreLower (
     | Float64Type -> CoreFloat64Type
   }.
 
-  lowerFoundationOptionalNumericType :: Maybe(SurfaceNumericType) -> Maybe(CoreNumericType).
+  lowerFoundationOptionalNumericType :: Maybe::Maybe(SurfaceNumericType) -> Maybe::Maybe(CoreNumericType).
   lowerFoundationOptionalNumericType = \(maybeNumericType) -> case maybeNumericType {
     | Nothing -> Nothing
     | Just numericType -> Just (lowerFoundationNumericType numericType)
@@ -80,21 +82,21 @@ module CoreLower (
   }.
 
   lowerSignatureName :: Text -> CoreName.
-  lowerSignatureName = \(name) -> case textSplit "::" name {
-    | [qualifier, member] -> if textIsEmpty qualifier then CoreSourceName name else
-      if textIsEmpty member then CoreSourceName name else CoreQualifiedName qualifier member
+  lowerSignatureName = \(name) -> case Text::split "::" name {
+    | [qualifier, member] -> if Text::isEmpty qualifier then CoreSourceName name else
+      if Text::isEmpty member then CoreSourceName name else CoreQualifiedName qualifier member
     | other -> CoreSourceName name
   }.
 
   lowerBindingName :: Text -> CoreName.
-  lowerBindingName = \(name) -> if textStartsWith "$operator:" name then
+  lowerBindingName = \(name) -> if Text::startsWith "$operator:" name then
     CoreGeneratedName (CoreOperatorBinding name)
   else CoreSourceName name.
 
   lowerSignatureTypesFrom :: [SurfaceSignatureType] -> [CoreSignatureType] -> [CoreSignatureType].
   lowerSignatureTypesFrom = \(signatureTypes, reversed) -> case signatureTypes {
-    | [] -> listReverse reversed
-    | [first | rest] -> lowerSignatureTypesFrom rest (listPrepend (lowerSignatureType first) reversed)
+    | [] -> List::reverse reversed
+    | [first | rest] -> lowerSignatureTypesFrom rest (List::prepend (lowerSignatureType first) reversed)
   }.
 
   lowerSignatureTypes :: [SurfaceSignatureType] -> [CoreSignatureType].
@@ -125,9 +127,9 @@ module CoreLower (
 
   lowerSignatureConstraintsFrom :: [SurfaceSignatureConstraint] -> [CoreSignatureConstraint] -> [CoreSignatureConstraint].
   lowerSignatureConstraintsFrom = \(constraints, reversed) -> case constraints {
-    | [] -> listReverse reversed
+    | [] -> List::reverse reversed
     | [first | rest] ->
-      lowerSignatureConstraintsFrom rest (listPrepend (lowerSignatureConstraint first) reversed)
+      lowerSignatureConstraintsFrom rest (List::prepend (lowerSignatureConstraint first) reversed)
   }.
 
   lowerSignatureConstraints :: [SurfaceSignatureConstraint] -> [CoreSignatureConstraint].
@@ -153,8 +155,8 @@ module CoreLower (
 
   lowerSignatureTokensFrom :: [SurfaceSignatureToken] -> [CoreSignatureToken] -> [CoreSignatureToken].
   lowerSignatureTokensFrom = \(tokens, reversed) -> case tokens {
-    | [] -> listReverse reversed
-    | [first | rest] -> lowerSignatureTokensFrom rest (listPrepend (lowerSignatureToken first) reversed)
+    | [] -> List::reverse reversed
+    | [first | rest] -> lowerSignatureTokensFrom rest (List::prepend (lowerSignatureToken first) reversed)
   }.
 
   lowerSignatureTokens :: [SurfaceSignatureToken] -> [CoreSignatureToken].
@@ -170,8 +172,8 @@ module CoreLower (
 
   lowerSourceNamesFrom :: [Text] -> [CoreName] -> [CoreName].
   lowerSourceNamesFrom = \(names, reversed) -> case names {
-    | [] -> listReverse reversed
-    | [first | rest] -> lowerSourceNamesFrom rest (listPrepend (CoreSourceName first) reversed)
+    | [] -> List::reverse reversed
+    | [first | rest] -> lowerSourceNamesFrom rest (List::prepend (CoreSourceName first) reversed)
   }.
 
   lowerSourceNames :: [Text] -> [CoreName].
@@ -185,8 +187,8 @@ module CoreLower (
 
   lowerDataConstructorsFrom :: [SurfaceDataConstructor] -> [CoreDataConstructor] -> [CoreDataConstructor].
   lowerDataConstructorsFrom = \(constructors, reversed) -> case constructors {
-    | [] -> listReverse reversed
-    | [first | rest] -> lowerDataConstructorsFrom rest (listPrepend (lowerDataConstructor first) reversed)
+    | [] -> List::reverse reversed
+    | [first | rest] -> lowerDataConstructorsFrom rest (List::prepend (lowerDataConstructor first) reversed)
   }.
 
   lowerDataConstructors :: [SurfaceDataConstructor] -> [CoreDataConstructor].
@@ -200,9 +202,9 @@ module CoreLower (
 
   lowerClassMethodSignaturesFrom :: [SurfaceClassMethodSignature] -> [CoreClassMethodSignature] -> [CoreClassMethodSignature].
   lowerClassMethodSignaturesFrom = \(methods, reversed) -> case methods {
-    | [] -> listReverse reversed
+    | [] -> List::reverse reversed
     | [first | rest] ->
-      lowerClassMethodSignaturesFrom rest (listPrepend (lowerClassMethodSignature first) reversed)
+      lowerClassMethodSignaturesFrom rest (List::prepend (lowerClassMethodSignature first) reversed)
   }.
 
   lowerClassMethodSignatures :: [SurfaceClassMethodSignature] -> [CoreClassMethodSignature].
@@ -218,10 +220,10 @@ module CoreLower (
 
   lowerImplMethodsFrom :: [SurfaceImplMethod] -> [CoreImplMethod] -> LoweringProfile -> (LoweringProfile, [CoreImplMethod]).
   lowerImplMethodsFrom = \(methods, reversed, required) -> case methods {
-    | [] -> (required, listReverse reversed)
+    | [] -> (required, List::reverse reversed)
     | [first | rest] -> case lowerImplMethod first {
       | (methodRequired, lowered) ->
-        lowerImplMethodsFrom rest (listPrepend lowered reversed) (maximumProfile required methodRequired)
+        lowerImplMethodsFrom rest (List::prepend lowered reversed) (maximumProfile required methodRequired)
     }
   }.
 
@@ -230,10 +232,10 @@ module CoreLower (
 
   lowerExpressionsFrom :: [SurfaceExpr] -> [CoreExpr] -> LoweringProfile -> (LoweringProfile, [CoreExpr]).
   lowerExpressionsFrom = \(expressions, reversed, required) -> case expressions {
-    | [] -> (required, listReverse reversed)
+    | [] -> (required, List::reverse reversed)
     | [first | rest] -> case lowerProfiledExpression first {
       | (expressionRequired, lowered) ->
-        lowerExpressionsFrom rest (listPrepend lowered reversed) (maximumProfile required expressionRequired)
+        lowerExpressionsFrom rest (List::prepend lowered reversed) (maximumProfile required expressionRequired)
     }
   }.
 
@@ -257,8 +259,8 @@ module CoreLower (
 
   lowerPatternsFrom :: [SurfacePattern] -> [CorePattern] -> [CorePattern].
   lowerPatternsFrom = \(patterns, reversed) -> case patterns {
-    | [] -> listReverse reversed
-    | [first | rest] -> lowerPatternsFrom rest (listPrepend (lowerPattern first) reversed)
+    | [] -> List::reverse reversed
+    | [first | rest] -> lowerPatternsFrom rest (List::prepend (lowerPattern first) reversed)
   }.
 
   lowerPatterns :: [SurfacePattern] -> [CorePattern].
@@ -268,7 +270,7 @@ module CoreLower (
   lowerStatement = \(statement) -> case statement {
     | LetStatement name span expression -> case lowerProfiledExpression expression {
       | (expressionRequired, lowered) -> {
-        required = if textStartsWith "$operator:" name then
+        required = if Text::startsWith "$operator:" name then
           maximumProfile SignaturesDeclarationsOperatorsProfile expressionRequired
         else expressionRequired.
         (required, CoreLetStatement (lowerBindingName name) (lowerFoundationSpan span) lowered).
@@ -286,15 +288,19 @@ module CoreLower (
           (lowerSourceNames parameters)
           (lowerDataConstructors constructors)
       )
-    | ClassStatement span name parameters methods ->
-      ( SignaturesDeclarationsOperatorsProfile,
-        CoreClassStatement
-          (lowerFoundationSpan span)
-          (CoreSourceName name)
-          (lowerSourceNames parameters)
-          (lowerClassMethodSignatures methods)
-      )
-    | ImplStatement span name arguments methods -> case lowerImplMethods methods {
+    | ClassStatement span name parameters methods prerequisites defaults -> case lowerImplMethods defaults {
+      | (defaultsRequired, loweredDefaults) ->
+        ( maximumProfile SignaturesDeclarationsOperatorsProfile defaultsRequired,
+          CoreClassStatement
+            (lowerFoundationSpan span)
+            (CoreSourceName name)
+            (lowerSourceNames parameters)
+            (lowerClassMethodSignatures methods)
+            (lowerSignatureConstraints prerequisites)
+            loweredDefaults
+        )
+    }
+    | ImplStatement span name arguments methods prerequisites -> case lowerImplMethods methods {
       | (methodsRequired, loweredMethods) ->
         ( maximumProfile SignaturesDeclarationsOperatorsProfile methodsRequired,
           CoreImplStatement
@@ -302,6 +308,7 @@ module CoreLower (
             (CoreSourceName name)
             (lowerSignatureTypes arguments)
             loweredMethods
+            (lowerSignatureConstraints prerequisites)
         )
     }
     | ModuleStatement span path exports ->
@@ -316,17 +323,17 @@ module CoreLower (
 
   lowerStatementsFrom :: [SurfaceStatement] -> [CoreStatement] -> LoweringProfile -> (LoweringProfile, [CoreStatement]).
   lowerStatementsFrom = \(statements, reversed, required) -> case statements {
-    | [] -> (required, listReverse reversed)
+    | [] -> (required, List::reverse reversed)
     | [first | rest] -> case lowerStatement first {
       | (statementRequired, lowered) ->
-        lowerStatementsFrom rest (listPrepend lowered reversed) (maximumProfile required statementRequired)
+        lowerStatementsFrom rest (List::prepend lowered reversed) (maximumProfile required statementRequired)
     }
   }.
 
   lowerStatements :: [SurfaceStatement] -> (LoweringProfile, [CoreStatement]).
   lowerStatements = \(statements) -> lowerStatementsFrom statements [] FoundationProfile.
 
-  lowerOptionalExpression :: Maybe(SurfaceExpr) -> (LoweringProfile, Maybe(CoreExpr)).
+  lowerOptionalExpression :: Maybe::Maybe(SurfaceExpr) -> (LoweringProfile, Maybe::Maybe(CoreExpr)).
   lowerOptionalExpression = \(maybeExpression) -> case maybeExpression {
     | Nothing -> (FoundationProfile, Nothing)
     | Just expression -> case lowerProfiledExpression expression {
@@ -348,10 +355,10 @@ module CoreLower (
 
   lowerCaseArmsFrom :: [SurfaceCaseArm] -> [CoreCaseArm] -> LoweringProfile -> (LoweringProfile, [CoreCaseArm]).
   lowerCaseArmsFrom = \(arms, reversed, required) -> case arms {
-    | [] -> (required, listReverse reversed)
+    | [] -> (required, List::reverse reversed)
     | [first | rest] -> case lowerCaseArm first {
       | (armRequired, lowered) ->
-        lowerCaseArmsFrom rest (listPrepend lowered reversed) (maximumProfile required armRequired)
+        lowerCaseArmsFrom rest (List::prepend lowered reversed) (maximumProfile required armRequired)
     }
   }.
 
@@ -389,14 +396,14 @@ module CoreLower (
   patternLambdaClausePattern = \(patterns) -> case patterns {
     | NonEmpty first rest -> case rest {
       | [] -> lowerPattern first
-      | other -> CoreTuplePattern (lowerPatterns (listPrepend first rest))
+      | other -> CoreTuplePattern (lowerPatterns (List::prepend first rest))
     }
   }.
 
   patternLambdaArgumentNamesFrom :: Int -> Int -> [CoreName].
   patternLambdaArgumentNamesFrom = \(index, remaining) ->
     if remaining == 0 then [] else
-      listPrepend
+      List::prepend
         (CoreGeneratedName (CoreLambdaPatternArgument index))
         (patternLambdaArgumentNamesFrom (index + 1) (remaining - 1)).
 
@@ -404,7 +411,7 @@ module CoreLower (
   lowerPatternLambdaArguments = \(argumentNames) -> case argumentNames {
     | [] -> []
     | [first | rest] ->
-      listPrepend
+      List::prepend
         (CoreVariableExpression first)
         (lowerPatternLambdaArguments rest)
   }.
@@ -432,12 +439,12 @@ module CoreLower (
 
   lowerPatternLambdaClausesFrom :: [SurfacePatternLambdaClause] -> [CoreCaseArm] -> LoweringProfile -> (LoweringProfile, [CoreCaseArm]).
   lowerPatternLambdaClausesFrom = \(clauses, reversed, required) -> case clauses {
-    | [] -> (required, listReverse reversed)
+    | [] -> (required, List::reverse reversed)
     | [first | rest] -> case lowerPatternLambdaClause first {
       | (clauseRequired, lowered) ->
         lowerPatternLambdaClausesFrom
           rest
-          (listPrepend lowered reversed)
+          (List::prepend lowered reversed)
           (maximumProfile required clauseRequired)
     }
   }.
@@ -446,9 +453,9 @@ module CoreLower (
   lowerPatternLambda = \(clauses) -> case clauses {
     | NonEmpty first rest -> case first {
       | SurfacePatternLambdaClause span patterns body -> {
-        arity = case patterns { | NonEmpty firstPattern remainingPatterns -> 1 + listLength remainingPatterns }.
+        arity = case patterns { | NonEmpty firstPattern remainingPatterns -> 1 + List::length remainingPatterns }.
         argumentNames = patternLambdaArgumentNamesFrom 1 arity.
-        case lowerPatternLambdaClausesFrom (listPrepend first rest) [] FoundationProfile {
+        case lowerPatternLambdaClausesFrom (List::prepend first rest) [] FoundationProfile {
           | (required, loweredClauses) ->
             ( maximumProfile ControlFlowPatternsProfile required,
               wrapPatternLambdaArguments
@@ -524,12 +531,7 @@ module CoreLower (
       | (leftRequired, loweredLeft) -> case lowerProfiledExpression right {
         | (rightRequired, loweredRight) -> {
           childrenRequired = maximumProfile leftRequired rightRequired.
-          if symbol == "$" then
-            ( maximumProfile SignaturesDeclarationsOperatorsProfile childrenRequired,
-              CoreApplyExpression loweredLeft loweredRight
-            )
-          else
-            (childrenRequired, CoreBinaryExpression symbol loweredLeft loweredRight).
+          (childrenRequired, CoreBinaryExpression symbol loweredLeft loweredRight).
         }
       }
     }
@@ -544,18 +546,18 @@ module CoreLower (
     }
   }.
 
-  lowerExpressionWithProfile :: LoweringProfile -> SurfaceExpr -> Maybe(CoreExpr).
+  lowerExpressionWithProfile :: LoweringProfile -> SurfaceExpr -> Maybe::Maybe(CoreExpr).
   lowerExpressionWithProfile = \(profile, expression) -> case lowerProfiledExpression expression {
     | (required, lowered) -> if profileAllows profile required then Just lowered else Nothing
   }.
 
-  lowerFoundationExpression :: SurfaceExpr -> Maybe(CoreExpr).
+  lowerFoundationExpression :: SurfaceExpr -> Maybe::Maybe(CoreExpr).
   lowerFoundationExpression = lowerExpressionWithProfile FoundationProfile.
 
-  lowerControlFlowPatternsExpression :: SurfaceExpr -> Maybe(CoreExpr).
+  lowerControlFlowPatternsExpression :: SurfaceExpr -> Maybe::Maybe(CoreExpr).
   lowerControlFlowPatternsExpression = lowerExpressionWithProfile ControlFlowPatternsProfile.
 
-  lowerSignaturesDeclarationsOperatorsExpression :: SurfaceExpr -> Maybe(CoreExpr).
+  lowerSignaturesDeclarationsOperatorsExpression :: SurfaceExpr -> Maybe::Maybe(CoreExpr).
   lowerSignaturesDeclarationsOperatorsExpression =
     lowerExpressionWithProfile SignaturesDeclarationsOperatorsProfile.
 
@@ -569,7 +571,7 @@ module CoreLower (
     | CoreSpan maybePath line column -> CoreSpan (Just sourcePath) line column
   }.
 
-  qualifyOptionalExpression :: CanonicalSourcePath -> Maybe(CoreExpr) -> Maybe(CoreExpr).
+  qualifyOptionalExpression :: CanonicalSourcePath -> Maybe::Maybe(CoreExpr) -> Maybe::Maybe(CoreExpr).
   qualifyOptionalExpression = \(sourcePath, maybeExpression) -> case maybeExpression {
     | Nothing -> Nothing
     | Just expression -> Just (qualifyExpression sourcePath expression)
@@ -586,9 +588,9 @@ module CoreLower (
 
   qualifyCaseArmsFrom :: CanonicalSourcePath -> [CoreCaseArm] -> [CoreCaseArm] -> [CoreCaseArm].
   qualifyCaseArmsFrom = \(sourcePath, arms, reversed) -> case arms {
-    | [] -> listReverse reversed
+    | [] -> List::reverse reversed
     | [first | rest] ->
-      qualifyCaseArmsFrom sourcePath rest (listPrepend (qualifyCaseArm sourcePath first) reversed)
+      qualifyCaseArmsFrom sourcePath rest (List::prepend (qualifyCaseArm sourcePath first) reversed)
   }.
 
   qualifyCaseArms :: CanonicalSourcePath -> [CoreCaseArm] -> [CoreCaseArm].
@@ -602,9 +604,9 @@ module CoreLower (
 
   qualifyClassMethodsFrom :: CanonicalSourcePath -> [CoreClassMethodSignature] -> [CoreClassMethodSignature] -> [CoreClassMethodSignature].
   qualifyClassMethodsFrom = \(sourcePath, methods, reversed) -> case methods {
-    | [] -> listReverse reversed
+    | [] -> List::reverse reversed
     | [first | rest] ->
-      qualifyClassMethodsFrom sourcePath rest (listPrepend (qualifyClassMethod sourcePath first) reversed)
+      qualifyClassMethodsFrom sourcePath rest (List::prepend (qualifyClassMethod sourcePath first) reversed)
   }.
 
   qualifyClassMethods :: CanonicalSourcePath -> [CoreClassMethodSignature] -> [CoreClassMethodSignature].
@@ -618,9 +620,9 @@ module CoreLower (
 
   qualifyImplMethodsFrom :: CanonicalSourcePath -> [CoreImplMethod] -> [CoreImplMethod] -> [CoreImplMethod].
   qualifyImplMethodsFrom = \(sourcePath, methods, reversed) -> case methods {
-    | [] -> listReverse reversed
+    | [] -> List::reverse reversed
     | [first | rest] ->
-      qualifyImplMethodsFrom sourcePath rest (listPrepend (qualifyImplMethod sourcePath first) reversed)
+      qualifyImplMethodsFrom sourcePath rest (List::prepend (qualifyImplMethod sourcePath first) reversed)
   }.
 
   qualifyImplMethods :: CanonicalSourcePath -> [CoreImplMethod] -> [CoreImplMethod].
@@ -634,18 +636,21 @@ module CoreLower (
       CoreSignatureStatement name (qualifySpan sourcePath span) payload
     | CoreDataStatement span name parameters constructors ->
       CoreDataStatement (qualifySpan sourcePath span) name parameters constructors
-    | CoreClassStatement span name parameters methods ->
+    | CoreClassStatement span name parameters methods prerequisites defaults ->
       CoreClassStatement
         (qualifySpan sourcePath span)
         name
         parameters
         (qualifyClassMethods sourcePath methods)
-    | CoreImplStatement span name arguments methods ->
+        prerequisites
+        (qualifyImplMethods sourcePath defaults)
+    | CoreImplStatement span name arguments methods prerequisites ->
       CoreImplStatement
         (qualifySpan sourcePath span)
         name
         arguments
         (qualifyImplMethods sourcePath methods)
+        prerequisites
     | CoreModuleStatement span path ->
       CoreModuleStatement (qualifySpan sourcePath span) path
     | CoreImportStatement span path alias symbols ->
@@ -656,9 +661,9 @@ module CoreLower (
 
   qualifyStatementsFrom :: CanonicalSourcePath -> [CoreStatement] -> [CoreStatement] -> [CoreStatement].
   qualifyStatementsFrom = \(sourcePath, statements, reversed) -> case statements {
-    | [] -> listReverse reversed
+    | [] -> List::reverse reversed
     | [first | rest] ->
-      qualifyStatementsFrom sourcePath rest (listPrepend (qualifyStatement sourcePath first) reversed)
+      qualifyStatementsFrom sourcePath rest (List::prepend (qualifyStatement sourcePath first) reversed)
   }.
 
   qualifyStatements :: CanonicalSourcePath -> [CoreStatement] -> [CoreStatement].
@@ -666,9 +671,9 @@ module CoreLower (
 
   qualifyExpressionsFrom :: CanonicalSourcePath -> [CoreExpr] -> [CoreExpr] -> [CoreExpr].
   qualifyExpressionsFrom = \(sourcePath, expressions, reversed) -> case expressions {
-    | [] -> listReverse reversed
+    | [] -> List::reverse reversed
     | [first | rest] ->
-      qualifyExpressionsFrom sourcePath rest (listPrepend (qualifyExpression sourcePath first) reversed)
+      qualifyExpressionsFrom sourcePath rest (List::prepend (qualifyExpression sourcePath first) reversed)
   }.
 
   qualifyExpressions :: CanonicalSourcePath -> [CoreExpr] -> [CoreExpr].
@@ -724,7 +729,7 @@ module CoreLower (
     | CapabilityName -> CoreCapabilityName
   }.
 
-  lowerOptionalNameNamespace :: Maybe(SurfaceNameNamespace) -> Maybe(CoreNameNamespace).
+  lowerOptionalNameNamespace :: Maybe::Maybe(SurfaceNameNamespace) -> Maybe::Maybe(CoreNameNamespace).
   lowerOptionalNameNamespace = \(maybeNamespace) -> case maybeNamespace {
     | Nothing -> Nothing
     | Just namespace -> Just (lowerNameNamespace namespace)
@@ -738,9 +743,9 @@ module CoreLower (
 
   lowerLocatedExportNamesFrom :: CanonicalSourcePath -> [SurfaceLocatedExportName] -> [CoreLocatedExportName] -> [CoreLocatedExportName].
   lowerLocatedExportNamesFrom = \(sourcePath, names, reversed) -> case names {
-    | [] -> listReverse reversed
+    | [] -> List::reverse reversed
     | [first | rest] ->
-      lowerLocatedExportNamesFrom sourcePath rest (listPrepend (lowerLocatedExportName sourcePath first) reversed)
+      lowerLocatedExportNamesFrom sourcePath rest (List::prepend (lowerLocatedExportName sourcePath first) reversed)
   }.
 
   lowerLocatedExportNames :: CanonicalSourcePath -> NonEmpty(SurfaceLocatedExportName) -> NonEmpty(CoreLocatedExportName).
@@ -773,15 +778,15 @@ module CoreLower (
 
   lowerModuleExportSelectorsFrom :: CanonicalSourcePath -> [SurfaceModuleExportSelector] -> [CoreModuleExportSelector] -> [CoreModuleExportSelector].
   lowerModuleExportSelectorsFrom = \(sourcePath, selectors, reversed) -> case selectors {
-    | [] -> listReverse reversed
+    | [] -> List::reverse reversed
     | [first | rest] ->
-      lowerModuleExportSelectorsFrom sourcePath rest (listPrepend (lowerModuleExportSelector sourcePath first) reversed)
+      lowerModuleExportSelectorsFrom sourcePath rest (List::prepend (lowerModuleExportSelector sourcePath first) reversed)
   }.
 
   lowerModuleExportSelectors :: CanonicalSourcePath -> [SurfaceModuleExportSelector] -> [CoreModuleExportSelector].
   lowerModuleExportSelectors = \(sourcePath, selectors) -> lowerModuleExportSelectorsFrom sourcePath selectors [].
 
-  lowerOptionalModuleExports :: CanonicalSourcePath -> Maybe([SurfaceModuleExportSelector]) -> Maybe([CoreModuleExportSelector]).
+  lowerOptionalModuleExports :: CanonicalSourcePath -> Maybe::Maybe([SurfaceModuleExportSelector]) -> Maybe::Maybe([CoreModuleExportSelector]).
   lowerOptionalModuleExports = \(sourcePath, maybeExports) -> case maybeExports {
     | Nothing -> Nothing
     | Just selectors -> Just (lowerModuleExportSelectors sourcePath selectors)
@@ -789,13 +794,13 @@ module CoreLower (
 
   collectDeclarationsFrom :: CanonicalSourcePath -> [SurfaceStatement] -> [CollectedModuleDeclaration] -> [CollectedModuleDeclaration].
   collectDeclarationsFrom = \(sourcePath, statements, reversed) -> case statements {
-    | [] -> listReverse reversed
+    | [] -> List::reverse reversed
     | [first | rest] -> case first {
       | ModuleStatement span path exports ->
         collectDeclarationsFrom
           sourcePath
           rest
-          ( listPrepend
+          ( List::prepend
               ( CollectedModuleDeclaration
                   (CoreModuleDeclaration (qualifySpan sourcePath (lowerFoundationSpan span)) path)
                   (lowerOptionalModuleExports sourcePath exports)
@@ -811,13 +816,13 @@ module CoreLower (
 
   collectImportsFrom :: CanonicalSourcePath -> [SurfaceStatement] -> [CoreResolvedImport] -> [CoreResolvedImport].
   collectImportsFrom = \(sourcePath, statements, reversed) -> case statements {
-    | [] -> listReverse reversed
+    | [] -> List::reverse reversed
     | [first | rest] -> case first {
       | ImportStatement span path alias symbols ->
         collectImportsFrom
           sourcePath
           rest
-          ( listPrepend
+          ( List::prepend
               (CoreResolvedImport (qualifySpan sourcePath (lowerFoundationSpan span)) path alias symbols)
               reversed
           )
@@ -830,11 +835,11 @@ module CoreLower (
 
   collectExecutableStatementsFrom :: [SurfaceStatement] -> [SurfaceStatement] -> [SurfaceStatement].
   collectExecutableStatementsFrom = \(statements, reversed) -> case statements {
-    | [] -> listReverse reversed
+    | [] -> List::reverse reversed
     | [first | rest] -> case first {
       | ModuleStatement span path exports -> collectExecutableStatementsFrom rest reversed
       | ImportStatement span path alias symbols -> collectExecutableStatementsFrom rest reversed
-      | other -> collectExecutableStatementsFrom rest (listPrepend first reversed)
+      | other -> collectExecutableStatementsFrom rest (List::prepend first reversed)
     }
   }.
 
@@ -848,14 +853,14 @@ module CoreLower (
 
   declarationValuesFrom :: [CollectedModuleDeclaration] -> [CoreModuleDeclaration] -> [CoreModuleDeclaration].
   declarationValuesFrom = \(declarations, reversed) -> case declarations {
-    | [] -> listReverse reversed
-    | [first | rest] -> declarationValuesFrom rest (listPrepend (declarationValue first) reversed)
+    | [] -> List::reverse reversed
+    | [first | rest] -> declarationValuesFrom rest (List::prepend (declarationValue first) reversed)
   }.
 
   declarationValues :: [CollectedModuleDeclaration] -> [CoreModuleDeclaration].
   declarationValues = \(declarations) -> declarationValuesFrom declarations [].
 
-  declaredExports :: CoreSpan -> Maybe([CoreModuleExportSelector]) -> Maybe(CoreDeclaredModuleExports).
+  declaredExports :: CoreSpan -> Maybe::Maybe([CoreModuleExportSelector]) -> Maybe::Maybe(CoreDeclaredModuleExports).
   declaredExports = \(span, maybeExports) -> case maybeExports {
     | Nothing -> Nothing
     | Just exports -> Just (CoreDeclaredModuleExports span exports)

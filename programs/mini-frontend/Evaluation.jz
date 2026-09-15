@@ -1,5 +1,5 @@
 module Evaluation {
-  import List.
+  import List as List.
   import Syntax.
 
   data EvaluationResult = Evaluated Int | UnboundName Text.
@@ -23,7 +23,7 @@ module Evaluation {
     | Reference name -> lookupName name environment
     | LetExpression name item body -> case evaluate environment item {
       | UnboundName missing -> UnboundName missing
-      | Evaluated result -> evaluate (listPrepend (name, result) environment) body
+      | Evaluated result -> evaluate (List::prepend (name, result) environment) body
     }
   }.
 }

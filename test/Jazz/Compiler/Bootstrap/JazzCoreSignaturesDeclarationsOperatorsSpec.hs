@@ -59,8 +59,8 @@ testDirectParity = do
     "CoreTypeApplicationExpression(CoreVariableExpression(CoreSourceName(\"identity\")), CoreSpan(Nothing, 2, 3), CoreIntType)"
     expected
   assertContains
-    "dollar becomes application"
-    "CoreApplyExpression(CoreVariableExpression(CoreSourceName(\"function\")), CoreLiteralExpression(CoreIntegerLiteral(\"1\")))"
+    "dollar remains operator syntax until name resolution"
+    "CoreBinaryExpression(\"$\", CoreVariableExpression(CoreSourceName(\"function\")), CoreLiteralExpression(CoreIntegerLiteral(\"1\")))"
     expected
   assertContains
     "operator binding keeps exact storage name"
@@ -261,8 +261,8 @@ directFixtures =
                 "constrained"
                 span1
                 ( ConstrainedSignature
-                    [ SignatureConstraint (SurfaceName "Eq" span1 Nothing) [TypeVariable "a"],
-                      SignatureConstraint (SurfaceName "Alias::Ord" span1 (Just span1)) [TypeList (TypeVariable "a")]
+                    [ SignatureConstraint (SurfaceName "Equatable" span1 Nothing) [TypeVariable "a"],
+                      SignatureConstraint (SurfaceName "Alias::Comparable" span1 (Just span1)) [TypeList (TypeVariable "a")]
                     ]
                     (TypeFunction (TypeVariable "a") (TypeList (TypeVariable "a")))
                 )
@@ -323,14 +323,14 @@ directFixtures =
         )
     ),
     ( "class-empty",
-      se (SEBlock [SSClass span1 "Marker" ["a"] []])
+      se (SEBlock [SSClass span1 "Marker" ["a"] [] [] []])
     ),
     ( "class-methods",
       se
         ( SEBlock
             [ SSClass
                 span1
-                "Eq"
+                "Equatable"
                 ["a"]
                 [ SurfaceClassMethodSignature
                     "equals"
@@ -342,15 +342,17 @@ directFixtures =
                     "compare"
                     span1
                     ( ConstrainedSignature
-                        [SignatureConstraint (SurfaceName "Alias::Ord" span1 (Just span1)) [TypeVariable "a"]]
+                        [SignatureConstraint (SurfaceName "Alias::Comparable" span1 (Just span1)) [TypeVariable "a"]]
                         (TypeFunction (TypeVariable "a") TypeInt)
                     )
                 ]
+                []
+                []
             ]
         )
     ),
     ( "impl-empty",
-      se (SEBlock [SSImpl span1 (SurfaceName "Show" span1 Nothing) [TypeText] []])
+      se (SEBlock [SSImpl span1 (SurfaceName "Show" span1 Nothing) [TypeText] [] []])
     ),
     ( "impl-methods",
       se
@@ -370,6 +372,7 @@ directFixtures =
                         )
                     )
                 ]
+                []
             ]
         )
     ),
@@ -378,8 +381,8 @@ directFixtures =
         ( SEBlock
             [ SSSignature "convert" span1 (SignatureType (TypeFunction TypeInt TypeText)),
               SSData span1 "Wrapped" ["a"] [SurfaceDataConstructor "Wrapped" [TypeVariable "a"]],
-              SSClass span1 "Render" ["a"] [SurfaceClassMethodSignature "render" span2 (SignatureType (TypeFunction (TypeVariable "a") TypeText))],
-              SSImpl span1 (SurfaceName "Render" span1 Nothing) [TypeInt] [SurfaceImplMethod "render" span2 (se (SEBinary "$" (seVar "toText") (seVar "item")))],
+              SSClass span1 "Render" ["a"] [SurfaceClassMethodSignature "render" span2 (SignatureType (TypeFunction (TypeVariable "a") TypeText))] [] [],
+              SSImpl span1 (SurfaceName "Render" span1 Nothing) [TypeInt] [SurfaceImplMethod "render" span2 (se (SEBinary "$" (seVar "toText") (seVar "item")))] [],
               SSLet "convert" span2 (se (SETypeApplication (seVar "identity") span2 TypeText)),
               SSExpr span2 (seVar "convert")
             ]
@@ -399,7 +402,6 @@ signatureBlock signatures =
 earlierChildExpressions :: [SurfaceExpr]
 earlierChildExpressions =
   [ se (SETypeApplication (seVar "identity") span1 TypeInt),
-    se (SEBinary "$" (seVar "function") (seInt 1)),
     se (SEBlock [SSSignature "item" span1 (SignatureType TypeInt)]),
     se (SEBlock [SSLet "$operator:%2B%2B" span1 (seVar "combine")])
   ]
@@ -446,18 +448,18 @@ composedFixtures =
     ("signature-qualified", "qualified :: Alias::Result."),
     ("qualified-method", "result = Alias::Class::method."),
     ( "signature-constrained",
-      "constrained :: @{Eq(a), Ord(List(a))}: a -> List(a)."
+      "constrained :: @{Equatable(a), Comparable(List(a))}: a -> List(a)."
     ),
     ("signature-unsupported-forall", "item :: forall a. item = 1."),
     ("data-nullary", "data Maybe = Nothing | Just."),
     ("data-parameterized", "data Maybe a = None | Some a | Pair (a, a) [a]."),
     ("class-empty", "class Marker(a) { }."),
     ( "class-method-signature",
-      "class Eq(a) { equals :: a -> a -> Bool. notEquals :: a -> a -> Bool. }."
+      "class Equatable(a) { equals :: a -> a -> Bool. notEquals :: a -> a -> Bool. }."
     ),
-    ("impl-empty", "impl Eq(Int) { }."),
+    ("impl-empty", "impl Equatable(Int) { }."),
     ( "impl-method-body",
-      "impl Eq(Int) { equals = \\(left, right) -> left == right. }."
+      "impl Equatable(Int) { equals = \\(left, right) -> left == right. }."
     ),
     ( "operator-signature-binding",
       "operator %% tier 2. (%%) :: Int -> Int -> Int. (%%) = \\(left, right) -> left + right. item = 1 %% 2."
@@ -534,6 +536,7 @@ deferredFixtures =
                     span2
                     (se (SEBlock [SSModule span1 ["App", "Main"] Nothing, SSExpr span2 (seInt 1)]))
                 ]
+                []
             ]
         )
     ),

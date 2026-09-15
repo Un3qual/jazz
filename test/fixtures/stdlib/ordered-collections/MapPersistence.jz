@@ -1,14 +1,15 @@
 module Stdlib::OrderedCollections::MapPersistence {
-  import Map.
-  import Maybe.
-  start = mapFromList [(3, "three"), (1, "one"), (2, "two"), (2, "TWO")].
-  replaced = mapInsert start 2 "replaced".
-  updated = mapUpdate replaced 3 (\(current) -> Just "THREE").
-  inserted = mapUpdate updated 4 (\(current) -> Just "four").
-  removedByUpdate = mapUpdate inserted 1 (\(current) -> Nothing).
-  rootRemovalSource = mapFromList [(2, "two"), (1, "one"), (4, "four"), (3, "three"), (5, "five")].
-  (mapToList replaced, mapToList start,
-   maybeMap mapToList (mapReplace start 2 "two!"), mapReplace start 8 "missing",
-   mapToList (mapRemove start 8), mapToList (mapRemove rootRemovalSource 2),
-   mapToList removedByUpdate).
+  import Map as Map.
+  import Maybe as Maybe.
+  import Maybe (Nothing, Just).
+  start = Map::fromList [(3, "three"), (1, "one"), (2, "two"), (2, "TWO")].
+  replaced = Map::insert start 2 "replaced".
+  updated = Map::update replaced 3 (\(current) -> Just "THREE").
+  inserted = Map::update updated 4 (\(current) -> Just "four").
+  removedByUpdate = Map::update inserted 1 (\(current) -> Nothing).
+  rootRemovalSource = Map::fromList [(2, "two"), (1, "one"), (4, "four"), (3, "three"), (5, "five")].
+  (Map::toList replaced, Map::toList start,
+   Maybe::map Map::toList (Map::replace start 2 "two!"), Map::replace start 8 "missing",
+   Map::toList (Map::remove start 8), Map::toList (Map::remove rootRemovalSource 2),
+   Map::toList removedByUpdate).
 }

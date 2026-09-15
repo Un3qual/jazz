@@ -17,12 +17,11 @@ module Jazz.Compiler.ModuleAnalysis
 where
 
 import Control.DeepSeq (rnf)
-import Data.List (partition, sortOn, union)
+import Data.List (partition, sortOn)
 import qualified Data.List.NonEmpty as NonEmpty
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
 import Data.Maybe (isJust, isNothing)
-import Data.Set (Set)
 import qualified Data.Set as Set
 import Data.Text (Text)
 import qualified Data.Text as Text
@@ -34,7 +33,7 @@ import Jazz.Compiler.AST
     expressionNode,
   )
 import Jazz.Compiler.Analyzer (AnalysisBinding (..), AnalysisInputs (..), AnalysisResult (..), analyzeProgramWithInputs, analyzeProgramWithInputsAndPreparedScope)
-import Jazz.Compiler.CoreIdentity (ResolvedReference (LexicalReference), capabilityExportName, capabilityResolvedName, resolvedNodeOwner)
+import Jazz.Compiler.CoreIdentity (capabilityResolvedName)
 import Jazz.Compiler.Diagnostics (CompilationDiagnostics (..), Diagnostic, diagnosticWarningCategory, isErrorDiagnostic)
 import Jazz.Compiler.ModuleExports
   ( ModuleExportInventory,
@@ -53,7 +52,6 @@ import Jazz.Compiler.ModuleGraph
 import qualified Jazz.Compiler.ModuleGraph as ModuleGraph
 import Jazz.Compiler.ModuleIdentity
   ( ModulePath,
-    SourceUnitOwner (..),
     renderModulePath,
   )
 import Jazz.Compiler.ModuleImportScope (ValidatedImportScope, dependencyImportViews)
@@ -71,7 +69,7 @@ import Jazz.Compiler.Name
     sourceName,
   )
 import Jazz.Compiler.PatternCoverage (PatternCoverageFailure (..), PatternCoverageSite (..), analyzePatternCoverage)
-import Jazz.Compiler.SemanticDeclarations (DeclarationVariable, filterScopeCapabilities)
+import Jazz.Compiler.SemanticDeclarations (DeclarationVariable)
 import Jazz.Compiler.SemanticFacts
   ( SemanticFactInvariantFailure (..),
     StatementDeclarationFact (..),
@@ -142,11 +140,8 @@ moduleInferenceInputs inputs resolvedModule importedInterface =
       inferenceImportedDataTypes = importedDataTypes importedInterface,
       inferenceImportedConstructorWitnessNames = importedConstructorWitnessNames importedInterface,
       inferenceImportedCapabilities = importedCapabilities importedInterface,
-      inferenceImportedClassNames = importedClassNames importedInterface,
-      inferenceCurrentModulePath = case resolvedNodeOwner (coreNodeFacts (ModuleGraph.coreModuleBodyNode resolvedModule)) of StandaloneSourceUnit _ -> Nothing; _ -> Just modulePath
+      inferenceImportedClassNames = importedClassNames importedInterface
     }
-  where
-    modulePath = coreModulePath resolvedModule
 
 analyzedModuleFromExpression :: CoreModule 'Resolved -> InferenceResult -> Expr 'Analyzed -> Either SemanticFactInvariantFailure (CoreModule 'Analyzed)
 analyzedModuleFromExpression resolvedModule inference analyzedExpression =
@@ -189,8 +184,9 @@ dependencyImportInterface :: ValidatedImportScope -> ModulePath -> ModuleInterfa
 dependencyImportInterface scope path interface =
   -- Prefer a qualified witness when available: local declarations can shadow
   -- the unqualified spelling. Alias order must not depend on import order.
-  foldMap (\(alias, selected) -> importSelectedInterface (ImportedModule path) alias selected interface) $
-    sortOn (\(alias, _) -> (isNothing alias, alias)) (dependencyImportViews path scope)
+  (mempty {importedCapabilities = interfaceCapabilities interface, importedDataTypes = interfaceDataTypes interface} <>) $
+    foldMap (\(alias, selected) -> importSelectedInterface (ImportedModule path) alias selected interface) $
+      sortOn (\(alias, _) -> (isNothing alias, alias)) (dependencyImportViews path scope)
 
 data ImportedInterface = ImportedInterface
   { importedTypes :: Map TypeEnvKey (SemanticBinding DeclarationVariable),
@@ -209,16 +205,7 @@ instance Semigroup ImportedInterface where
           Map.union
             (importedConstructorWitnessNames left)
             (importedConstructorWitnessNames right),
-        importedCapabilities =
-          let leftFacts = importedCapabilities left
-              rightFacts = importedCapabilities right
-           in (leftFacts <> rightFacts)
-                { scopeConcreteImplMethods =
-                    Map.unionWith
-                      union
-                      (scopeConcreteImplMethods leftFacts)
-                      (scopeConcreteImplMethods rightFacts)
-                },
+        importedCapabilities = importedCapabilities left <> importedCapabilities right,
         importedClassNames = Set.union (importedClassNames left) (importedClassNames right)
       }
 
@@ -245,7 +232,7 @@ importSelectedInterface origin maybeAlias selectedInventory moduleInterface =
   ImportedInterface
     { importedTypes =
         Map.fromList
-          [ ( TypeEnvKey (LexicalReference binder) (importedName export),
+          [ ( TypeEnvKey binder (importedName export),
               binding
             )
           | (export, ModuleValueBinding binder binding) <- Map.toList selectedValueTypes
@@ -284,8 +271,7 @@ importSelectedInterface origin maybeAlias selectedInventory moduleInterface =
         (interfaceValueBindings moduleInterface)
     selectedClassNames = exportNamesInNamespace CapabilityNamespace selectedInventory
     capabilities = interfaceCapabilities moduleInterface
-    selectedCapabilities =
-      filterScopeCapabilities ((`Set.member` selectedClassNames) . capabilityExportName) capabilities
+    selectedCapabilities = capabilities
 
 analyzeResolvedExpression ::
   WarningSettings ->
@@ -426,18 +412,14 @@ forceModuleInterfaceContainers moduleInterface =
   Map.foldrWithKey (\export (ModuleValueBinding binder binding) forced -> export `seq` binder `seq` binding `seq` forced) () (interfaceValueBindings moduleInterface) `seq`
     forceMapEntriesWhnf (interfaceDataTypes moduleInterface) `seq`
       forceMapEntriesWhnf (scopeClassFacts capabilities) `seq`
-        forceSetEntriesWhnf (scopeGeneratedEqualityClassFacts capabilities) `seq`
-          forceSetEntriesWhnf (scopeConcreteImplFacts capabilities) `seq`
-            forceMapEntriesWhnf (scopeClassMethodSignatures capabilities) `seq`
-              forceMapEntriesWhnf (scopeConcreteImplMethods capabilities)
+        forceMapEntriesWhnf (scopeImplementations capabilities) `seq`
+          forceMapEntriesWhnf (scopeClassMethodSignatures capabilities) `seq`
+            ()
   where
     capabilities = interfaceCapabilities moduleInterface
 
 forceMapEntriesWhnf :: Map key value -> ()
 forceMapEntriesWhnf = Map.foldrWithKey (\key value forced -> key `seq` value `seq` forced) ()
-
-forceSetEntriesWhnf :: Set value -> ()
-forceSetEntriesWhnf = Set.foldr (\value forced -> value `seq` forced) ()
 
 emptyInferenceInputs :: WarningSettings -> InferenceInputs
 emptyInferenceInputs settings =
@@ -449,8 +431,7 @@ emptyInferenceInputs settings =
       inferenceImportedDataTypes = Map.empty,
       inferenceImportedConstructorWitnessNames = Map.empty,
       inferenceImportedCapabilities = emptyScopeCapabilityFacts,
-      inferenceImportedClassNames = Set.empty,
-      inferenceCurrentModulePath = Nothing
+      inferenceImportedClassNames = Set.empty
     }
 
 analysisInputsForInference :: InferenceInputs -> AnalysisInputs

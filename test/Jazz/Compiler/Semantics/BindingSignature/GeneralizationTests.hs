@@ -96,7 +96,7 @@ testSourceInstantiatesVariableConstrainedSignaturePerUse :: IO ()
 testSourceInstantiatesVariableConstrainedSignaturePerUse =
   assertSourceOk
     """
-    id :: @{Eq(a)}: a -> a.
+    id :: @{Equatable(a)}: a -> a.
     id = \\(x) -> x.
     x = id 1.
     y = id True.
@@ -127,9 +127,9 @@ testSourceAppliesExplicitTypeApplicationToGeneralizedSignature :: IO ()
 testSourceAppliesExplicitTypeApplicationToGeneralizedSignature =
   assertSourceOkWithoutPrelude
     """
-    class Eq(a) { }.
-    impl Eq(Int) { }.
-    id :: @{Eq(a)}: a -> a.
+    class Equatable(a) { }.
+    impl Equatable(Int) { }.
+    id :: @{Equatable(a)}: a -> a.
     id = \\(x) -> x.
     candidate = id @Int 1.
     candidate.
@@ -161,9 +161,9 @@ testSourceAppliesExplicitTypeApplicationToFirstSourceVariable :: IO ()
 testSourceAppliesExplicitTypeApplicationToFirstSourceVariable =
   assertSourceOkWithoutPrelude
     """
-    class Eq(a) { }.
-    impl Eq(Int) { }.
-    choose :: @{Eq(b)}: b -> a -> b.
+    class Equatable(a) { }.
+    impl Equatable(Int) { }.
+    choose :: @{Equatable(b)}: b -> a -> b.
     choose = \\(x, y) -> x.
     candidate = choose @Int 1 True.
     candidate.
@@ -177,7 +177,7 @@ testSourceAppliesExplicitTypeApplicationToInferredTypeOrder = do
       Nothing
       ( """
         flip = \\(f, x, y) -> f y x.
-        candidate = flip @Int (\\(left, right) -> left + 1) True 2.
+        candidate = flip @Int (\\(left, right) -> __kernel_add left 1) True 2.
         candidate.
         """
       )
@@ -192,7 +192,7 @@ testSourceRejectsPrimitiveIncompatibleExplicitTypeApplication =
     class Num(a) { }.
     impl Num(Bool) { }.
     addSelf :: @{Num(a)}: a -> a.
-    addSelf = \\(x) -> x + x.
+    addSelf = \\(x) -> __kernel_add x x.
     bad = addSelf @Bool True.
     """
     "primitive numeric constraint"
@@ -211,9 +211,9 @@ testSourceRejectsExtraExplicitTypeApplicationArgument :: IO ()
 testSourceRejectsExtraExplicitTypeApplicationArgument =
   assertSourceSingleErrorContainsWithoutPrelude
     """
-    class Eq(a) { }.
-    impl Eq(Int) { }.
-    id :: @{Eq(a)}: a -> a.
+    class Equatable(a) { }.
+    impl Equatable(Int) { }.
+    id :: @{Equatable(a)}: a -> a.
     id = \\(x) -> x.
     candidate = id @Int @Bool 1.
     """
@@ -226,7 +226,7 @@ testSourceRejectsVariableConstrainedTypeApplicationWithoutShiftingState = do
       defaultWarningSettings
       Nothing
       """
-      bad :: @{Eq(f), Ord(a)}: f(a) -> a.
+      bad :: @{Equatable(f), Comparable(a)}: f(a) -> a.
       bad = \\(x) -> x.
       use = [] 1.
       """

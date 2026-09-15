@@ -1,0 +1,68 @@
+module GenericLaws {
+  import Queue as Queue.
+  import Maybe as Maybe.
+  import Result as Result.
+  import NonEmpty as NonEmpty.
+  import Map as Map.
+  import Dictionary as Dictionary.
+  import Set as Set.
+  identity = \(item) -> item.
+  first = \(item) -> item + 1.
+  second = \(item) -> item * 2.
+  composed = \(item) -> second (first item).
+  identityLaw = \(items) -> equals (map identity items) items.
+  compositionLaw = \(items) -> equals (map composed items) (map second (map first items)).
+  success :: Result::Result(Text, Int).
+  success = Result::Ok 1.
+  failure :: Result::Result(Text, Int).
+  failure = Result::Err "bad".
+  ordered = Map::fromList [(2, 4), (1, 5)].
+  inserted = Dictionary::fromList [(2, 4), (1, 5)].
+  digits = \(items) -> (foldLeft (\(acc, item) -> acc * 10 + item) 0 items,
+    foldRight (\(item, acc) -> acc * 10 + item) 0 items).
+  emptyMaybe :: Maybe::Maybe(Int).
+  emptyMaybe = Maybe::Nothing.
+  emptyMap :: Map::Map(Int, Int).
+  emptyMap = Map::empty.
+  emptyDictionary :: Dictionary::Dictionary(Int, Int).
+  emptyDictionary = Dictionary::empty.
+  checks = [
+    ("List identity law", identityLaw [1, 2]),
+    ("List composition law", compositionLaw [1, 2]),
+    ("Queue identity law", identityLaw (Queue::fromList [1, 2])),
+    ("Queue composition law", compositionLaw (Queue::fromList [1, 2])),
+    ("Maybe identity law", identityLaw (Maybe::Just 1)),
+    ("Maybe composition law", compositionLaw (Maybe::Just 1)),
+    ("Result success identity law", identityLaw success),
+    ("Result success composition law", compositionLaw success),
+    ("Result error identity law", identityLaw failure),
+    ("Result error composition law", compositionLaw failure),
+    ("NonEmpty identity law", identityLaw (NonEmpty::NonEmpty 1 [2])),
+    ("NonEmpty composition law", compositionLaw (NonEmpty::NonEmpty 1 [2])),
+    ("Map identity law", Map::toList (map identity ordered) == Map::toList ordered),
+    ("Map composition law", Map::toList (map composed ordered) == Map::toList (map second (map first ordered))),
+    ("Dictionary identity law", Dictionary::toList (map identity inserted) == Dictionary::toList inserted),
+    ("Dictionary composition law", Dictionary::toList (map composed inserted) == Dictionary::toList (map second (map first inserted))),
+    ("List empty folds", digits [] == (0, 0)),
+    ("Queue empty folds", digits (Queue::empty @Int) == (0, 0)),
+    ("Maybe empty folds", digits emptyMaybe == (0, 0)),
+    ("Result error empty folds", digits failure == (0, 0)),
+    ("Map empty folds", digits emptyMap == (0, 0)),
+    ("Dictionary empty folds", digits emptyDictionary == (0, 0)),
+    ("Set empty folds", digits (Set::empty @Int) == (0, 0)),
+    ("List fold order", digits [1, 2, 3] == (123, 321)),
+    ("Queue fold order", digits (Queue::fromList [1, 2, 3]) == (123, 321)),
+    ("Maybe fold order", digits (Maybe::Just 3) == (3, 3)),
+    ("Result success fold order", digits success == (1, 1)),
+    ("NonEmpty fold order", digits (NonEmpty::NonEmpty 1 [2, 3]) == (123, 321)),
+    ("Map fold order", digits ordered == (54, 45)),
+    ("Dictionary fold order", digits inserted == (45, 54)),
+    ("Set fold order", digits (Set::fromList [3, 1, 2]) == (123, 321)),
+    ("Set contents can be mapped as a list", map (\(item) -> item == 1) (Set::toList (Set::fromList [2, 1])) == [True, False]),
+    ("Queue equality ignores internal shape", equals (Queue::fromList [1, 2]) (Queue::enqueue (Queue::fromList [1]) 2)),
+    ("Default differs method", differs [1] [2]),
+    ("Maybe equality distinguishes constructors", equals emptyMaybe (Maybe::Just 1) == False),
+    ("Result equality distinguishes constructors", equals success failure == False),
+    ("Explicit empty List mapping", map @List (\(item) -> item == 1) [] == [])].
+  filter (\((_, passed)) -> if passed then False else True) checks.
+}

@@ -4,6 +4,7 @@
 module Jazz.Compiler.TypeInference.Instantiation
   ( instantiateNonBuiltinTypeBinding,
     inferExplicitTypeApplication,
+    instantiateTypeScheme,
     typeBindingScheme,
   )
 where
@@ -12,6 +13,7 @@ import Data.List.NonEmpty
   ( NonEmpty (..),
   )
 import qualified Data.Map.Strict as Map
+import Data.Void (absurd)
 import Jazz.Compiler.AST
   ( CoreNode (coreNodeFacts, coreNodeId, coreNodeSpan),
     CorePhase (..),
@@ -22,14 +24,17 @@ import Jazz.Compiler.CoreIdentity (CapabilityMethodKey, capabilityMethodKeyFromR
 import Jazz.Compiler.Name
   ( ResolvedName,
   )
+import Jazz.Compiler.SemanticDeclarations (ClassDefinition (..), normalizeSignatureTypeAt, signatureVariableKindsAt)
 import Jazz.Compiler.SemanticFacts (SemanticFactInvariantFailure (MissingExpressionFacts))
 import Jazz.Compiler.TypeInference.Analyzed (ExpressionDecision (..), draftDecidedExpressionNode, draftExpressionNode, noExpressionDecision)
 import Jazz.Compiler.TypeInference.Capabilities
   ( MethodSelection (..),
+    addInferredConstraint,
     applyTypeSchemePrimitiveConstraints,
     capabilityFactsFromState,
     deferExplicitConstraintsWithFacts,
     instantiateQualifiedMethodTypeWithExplicitTarget,
+    newConstraintEvidence,
     qualifiedMethodClassIsVisible,
   )
 import Jazz.Compiler.TypeInference.Diagnostics
@@ -42,7 +47,6 @@ import Jazz.Compiler.TypeInference.Draft (CheckedExpr (..), rejectedDraft)
 import Jazz.Compiler.TypeInference.Pattern
   ( instantiateConstructorBinding,
   )
-import qualified Jazz.Compiler.TypeInference.Signature as Signature
 import Jazz.Compiler.TypeInference.Solver
   ( freshTypeVars,
     resolveType,
@@ -51,6 +55,8 @@ import Jazz.Compiler.TypeInference.State
   ( ExplicitInstantiationSeed (..),
     ExplicitInstantiationTarget (..),
     InferState (..),
+    inferClassFacts,
+    inferDataTypes,
   )
 import Jazz.Compiler.TypeInference.Traversal
   ( InferExprFn,
@@ -63,6 +69,7 @@ import Jazz.Compiler.TypeInference.TypeOps
 import Jazz.Compiler.TypeInference.Types
   ( ExpressionType,
     InferenceVariable,
+    SchemeConstraint (..),
     SemanticBinding (..),
     SemanticScheme (..),
     SemanticType (..),
@@ -72,17 +79,16 @@ import Jazz.Compiler.TypeInference.Types
     quantifiedVariablesOrderedList,
     typeEnvReferenceKey,
   )
+import Jazz.Compiler.TypeRepresentation (Kind (..))
 
 typeBindingScheme :: TypeBinding -> Maybe TypeScheme
 typeBindingScheme binding =
   case binding of
     SchemeTypeBinding typeScheme -> Just typeScheme
-    OperatorAliasSchemeTypeBinding _ typeScheme -> Just typeScheme
     _ -> Nothing
 
 -- | Instantiate non-builtin local bindings and constructors at use sites.
--- Builtin aliases stay with the top-level dispatcher because their rules share
--- the operator and primitive catalog owned there.
+-- Kernel aliases use the primitive schemes in the top-level dispatcher.
 instantiateNonBuiltinTypeBinding :: TypeBinding -> InferState -> (Maybe ExpressionType, InferState)
 instantiateNonBuiltinTypeBinding binding state =
   case binding of
@@ -91,9 +97,6 @@ instantiateNonBuiltinTypeBinding binding state =
     SchemeTypeBinding typeScheme ->
       instantiateTypeScheme typeScheme state
     BuiltinAliasTypeBinding {} -> (Nothing, state)
-    BuiltinOperatorAliasTypeBinding {} -> (Nothing, state)
-    OperatorAliasSchemeTypeBinding _ typeScheme ->
-      instantiateTypeScheme typeScheme state
     ConstructorTypeBinding {} ->
       case instantiateConstructorBinding binding state of
         Just (constructorArgumentTypes', constructorResultType, nextState) ->
@@ -129,35 +132,48 @@ instantiateTypeSchemeWithBindings typeScheme initialBindings remainingVariables 
         applyTypeSchemePrimitiveConstraints instantiatedPrimitiveConstraints nextState
       stateWithDeferredConstraints =
         deferExplicitConstraintsWithFacts
-          (definingFacts <> capabilityFactsFromState state)
-          definingFacts
+          (capabilityFactsFromState state)
           instantiatedConstraints
-          stateWithPrimitiveConstraints
+          (foldl' (flip addInferredConstraint) stateWithPrimitiveConstraints instantiatedConstraints)
    in (Just (resolveType stateWithDeferredConstraints instantiatedType), stateWithDeferredConstraints)
   where
     explicitConstraints = schemeClassConstraints typeScheme
     primitiveConstraints = schemePrimitiveConstraints typeScheme
-    definingFacts = schemeDefiningCapabilities typeScheme
     expressionType = schemeResultType typeScheme
 
 inferExplicitTypeApplication :: InferExprFn -> TypeEnv -> InferState -> Expr 'Resolved -> (CheckedExpr, InferState)
 inferExplicitTypeApplication inferExpression env state expression@(ETypeApplication node functionExpr typeArgumentSpan typeArgument) =
-  case (explicitTypeApplicationScheme env functionExpr, Signature.constraintSignatureTypeToExpressionTypeWithState state Map.empty typeArgument) of
+  case (explicitTypeApplicationScheme env functionExpr, checkedTypeArgument) of
     (_, Just explicitArgumentType)
-      | Just methodKey <- explicitQualifiedMethodTypeApplicationKey env state functionExpr,
+      | Just methodKey <- explicitQualifiedMethodTypeApplicationKey state functionExpr,
         Just targetName <- explicitTypeApplicationTargetName functionExpr ->
-          let (selection, next) = instantiateQualifiedMethodTypeWithExplicitTarget methodKey explicitArgumentType state
+          let (selection, next) = instantiateQualifiedMethodTypeWithExplicitTarget instantiateTypeScheme methodKey explicitArgumentType state
            in finish (ExplicitQualifiedMethodInstantiation targetName) explicitArgumentType (selectedMethodType selection) (selectedMethodEvidence selection) (annotateNewErrorsWithPrimarySpan (coreNodeSpan (expressionNode functionExpr)) state next)
     (Just scheme, Just explicitArgumentType)
       | Just targetName <- explicitTypeApplicationTargetName functionExpr ->
           let (result, next) = instantiateTypeSchemeWithExplicitArgument scheme explicitArgumentType state
-           in finish (ExplicitBinderInstantiation targetName) explicitArgumentType result Nothing next
+           in finish (ExplicitBinderInstantiation targetName) explicitArgumentType result (newConstraintEvidence state next) next
     (Just _, Just _) -> failed (addTypeError state mkExplicitTypeApplicationTargetError)
-    (Just _, Nothing) -> failed (addTypeError state (mkInvalidExplicitTypeApplicationArgumentError state typeArgumentSpan typeArgument))
+    (_, Nothing) -> failed (addTypeError state (mkInvalidExplicitTypeApplicationArgumentError state typeArgumentSpan typeArgument))
     (Nothing, _) ->
       let (functionCheck, next) = inferExpression env state functionExpr
        in failed (case checkedExprType functionCheck of Just _ -> addTypeError next mkExplicitTypeApplicationTargetError; Nothing -> next)
   where
+    checkedTypeArgument = either (const Nothing) Just (normalizeSignatureTypeAt (inferDataTypes state) Map.empty expectedKind typeArgument)
+    expectedKind = case explicitQualifiedMethodTypeApplicationKey state functionExpr of
+      Just (capability, _) -> maybe TypeKind classParameterKind (Map.lookup capability (inferClassFacts state))
+      Nothing -> case explicitTypeApplicationScheme env functionExpr of
+        Just scheme
+          | variable : _ <- quantifiedVariablesOrderedList (schemeQuantifiedVariables scheme) ->
+              let requirements =
+                    (schemeResultType scheme, TypeKind)
+                      : [ (target, fmap absurd (classParameterKind definition))
+                        | constraint <- schemeClassConstraints scheme,
+                          let (capability, target) = case constraint of TypeSchemeConstraint owner argument -> (owner, argument); TypeSchemeMethodConstraint owner _ argument -> (owner, argument),
+                          Just definition <- [Map.lookup capability (inferClassFacts state)]
+                        ]
+               in either (const TypeKind) (Map.findWithDefault TypeKind variable) (signatureVariableKindsAt (inferDataTypes state) Map.empty requirements)
+        _ -> TypeKind
     failed next = (CheckedExpr Nothing (rejectedDraft (MissingExpressionFacts (coreNodeId node))), next)
     finish target argument result evidence next =
       let seed = ExplicitInstantiationSeed target (argument :| []) <$ result
@@ -175,12 +191,11 @@ explicitTypeApplicationTargetName functionExpr =
     EVar _ name -> Just name
     _ -> Nothing
 
-explicitQualifiedMethodTypeApplicationKey :: TypeEnv -> InferState -> Expr 'Resolved -> Maybe CapabilityMethodKey
-explicitQualifiedMethodTypeApplicationKey env state functionExpr =
+explicitQualifiedMethodTypeApplicationKey :: InferState -> Expr 'Resolved -> Maybe CapabilityMethodKey
+explicitQualifiedMethodTypeApplicationKey state functionExpr =
   case functionExpr of
     EVar node name
-      | Map.notMember (typeEnvReferenceKey (coreNodeFacts node) name) env,
-        Just methodKey <- capabilityMethodKeyFromReference (resolvedValueReference (coreNodeFacts node) name),
+      | Just methodKey <- capabilityMethodKeyFromReference (resolvedValueReference (coreNodeFacts node) name),
         qualifiedMethodClassIsVisible methodKey state ->
           Just methodKey
     _ -> Nothing

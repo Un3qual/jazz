@@ -56,8 +56,8 @@ import Jazz.Compiler.AST
     Statement (..),
     expressionNode,
   )
-import Jazz.Compiler.CoreIdentity (CoreBinderId, CoreNodeId, ResolvedNodeFacts (..), ResolvedReference (..), ResolvedScopeFacts (..))
-import Jazz.Compiler.Name (Name (..), ResolvedName, ResolvedNameOrigin (..), ResolvedUserName (..), operatorBindingName)
+import Jazz.Compiler.CoreIdentity (CapabilityId (..), CoreBinderId, CoreNodeId, ResolvedNodeFacts (..), ResolvedReference (..), ResolvedScopeFacts (..))
+import Jazz.Compiler.Name (Name (..), ResolvedName, ResolvedNameOrigin (..), ResolvedUserName (..), identifierText, mkIdentifier, operatorBindingName)
 import Jazz.Compiler.Parser.Operator
   ( isBuiltinOperatorSymbol,
   )
@@ -99,17 +99,16 @@ resolvedExpressionReferences expression = case expression of
     statementReferences statement = case statement of
       SLet _ _ value -> recur value
       SExpr _ value -> recur value
-      SImpl _ _ _ methods -> foldMap (\(ImplMethod _ _ body) -> recur body) methods
+      SClass _ _ _ _ _ defaults -> foldMap (\(ImplMethod _ _ body) -> recur body) defaults
+      SImpl _ _ _ methods _ -> foldMap (\(ImplMethod _ _ body) -> recur body) methods
       _ -> Map.empty
 
 -- | Name resolution has chosen namespaces and nonlocal targets. This pass owns
 -- ordered local visibility, recursive groups, and the references selecting each
 -- declaration. Later phases consume the published product unchanged.
 resolveLexicalScopes :: Map ResolvedName ResolvedReference -> Set ResolvedName -> Expr 'Resolved -> Expr 'Resolved
-resolveLexicalScopes externalReferences externalNames = expression (Map.mapMaybe lexicalBinder externalReferences)
+resolveLexicalScopes externalReferences externalNames = expression externalReferences
   where
-    lexicalBinder (LexicalReference binder) = Just binder
-    lexicalBinder _ = Nothing
     expression bound expr = case expr of
       ELit {} -> expr
       EVar node name -> EVar (reference bound name node) name
@@ -125,12 +124,12 @@ resolveLexicalScopes externalReferences externalNames = expression (Map.mapMaybe
       ESectionLeft node left symbol -> ESectionLeft (reference bound (operatorBindingName symbol) node) (expression bound left) symbol
       ESectionRight node symbol right -> ESectionRight (reference bound (operatorBindingName symbol) node) symbol (expression bound right)
       EBlock node statements -> block bound node statements
-    reference :: Map ResolvedName CoreBinderId -> ResolvedName -> CoreNode 'Resolved sort -> CoreNode 'Resolved sort
+    reference :: Map ResolvedName ResolvedReference -> ResolvedName -> CoreNode 'Resolved sort -> CoreNode 'Resolved sort
     reference bound name node = node {coreNodeFacts = facts {resolvedNodeReference = Just target}}
       where
         facts = coreNodeFacts node
         target = case Map.lookup name bound of
-          Just binder -> LexicalReference binder
+          Just targetReference -> targetReference
           Nothing -> case resolvedNodeReference facts of
             Just existing@(LexicalReference _)
               | Set.member name externalNames -> existing
@@ -138,10 +137,10 @@ resolveLexicalScopes externalReferences externalNames = expression (Map.mapMaybe
               | otherwise -> UnresolvedReference name
             Just existing -> existing
             Nothing -> UnresolvedReference name
-    shadowed :: Map ResolvedName CoreBinderId -> ResolvedName -> CoreNode 'Resolved sort -> CoreNode 'Resolved sort
-    shadowed bound name node = node {coreNodeFacts = (coreNodeFacts node) {resolvedNodeShadowedReference = LexicalReference <$> Map.lookup name bound}}
+    shadowed :: Map ResolvedName ResolvedReference -> ResolvedName -> CoreNode 'Resolved sort -> CoreNode 'Resolved sort
+    shadowed bound name node = node {coreNodeFacts = (coreNodeFacts node) {resolvedNodeShadowedReference = Map.lookup name bound}}
     insertBinder node name bound = case resolvedNodeBinder (coreNodeFacts node) of
-      Just binder -> Map.insert name binder bound
+      Just binder -> Map.insert name (LexicalReference binder) bound
       Nothing -> bound
     arm bound (CaseArm node pattern guard body) =
       let resolvedPattern = resolvePattern bound Map.empty pattern
@@ -163,7 +162,7 @@ resolveLexicalScopes externalReferences externalNames = expression (Map.mapMaybe
         sharedBinder node name =
           let updated = shadowed bound name node
            in case Map.lookup name shared of
-                Just binder -> updated {coreNodeFacts = (coreNodeFacts updated) {resolvedNodeBinder = Just binder}}
+                Just binder -> updated {coreNodeFacts = (coreNodeFacts updated) {resolvedNodeBinder = case binder of LexicalReference identity -> Just identity; _ -> Nothing}}
                 Nothing -> updated
     patternBindings pattern = case pattern of
       PVariable node name -> insertBinder node name Map.empty
@@ -207,9 +206,11 @@ resolveLexicalScopes externalReferences externalNames = expression (Map.mapMaybe
           SData statementNode name parameters constructors ->
             let (nextVisible, resolvedConstructors) = mapAccumL (\acc (DataConstructor constructorNode constructor fields) -> (insertBinder constructorNode constructor acc, DataConstructor (shadowed acc constructor constructorNode) constructor fields)) visible constructors
              in (nextVisible, SData statementNode name parameters resolvedConstructors)
-          SImpl statementNode capability targets methods ->
-            let methodVisible = foldl' (\acc (ImplMethod methodNode name _) -> insertBinder methodNode name acc) visible methods
-             in (visible, SImpl statementNode capability targets [ImplMethod (shadowed visible name methodNode) name (expression methodVisible body) | ImplMethod methodNode name body <- methods])
+          SClass statementNode capability parameters signatures context defaults ->
+            let withMethods = foldl' (\acc (ClassMethodSignature _ name _) -> Map.insert name (CapabilityMethodReference (CapabilityId capability) (mkIdentifier (identifierText name))) acc) visible signatures
+             in (withMethods, SClass statementNode capability parameters signatures context [ImplMethod methodNode name (expression withMethods body) | ImplMethod methodNode name body <- defaults])
+          SImpl statementNode capability targets methods context ->
+            (visible, SImpl statementNode capability targets [ImplMethod methodNode name (expression visible body) | ImplMethod methodNode name body <- methods] context)
           _ -> (visible, value)
         insertPeer visible index = case Map.lookup index definitions of
           Just (bindingNode, name) | Map.notMember name visible -> insertBinder bindingNode name visible
@@ -256,7 +257,6 @@ publishResolvedCaptures = snd . expression
         let (free, checked) = unzip (map statement statements)
          in (without (foldMap statementBinders statements) (mconcat free), EBlock node checked)
     reference node name = case resolvedNodeReference (coreNodeFacts node) of
-      Just (BuiltinOperatorReference _) -> mempty
       Just target -> stableSetSingleton (target, name)
       Nothing -> mempty
     binder node = maybe Set.empty (Set.singleton . LexicalReference) (resolvedNodeBinder (coreNodeFacts node))
@@ -282,14 +282,17 @@ publishResolvedCaptures = snd . expression
     statement value = case value of
       SLet node name body -> fmap (SLet node name) (expression body)
       SExpr node body -> fmap (SExpr node) (expression body)
-      SImpl node capability target methods ->
+      SClass node capability parameters signatures context defaults ->
+        let (free, checked) = unzip [fmap (ImplMethod methodNode name) (expression body) | ImplMethod methodNode name body <- defaults]
+         in (mconcat free, SClass node capability parameters signatures context checked)
+      SImpl node capability target methods context ->
         let (free, checked) = unzip [fmap (ImplMethod methodNode name) (expression body) | ImplMethod methodNode name body <- methods]
-         in (without (foldMap (\(ImplMethod methodNode _ _) -> binder methodNode) methods) (mconcat free), SImpl node capability target checked)
+         in (without (foldMap (\(ImplMethod methodNode _ _) -> binder methodNode) methods) (mconcat free), SImpl node capability target checked context)
       _ -> (mempty, value)
     statementBinders value = case value of
       SLet node _ _ -> binder node
       SData _ _ _ constructors -> foldMap (\(DataConstructor node _ _) -> binder node) constructors
-      SClass _ _ _ methods -> foldMap (\(ClassMethodSignature node _ _) -> binder node) methods
+      SClass _ _ _ methods _ _ -> foldMap (\(ClassMethodSignature node _ _) -> binder node) methods
       _ -> Set.empty
 
 collectBindingNames :: [(Int, Statement phase)] -> Map Int (CoreNameAt phase)

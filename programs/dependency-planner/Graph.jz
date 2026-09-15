@@ -1,5 +1,5 @@
 module Graph {
-  import List.
+  import List as List.
 
   data PlanState = PlanState [Text] [Text].
 
@@ -26,12 +26,12 @@ module Graph {
   planNode :: Text -> [(Text, [Text])] -> [Text] -> [Text] -> PlanState.
   planNode = \(node, graph, visited, reversedOrder) -> if (containsText node visited) then
     PlanState visited reversedOrder
-    else case planMany (dependenciesFor node graph) graph (listPrepend node visited) reversedOrder {
-      | PlanState nextVisited nextOrder -> PlanState nextVisited (listPrepend node nextOrder)
+    else case planMany (dependenciesFor node graph) graph (List::prepend node visited) reversedOrder {
+      | PlanState nextVisited nextOrder -> PlanState nextVisited (List::prepend node nextOrder)
     }.
 
   dependencyPlan :: Text -> [(Text, [Text])] -> [Text].
   dependencyPlan = \(entry, graph) -> case planNode entry graph [] [] {
-    | PlanState visited reversedOrder -> listReverse reversedOrder
+    | PlanState visited reversedOrder -> List::reverse reversedOrder
   }.
 }

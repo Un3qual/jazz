@@ -1,20 +1,21 @@
 module Stdlib::Foundations::ListTransform {
-  import List.
-  import Maybe.
+  import List as List.
+  import Maybe as Maybe.
+  import Maybe (Nothing, Just).
   values = [1, 2, 3].
   pairs = [(1, "a"), (2, "b")].
-  (listAppend [1, 2] [3, 4], listConcat [[1, 2], [], [3, 4]],
-   listRepeat 3 1, listIntersperse 0 values, listIntercalate [0] [[1, 2], [3, 4]],
-   listMap (\(item) -> item * 2) values,
-   listFilter (\(item) -> item > 1) values,
-   listFilterMap (\(item) -> if item == 2 then Nothing else Just (item * 10)) values,
-   listPartition (\(item) -> item == 2) values,
-   listFoldLeft (\(total, item) -> total + item) 4 values,
-   listFoldRight (\(item, total) -> item + total) 4 values,
-   listScanLeft (\(total, item) -> total + item) 0 values,
-   listAny (\(item) -> item == 2) values,
-   listAll (\(item) -> item > 0) values,
-   listContains 2 values, listFind (\(item) -> item > 2) values,
-   listFindIndex (\(item) -> item == 3) values,
-   listZip [1, 2, 3] ["a", "b"], listUnzip pairs, listIndexed ["a", "b"]).
+  (List::append [1, 2] [3, 4], List::concat [[1, 2], [], [3, 4]],
+   List::repeat 3 1, List::intersperse 0 values, List::intercalate [0] [[1, 2], [3, 4]],
+   List::map (\(item) -> item * 2) values,
+   List::filter (\(item) -> item > 1) values,
+   List::filterMap (\(item) -> if item == 2 then Nothing else Just (item * 10)) values,
+   List::partition (\(item) -> item == 2) values,
+   List::foldLeft (\(total, item) -> total + item) 4 values,
+   List::foldRight (\(item, total) -> item + total) 4 values,
+   List::scanLeft (\(total, item) -> total + item) 0 values,
+   List::any (\(item) -> item == 2) values,
+   List::all (\(item) -> item > 0) values,
+   List::contains 2 values, List::find (\(item) -> item > 2) values,
+   List::findIndex (\(item) -> item == 3) values,
+   List::zip [1, 2, 3] ["a", "b"], List::unzip pairs, List::indexed ["a", "b"]).
 }

@@ -50,9 +50,9 @@ import Jazz.Compiler.Name
 import Jazz.Compiler.Semantics.Runtime.Fixtures
   ( expressionApply,
     expressionBlock,
+    expressionKernelFunction,
     expressionList,
     expressionLiteral,
-    expressionSectionLeft,
     expressionVariable,
     statementExpression,
   )
@@ -92,7 +92,7 @@ tests =
     ("bundled prelude comparison normalizes line endings", testBundledPreludeComparisonNormalizesLineEndings),
     ("bundled prelude keeps text traversal intrinsics private", testBundledPreludeKeepsTextTraversalIntrinsicsPrivate),
     ("bundled prelude keeps host IO intrinsics private", testBundledPreludeKeepsHostIOIntrinsicsPrivate),
-    ("bundled prelude includes Eq Float64 equals method body", testBundledPreludeIncludesEqFloat64EqualsMethodBody),
+    ("bundled prelude includes Equatable Float64 equals method body", testBundledPreludeIncludesEqFloat64EqualsMethodBody),
     ("direct compile helper stays kernel-only", testDirectCompileHelperStaysKernelOnly),
     ("compile pipeline treats catalog builtins as bound names", testCompilePipelineTreatsCatalogBuiltinsAsBound),
     ("runtime exposes catalog builtins as callable values", testRuntimeExposesCatalogBuiltinsAsFunctions),
@@ -103,7 +103,14 @@ tests =
 
 expectedBuiltins :: [(BuiltinSymbol, Text, Int, BuiltinOwnership)]
 expectedBuiltins =
-  [ (BuiltinMap, "map", 2, PreludeTarget),
+  [ (BuiltinAdd, "add", 2, KernelIntrinsic),
+    (BuiltinSubtract, "subtract", 2, KernelIntrinsic),
+    (BuiltinMultiply, "multiply", 2, KernelIntrinsic),
+    (BuiltinDivide, "divide", 2, KernelIntrinsic),
+    (BuiltinEquals, "equals", 2, KernelIntrinsic),
+    (BuiltinLessThan, "lessThan", 2, KernelIntrinsic),
+    (BuiltinGreaterThan, "greaterThan", 2, KernelIntrinsic),
+    (BuiltinMap, "map", 2, KernelIntrinsic),
     (BuiltinFilter, "filter", 2, PreludeTarget),
     (BuiltinHd, "hd", 1, PreludeTarget),
     (BuiltinTl, "tl", 1, PreludeTarget),
@@ -281,10 +288,10 @@ testBundledPreludeKeepsHostIOIntrinsicsPrivate =
 testBundledPreludeIncludesEqFloat64EqualsMethodBody :: IO ()
 testBundledPreludeIncludesEqFloat64EqualsMethodBody =
   assertContains
-    "bundled prelude renders Eq(Float64).equals body"
+    "bundled prelude renders Equatable(Float64).equals body"
     ( """
-      impl Eq(Float64) {
-      equals = \\(left, right) -> left == right.
+      impl Equatable(Float64) {
+      equals = __kernel_equals.
       }.
 
       """
@@ -372,17 +379,10 @@ overAppliedBuiltinExpr :: Text -> Expr 'Analyzed
 overAppliedBuiltinExpr name =
   runtimeExpr $
     case name of
-      "map" ->
-        expressionApply
-          ( expressionApply
-              (expressionApply (expressionVariable "__kernel_map") (expressionSectionLeft (expressionLiteral (LInt 1)) "+"))
-              (expressionList [expressionLiteral (LInt 2)])
-          )
-          (expressionLiteral (LInt 3))
       "filter" ->
         expressionApply
           ( expressionApply
-              (expressionApply (expressionVariable "__kernel_filter") (expressionSectionLeft (expressionLiteral (LInt 1)) "<"))
+              (expressionApply (expressionVariable "__kernel_filter") (expressionApply (expressionKernelFunction "<") (expressionLiteral (LInt 1))))
               (expressionList [expressionLiteral (LInt 2), expressionLiteral (LInt 3)])
           )
           (expressionLiteral (LInt 4))

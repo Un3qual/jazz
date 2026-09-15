@@ -58,7 +58,8 @@ main = runTestSuite "DeclarationParser" tests
 
 tests :: [NamedTest]
 tests =
-  [ ("rejects Haskell-style function equations", testRejectsFunctionEquations),
+  [ ("parses capability contexts and ordinary default bodies", testCapabilityContextsAndDefaults),
+    ("rejects Haskell-style function equations", testRejectsFunctionEquations),
     ("preserves failure spans after an owned declaration", testFailureSpanAfterOwnedDeclaration),
     ("parses data constructors with named and grouped payloads", testParsesDataConstructors),
     ("rejects crossed parenthesis then bracket constructor payload", testRejectsCrossedParenBracketPayload),
@@ -72,6 +73,18 @@ tests =
     ("rejects imports in nested expression blocks at the import span", testRejectsNestedImport),
     ("accepts imports directly in module bodies", testAcceptsModuleBodyImport)
   ]
+
+testCapabilityContextsAndDefaults :: IO ()
+testCapabilityContextsAndDefaults =
+  mapM_
+    accepts
+    [ "class @{Same(a)}: Ordered(a) { order :: a -> Int. order = \\(x) -> 1. }.",
+      "impl @{Same(a)}: Same([a]) { same = \\(x, y) -> True. }."
+    ]
+  where
+    accepts source = case parseSurfaceProgram source of
+      Right _ -> pure ()
+      Left diagnostic -> failTest (diagnosticSummary diagnostic)
 
 testRejectsFunctionEquations :: IO ()
 testRejectsFunctionEquations =

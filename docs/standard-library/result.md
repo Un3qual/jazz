@@ -26,35 +26,35 @@ The success branch. Both constructors are available to
 
 ## Transforming
 
-### `resultMap`
+### `map`
 
 ```jazz jazz-signature
-resultMap :: (a -> b) -> Result(e, a) -> Result(e, b).
+map :: (a -> b) -> Result(e, a) -> Result(e, b).
 ```
 
 Transforms the value inside `Ok` and preserves `Err` unchanged.
 
-### `resultMapError`
+### `mapError`
 
 ```jazz jazz-signature
-resultMapError :: (e -> f) -> Result(e, a) -> Result(f, a).
+mapError :: (e -> f) -> Result(e, a) -> Result(f, a).
 ```
 
 Transforms the value inside `Err` and preserves `Ok` unchanged.
 
-### `resultAndThen`
+### `andThen`
 
 ```jazz jazz-signature
-resultAndThen :: (a -> Result(e, b)) -> Result(e, a) -> Result(e, b).
+andThen :: (a -> Result(e, b)) -> Result(e, a) -> Result(e, b).
 ```
 
 Calls the function for `Ok` and returns its result without nesting. `Err` skips
 the function and passes through.
 
-### `resultRecover`
+### `recover`
 
 ```jazz jazz-signature
-resultRecover :: (e -> Result(f, a)) -> Result(e, a) -> Result(f, a).
+recover :: (e -> Result(f, a)) -> Result(e, a) -> Result(f, a).
 ```
 
 Calls the recovery function for `Err`. `Ok` skips recovery and keeps its value.
@@ -64,51 +64,55 @@ All transformation operations are `O(1)` apart from the callback.
 
 ## Defaults and inspection
 
-### `resultWithDefault`
+### `withDefault`
 
 ```jazz jazz-signature
-resultWithDefault :: a -> Result(e, a) -> a.
+withDefault :: a -> Result(e, a) -> a.
 ```
 
 Uses the first argument only for `Err`.
 
-### `resultIsOk`
+### `isOk`
 
 ```jazz jazz-signature
-resultIsOk :: Result(e, a) -> Bool.
+isOk :: Result(e, a) -> Bool.
 ```
 
-### `resultIsErr`
+### `isErr`
 
 ```jazz jazz-signature
-resultIsErr :: Result(e, a) -> Bool.
+isErr :: Result(e, a) -> Bool.
 ```
 
 ## Conversion
 
-### `resultToMaybe`
+### `toMaybe`
 
 ```jazz jazz-signature
-resultToMaybe :: Result(e, a) -> Maybe(a).
+toMaybe :: Result(e, a) -> Maybe::Maybe(a).
 ```
 
 Converts `Ok value` to `Just value` and discards an error as `Nothing`.
 
-### `resultErrorToMaybe`
+### `errorToMaybe`
 
 ```jazz jazz-signature
-resultErrorToMaybe :: Result(e, a) -> Maybe(e).
+errorToMaybe :: Result(e, a) -> Maybe::Maybe(e).
 ```
 
 Converts `Err error` to `Just error` and discards a success as `Nothing`.
 
-### `resultFromMaybe`
+### `fromMaybe`
 
 ```jazz jazz-signature
-resultFromMaybe :: e -> Maybe(a) -> Result(e, a).
+fromMaybe :: e -> Maybe::Maybe(a) -> Result(e, a).
 ```
 
 Converts `Just value` to `Ok value`. `Nothing` becomes `Err` containing the
 error supplied first.
 
 Conversions are `O(1)`. Use [Maybe](maybe.md) when absence needs no error value.
+
+## Generic methods
+
+Importing Result supplies Equatable for both alternatives and Mappable/Reducible for Result(error). Mapping preserves Err; folds skip Err and visit the single Ok value.

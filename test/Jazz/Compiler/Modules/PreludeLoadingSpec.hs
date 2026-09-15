@@ -18,6 +18,7 @@ import Jazz.Compiler.Driver
     compileSourceWithPrelude,
     runCompileErrors,
     runModuleGraph,
+    runModuleGraphWithPrelude,
     runOutput,
     runRuntimeErrors,
     runSource,
@@ -46,7 +47,8 @@ main = runTestSuite "PreludeLoading" tests
 
 tests :: [NamedTest]
 tests =
-  [ ("compile source can reference prelude-defined bindings", testCompileWithPreludeBindingVisibility),
+  [ ("Prelude method values remain visible beside alias imports", testPreludeMethodBesideAliasImport),
+    ("compile source can reference prelude-defined bindings", testCompileWithPreludeBindingVisibility),
     ("run source can apply prelude-defined section functions", testRunWithPreludeSectionFunction),
     ("explicit type application hints stay source-unit scoped", testExplicitTypeApplicationHintsStaySourceUnitScoped),
     ("bundled default prelude preserves user diagnostic spans", testBundledPreludePreservesUserDiagnosticSpans),
@@ -62,12 +64,12 @@ tests =
     ("bundled default prelude exposes width-specific numeric impl facts", testBundledPreludeExposesWidthSpecificNumericImplFacts),
     ("prelude exposes numeric conversion aliases", testPreludeExposesNumericConversionAliases),
     ("bundled default prelude exposes default numeric conversion aliases", testBundledPreludeExposesDefaultNumericConversionAliases),
-    ("bundled default prelude exposes Eq Int equals method body", testBundledPreludeExposesEqIntEqualsMethodBody),
-    ("bundled default prelude exposes Eq Float equals method body", testBundledPreludeExposesEqFloatEqualsMethodBody),
-    ("bundled default prelude exposes Eq Float16 equals method body", testBundledPreludeExposesEqFloat16EqualsMethodBody),
-    ("bundled default prelude exposes Eq Float32 equals method body", testBundledPreludeExposesEqFloat32EqualsMethodBody),
-    ("bundled default prelude exposes Eq Float64 equals method body", testBundledPreludeExposesEqFloat64EqualsMethodBody),
-    ("bundled default prelude exposes Eq Bool equals method body", testBundledPreludeExposesEqBoolEqualsMethodBody),
+    ("bundled default prelude exposes Equatable Int equals method body", testBundledPreludeExposesEqIntEqualsMethodBody),
+    ("bundled default prelude exposes Equatable Float equals method body", testBundledPreludeExposesEqFloatEqualsMethodBody),
+    ("bundled default prelude exposes Equatable Float16 equals method body", testBundledPreludeExposesEqFloat16EqualsMethodBody),
+    ("bundled default prelude exposes Equatable Float32 equals method body", testBundledPreludeExposesEqFloat32EqualsMethodBody),
+    ("bundled default prelude exposes Equatable Float64 equals method body", testBundledPreludeExposesEqFloat64EqualsMethodBody),
+    ("bundled default prelude exposes Equatable Bool equals method body", testBundledPreludeExposesEqBoolEqualsMethodBody),
     ("bundled default prelude equals every integer width", testBundledPreludeEqualsEveryIntegerWidth),
     ("bundled default prelude compares primitive ordered values", testBundledPreludeComparesPrimitiveValues),
     ("bundled default prelude exposes Ordering constructors to user expressions", testBundledPreludeExposesOrderingConstructors),
@@ -75,10 +77,10 @@ tests =
     ("bundled default prelude shows primitive values deterministically", testBundledPreludeShowsPrimitiveValues),
     ("bundled default prelude supplies explicit primitive defaults", testBundledPreludeSuppliesPrimitiveDefaults),
     ("compile without prelude rejects numeric conversion aliases", testCompileWithoutPreludeRejectsNumericConversionAliases),
-    ("compile without prelude does not inherit bundled Eq equals method bodies", testCompileWithoutPreludeRejectsBundledEqEqualsMethodBodies),
+    ("compile without prelude does not inherit bundled Equatable equals method bodies", testCompileWithoutPreludeRejectsBundledEqEqualsMethodBodies),
     ("compile without prelude rejects bundled capability facts", testCompileWithoutPreludeRejectsBundledCapabilityFacts),
     ("explicit prelude does not inherit bundled impl facts", testExplicitPreludeDoesNotInheritBundledImplFacts),
-    ("explicit prelude does not inherit bundled Eq equals method bodies", testExplicitPreludeDoesNotInheritBundledEqEqualsMethodBodies),
+    ("explicit prelude does not inherit bundled Equatable equals method bodies", testExplicitPreludeDoesNotInheritBundledEqEqualsMethodBodies),
     ("compile without prelude keeps numeric conversion kernel bridges available", testCompileWithoutPreludeKeepsNumericConversionKernelBridgesAvailable),
     ("compile without prelude rejects public prelude aliases", testCompileWithoutPreludeRejectsPreludeAliases),
     ("compile without prelude keeps kernel bridge names available", testCompileWithoutPreludeKeepsKernelBridgeNamesAvailable),
@@ -88,12 +90,12 @@ tests =
 
 testCompileWithPreludeBindingVisibility :: IO ()
 testCompileWithPreludeBindingVisibility = do
-  result <- compileSourceWithPrelude defaultWarningSettings (Just "seed = 41.") "seed + 1."
+  result <- compileSourceWithPrelude defaultWarningSettings (Just "seed = 41.") "__kernel_add seed 1."
   assertEqual "compile errors" [] (compileErrors result)
 
 testRunWithPreludeSectionFunction :: IO ()
 testRunWithPreludeSectionFunction = do
-  result <- runSourceWithPrelude defaultWarningSettings (Just "inc = (+ 1).") "inc 2."
+  result <- runSourceWithPrelude defaultWarningSettings (Just "add = __kernel_add. inc = (+ 1).") "inc 2."
   assertEqual "compile errors" [] (runCompileErrors result)
   assertEqual "runtime errors" [] (runRuntimeErrors result)
   assertEqual "runtime output" (Just "3") (runOutput result)
@@ -143,10 +145,10 @@ testPreludeFailurePreservesSourceDiagnostics = do
     "independent source-unit diagnostics"
     ["error: E1001: unbound variable 'missingPrelude'", "error: E1001: unbound variable 'missingSource'"]
     (map renderDiagnostic (compileErrors result))
-  mixed <- compileSourceWithPrelude defaultWarningSettings (Just "bad = True + 1.") "missingSource."
+  mixed <- compileSourceWithPrelude defaultWarningSettings (Just "bad = __kernel_add True 1.") "missingSource."
   assertEqual
     "scope errors precede type errors across source units"
-    ["E1001", "E2003"]
+    ["E1001", "E2006"]
     (map (diagnosticCodeText . diagnosticCode) (compileErrors mixed))
 
 testPreludeParseDiagnostic :: IO ()
@@ -242,15 +244,15 @@ testBundledPreludeExposesCapabilityClassesAndDefaultImplFacts = do
     compileSource
       defaultWarningSettings
       ( """
-        eqInt :: @{Eq(Int)}: Int.
+        eqInt :: @{Equatable(Int)}: Int.
         eqInt = 1.
-        eqFloat :: @{Eq(Float)}: Float.
+        eqFloat :: @{Equatable(Float)}: Float.
         eqFloat = toFloat64 1.
-        eqBool :: @{Eq(Bool)}: Bool.
+        eqBool :: @{Equatable(Bool)}: Bool.
         eqBool = True.
-        ordInt :: @{Ord(Int)}: Int.
+        ordInt :: @{Comparable(Int)}: Int.
         ordInt = 1.
-        ordFloat :: @{Ord(Float)}: Float.
+        ordFloat :: @{Comparable(Float)}: Float.
         ordFloat = toFloat64 1.
         numInt :: @{Num(Int)}: Int.
         numInt = 1.
@@ -287,17 +289,17 @@ testBundledPreludeExposesWidthSpecificNumericImplFacts = do
   assertEqual "bundled prelude width-specific numeric capability facts" [] (compileErrors result)
   where
     widthSpecificNumericImplTargets =
-      [ ("Int8", "1", ["Eq", "Ord", "Num", "Integral", "Default", "Showable"]),
-        ("Int16", "1", ["Eq", "Ord", "Num", "Integral", "Default", "Showable"]),
-        ("Int32", "1", ["Eq", "Ord", "Num", "Integral", "Default", "Showable"]),
-        ("Int64", "1", ["Eq", "Ord", "Num", "Integral", "Default", "Showable"]),
-        ("UInt8", "1", ["Eq", "Ord", "Num", "Integral", "Default", "Showable"]),
-        ("UInt16", "1", ["Eq", "Ord", "Num", "Integral", "Default", "Showable"]),
-        ("UInt32", "1", ["Eq", "Ord", "Num", "Integral", "Default", "Showable"]),
-        ("UInt64", "1", ["Eq", "Ord", "Num", "Integral", "Default", "Showable"]),
-        ("Float16", "toFloat16 1", ["Eq", "Ord", "Num", "Fractional", "Default", "Showable"]),
-        ("Float32", "toFloat32 1", ["Eq", "Ord", "Num", "Fractional", "Default", "Showable"]),
-        ("Float64", "toFloat64 1", ["Eq", "Ord", "Num", "Fractional", "Default", "Showable"])
+      [ ("Int8", "1", ["Equatable", "Comparable", "Num", "Integral", "Default", "Showable"]),
+        ("Int16", "1", ["Equatable", "Comparable", "Num", "Integral", "Default", "Showable"]),
+        ("Int32", "1", ["Equatable", "Comparable", "Num", "Integral", "Default", "Showable"]),
+        ("Int64", "1", ["Equatable", "Comparable", "Num", "Integral", "Default", "Showable"]),
+        ("UInt8", "1", ["Equatable", "Comparable", "Num", "Integral", "Default", "Showable"]),
+        ("UInt16", "1", ["Equatable", "Comparable", "Num", "Integral", "Default", "Showable"]),
+        ("UInt32", "1", ["Equatable", "Comparable", "Num", "Integral", "Default", "Showable"]),
+        ("UInt64", "1", ["Equatable", "Comparable", "Num", "Integral", "Default", "Showable"]),
+        ("Float16", "toFloat16 1", ["Equatable", "Comparable", "Num", "Fractional", "Default", "Showable"]),
+        ("Float32", "toFloat32 1", ["Equatable", "Comparable", "Num", "Fractional", "Default", "Showable"]),
+        ("Float64", "toFloat64 1", ["Equatable", "Comparable", "Num", "Fractional", "Default", "Showable"])
       ]
 
     widthSpecificNumericImplFactCases (targetType, expression, classNames) =
@@ -338,14 +340,14 @@ testBundledPreludeExposesDefaultNumericConversionAliases = do
 
 testBundledPreludeExposesEqIntEqualsMethodBody :: IO ()
 testBundledPreludeExposesEqIntEqualsMethodBody = do
-  result <- runSource defaultWarningSettings "Eq::equals 1 1."
+  result <- runSource defaultWarningSettings "Equatable::equals 1 1."
   assertEqual "compile errors" [] (runCompileErrors result)
   assertEqual "runtime errors" [] (runRuntimeErrors result)
   assertEqual "runtime output" (Just "True") (runOutput result)
 
 testBundledPreludeExposesEqFloatEqualsMethodBody :: IO ()
 testBundledPreludeExposesEqFloatEqualsMethodBody = do
-  result <- runSource defaultWarningSettings "(Eq::equals 1.5 1.5, Eq::equals 1.5 2.25)."
+  result <- runSource defaultWarningSettings "(Equatable::equals 1.5 1.5, Equatable::equals 1.5 2.25)."
   assertEqual "compile errors" [] (runCompileErrors result)
   assertEqual "runtime errors" [] (runRuntimeErrors result)
   assertEqual "runtime output" (Just "(True, False)") (runOutput result)
@@ -362,7 +364,7 @@ testBundledPreludeExposesEqFloat16EqualsMethodBody = do
         same = 1.5.
         different :: Float16.
         different = 2.25.
-        (Eq::equals left same, Eq::equals left different).
+        (Equatable::equals left same, Equatable::equals left different).
 
         """
       )
@@ -382,7 +384,7 @@ testBundledPreludeExposesEqFloat32EqualsMethodBody = do
         same = 1.5.
         different :: Float32.
         different = 2.25.
-        (Eq::equals left same, Eq::equals left different).
+        (Equatable::equals left same, Equatable::equals left different).
 
         """
       )
@@ -402,7 +404,7 @@ testBundledPreludeExposesEqFloat64EqualsMethodBody = do
         same = toFloat64 1.
         different :: Float64.
         different = toFloat64 2.
-        (Eq::equals left same, Eq::equals left different).
+        (Equatable::equals left same, Equatable::equals left different).
 
         """
       )
@@ -412,7 +414,7 @@ testBundledPreludeExposesEqFloat64EqualsMethodBody = do
 
 testBundledPreludeExposesEqBoolEqualsMethodBody :: IO ()
 testBundledPreludeExposesEqBoolEqualsMethodBody = do
-  result <- runSource defaultWarningSettings "(Eq::equals True True, Eq::equals True False)."
+  result <- runSource defaultWarningSettings "(Equatable::equals True True, Equatable::equals True False)."
   assertEqual "compile errors" [] (runCompileErrors result)
   assertEqual "runtime errors" [] (runRuntimeErrors result)
   assertEqual "runtime output" (Just "(True, False)") (runOutput result)
@@ -439,14 +441,14 @@ testBundledPreludeEqualsEveryIntegerWidth = do
       uint32Value = toUInt32 1.
       uint64Value :: UInt64.
       uint64Value = toUInt64 1.
-      (Eq::equals int8Value (toInt8 1), Eq::equals int8Value (toInt8 2),
-       Eq::equals int16Value (toInt16 1), Eq::equals int16Value (toInt16 2),
-       Eq::equals int32Value (toInt32 1), Eq::equals int32Value (toInt32 2),
-       Eq::equals int64Value (toInt64 1), Eq::equals int64Value (toInt64 2),
-       Eq::equals uint8Value (toUInt8 1), Eq::equals uint8Value (toUInt8 2),
-       Eq::equals uint16Value (toUInt16 1), Eq::equals uint16Value (toUInt16 2),
-       Eq::equals uint32Value (toUInt32 1), Eq::equals uint32Value (toUInt32 2),
-       Eq::equals uint64Value (toUInt64 1), Eq::equals uint64Value (toUInt64 2)).
+      (Equatable::equals int8Value (toInt8 1), Equatable::equals int8Value (toInt8 2),
+       Equatable::equals int16Value (toInt16 1), Equatable::equals int16Value (toInt16 2),
+       Equatable::equals int32Value (toInt32 1), Equatable::equals int32Value (toInt32 2),
+       Equatable::equals int64Value (toInt64 1), Equatable::equals int64Value (toInt64 2),
+       Equatable::equals uint8Value (toUInt8 1), Equatable::equals uint8Value (toUInt8 2),
+       Equatable::equals uint16Value (toUInt16 1), Equatable::equals uint16Value (toUInt16 2),
+       Equatable::equals uint32Value (toUInt32 1), Equatable::equals uint32Value (toUInt32 2),
+       Equatable::equals uint64Value (toUInt64 1), Equatable::equals uint64Value (toUInt64 2)).
       """
   assertEqual "compile errors" [] (runCompileErrors result)
   assertEqual "runtime errors" [] (runRuntimeErrors result)
@@ -460,7 +462,7 @@ testBundledPreludeComparesPrimitiveValues = do
   result <-
     runSource
       defaultWarningSettings
-      "(Ord::compare 1 2, Ord::compare 2 2, Ord::compare 3 2, Ord::compare 'a' 'b', Ord::compare \"a🙂\" \"aé\")."
+      "(Comparable::compare 1 2, Comparable::compare 2 2, Comparable::compare 3 2, Comparable::compare 'a' 'b', Comparable::compare \"a🙂\" \"aé\")."
   assertEqual "compile errors" [] (runCompileErrors result)
   assertEqual "runtime errors" [] (runRuntimeErrors result)
   assertEqual "primitive compare output" (Just "(LT, EQ, GT, LT, GT)") (runOutput result)
@@ -523,13 +525,13 @@ testBundledPreludeComparesEveryNumericWidth = do
       float32Left = 1.0.
       float64Left :: Float64.
       float64Left = 1.0.
-      (Ord::compare intLeft 2, Ord::compare floatLeft 2.0,
-       Ord::compare int8Left (toInt8 2), Ord::compare int16Left (toInt16 2),
-       Ord::compare int32Left (toInt32 2), Ord::compare int64Left (toInt64 2),
-       Ord::compare uint8Left (toUInt8 2), Ord::compare uint16Left (toUInt16 2),
-       Ord::compare uint32Left (toUInt32 2), Ord::compare uint64Left (toUInt64 2),
-       Ord::compare float16Left (toFloat16 2), Ord::compare float32Left (toFloat32 2),
-       Ord::compare float64Left (toFloat64 2)).
+      (Comparable::compare intLeft 2, Comparable::compare floatLeft 2.0,
+       Comparable::compare int8Left (toInt8 2), Comparable::compare int16Left (toInt16 2),
+       Comparable::compare int32Left (toInt32 2), Comparable::compare int64Left (toInt64 2),
+       Comparable::compare uint8Left (toUInt8 2), Comparable::compare uint16Left (toUInt16 2),
+       Comparable::compare uint32Left (toUInt32 2), Comparable::compare uint64Left (toUInt64 2),
+       Comparable::compare float16Left (toFloat16 2), Comparable::compare float32Left (toFloat32 2),
+       Comparable::compare float64Left (toFloat64 2)).
       """
   assertEqual "compile errors" [] (runCompileErrors result)
   assertEqual "runtime errors" [] (runRuntimeErrors result)
@@ -638,124 +640,118 @@ testCompileWithoutPreludeRejectsBundledEqEqualsMethodBodies = do
       defaultWarningSettings
       Nothing
       ( """
-        class Eq(a) {
+        class Equatable(a) {
         equals :: a -> a -> Bool.
         }.
-        impl Eq(Int) { }.
-        result = Eq::equals 1 1.
-        result.
+        impl Equatable(Int) { }.
+        True.
 
         """
       )
   assertSingleErrorContains
-    "no-prelude compile has no bundled Eq(Int).equals method body"
-    "missing impl method body 'Eq::equals'"
+    "no-prelude compile has no bundled Equatable(Int).equals method body"
+    "missing impl method body 'Equatable::equals'"
     (compileErrors result)
   boolResult <-
     compileSourceWithPrelude
       defaultWarningSettings
       Nothing
       ( """
-        class Eq(a) {
+        class Equatable(a) {
         equals :: a -> a -> Bool.
         }.
-        impl Eq(Bool) { }.
-        result = Eq::equals True True.
-        result.
+        impl Equatable(Bool) { }.
+        True.
 
         """
       )
   assertSingleErrorContains
-    "no-prelude compile has no bundled Eq(Bool).equals method body"
-    "missing impl method body 'Eq::equals'"
+    "no-prelude compile has no bundled Equatable(Bool).equals method body"
+    "missing impl method body 'Equatable::equals'"
     (compileErrors boolResult)
   floatResult <-
     compileSourceWithPrelude
       defaultWarningSettings
       Nothing
       ( """
-        class Eq(a) {
+        class Equatable(a) {
         equals :: a -> a -> Bool.
         }.
-        impl Eq(Float) { }.
+        impl Equatable(Float) { }.
         left :: Float.
         left = 1.5.
         right :: Float.
         right = 1.5.
-        result = Eq::equals left right.
-        result.
+        True.
 
         """
       )
   assertSingleErrorContains
-    "no-prelude compile has no bundled Eq(Float).equals method body"
-    "missing impl method body 'Eq::equals'"
+    "no-prelude compile has no bundled Equatable(Float).equals method body"
+    "missing impl method body 'Equatable::equals'"
     (compileErrors floatResult)
   float16Result <-
     compileSourceWithPrelude
       defaultWarningSettings
       Nothing
       ( """
-        class Eq(a) {
+        class Equatable(a) {
         equals :: a -> a -> Bool.
         }.
-        impl Eq(Float16) { }.
+        impl Equatable(Float16) { }.
         left :: Float16.
         left = 1.5.
         right :: Float16.
         right = 1.5.
-        result = Eq::equals left right.
-        result.
+        True.
 
         """
       )
   assertSingleErrorContains
-    "no-prelude compile has no bundled Eq(Float16).equals method body"
-    "missing impl method body 'Eq::equals'"
+    "no-prelude compile has no bundled Equatable(Float16).equals method body"
+    "missing impl method body 'Equatable::equals'"
     (compileErrors float16Result)
   float32Result <-
     compileSourceWithPrelude
       defaultWarningSettings
       Nothing
       ( """
-        class Eq(a) {
+        class Equatable(a) {
         equals :: a -> a -> Bool.
         }.
-        impl Eq(Float32) { }.
+        impl Equatable(Float32) { }.
         left :: Float32.
         left = 1.5.
         right :: Float32.
         right = 1.5.
-        result = Eq::equals left right.
-        result.
+        True.
 
         """
       )
   assertSingleErrorContains
-    "no-prelude compile has no bundled Eq(Float32).equals method body"
-    "missing impl method body 'Eq::equals'"
+    "no-prelude compile has no bundled Equatable(Float32).equals method body"
+    "missing impl method body 'Equatable::equals'"
     (compileErrors float32Result)
   float64Result <-
     compileSourceWithPrelude
       defaultWarningSettings
       Nothing
       ( """
-        class Eq(a) {
+        class Equatable(a) {
         equals :: a -> a -> Bool.
         }.
-        impl Eq(Float64) { }.
+        impl Equatable(Float64) { }.
         left :: Float64.
         left = 1.5.
         right :: Float64.
         right = 1.5.
-        result = Eq::equals left right.
-        result.
+        True.
 
         """
       )
   assertSingleErrorContains
-    "no-prelude compile has no bundled Eq(Float64).equals method body"
-    "missing impl method body 'Eq::equals'"
+    "no-prelude compile has no bundled Equatable(Float64).equals method body"
+    "missing impl method body 'Equatable::equals'"
     (compileErrors float64Result)
 
 testCompileWithoutPreludeRejectsBundledCapabilityFacts :: IO ()
@@ -765,12 +761,12 @@ testCompileWithoutPreludeRejectsBundledCapabilityFacts = do
       defaultWarningSettings
       Nothing
       """
-      x :: @{Eq(Int)}: Int.
+      x :: @{Equatable(Int)}: Int.
       x = 1.
       """
   assertSingleErrorContains
     "no-prelude compile has no bundled capability facts"
-    "missing class declaration 'Eq'"
+    "missing class declaration 'Equatable'"
     (compileErrors result)
   widthResult <-
     compileSourceWithPrelude
@@ -790,14 +786,14 @@ testExplicitPreludeDoesNotInheritBundledImplFacts = do
   result <-
     compileSourceWithPrelude
       defaultWarningSettings
-      (Just "class Eq(a) { }.")
+      (Just "class Equatable(a) { }.")
       """
-      x :: @{Eq(Int)}: Int.
+      x :: @{Equatable(Int)}: Int.
       x = 1.
       """
   assertSingleErrorContains
     "explicit prelude uses only supplied impl facts"
-    "missing impl fact 'Eq(Int)'"
+    "missing impl fact 'Equatable(Int)'"
     (compileErrors result)
   widthResult <-
     compileSourceWithPrelude
@@ -819,52 +815,50 @@ testExplicitPreludeDoesNotInheritBundledEqEqualsMethodBodies = do
       defaultWarningSettings
       ( Just
           ( """
-            class Eq(a) {
+            class Equatable(a) {
             equals :: a -> a -> Bool.
             }.
-            impl Eq(Int) { }.
+            impl Equatable(Int) { }.
 
             """
           )
       )
       """
-      result = Eq::equals 1 1.
-      result.
+      True.
       """
   assertSingleErrorContains
-    "explicit prelude has no bundled Eq(Int).equals method body"
-    "missing impl method body 'Eq::equals'"
+    "explicit prelude has no bundled Equatable(Int).equals method body"
+    "missing impl method body 'Equatable::equals'"
     (compileErrors result)
   boolResult <-
     compileSourceWithPrelude
       defaultWarningSettings
       ( Just
           ( """
-            class Eq(a) {
+            class Equatable(a) {
             equals :: a -> a -> Bool.
             }.
-            impl Eq(Bool) { }.
+            impl Equatable(Bool) { }.
 
             """
           )
       )
       """
-      result = Eq::equals True True.
-      result.
+      True.
       """
   assertSingleErrorContains
-    "explicit prelude has no bundled Eq(Bool).equals method body"
-    "missing impl method body 'Eq::equals'"
+    "explicit prelude has no bundled Equatable(Bool).equals method body"
+    "missing impl method body 'Equatable::equals'"
     (compileErrors boolResult)
   floatResult <-
     compileSourceWithPrelude
       defaultWarningSettings
       ( Just
           ( """
-            class Eq(a) {
+            class Equatable(a) {
             equals :: a -> a -> Bool.
             }.
-            impl Eq(Float) { }.
+            impl Equatable(Float) { }.
 
             """
           )
@@ -874,24 +868,23 @@ testExplicitPreludeDoesNotInheritBundledEqEqualsMethodBodies = do
         left = 1.5.
         right :: Float.
         right = 1.5.
-        result = Eq::equals left right.
-        result.
+        True.
 
         """
       )
   assertSingleErrorContains
-    "explicit prelude has no bundled Eq(Float).equals method body"
-    "missing impl method body 'Eq::equals'"
+    "explicit prelude has no bundled Equatable(Float).equals method body"
+    "missing impl method body 'Equatable::equals'"
     (compileErrors floatResult)
   float16Result <-
     compileSourceWithPrelude
       defaultWarningSettings
       ( Just
           ( """
-            class Eq(a) {
+            class Equatable(a) {
             equals :: a -> a -> Bool.
             }.
-            impl Eq(Float16) { }.
+            impl Equatable(Float16) { }.
 
             """
           )
@@ -901,24 +894,23 @@ testExplicitPreludeDoesNotInheritBundledEqEqualsMethodBodies = do
         left = 1.5.
         right :: Float16.
         right = 1.5.
-        result = Eq::equals left right.
-        result.
+        True.
 
         """
       )
   assertSingleErrorContains
-    "explicit prelude has no bundled Eq(Float16).equals method body"
-    "missing impl method body 'Eq::equals'"
+    "explicit prelude has no bundled Equatable(Float16).equals method body"
+    "missing impl method body 'Equatable::equals'"
     (compileErrors float16Result)
   float32Result <-
     compileSourceWithPrelude
       defaultWarningSettings
       ( Just
           ( """
-            class Eq(a) {
+            class Equatable(a) {
             equals :: a -> a -> Bool.
             }.
-            impl Eq(Float32) { }.
+            impl Equatable(Float32) { }.
 
             """
           )
@@ -928,24 +920,23 @@ testExplicitPreludeDoesNotInheritBundledEqEqualsMethodBodies = do
         left = 1.5.
         right :: Float32.
         right = 1.5.
-        result = Eq::equals left right.
-        result.
+        True.
 
         """
       )
   assertSingleErrorContains
-    "explicit prelude has no bundled Eq(Float32).equals method body"
-    "missing impl method body 'Eq::equals'"
+    "explicit prelude has no bundled Equatable(Float32).equals method body"
+    "missing impl method body 'Equatable::equals'"
     (compileErrors float32Result)
   float64Result <-
     compileSourceWithPrelude
       defaultWarningSettings
       ( Just
           ( """
-            class Eq(a) {
+            class Equatable(a) {
             equals :: a -> a -> Bool.
             }.
-            impl Eq(Float64) { }.
+            impl Equatable(Float64) { }.
 
             """
           )
@@ -955,14 +946,13 @@ testExplicitPreludeDoesNotInheritBundledEqEqualsMethodBodies = do
         left = 1.5.
         right :: Float64.
         right = 1.5.
-        result = Eq::equals left right.
-        result.
+        True.
 
         """
       )
   assertSingleErrorContains
-    "explicit prelude has no bundled Eq(Float64).equals method body"
-    "missing impl method body 'Eq::equals'"
+    "explicit prelude has no bundled Equatable(Float64).equals method body"
+    "missing impl method body 'Equatable::equals'"
     (compileErrors float64Result)
 
 testCompileWithoutPreludeKeepsNumericConversionKernelBridgesAvailable :: IO ()
@@ -998,7 +988,7 @@ testCompileWithoutPreludeKeepsKernelBridgeNamesAvailable = do
 
 testCompileWithoutPreludeStillFailsMissingBinding :: IO ()
 testCompileWithoutPreludeStillFailsMissingBinding = do
-  result <- compileSourceWithPrelude defaultWarningSettings Nothing "seed + 1."
+  result <- compileSourceWithPrelude defaultWarningSettings Nothing "__kernel_add seed 1."
   assertSingleErrorContains
     "missing prelude binding still reports unbound variable"
     "E1001"
@@ -1027,10 +1017,10 @@ testBootstrapModulesStayOutsideBundledPrelude =
         ("Just", "Just 1.", "E1001"),
         ("Err", "Err \"failure\".", "E1001"),
         ("Ok", "Ok 1.", "E1001"),
-        ("textEmpty", "textEmpty.", "E1001"),
-        ("textLength", "textLength \"Jazz\".", "E1001"),
-        ("textIsEmpty", "textIsEmpty \"\".", "E1001"),
-        ("textUncons", "textUncons \"Jazz\".", "E1001"),
+        ("Text::empty", "Text::empty.", "E1001"),
+        ("Text::length", "Text::length \"Jazz\".", "E1001"),
+        ("Text::isEmpty", "Text::isEmpty \"\".", "E1001"),
+        ("Text::uncons", "Text::uncons \"Jazz\".", "E1001"),
         ( "IOErrorCategory",
           """
           candidate :: IOErrorCategory.
@@ -1073,3 +1063,16 @@ assertBundledPreludeNameUnavailable (name, source, expectedCode) = do
       assertContains (name <> " diagnostic subject") name rendered
     diagnostics ->
       assertEqual (name <> " diagnostic count") 1 (length diagnostics)
+
+testPreludeMethodBesideAliasImport :: IO ()
+testPreludeMethodBesideAliasImport = do
+  result <- runModuleGraphWithPrelude defaultWarningSettings (Just prelude) resolver ["Main"] source
+  assertEqual "Prelude method compile errors" [] (runCompileErrors result)
+  assertEqual "Prelude method runtime errors" [] (runRuntimeErrors result)
+  assertEqual "ordinary Prelude method wins over hidden alias member" (Just "(True, False)") (runOutput result)
+  where
+    prelude = "class Inspect(a) { inspect :: a -> Bool. }. impl Inspect(Int) { inspect = \\(item) -> True. }."
+    resolver = ModuleResolutionConfig {moduleRoots = ["src"], moduleExtension = ".jz"}
+    source "src/Main.jz" = pure (Just "module Main { import Other as Other. (inspect 1, Other::inspect 1). }")
+    source "src/Other.jz" = pure (Just "module Other (value inspect) { inspect = \\(item) -> False. }")
+    source _ = pure Nothing

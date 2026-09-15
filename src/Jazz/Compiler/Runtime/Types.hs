@@ -10,7 +10,7 @@
 module Jazz.Compiler.Runtime.Types
   ( RuntimeFloatMetadata (..),
     RuntimeIntMetadata (..),
-    RuntimeMethodCandidate (..),
+    RuntimeDictionary (..),
     DeferredHostScopeId (..),
     DeferredHostBindingKey (..),
     DeferredHostBindingState (..),
@@ -30,33 +30,23 @@ module Jazz.Compiler.Runtime.Types
         VTuple,
         VClosure,
         VBuiltin,
-        VOperator,
-        VSectionLeft,
-        VSectionRight,
         VConstructor,
         VConstructorApplication,
         VAnnotated,
-        VDeferredHostBinding
+        VDeferredHostBinding,
+        VConstrained,
+        VEvidence,
+        VCapabilityMethod
       ),
-    pattern VQualifiedMethodApplication,
     prependRuntimeExplicitResultHint,
     attachRuntimeExplicitResultHints,
     runtimeExplicitResultHintsView,
     runtimeExplicitResultHintsInOrder,
     foldRuntimeExplicitResultHints,
     RuntimeAppliedArguments,
-    RuntimeMethodCandidates,
     RuntimeConstructorShape,
-    emptyRuntimeAppliedArguments,
     appendRuntimeAppliedArgument,
     runtimeAppliedArgumentsInOrder,
-    emptyRuntimeMethodCandidates,
-    appendRuntimeMethodCandidate,
-    filterRuntimeMethodCandidates,
-    selectRuntimeMethodCandidate,
-    runtimeMethodIsSelected,
-    runtimeMethodCandidatesInOrder,
-    foldrRuntimeMethodCandidates,
     constructorApplicationIsSaturated,
     foldrRuntimeAppliedArguments,
     runtimeAppliedArgumentCount,
@@ -76,7 +66,6 @@ where
 import Control.Monad.Trans.State.Strict (StateT)
 import qualified Data.Foldable as Foldable
 import Data.Map.Strict (Map)
-import qualified Data.Map.Strict as Map
 import Data.Sequence (Seq)
 import qualified Data.Sequence as Seq
 import Data.Text (Text)
@@ -87,7 +76,7 @@ import Jazz.Compiler.AST
     NumericType,
   )
 import Jazz.Compiler.BuiltinCatalog (BuiltinSymbol)
-import Jazz.Compiler.CoreIdentity (CoreNodeId, MethodId, ResolvedReference)
+import Jazz.Compiler.CoreIdentity (CoreBinderId, CoreNodeId, MethodId, ResolvedReference)
 import Jazz.Compiler.Diagnostics (Diagnostic)
 import Jazz.Compiler.FractionalLiteral (FractionalLiteralSource)
 import Jazz.Compiler.Name (ResolvedName)
@@ -96,7 +85,7 @@ import Jazz.Compiler.Runtime.Observation
     RuntimeObservationState,
   )
 import Jazz.Compiler.Runtime.Outcome (RuntimeControl (..))
-import Jazz.Compiler.SemanticFacts (AnalyzedType, EvidenceReference (..))
+import Jazz.Compiler.SemanticFacts (AnalyzedScheme, AnalyzedType, EvidenceReference (..))
 import Jazz.Compiler.SourceUnitOwnership (SourceUnitOwner)
 import Jazz.Compiler.TypeRepresentation (InferenceVariable)
 
@@ -111,7 +100,13 @@ newtype RuntimeIntMetadata = RuntimeIntMetadata
   }
   deriving stock (Eq, Show)
 
-data RuntimeMethodCandidate = RuntimeMethodCandidate EvidenceReference (Either Diagnostic RuntimeValue)
+-- A dictionary closes over its selected method cells and prerequisite
+-- dictionaries, so a caller's instances remain available in imported closures.
+data RuntimeDictionary = RuntimeDictionary
+  { runtimeDictionaryEvidence :: EvidenceReference,
+    runtimeDictionaryMethods :: Map MethodId RuntimeCell,
+    runtimeDictionaryPrerequisites :: [RuntimeDictionary]
+  }
 
 -- | Ordered explicit result obligations attached to one runtime value. The
 -- constructor stays private so callers cannot reintroduce nested hint wrappers.
@@ -123,7 +118,9 @@ newtype RuntimeExplicitResultHints = RuntimeExplicitResultHints (Seq AnalyzedTyp
 newtype DeferredHostScopeId = DeferredHostScopeId Int
   deriving (Eq, Ord, Show)
 
-data DeferredHostBindingKey = DeferredHostBindingKey DeferredHostScopeId CoreNodeId ResolvedName
+data DeferredHostBindingKey
+  = DeferredHostBindingKey DeferredHostScopeId CoreNodeId ResolvedName
+  | DictionaryBindingKey DeferredHostScopeId CoreBinderId ResolvedName [EvidenceReference]
   deriving (Eq, Ord, Show)
 
 data DeferredHostBindingState
@@ -160,20 +157,13 @@ data RuntimeConstructorShape = RuntimeConstructorShape ResolvedName [InferenceVa
 -- an invariant.
 newtype RuntimeAppliedArguments = RuntimeAppliedArguments (Seq RuntimeValue)
 
--- | Source-ordered qualified-method candidates. Candidate precedence follows
--- insertion order, so construction stays private and append-only.
--- Dynamic calls retain source order; checked evidence uses the identity index.
--- A selected method never re-enters argument-based candidate selection.
-data RuntimeMethodCandidates
-  = RuntimeMethodCandidates (Seq RuntimeMethodCandidate) (Map MethodId RuntimeMethodCandidate)
-  | SelectedRuntimeMethod RuntimeMethodCandidate
-
 -- | Value-associated typing information survives storing and partially applying
 -- a callable. Operations that only inspect the payload can ignore its kind.
 data RuntimeAnnotation
   = RuntimeTypeHint AnalyzedType
   | RuntimeTypeApplication AnalyzedType
   | RuntimeResultHints RuntimeExplicitResultHints
+  | RuntimeMethodCall Text
 
 data RuntimeValue
   = VInt Integer RuntimeIntMetadata
@@ -185,12 +175,11 @@ data RuntimeValue
   | VTuple [RuntimeValue]
   | VClosure RuntimeClosure
   | VBuiltin BuiltinSymbol [RuntimeValue]
-  | VOperator Text [RuntimeValue]
-  | VSectionLeft Text RuntimeValue
-  | VSectionRight Text RuntimeValue
   | VConstructorState RuntimeConstructorShape RuntimeAppliedArguments
-  | VQualifiedMethodState Text InferenceVariable AnalyzedType RuntimeMethodCandidates RuntimeAppliedArguments
+  | VCapabilityMethod Text
   | VAnnotatedState RuntimeAnnotation RuntimeValue
+  | VConstrained DeferredHostScopeId CoreBinderId AnalyzedScheme ResolvedName (Maybe SourceUnitOwner) (Expr 'Analyzed) RuntimeEnv
+  | VEvidence RuntimeDictionary
   | VDeferredHostBinding
       DeferredHostBindingKey
       Diagnostic
@@ -227,12 +216,6 @@ instance Show RuntimeValue where
           <> show (runtimeClosureModulePath closure)
       VBuiltin builtinSymbol capturedArgs ->
         "VBuiltin " <> show builtinSymbol <> " " <> show capturedArgs
-      VOperator operatorSymbol capturedArgs ->
-        "VOperator " <> show operatorSymbol <> " " <> show capturedArgs
-      VSectionLeft operatorSymbol operand ->
-        "VSectionLeft " <> show operatorSymbol <> " " <> show operand
-      VSectionRight operatorSymbol operand ->
-        "VSectionRight " <> show operatorSymbol <> " " <> show operand
       VConstructorState shape capturedArgs ->
         "VConstructor "
           <> show (runtimeConstructorTypeName shape)
@@ -242,20 +225,18 @@ instance Show RuntimeValue where
           <> show (runtimeConstructorFieldTypes shape)
           <> " "
           <> show (runtimeAppliedArgumentsInOrder capturedArgs)
-      VQualifiedMethodState methodKey _ _ candidates capturedArgs ->
-        "VQualifiedMethod "
-          <> show methodKey
-          <> " "
-          <> show (runtimeMethodCandidatesInOrder candidates)
-          <> " "
-          <> show (runtimeAppliedArgumentsInOrder capturedArgs)
+      VCapabilityMethod methodKey -> "VCapabilityMethod " <> show methodKey
       VAnnotatedState (RuntimeTypeHint typeHint) innerValue ->
         "VTyped " <> show typeHint <> " " <> show innerValue
       VAnnotatedState (RuntimeTypeApplication typeHint) innerValue ->
         "VExplicitTypeApplication " <> show typeHint <> " " <> show innerValue
+      VAnnotatedState (RuntimeMethodCall name) innerValue ->
+        "VMethodCall " <> show name <> " " <> show innerValue
       VAnnotatedState (RuntimeResultHints hints) innerValue ->
         "VExplicitResultHints " <> show hints <> " " <> show innerValue
       VDeferredHostBinding {} -> "VDeferredHostBinding <thunk>"
+      VConstrained {} -> "VConstrained <function>"
+      VEvidence {} -> "VEvidence <dictionary>"
 
 -- | Historical ordered-list constructor view used by runtime semantics and
 -- tests. Construction establishes the shape and argument invariants once.
@@ -277,11 +258,6 @@ pattern VConstructorApplication :: RuntimeConstructorShape -> RuntimeAppliedArgu
 pattern VConstructorApplication shape capturedArgs =
   VConstructorState shape capturedArgs
 
--- | Internal evaluator view retaining append-efficient ordered collections.
-pattern VQualifiedMethodApplication :: Text -> InferenceVariable -> AnalyzedType -> RuntimeMethodCandidates -> RuntimeAppliedArguments -> RuntimeValue
-pattern VQualifiedMethodApplication methodKey classParameter methodSignature candidates capturedArgs =
-  VQualifiedMethodState methodKey classParameter methodSignature candidates capturedArgs
-
 {-# COMPLETE
   VInt,
   VFloat,
@@ -292,13 +268,12 @@ pattern VQualifiedMethodApplication methodKey classParameter methodSignature can
   VTuple,
   VClosure,
   VBuiltin,
-  VOperator,
-  VSectionLeft,
-  VSectionRight,
   VConstructorApplication,
-  VQualifiedMethodApplication,
+  VCapabilityMethod,
   VAnnotated,
-  VDeferredHostBinding
+  VDeferredHostBinding,
+  VConstrained,
+  VEvidence
   #-}
 
 prependRuntimeExplicitResultHint :: AnalyzedType -> RuntimeValue -> RuntimeValue
@@ -345,10 +320,6 @@ foldRuntimeExplicitResultHints ::
 foldRuntimeExplicitResultHints step initial (RuntimeExplicitResultHints hints) =
   Foldable.foldl' step initial hints
 
-instance Show RuntimeMethodCandidate where
-  show (RuntimeMethodCandidate evidence _) =
-    "RuntimeMethodCandidate " <> show evidence
-
 type RuntimeCell = Either Diagnostic RuntimeValue
 
 type RuntimeEnv = Map ResolvedReference RuntimeCell
@@ -371,9 +342,6 @@ runtimeAppliedArgumentsFromList :: [RuntimeValue] -> RuntimeAppliedArguments
 runtimeAppliedArgumentsFromList capturedArgs =
   RuntimeAppliedArguments (Seq.fromList capturedArgs)
 
-emptyRuntimeAppliedArguments :: RuntimeAppliedArguments
-emptyRuntimeAppliedArguments = RuntimeAppliedArguments Seq.empty
-
 runtimeAppliedArgumentsInOrder :: RuntimeAppliedArguments -> [RuntimeValue]
 runtimeAppliedArgumentsInOrder (RuntimeAppliedArguments capturedArgs) =
   Foldable.toList capturedArgs
@@ -393,46 +361,6 @@ foldrRuntimeAppliedArguments ::
   accumulator
 foldrRuntimeAppliedArguments step initial (RuntimeAppliedArguments capturedArgs) =
   Foldable.foldr step initial capturedArgs
-
-runtimeMethodCandidatesFromList :: [RuntimeMethodCandidate] -> RuntimeMethodCandidates
-runtimeMethodCandidatesFromList = Foldable.foldl' (flip appendRuntimeMethodCandidate) emptyRuntimeMethodCandidates
-
-emptyRuntimeMethodCandidates :: RuntimeMethodCandidates
-emptyRuntimeMethodCandidates = RuntimeMethodCandidates Seq.empty Map.empty
-
-appendRuntimeMethodCandidate :: RuntimeMethodCandidate -> RuntimeMethodCandidates -> RuntimeMethodCandidates
-appendRuntimeMethodCandidate candidate@(RuntimeMethodCandidate evidence _) (RuntimeMethodCandidates candidates index) =
-  RuntimeMethodCandidates (candidates Seq.|> candidate) (Map.insertWith (\_ existing -> existing) (evidenceMethod evidence) candidate index)
-appendRuntimeMethodCandidate _ selected@SelectedRuntimeMethod {} = selected
-
-filterRuntimeMethodCandidates :: (RuntimeMethodCandidate -> Bool) -> RuntimeMethodCandidates -> RuntimeMethodCandidates
-filterRuntimeMethodCandidates predicate selected@(SelectedRuntimeMethod candidate)
-  | predicate candidate = selected
-  | otherwise = emptyRuntimeMethodCandidates
-filterRuntimeMethodCandidates predicate candidates =
-  runtimeMethodCandidatesFromList (filter predicate (runtimeMethodCandidatesInOrder candidates))
-
-selectRuntimeMethodCandidate :: MethodId -> RuntimeMethodCandidates -> Maybe RuntimeMethodCandidates
-selectRuntimeMethodCandidate method (RuntimeMethodCandidates _ index) = SelectedRuntimeMethod <$> Map.lookup method index
-selectRuntimeMethodCandidate method selected@(SelectedRuntimeMethod (RuntimeMethodCandidate evidence _))
-  | evidenceMethod evidence == method = Just selected
-  | otherwise = Nothing
-
-runtimeMethodIsSelected :: RuntimeMethodCandidates -> Bool
-runtimeMethodIsSelected SelectedRuntimeMethod {} = True
-runtimeMethodIsSelected RuntimeMethodCandidates {} = False
-
-runtimeMethodCandidatesInOrder :: RuntimeMethodCandidates -> [RuntimeMethodCandidate]
-runtimeMethodCandidatesInOrder (RuntimeMethodCandidates candidates _) = Foldable.toList candidates
-runtimeMethodCandidatesInOrder (SelectedRuntimeMethod candidate) = [candidate]
-
-foldrRuntimeMethodCandidates ::
-  (RuntimeMethodCandidate -> accumulator -> accumulator) ->
-  accumulator ->
-  RuntimeMethodCandidates ->
-  accumulator
-foldrRuntimeMethodCandidates step initial (RuntimeMethodCandidates candidates _) = Foldable.foldr step initial candidates
-foldrRuntimeMethodCandidates step initial (SelectedRuntimeMethod candidate) = step candidate initial
 
 constructorApplicationIsSaturated :: RuntimeConstructorShape -> RuntimeAppliedArguments -> Bool
 constructorApplicationIsSaturated shape capturedArgs =

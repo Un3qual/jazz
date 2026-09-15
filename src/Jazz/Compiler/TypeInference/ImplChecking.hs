@@ -1,46 +1,36 @@
 {-# LANGUAGE DataKinds #-}
 
--- | Declaration checking for implementation bodies. Capability lookup and
--- constraint solving remain dependencies; expression inference is supplied by
--- the scope owner so this module does not depend on expression traversal.
-module Jazz.Compiler.TypeInference.ImplChecking (checkImplMethodBodies) where
+-- | Check each implementation body once, with its promised variables rigid.
+module Jazz.Compiler.TypeInference.ImplChecking (checkImplMethodBodies, checkImplementationSuperclasses) where
 
 import Control.Monad.Trans.State.Strict (get, modify', put, runState, state)
+import qualified Control.Monad.Trans.State.Strict as Trial
+import Data.Foldable (toList)
 import qualified Data.Map.Strict as Map
 import Data.Maybe (catMaybes)
 import qualified Data.Set as Set
-import Data.Void (Void)
-import Jazz.Compiler.AST
-  ( CoreNode (coreNodeFacts, coreNodeSpan),
-    CorePhase (Resolved),
-    Expr,
-    ImplMethod (..),
-  )
+import Data.Text (Text)
+import Jazz.Compiler.AST (CoreNode (coreNodeSpan), CorePhase (Resolved), Expr, ImplMethod (..))
 import Jazz.Compiler.CapabilityFacts (qualifiedMethodKey)
-import Jazz.Compiler.CoreIdentity (renderCapabilityMethodKey)
+import Jazz.Compiler.CoreIdentity (CapabilityId (..), renderCapabilityMethodKey)
 import Jazz.Compiler.Diagnostics (DiagnosticContext (CheckingImplMethod))
-import Jazz.Compiler.Name (ResolvedName, identifierText, qualifiedMemberName)
-import Jazz.Compiler.SemanticDeclarations (concreteImplementationType)
-import Jazz.Compiler.TypeInference.Capabilities
-  ( defaultLiteralTypes,
-    finalizeDeferredExplicitConstraintsAt,
-    instantiateClassMethodTarget,
-  )
-import Jazz.Compiler.TypeInference.Diagnostics
-  ( addTypeError,
-    annotateNewErrorsWithContext,
-    mkImplMethodMissingClassMethodError,
-    mkImplMethodTypeMismatchError,
-  )
-import Jazz.Compiler.TypeInference.Solver (resolveType, unifyTypes)
-import Jazz.Compiler.TypeInference.State (InferState, inferClassMethodSignatures)
+import Jazz.Compiler.Name (identifierText)
+import Jazz.Compiler.TypeInference.Capabilities (capabilityFactsFromState, checkMethodPrimitiveConstraints, defaultLiteralTypes, finalizeBindingConstraintsAt, freshImplementation, resolveCapabilityEvidence)
+import Jazz.Compiler.TypeInference.Diagnostics (addTypeError, annotateNewErrorsWithContext, mkImplMethodMissingClassMethodError, mkImplMethodTypeMismatchError)
+import Jazz.Compiler.TypeInference.Solver (freshTypeVars, resolveType, unifyTypes)
+import Jazz.Compiler.TypeInference.State (InferState (..), SolverState (..), inferClassMethodSignatures, inferRigidTypeVars)
 import Jazz.Compiler.TypeInference.Types
-  ( ClassMethodType (..),
+  ( ClassDefinition (..),
+    ClassMethodType (..),
     ExpressionType,
-    SemanticBinding (PlainTypeBinding),
-    SemanticType,
+    ImplementationTemplate (..),
+    ScopeCapabilityFacts (..),
+    SemanticScheme (..),
     TypeEnv,
-    typeEnvReferenceKey,
+    TypeScheme,
+    instantiateDeclarationType,
+    quantifiedVariablesFromPreferred,
+    quantifiedVariablesOrderedList,
   )
 
 checkImplMethodBodies ::
@@ -48,24 +38,18 @@ checkImplMethodBodies ::
   (result -> Maybe ExpressionType) ->
   TypeEnv ->
   InferState ->
-  ResolvedName ->
-  [SemanticType ResolvedName Void] ->
+  CapabilityId ->
+  SemanticScheme Text ->
   [ImplMethod 'Resolved] ->
-  (InferState, [(Int, result)])
-checkImplMethodBodies inferExpected resultType env initialState capabilityName arguments methods =
-  case arguments of
-    [implTarget]
-      | concreteImplementationType implTarget,
-        not implMethodNamesHaveDuplicates ->
-          let (results, finalState) = runState (mapM (checkMethod implTarget) (zip [0 ..] methods)) initialState
-           in (finalState, catMaybes results)
-    _ -> (initialState, [])
+  (InferState, [(Int, (TypeScheme, result))])
+checkImplMethodBodies inferExpected resultType env initialState (CapabilityId capabilityName) targetScheme methods
+  | length methodNames /= Set.size (Set.fromList methodNames) = (initialState, [])
+  | otherwise =
+      let (results, finalState) = runState (mapM checkMethod (zip [0 ..] methods)) initialState
+       in (finalState, catMaybes results)
   where
-    implMethodNamesHaveDuplicates =
-      let methodNames = map (\(ImplMethod _ methodName _) -> identifierText methodName) methods
-       in length methodNames /= Set.size (Set.fromList methodNames)
-
-    checkMethod implTarget (methodIndex, ImplMethod methodNode methodName methodExpr) = do
+    methodNames = [identifierText name | ImplMethod _ name _ <- methods]
+    checkMethod (methodIndex, ImplMethod methodNode methodName methodExpr) = do
       beforeSignature <- get
       let methodSpan = coreNodeSpan methodNode
           methodKey = qualifiedMethodKey capabilityName methodName
@@ -73,45 +57,62 @@ checkImplMethodBodies inferExpected resultType env initialState capabilityName a
         Nothing -> do
           modify' (\current -> addTypeError current (mkImplMethodMissingClassMethodError (renderCapabilityMethodKey methodKey) methodSpan))
           pure Nothing
-        Just classMethodType -> do
-          let ClassMethodType parameter declaredMethodType = classMethodType
-              maybeExpectedType = instantiateClassMethodTarget parameter implTarget declaredMethodType
-          case maybeExpectedType of
+        Just (ClassMethodScheme parameter methodScheme) -> do
+          let instanceNames = quantifiedVariablesOrderedList (schemeQuantifiedVariables targetScheme)
+              localNames = filter (/= parameter) (quantifiedVariablesOrderedList (schemeQuantifiedVariables methodScheme))
+          instanceTypes <- state (freshTypeVars (length instanceNames))
+          localTypes <- state (freshTypeVars (length localNames))
+          let instanceBindings = Map.fromList (zip instanceNames instanceTypes)
+              instantiatedTarget = instantiateDeclarationType instanceBindings (schemeResultType targetScheme)
+              methodBindings target = Map.insert parameter target (Map.fromList (zip localNames localTypes))
+              instantiateMethod target = do
+                expected <- instantiateDeclarationType (methodBindings target) (schemeResultType methodScheme)
+                methodConstraints <- traverse (traverse (instantiateDeclarationType (methodBindings target))) (schemeClassConstraints methodScheme)
+                prerequisites <- traverse (traverse (instantiateDeclarationType instanceBindings)) (schemeClassConstraints targetScheme)
+                pure (expected, methodConstraints <> prerequisites)
+          case instantiatedTarget >>= instantiateMethod of
             Nothing -> pure Nothing
-            Just expectedType -> do
-              -- Keep the constraint checkpoint after signature preparation. A
-              -- failed unification must retain the pre-unification state, not
-              -- any partial solver substitutions, before checking later bodies.
+            Just (expectedType, assumptions) -> do
               beforeBody <- get
-              methodResult <- state (\current -> inferExpected (implMethodEnv implTarget beforeSignature) current expectedType methodExpr)
+              let variables = concatMap toList (instanceTypes <> localTypes)
+                  expectedScheme = SemanticScheme (quantifiedVariablesFromPreferred variables (Set.fromList variables)) assumptions [] expectedType
+              modify' (\current -> current {inferSolver = (inferSolver current) {solverRigidTypeVars = inferRigidTypeVars current <> Set.fromList variables}})
+              methodResult <- state (\current -> inferExpected env current expectedType methodExpr)
               afterBody <- get
               case resultType methodResult of
-                Just methodType ->
-                  put $
-                    case unifyTypes expectedType methodType afterBody of
-                      Just unifiedState -> unifiedState
-                      Nothing ->
-                        addTypeError
-                          afterBody
-                          ( mkImplMethodTypeMismatchError
-                              (renderCapabilityMethodKey methodKey)
-                              methodSpan
-                              (defaultLiteralTypes afterBody (resolveType afterBody expectedType))
-                              (defaultLiteralTypes afterBody (resolveType afterBody methodType))
-                          )
+                Just methodType -> put $ case unifyTypes expectedType methodType afterBody of
+                  Just unified -> unified
+                  Nothing ->
+                    addTypeError
+                      afterBody
+                      ( mkImplMethodTypeMismatchError
+                          (renderCapabilityMethodKey methodKey)
+                          methodSpan
+                          (defaultLiteralTypes afterBody (resolveType afterBody expectedType))
+                          (defaultLiteralTypes afterBody (resolveType afterBody methodType))
+                      )
                 Nothing -> pure ()
-              modify' (finalizeDeferredExplicitConstraintsAt methodSpan beforeBody)
-              pure (Just (methodIndex, methodResult))
-
+              modify' (checkMethodPrimitiveConstraints (renderCapabilityMethodKey methodKey) methodSpan (Set.fromList variables) assumptions beforeBody)
+              modify' (finalizeBindingConstraintsAt methodSpan assumptions Set.empty beforeBody)
+              modify' (\current -> current {inferSolver = (inferSolver current) {solverRigidTypeVars = inferRigidTypeVars beforeSignature}})
+              pure (Just (methodIndex, (expectedScheme, methodResult)))
       modify' (annotateNewErrorsWithContext (CheckingImplMethod (renderCapabilityMethodKey methodKey)) methodSpan beforeSignature)
       pure result
 
-    implMethodEnv implTarget stateForBindings =
-      Map.union env $
-        Map.fromList
-          [ (typeEnvReferenceKey (coreNodeFacts node) (qualifiedMemberName capabilityName methodName), PlainTypeBinding methodType)
-          | ImplMethod node methodName _ <- methods,
-            let methodKey = qualifiedMethodKey capabilityName methodName,
-            Just (ClassMethodType classParameter methodSignature) <- [Map.lookup methodKey (inferClassMethodSignatures stateForBindings)],
-            Just methodType <- [instantiateClassMethodTarget classParameter implTarget methodSignature]
-          ]
+-- A subclass implementation must provide its parent evidence even when no
+-- caller invokes a method. Rigid head parameters prevent a concrete parent
+-- instance from satisfying a promise made for every parameter.
+checkImplementationSuperclasses :: ImplementationTemplate -> InferState -> InferState
+checkImplementationSuperclasses template initialState = case Trial.runStateT (freshImplementation template) initialState of
+  Nothing -> initialState
+  Just ((target, assumptions), allocated) ->
+    let rigid = Set.fromList (toList target)
+        before = allocated {inferSolver = (inferSolver allocated) {solverRigidTypeVars = inferRigidTypeVars allocated <> rigid}}
+        checked = foldl' (check target assumptions) before parents
+     in checked {inferSolver = (inferSolver checked) {solverRigidTypeVars = inferRigidTypeVars initialState}}
+  where
+    facts = capabilityFactsFromState initialState
+    parents = maybe [] classSuperclasses (Map.lookup (implementationCapability template) (scopeClassFacts facts))
+    check target assumptions current parent = case resolveCapabilityEvidence assumptions facts parent Nothing target current of
+      Left diagnostic -> addTypeError current diagnostic
+      Right (_, next) -> next

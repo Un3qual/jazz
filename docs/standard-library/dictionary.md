@@ -1,6 +1,6 @@
 ---
 title: Dictionary
-description: Use an insertion-ordered persistent dictionary with Eq-only keys.
+description: Use an insertion-ordered persistent dictionary with Equatable-only keys.
 sidebar_position: 5
 ---
 
@@ -18,105 +18,105 @@ preserves the insertion position of each key.
 
 ## Construction
 
-### `dictionaryEmpty`
+### `empty`
 
 ```jazz jazz-signature
-dictionaryEmpty :: Dictionary(k, v).
+empty :: Dictionary(k, v).
 ```
 
-### `dictionarySingleton`
+### `singleton`
 
 ```jazz jazz-signature
-dictionarySingleton :: k -> v -> Dictionary(k, v).
+singleton :: k -> v -> Dictionary(k, v).
 ```
 
-### `dictionaryFromList`
+### `fromList`
 
 ```jazz jazz-signature
-dictionaryFromList :: @{Eq(k)}: [(k, v)] -> Dictionary(k, v).
+fromList :: @{Equatable(k)}: [(k, v)] -> Dictionary(k, v).
 ```
 
 Inserts pairs from left to right. A duplicate key keeps its first position and
 its last value. Construction is `O(n²)` worst case.
 
-### `dictionaryToList`
+### `toList`
 
 ```jazz jazz-signature
-dictionaryToList :: Dictionary(k, v) -> [(k, v)].
+toList :: Dictionary(k, v) -> [(k, v)].
 ```
 
 Returns key-value pairs in insertion order. This is `O(1)` at the API boundary.
 
 ## Size and lookup
 
-### `dictionarySize`
+### `size`
 
 ```jazz jazz-signature
-dictionarySize :: Dictionary(k, v) -> Int.
+size :: Dictionary(k, v) -> Int.
 ```
 
-### `dictionaryIsEmpty`
+### `isEmpty`
 
 ```jazz jazz-signature
-dictionaryIsEmpty :: Dictionary(k, v) -> Bool.
+isEmpty :: Dictionary(k, v) -> Bool.
 ```
 
-### `dictionaryLookup`
+### `lookup`
 
 ```jazz jazz-signature
-dictionaryLookup :: @{Eq(k)}: Dictionary(k, v) -> k -> Maybe(v).
+lookup :: @{Equatable(k)}: Dictionary(k, v) -> k -> Maybe::Maybe(v).
 ```
 
 Returns the associated value as `Just`, or `Nothing` when the key is absent.
 Lookup is `O(n)` worst case.
 
-### `dictionaryGetOr`
+### `getOr`
 
 ```jazz jazz-signature
-dictionaryGetOr :: @{Eq(k)}: Dictionary(k, v) -> k -> v -> v.
+getOr :: @{Equatable(k)}: Dictionary(k, v) -> k -> v -> v.
 ```
 
 Returns the associated value, or the final fallback argument when the key is
 absent. Lookup is `O(n)` worst case.
 
-### `dictionaryContainsKey`
+### `containsKey`
 
 ```jazz jazz-signature
-dictionaryContainsKey :: @{Eq(k)}: Dictionary(k, v) -> k -> Bool.
+containsKey :: @{Equatable(k)}: Dictionary(k, v) -> k -> Bool.
 ```
 
 ## Updating
 
-### `dictionaryInsert`
+### `insert`
 
 ```jazz jazz-signature
-dictionaryInsert :: @{Eq(k)}: Dictionary(k, v) -> k -> v -> Dictionary(k, v).
+insert :: @{Equatable(k)}: Dictionary(k, v) -> k -> v -> Dictionary(k, v).
 ```
 
 Adds a new key at the end or replaces an existing value without moving its key.
 
-### `dictionaryReplace`
+### `replace`
 
 ```jazz jazz-signature
-dictionaryReplace :: @{Eq(k)}: Dictionary(k, v) -> k -> v -> Maybe(Dictionary(k, v)).
+replace :: @{Equatable(k)}: Dictionary(k, v) -> k -> v -> Maybe::Maybe(Dictionary(k, v)).
 ```
 
 Replaces an existing value without moving its key. Returns `Nothing` when the
 key is absent. The update is `O(n)`.
 
-### `dictionaryRemove`
+### `remove`
 
 ```jazz jazz-signature
-dictionaryRemove :: @{Eq(k)}: Dictionary(k, v) -> k -> Dictionary(k, v).
+remove :: @{Equatable(k)}: Dictionary(k, v) -> k -> Dictionary(k, v).
 ```
 
 Removes the key and its value. An absent key returns an equivalent dictionary.
 Remaining keys retain their order. The update is `O(n)`.
 
-### `dictionaryUpdate`
+### `update`
 
 ```jazz jazz-signature
-dictionaryUpdate :: @{Eq(k)}: Dictionary(k, v) -> k -> (Maybe(v) -> Maybe(v)) -> Dictionary(k, v).
+update :: @{Equatable(k)}: Dictionary(k, v) -> k -> (Maybe::Maybe(v) -> Maybe::Maybe(v)) -> Dictionary(k, v).
 ```
 
 Calls the function with the current value as `Just`, or `Nothing` when absent.
@@ -125,57 +125,61 @@ appends a new key. The update is `O(n)` plus callback work.
 
 ## Views and traversal
 
-### `dictionaryKeys`
+### `keys`
 
 ```jazz jazz-signature
-dictionaryKeys :: Dictionary(k, v) -> [k].
+keys :: Dictionary(k, v) -> [k].
 ```
 
 Returns keys in insertion order in `O(n)`.
 
-### `dictionaryValues`
+### `values`
 
 ```jazz jazz-signature
-dictionaryValues :: Dictionary(k, v) -> [v].
+values :: Dictionary(k, v) -> [v].
 ```
 
 Returns values in their keys' insertion order in `O(n)`.
 
-### `dictionaryMapValues`
+### `mapValues`
 
 ```jazz jazz-signature
-dictionaryMapValues :: Dictionary(k, v) -> (v -> w) -> Dictionary(k, w).
+mapValues :: Dictionary(k, v) -> (v -> w) -> Dictionary(k, w).
 ```
 
 Transforms every value in insertion order while preserving keys and their
 positions. This is `O(n)` plus callback work.
 
-### `dictionaryFilter`
+### `filter`
 
 ```jazz jazz-signature
-dictionaryFilter :: Dictionary(k, v) -> (k -> v -> Bool) -> Dictionary(k, v).
+filter :: Dictionary(k, v) -> (k -> v -> Bool) -> Dictionary(k, v).
 ```
 
 Keeps pairs whose predicate returns `True`, preserving their relative insertion
 order. This is `O(n)` plus callback work.
 
-### `dictionaryFoldLeft`
+### `foldLeft`
 
 ```jazz jazz-signature
-dictionaryFoldLeft :: Dictionary(k, v) -> a -> (a -> k -> v -> a) -> a.
+foldLeft :: Dictionary(k, v) -> a -> (a -> k -> v -> a) -> a.
 ```
 
 Folds pairs from earliest to latest insertion, starting with the supplied
 accumulator. This is `O(n)` plus callback work.
 
-### `dictionaryFoldRight`
+### `foldRight`
 
 ```jazz jazz-signature
-dictionaryFoldRight :: Dictionary(k, v) -> a -> (k -> v -> a -> a) -> a.
+foldRight :: Dictionary(k, v) -> a -> (k -> v -> a -> a) -> a.
 ```
 
 Folds pairs from latest to earliest insertion, starting with the supplied
 terminal value. This is `O(n)` plus callback work.
 
 Use [Map](map.md) when ascending key order and logarithmic lookup matter more
-than insertion order and `Eq`-only keys.
+than insertion order and `Equatable`-only keys.
+
+## Generic methods
+
+Importing Dictionary supplies Mappable and Reducible for Dictionary(key). Generic callbacks see values, preserve keys, and traverse in insertion order. These instances need no key equality evidence.
