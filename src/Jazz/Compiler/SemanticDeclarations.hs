@@ -296,7 +296,6 @@ data SemanticScheme variable = SemanticScheme
   { schemeQuantifiedVariables :: QuantifiedVariables variable,
     schemeClassConstraints :: [SchemeConstraint (SemanticType ResolvedName variable)],
     schemePrimitiveConstraints :: [SchemePrimitiveConstraint (SemanticType ResolvedName variable)],
-    schemeDefiningCapabilities :: ScopeCapabilityFacts,
     schemeResultType :: SemanticType ResolvedName variable
   }
   deriving stock (Eq, Generic, Show)
@@ -354,7 +353,6 @@ traverseBindingTypes variable expression binding = case binding of
         <$> traverse variable (quantifiedVariablesOrderedList (schemeQuantifiedVariables scheme))
         <*> traverse (traverse expression) (schemeClassConstraints scheme)
         <*> traverse (traverse expression) (schemePrimitiveConstraints scheme)
-        <*> pure (schemeDefiningCapabilities scheme)
         <*> expression (schemeResultType scheme)
     quantified ordered = quantifiedVariablesFromPreferred ordered (Set.fromList ordered)
 

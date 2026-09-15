@@ -516,7 +516,7 @@ testCheckedSubtreeOwnership = do
           (ELit (node 2) (LBool True))
           (ETuple (node 3) [EList (node 4) [ELit (node 5) (LInt 1)], EIf (node 11) (ELit (node 12) (LBool True)) (ELit (node 6) (LBool True)) (ELit (node 13) (LBool False))])
           (ETuple (node 7) [EList (node 8) [ELit (node 9) (LInt 2)], ELit (node 10) (LBool False)])
-      inputs = InferenceInputs Nothing defaultWarningSettings Set.empty Map.empty Map.empty Map.empty emptyScopeCapabilityFacts Set.empty Nothing
+      inputs = InferenceInputs Nothing defaultWarningSettings Set.empty Map.empty Map.empty Map.empty emptyScopeCapabilityFacts Set.empty
       (checked, state, _) = inferExpressionWork inputs expression
       erased = state {inferOutput = inferOutput initialInferState}
   expected <- either (fail . show) pure (finalizeCheckedExpression state checked)
@@ -590,7 +590,6 @@ testAnalyzedFactInvariantFailures = do
           { schemeQuantifiedVariables = quantifiedVariablesFromPreferred [variable] (Set.singleton variable),
             schemeClassConstraints = [],
             schemePrimitiveConstraints = [TypeSchemeNumericConstraint (IntegralLiteralNumericConstraint (IntegerLiteralRange 1 1)) (SemanticVariable variable)],
-            schemeDefiningCapabilities = emptyScopeCapabilityFacts,
             schemeResultType = SemanticVariable variable
           }
   case finalizeBinding (SchemeTypeBinding scheme) of

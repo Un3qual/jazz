@@ -47,7 +47,9 @@ exported names, closed schemes, and capability identities needed by consumers.
 Semantic analysis checks scopes, binding relationships, patterns, signatures,
 types, capability requirements, and the current purity rules. Type inference
 adds types where no signature is written and validates explicit signatures
-where they are present.
+where they are present. Each module receives its complete imported instance
+environment from the program coordinator. Function schemes carry quantified types
+and constraints; concrete evidence remains attached to checked expressions.
 
 Checking returns each subtree with its type, binding schemes, patterns, explicit
 instantiation arguments, and selected method evidence. Finalization applies solved

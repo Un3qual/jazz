@@ -1224,7 +1224,11 @@ testSourceRejectsDuplicateAdtImplDeclarations = do
 
 testCompilerExposesImportedQualifiedMethodBodies :: IO ()
 testCompilerExposesImportedQualifiedMethodBodies = do
-  result <- compileExpr defaultWarningSettings importedQualifiedMethodFactsProgram
+  result <-
+    compileModuleSources
+      [ ("src/Lib.jz", "module Lib { class RemoteEq(a) { equals :: a -> a -> Bool. }. impl RemoteEq(Int) { equals = __kernel_equals. }. }"),
+        ("src/App.jz", "module App { import Lib. RemoteEq::equals 1 1. }")
+      ]
   assertEqual "imported qualified method compile errors" [] (compileErrors result)
 
 testSourceAcceptsSimpleFunctionSignature :: IO ()

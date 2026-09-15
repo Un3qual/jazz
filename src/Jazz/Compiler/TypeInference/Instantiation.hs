@@ -132,14 +132,13 @@ instantiateTypeSchemeWithBindings typeScheme initialBindings remainingVariables 
         applyTypeSchemePrimitiveConstraints instantiatedPrimitiveConstraints nextState
       stateWithDeferredConstraints =
         deferExplicitConstraintsWithFacts
-          (definingFacts <> capabilityFactsFromState state)
+          (capabilityFactsFromState state)
           instantiatedConstraints
           (foldl' (flip addInferredConstraint) stateWithPrimitiveConstraints instantiatedConstraints)
    in (Just (resolveType stateWithDeferredConstraints instantiatedType), stateWithDeferredConstraints)
   where
     explicitConstraints = schemeClassConstraints typeScheme
     primitiveConstraints = schemePrimitiveConstraints typeScheme
-    definingFacts = schemeDefiningCapabilities typeScheme
     expressionType = schemeResultType typeScheme
 
 inferExplicitTypeApplication :: InferExprFn -> TypeEnv -> InferState -> Expr 'Resolved -> (CheckedExpr, InferState)

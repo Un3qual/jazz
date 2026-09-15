@@ -251,7 +251,7 @@ testScopeCapabilityFacts = do
   where
     comparable = CapabilityId (localCapabilityName "Comparable")
     compareMethod = (comparable, mkIdentifier "compare")
-    method parameter result = ClassMethodScheme parameter (SemanticScheme (quantifiedVariablesFromPreferred [parameter] (Set.singleton parameter)) [] [] mempty result)
+    method parameter result = ClassMethodScheme parameter (SemanticScheme (quantifiedVariablesFromPreferred [parameter] (Set.singleton parameter)) [] [] result)
     combined = first <> second
     first =
       mempty
@@ -351,8 +351,7 @@ assertImportedConstraintFactAccepted label sourceArgument importedArgument = do
                 scopeImplementations = case fixtureConcreteImplFact (localCapabilityName "Marked") factArgument of
                   ConcreteImplFact capability target -> Map.singleton (fixtureImplId 0) (fixtureImplementation 0 capability target)
               },
-          inferenceImportedClassNames = Set.singleton "Marked",
-          inferenceCurrentModulePath = Nothing
+          inferenceImportedClassNames = Set.singleton "Marked"
         }
 
     constrainedProgram constraintArgument =
@@ -431,7 +430,7 @@ fixtureImplementation index capability target =
   ImplementationTemplate
     identity
     capability
-    (SemanticScheme (quantifiedVariablesFromPreferred [] Set.empty) [] [] mempty (fmap absurd target))
+    (SemanticScheme (quantifiedVariablesFromPreferred [] Set.empty) [] [] (fmap absurd target))
     (Map.singleton (mkIdentifier "compare") (MethodId (identity, mkIdentifier "compare")))
   where
     identity = fixtureImplId index

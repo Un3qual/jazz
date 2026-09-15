@@ -26,7 +26,6 @@ import Jazz.Compiler.TypeInference.Types
   ( SemanticScheme (..),
     SemanticType (..),
     TypeScheme,
-    emptyScopeCapabilityFacts,
     quantifiedVariablesFromPreferred,
     quantifiedVariablesMembershipSet,
     quantifiedVariablesOrderedList,
@@ -99,7 +98,6 @@ testTypeSchemeRecordPreservesFields = do
         { schemeQuantifiedVariables = quantifiedVariablesFromPreferred [1, 0] (Set.fromList [0, 1]),
           schemeClassConstraints = [],
           schemePrimitiveConstraints = [],
-          schemeDefiningCapabilities = emptyScopeCapabilityFacts,
           schemeResultType = SemanticFunction (SemanticVariable 0) (SemanticVariable 0)
         }
 
@@ -210,7 +208,11 @@ testSourceKeepsNestedCapabilityFactsScoped = do
 
 testCompilerHidesAliasOnlyImportedCapabilityFactsInSignatures :: IO ()
 testCompilerHidesAliasOnlyImportedCapabilityFactsInSignatures = do
-  result <- compileExpr defaultWarningSettings aliasOnlyImportedCapabilityFactsProgram
+  result <-
+    compileModuleSources
+      [ ("src/Lib.jz", "module Lib { class RemoteEq(a) { }. impl RemoteEq(Int) { }. }"),
+        ("src/App.jz", "module App { import Lib as Lib. x :: @{RemoteEq(Int)}: Int. x = 1. }")
+      ]
   assertSingleDiagnosticContains
     "alias-only capability fact isolation"
     "missing class declaration 'RemoteEq'"

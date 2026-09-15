@@ -20,18 +20,17 @@ module Jazz.Compiler.Semantics.BindingSignature.Shared
     assertSourceSingleErrorContainsWithoutPrelude,
     assertSourceSingleErrorCodeAndPrimarySpan,
     qualifiedEqSource,
-    importedQualifiedMethodFactsProgram,
-    aliasOnlyImportedCapabilityFactsProgram,
+    compileModuleSources,
     loweredProgram,
     resolvedProgram,
   )
 where
 
+import qualified Data.Map.Strict as Map
 import qualified Data.Text as Text
 import Jazz.Compiler.AST
   ( CorePhase (Lowered, Resolved),
     Expr (..),
-    Statement (..),
   )
 import Jazz.Compiler.Diagnostics
   ( SourceSpan (..),
@@ -40,14 +39,16 @@ import Jazz.Compiler.Diagnostics.Render
   ( renderDiagnostic,
   )
 import Jazz.Compiler.Driver
-  ( compileErrors,
+  ( CompileResult,
+    compileErrors,
+    compileModuleGraphWithPrelude,
     compileSource,
     compileSourceWithPrelude,
   )
 import Jazz.Compiler.ModuleExports (exportInventory)
-import Jazz.Compiler.ModuleResolver (resolveStandaloneExprNames)
+import Jazz.Compiler.ModuleResolver (ModuleResolutionConfig (..), resolveStandaloneExprNames)
 import Jazz.Compiler.Parser (parseSurfaceProgram)
-import Jazz.Compiler.Parser.Lower (lowerSurfaceExpr, reindexLoweredExpr)
+import Jazz.Compiler.Parser.Lower (lowerSurfaceExpr)
 import Jazz.Compiler.WarningConfig
   ( defaultWarningSettings,
   )
@@ -135,39 +136,20 @@ qualifiedEqSource =
 
   """
 
-importedQualifiedMethodFactsProgram :: Expr 'Lowered
-importedQualifiedMethodFactsProgram =
-  loweredPrograms
-    [ "module Lib { class RemoteEq(a) { equals :: a -> a -> Bool. }. impl RemoteEq(Int) { equals = __kernel_equals. }. }",
-      "module App { import Lib. RemoteEq::equals 1 1. }"
-    ]
-
-aliasOnlyImportedCapabilityFactsProgram :: Expr 'Lowered
-aliasOnlyImportedCapabilityFactsProgram =
-  loweredPrograms
-    [ "module Lib { class RemoteEq(a) { }. impl RemoteEq(Int) { }. }",
-      "module App { import Lib as Lib. x :: @{RemoteEq(Int)}: Int. x = 1. }"
-    ]
+compileModuleSources :: [(FilePath, Text.Text)] -> IO CompileResult
+compileModuleSources sources =
+  compileModuleGraphWithPrelude
+    defaultWarningSettings
+    Nothing
+    (ModuleResolutionConfig ["src"] ".jz")
+    ["App"]
+    (pure . (`Map.lookup` Map.fromList sources))
 
 loweredProgram :: Text.Text -> Expr 'Lowered
 loweredProgram source =
   case parseSurfaceProgram source of
     Left diagnostic -> error (Text.unpack (renderDiagnostic diagnostic))
     Right surface -> lowerSurfaceExpr surface
-
-loweredPrograms :: [Text.Text] -> Expr 'Lowered
-loweredPrograms = reindexLoweredExpr . mergeLoweredPrograms . map loweredProgram
-
-mergeLoweredPrograms :: [Expr 'Lowered] -> Expr 'Lowered
-mergeLoweredPrograms programs =
-  case programs of
-    [] -> error "expected at least one lowered source unit"
-    EBlock node statements : remainingPrograms -> EBlock node (statements <> concatMap blockStatements remainingPrograms)
-    expression : _ -> error ("expected lowered source-unit block, got " <> show expression)
-  where
-    blockStatements :: Expr 'Lowered -> [Statement 'Lowered]
-    blockStatements (EBlock _ statements) = statements
-    blockStatements expression = error ("expected lowered source-unit block, got " <> show expression)
 
 resolvedProgram :: Text.Text -> Expr 'Resolved
 resolvedProgram = resolveStandaloneExprNames (exportInventory []) . loweredProgram

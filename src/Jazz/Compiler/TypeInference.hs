@@ -48,7 +48,6 @@ import Jazz.Compiler.FractionalLiteral
     fractionalLiteralIntegralValue,
   )
 import Jazz.Compiler.ModuleExports (ModuleExport (..), ModuleExportInventory, exportInventory, withClassMethods)
-import Jazz.Compiler.ModuleIdentity (ModulePath)
 import Jazz.Compiler.ModuleInterface
   ( ModuleInterface (..),
     emptyModuleInterface,
@@ -110,7 +109,6 @@ import Jazz.Compiler.TypeInference.State
     ModuleInferenceState (..),
     inferConstructorWitnessNames,
     inferDataTypes,
-    inferModuleCapabilityFacts,
     inferVisibleTypes,
     initialInferState,
     modifyInferenceOutput,
@@ -129,7 +127,6 @@ import Jazz.Compiler.TypeInference.Types
     TypeBinding,
     TypeEnv,
     TypeEnvKey (..),
-    emptyScopeCapabilityFacts,
     typeEnvReferenceKey,
   )
 import Jazz.Compiler.TypeRepresentation (NumericType (..))
@@ -143,8 +140,7 @@ data InferenceInputs = InferenceInputs
     inferenceImportedDataTypes :: Map ResolvedName DataTypeBinding,
     inferenceImportedConstructorWitnessNames :: Map ResolvedName UnresolvedName,
     inferenceImportedCapabilities :: ScopeCapabilityFacts,
-    inferenceImportedClassNames :: Set Text,
-    inferenceCurrentModulePath :: Maybe ModulePath
+    inferenceImportedClassNames :: Set Text
   }
 
 data InferenceSubject
@@ -196,8 +192,7 @@ initialStateForInference inputs =
               },
           inferModule =
             (inferModule initialInferState)
-              { inferenceModulePath = inferenceCurrentModulePath inputs,
-                inferenceConstructorWitnessNames =
+              { inferenceConstructorWitnessNames =
                   inferenceImportedConstructorWitnessNames inputs
               }
         }
@@ -214,11 +209,10 @@ moduleInterfaceFromState inputs expr state =
               Just binding <- [Map.lookup (TypeEnvKey binder name) (inferVisibleTypes state)]
             ],
         interfaceDataTypes = Map.restrictKeys (inferDataTypes state) declaredDataTypes,
-        interfaceCapabilities = localCapabilities
+        interfaceCapabilities = capabilityFactsFromState state
       }
   where
     (declaredValues, declaredDataTypes) = declaredModuleBindings expr
-    localCapabilities = Map.findWithDefault emptyScopeCapabilityFacts (inferenceCurrentModulePath inputs) (inferModuleCapabilityFacts state) <> inferenceImportedCapabilities inputs
     declaredClasses = [(capability, methods) | SClass _ capability _ methods _ _ <- case expr of EBlock _ statements -> statements; _ -> []]
     declaredInventory =
       withClassMethods

@@ -93,18 +93,16 @@ import Jazz.Compiler.SemanticFacts
 import Jazz.Compiler.TypeInference.Analyzed (constrainBindingRuntimeResult, draftExpressionNode, draftLambda, draftStatementNode, retainCheckedEvidence, withEvidenceParameters, withRecursiveBindingEvidence)
 import Jazz.Compiler.TypeInference.Capabilities
   ( TypeEnvFreeVariables,
+    applyCapabilityFacts,
     capabilityFactsFromState,
     defaultBindingLiteralTypes,
     defaultLiteralTypes,
     deferExplicitConstraintsWithFacts,
     deleteTypeEnvFreeVariables,
-    enterModuleCapabilityScope,
     finalizeBindingConstraintsAt,
     finalizeDeferredExplicitConstraintsAt,
-    flushCurrentModuleCapabilityFacts,
     freeTypeVariablesInEnv,
     implementationsOverlap,
-    importModuleCapabilityFacts,
     insertTypeEnvFreeVariables,
     newInferredClassConstraints,
     registerClassCapabilityFacts,
@@ -112,12 +110,9 @@ import Jazz.Compiler.TypeInference.Capabilities
     reindexDeclarationScheme,
     resolveTypeEnvFreeVariables,
     resolveTypeSchemeConstraint,
-    restoreCapabilityFacts,
     superclassPath,
     typeEnvFreeVariables,
-    typeSchemeDefiningFactsFromState,
     typeSchemePrimitiveConstraints,
-    updateRootModuleBaselineFacts,
   )
 import Jazz.Compiler.TypeInference.Diagnostics
   ( addTypeError,
@@ -278,7 +273,7 @@ checkImplementationTemplate state node capabilityName arguments prerequisites me
         ImplementationTemplate
           identity
           capability
-          (SemanticScheme (quantifiedVariablesFromPreferred parameterNames (Map.keysSet variables)) constraints [] mempty target)
+          (SemanticScheme (quantifiedVariablesFromPreferred parameterNames (Map.keysSet variables)) constraints [] target)
           (Map.fromSet (\member -> MethodId (identity, member)) (members <> provided))
   case Set.lookupMin missingMethods of
     Just method -> Left (setDiagnosticPrimarySpan spanValue (mkMissingImplMethodBodyError (capability, method)))
@@ -348,7 +343,7 @@ checkClassMethods state declarationSpan capabilityName parameters signatures pre
       result <- normalize signature
       checkedConstraints <- traverse (checkConstraint normalize) constraints
       let self = TypeSchemeMethodConstraint capability (capability, mkIdentifier (identifierText methodName)) (SemanticVariable classParameter)
-          scheme = SemanticScheme (quantifiedVariablesFromPreferred names (Map.keysSet variables)) (self : checkedConstraints) [] mempty result
+          scheme = SemanticScheme (quantifiedVariablesFromPreferred names (Map.keysSet variables)) (self : checkedConstraints) [] result
       pure (node, methodName, ClassMethodScheme classParameter scheme)
       where
         methodKey = identifierText capabilityName <> "::" <> identifierText methodName
@@ -394,15 +389,17 @@ inferScopeTypeWithMode inferExpression mode initialEnv initialState preparedScop
 
 inferNestedScopeTypeWithMode :: InferExprWithModeFn -> InferenceMode -> TypeEnv -> InferState -> PreparedRecursiveScope 'Resolved -> (CheckedScope, InferState)
 inferNestedScopeTypeWithMode inferExpression mode initialEnv initialState preparedScope =
-  inferScopeTypeInternal
-    ScopeInferenceRequest
-      { scopeForwardSignedFunctionsPolicy = ForbidForwardSignedFunctions,
-        scopeInferExpression = inferExpression,
-        scopeInferenceMode = mode,
-        scopeInitialEnv = initialEnv,
-        scopeInitialState = initialState,
-        scopePreparedInference = preparedScope
-      }
+  let (checked, finalState) =
+        inferScopeTypeInternal
+          ScopeInferenceRequest
+            { scopeForwardSignedFunctionsPolicy = ForbidForwardSignedFunctions,
+              scopeInferExpression = inferExpression,
+              scopeInferenceMode = mode,
+              scopeInitialEnv = initialEnv,
+              scopeInitialState = initialState,
+              scopePreparedInference = preparedScope
+            }
+   in (checked, applyCapabilityFacts (capabilityFactsFromState initialState) finalState)
 
 inferScopeType :: InferExprWithModeFn -> TypeEnv -> InferState -> PreparedRecursiveScope 'Resolved -> (CheckedScope, InferState)
 inferScopeType inferExpression initialEnv initialState preparedScope =
@@ -444,7 +441,6 @@ data ScopeWalkState = ScopeWalkState
     scopeWalkPendingSignaturesByStatement :: !(Map Int PendingSignatureType),
     scopeWalkRecursiveGroupStartStates :: !(Map Int InferState),
     scopeWalkRecursiveGroupPreviewCache :: !RecursiveGroupPreviewCache,
-    scopeWalkModuleBaselineFacts :: !ScopeCapabilityFacts,
     scopeWalkInferState :: !InferState
   }
 
@@ -469,14 +465,12 @@ inferScopeTypeInternal
               scopeWalkPendingSignaturesByStatement = Map.empty,
               scopeWalkRecursiveGroupStartStates = Map.empty,
               scopeWalkRecursiveGroupPreviewCache = Map.empty,
-              scopeWalkModuleBaselineFacts = initialModuleBaselineFacts,
               scopeWalkInferState = stateAfterBindingSeeds
             }
         (scopeType, finalState) =
           go initialWalkState indexedStatements
-        stateWithPublishedModuleFacts = flushCurrentModuleCapabilityFacts finalState
      in ( scopeType {checkedScopeTree = retainCheckedEvidence finalState (checkedScopeTree scopeType)},
-          restoreCapabilityFacts initialState stateWithPublishedModuleFacts
+          finalState
         )
     where
       statements = preparedRecursiveScopeStatements preparedScope
@@ -686,7 +680,6 @@ inferScopeTypeInternal
       preparedSignaturesByStatement = preparedSignatures scopePreparation
       forwardFunctionBindings = preparedForwardFunctions scopePreparation
       stateAfterBindingSeeds = preparedScopeState scopePreparation
-      initialModuleBaselineFacts = capabilityFactsFromState initialState
 
       retainStatement index statement visibleTypes checked body methods walkState =
         walkState
@@ -707,15 +700,10 @@ inferScopeTypeInternal
                 pendingSignaturesByStatement = scopeWalkPendingSignaturesByStatement walkState
                 recursiveGroupStartStates = scopeWalkRecursiveGroupStartStates walkState
                 recursiveGroupPreviewCache = scopeWalkRecursiveGroupPreviewCache walkState
-                moduleBaselineFacts = scopeWalkModuleBaselineFacts walkState
                 state = scopeWalkInferState walkState
              in case statement of
-                  SModule moduleNode _ ->
-                    let next = enterModuleCapabilityScope moduleBaselineFacts (sourceUnitOwnerModulePath (resolvedNodeOwner (coreNodeFacts moduleNode))) state
-                     in go (retainStatement statementIndex statement env next Nothing [] walkState {scopeWalkRecursiveGroupPreviewCache = Map.empty}) rest
-                  SImport importNode _ _ _ ->
-                    let next = maybe state (\target -> importModuleCapabilityFacts target state) (resolvedNodeImportTarget (coreNodeFacts importNode))
-                     in go (retainStatement statementIndex statement env next Nothing [] walkState {scopeWalkRecursiveGroupPreviewCache = Map.empty}) rest
+                  SModule {} -> go (retainStatement statementIndex statement env state Nothing [] walkState {scopeWalkPendingSignature = Nothing}) rest
+                  SImport {} -> go (retainStatement statementIndex statement env state Nothing [] walkState {scopeWalkPendingSignature = Nothing}) rest
                   SClass _ capabilityName parameters _ _ defaults ->
                     let registeredState = case Map.lookup statementIndex (preparedDeclarations scopePreparation) of
                           Just (Left diagnostic) -> addTypeError state diagnostic
@@ -743,11 +731,9 @@ inferScopeTypeInternal
                         (nextState, defaultChecks) = case parameters of
                           [parameter] ->
                             let parameterName = identifierText parameter
-                                targetScheme = SemanticScheme (quantifiedVariablesFromPreferred [parameterName] (Set.singleton parameterName)) [] [] mempty (SemanticVariable parameterName)
+                                targetScheme = SemanticScheme (quantifiedVariablesFromPreferred [parameterName] (Set.singleton parameterName)) [] [] (SemanticVariable parameterName)
                              in checkImplMethodBodies (inferExprTypeWithExpectedMode inferExpression mode) checkedExprType methodEnv methodState (CapabilityId capabilityName) targetScheme defaults
                           _ -> (methodState, [])
-                        nextModuleBaselineFacts =
-                          updateRootModuleBaselineFacts moduleBaselineFacts state nextState
                         (scopeResultType, resultState) =
                           go
                             ( retainStatement
@@ -760,8 +746,7 @@ inferScopeTypeInternal
                                 walkState
                                   { scopeWalkEnv = methodEnv,
                                     scopeWalkPendingSignature = Nothing,
-                                    scopeWalkRecursiveGroupPreviewCache = Map.empty,
-                                    scopeWalkModuleBaselineFacts = nextModuleBaselineFacts
+                                    scopeWalkRecursiveGroupPreviewCache = Map.empty
                                   }
                             )
                             rest
@@ -785,8 +770,6 @@ inferScopeTypeInternal
                                     (implementationCapability targets)
                                     (implementationScheme targets)
                                     methods
-                        nextModuleBaselineFacts =
-                          updateRootModuleBaselineFacts moduleBaselineFacts state nextState
                         (scopeResultType, resultState) =
                           go
                             ( retainStatement
@@ -798,8 +781,7 @@ inferScopeTypeInternal
                                 methodChecks
                                 walkState
                                   { scopeWalkPendingSignature = Nothing,
-                                    scopeWalkRecursiveGroupPreviewCache = Map.empty,
-                                    scopeWalkModuleBaselineFacts = nextModuleBaselineFacts
+                                    scopeWalkRecursiveGroupPreviewCache = Map.empty
                                   }
                             )
                             rest
@@ -1595,7 +1577,7 @@ prepareScope ::
   InferState ->
   ScopePreparation
 prepareScope forwardSignedFunctionsPolicy mode indexedStatements initialState =
-  let (bindingSeeds, signatures, forwardFunctions, declarations, _, _, finalPreparationState) =
+  let (bindingSeeds, signatures, forwardFunctions, declarations, _, finalPreparationState) =
         foldl'
           step
           ( Map.empty,
@@ -1603,7 +1585,6 @@ prepareScope forwardSignedFunctionsPolicy mode indexedStatements initialState =
             Map.empty,
             Map.empty,
             Nothing,
-            capabilityFactsFromState initialState,
             initialState
           )
           indexedStatements
@@ -1631,27 +1612,9 @@ prepareScope forwardSignedFunctionsPolicy mode indexedStatements initialState =
             Left (setDiagnosticPrimarySpan (coreNodeSpan node) (mkInvalidConstructorPayloadTypeError (Signature.renderSignatureTypeFailure failure)))
       _ -> Right (PreparedDataType binding)
     step
-      (bindingSeeds, signatures, forwardFunctions, declarations, pendingSignature, moduleBaselineFacts, state)
+      (bindingSeeds, signatures, forwardFunctions, declarations, pendingSignature, state)
       (statementIndex, statement) =
         case statement of
-          SModule moduleNode _ ->
-            ( bindingSeeds,
-              signatures,
-              forwardFunctions,
-              declarations,
-              Nothing,
-              moduleBaselineFacts,
-              enterModuleCapabilityScope moduleBaselineFacts (sourceUnitOwnerModulePath (resolvedNodeOwner (coreNodeFacts moduleNode))) state
-            )
-          SImport importNode _ _ _ ->
-            ( bindingSeeds,
-              signatures,
-              forwardFunctions,
-              declarations,
-              Nothing,
-              moduleBaselineFacts,
-              maybe state (\target -> importModuleCapabilityFacts target state) (resolvedNodeImportTarget (coreNodeFacts importNode))
-            )
           SClass classNode capabilityName parameters methods prerequisites defaults ->
             let checked = checkClassMethods state (coreNodeSpan classNode) capabilityName parameters methods prerequisites defaults
                 nextState = either (const state) (registerClassDeclaration state capabilityName) checked
@@ -1660,7 +1623,6 @@ prepareScope forwardSignedFunctionsPolicy mode indexedStatements initialState =
                   forwardFunctions,
                   Map.insert statementIndex (PreparedClassMethods <$> checked) declarations,
                   Nothing,
-                  updateRootModuleBaselineFacts moduleBaselineFacts state nextState,
                   nextState
                 )
           SImpl implNode capabilityName arguments methods prerequisites ->
@@ -1671,7 +1633,6 @@ prepareScope forwardSignedFunctionsPolicy mode indexedStatements initialState =
                   forwardFunctions,
                   Map.insert statementIndex (PreparedImplementationTemplate <$> checked) declarations,
                   Nothing,
-                  updateRootModuleBaselineFacts moduleBaselineFacts state nextState,
                   nextState
                 )
           SData node typeName typeParameters _ ->
@@ -1683,7 +1644,6 @@ prepareScope forwardSignedFunctionsPolicy mode indexedStatements initialState =
                   forwardFunctions,
                   Map.insert statementIndex checked declarations,
                   Nothing,
-                  moduleBaselineFacts,
                   nextState
                 )
           SSignature signatureNode name signaturePayload ->
@@ -1713,8 +1673,7 @@ prepareScope forwardSignedFunctionsPolicy mode indexedStatements initialState =
                   forwardFunctions,
                   declarations,
                   Just preparedSignature,
-                  moduleBaselineFacts,
-                  restoreCapabilityFacts state stateAfterSignature
+                  stateAfterSignature
                 )
           SLet _ bindingName bindingExpression ->
             let (bindingSeed, nextState) = freshTypeVar state
@@ -1736,7 +1695,6 @@ prepareScope forwardSignedFunctionsPolicy mode indexedStatements initialState =
                   nextForwardFunctions,
                   declarations,
                   Nothing,
-                  moduleBaselineFacts,
                   nextState
                 )
           _ ->
@@ -1745,7 +1703,6 @@ prepareScope forwardSignedFunctionsPolicy mode indexedStatements initialState =
               forwardFunctions,
               declarations,
               Nothing,
-              moduleBaselineFacts,
               state
             )
 
@@ -1877,7 +1834,6 @@ bindingTypeScheme state variableOrder variables constraints resultType =
     { schemeQuantifiedVariables = quantifiedVariablesFromPreferred variableOrder variables,
       schemeClassConstraints = constraints,
       schemePrimitiveConstraints = typeSchemePrimitiveConstraints state variables,
-      schemeDefiningCapabilities = typeSchemeDefiningFactsFromState state constraints,
       schemeResultType = resultType
     }
 

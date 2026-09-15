@@ -213,7 +213,7 @@ testDeepModuleInterfaceForcing =
                 { scopeClassMethodSignatures =
                     Map.singleton
                       (CapabilityId (resolvedLocalName CapabilityNamespace (mkIdentifier "Capability")), mkIdentifier "method")
-                      (ClassMethodScheme "Capability" (SemanticScheme (quantifiedVariablesFromPreferred ["Capability"] (Set.singleton "Capability")) [] [] mempty (SemanticList (throw (userError "nested signature type was forced")))))
+                      (ClassMethodScheme "Capability" (SemanticScheme (quantifiedVariablesFromPreferred ["Capability"] (Set.singleton "Capability")) [] [] (SemanticList (throw (userError "nested signature type was forced")))))
                 }
           }
       ),
@@ -230,7 +230,7 @@ testDeepModuleInterfaceForcing =
                           ( ImplementationTemplate
                               identity
                               capability
-                              (SemanticScheme (quantifiedVariablesFromPreferred [] Set.empty) [] [] mempty (SemanticList (throw (userError "nested signature type was forced"))))
+                              (SemanticScheme (quantifiedVariablesFromPreferred [] Set.empty) [] [] (SemanticList (throw (userError "nested signature type was forced"))))
                               (Map.singleton (mkIdentifier "method") (MethodId (identity, mkIdentifier "method")))
                           )
                 }

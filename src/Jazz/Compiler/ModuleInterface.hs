@@ -49,7 +49,6 @@ import Jazz.Compiler.SemanticDeclarations
     ScopeCapabilityFacts (..),
     SemanticBinding (..),
     SemanticScheme (..),
-    implementationTarget,
   )
 import Jazz.Compiler.WarningConfig (WarningSettings)
 
@@ -131,10 +130,7 @@ publishModuleInterface requested typeDefinitions declarations =
       Set.unions
         [ typeNames (schemeResultType scheme),
           foldMap (foldMap typeNames) (schemeClassConstraints scheme),
-          foldMap (foldMap typeNames) (schemePrimitiveConstraints scheme),
-          let facts = schemeDefiningCapabilities scheme
-           in foldMap (typeNames . implementationTarget) (scopeImplementations facts)
-                <> foldMap (schemeNames . classMethodScheme) (scopeClassMethodSignatures facts)
+          foldMap (foldMap typeNames) (schemePrimitiveConstraints scheme)
         ]
 
 declaredInterfaceInventory :: ModuleInterface -> ModuleExportInventory
@@ -185,7 +181,6 @@ publishSchemeNames scheme =
   scheme
     { schemeClassConstraints = map publishConstraint (schemeClassConstraints scheme),
       schemePrimitiveConstraints = map (fmap (first publishedName)) (schemePrimitiveConstraints scheme),
-      schemeDefiningCapabilities = publishCapabilityNames (schemeDefiningCapabilities scheme),
       schemeResultType = first publishedName (schemeResultType scheme)
     }
   where

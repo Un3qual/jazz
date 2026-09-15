@@ -12,8 +12,6 @@ module Jazz.Compiler.TypeInference.State
     inferClassFacts,
     inferClassMethodSignatures,
     inferConstructorWitnessNames,
-    inferCurrentModuleLocalCapabilityFacts,
-    inferCurrentModulePath,
     inferDataTypes,
     inferDeferredExplicitConstraintCount,
     inferDeferredExplicitConstraints,
@@ -21,7 +19,6 @@ module Jazz.Compiler.TypeInference.State
     inferErrorsRev,
     inferInferredClassConstraintCount,
     inferInferredClassConstraints,
-    inferModuleCapabilityFacts,
     inferNextTypeVar,
     inferNumericVars,
     inferPatternCoverageSites,
@@ -34,7 +31,6 @@ module Jazz.Compiler.TypeInference.State
     rejectPatternAttempt,
     modifyDeclarationState,
     modifyInferenceOutput,
-    modifyModuleInferenceState,
     recordPatternCoverageSite,
     reservePatternCoverageSite,
   )
@@ -50,7 +46,6 @@ import Data.Set (Set)
 import qualified Data.Set as Set
 import Jazz.Compiler.CoreIdentity (CapabilityId, CapabilityMethodKey, CoreBinderId)
 import Jazz.Compiler.Diagnostics (Diagnostic)
-import Jazz.Compiler.ModuleIdentity (ModulePath)
 import Jazz.Compiler.Name (ResolvedName, UnresolvedName)
 import Jazz.Compiler.PatternCoverage (PatternCoverageSite)
 import Jazz.Compiler.SemanticDeclarations (ClassDefinition, DeclarationVariable)
@@ -83,10 +78,7 @@ data DeclarationState = DeclarationState
   deriving (Eq, Show)
 
 data ModuleInferenceState = ModuleInferenceState
-  { inferenceModulePath :: Maybe ModulePath,
-    inferenceLocalCapabilities :: ScopeCapabilityFacts,
-    inferenceModuleCapabilities :: Map (Maybe ModulePath) ScopeCapabilityFacts,
-    inferenceDeclarationParameters :: Map InferenceVariable DeclarationVariable,
+  { inferenceDeclarationParameters :: Map InferenceVariable DeclarationVariable,
     inferenceConstructorWitnessNames :: Map ResolvedName UnresolvedName,
     inferenceEvidenceParameters :: Map (CapabilityId, ExpressionType) (CoreBinderId, Int, [CapabilityId]),
     inferenceRecursiveEvidence :: Map CoreBinderId [EvidenceReference],
@@ -139,10 +131,6 @@ modifyInferenceOutput :: (InferenceOutput -> InferenceOutput) -> InferState -> I
 modifyInferenceOutput update state =
   state {inferOutput = update (inferOutput state)}
 
-modifyModuleInferenceState :: (ModuleInferenceState -> ModuleInferenceState) -> InferState -> InferState
-modifyModuleInferenceState update state =
-  state {inferModule = update (inferModule state)}
-
 initialInferState :: InferState
 initialInferState =
   InferState
@@ -161,10 +149,7 @@ initialInferState =
           },
       inferModule =
         ModuleInferenceState
-          { inferenceModulePath = Nothing,
-            inferenceLocalCapabilities = emptyScopeCapabilityFacts,
-            inferenceModuleCapabilities = Map.empty,
-            inferenceDeclarationParameters = Map.empty,
+          { inferenceDeclarationParameters = Map.empty,
             inferenceConstructorWitnessNames = Map.empty,
             inferenceEvidenceParameters = Map.empty,
             inferenceRecursiveEvidence = Map.empty,
@@ -206,15 +191,6 @@ inferClassFacts = scopeClassFacts . declarationCapabilities . inferDeclarations
 
 inferClassMethodSignatures :: InferState -> Map CapabilityMethodKey ClassMethodType
 inferClassMethodSignatures = scopeClassMethodSignatures . declarationCapabilities . inferDeclarations
-
-inferCurrentModulePath :: InferState -> Maybe ModulePath
-inferCurrentModulePath = inferenceModulePath . inferModule
-
-inferCurrentModuleLocalCapabilityFacts :: InferState -> ScopeCapabilityFacts
-inferCurrentModuleLocalCapabilityFacts = inferenceLocalCapabilities . inferModule
-
-inferModuleCapabilityFacts :: InferState -> Map (Maybe ModulePath) ScopeCapabilityFacts
-inferModuleCapabilityFacts = inferenceModuleCapabilities . inferModule
 
 inferConstructorWitnessNames :: InferState -> Map ResolvedName UnresolvedName
 inferConstructorWitnessNames = inferenceConstructorWitnessNames . inferModule

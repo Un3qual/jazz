@@ -33,7 +33,7 @@ import Jazz.Compiler.AST
     expressionNode,
   )
 import Jazz.Compiler.Analyzer (AnalysisBinding (..), AnalysisInputs (..), AnalysisResult (..), analyzeProgramWithInputs, analyzeProgramWithInputsAndPreparedScope)
-import Jazz.Compiler.CoreIdentity (capabilityResolvedName, resolvedNodeOwner)
+import Jazz.Compiler.CoreIdentity (capabilityResolvedName)
 import Jazz.Compiler.Diagnostics (CompilationDiagnostics (..), Diagnostic, diagnosticWarningCategory, isErrorDiagnostic)
 import Jazz.Compiler.ModuleExports
   ( ModuleExportInventory,
@@ -52,7 +52,6 @@ import Jazz.Compiler.ModuleGraph
 import qualified Jazz.Compiler.ModuleGraph as ModuleGraph
 import Jazz.Compiler.ModuleIdentity
   ( ModulePath,
-    SourceUnitOwner (..),
     renderModulePath,
   )
 import Jazz.Compiler.ModuleImportScope (ValidatedImportScope, dependencyImportViews)
@@ -141,11 +140,8 @@ moduleInferenceInputs inputs resolvedModule importedInterface =
       inferenceImportedDataTypes = importedDataTypes importedInterface,
       inferenceImportedConstructorWitnessNames = importedConstructorWitnessNames importedInterface,
       inferenceImportedCapabilities = importedCapabilities importedInterface,
-      inferenceImportedClassNames = importedClassNames importedInterface,
-      inferenceCurrentModulePath = case resolvedNodeOwner (coreNodeFacts (ModuleGraph.coreModuleBodyNode resolvedModule)) of StandaloneSourceUnit _ -> Nothing; _ -> Just modulePath
+      inferenceImportedClassNames = importedClassNames importedInterface
     }
-  where
-    modulePath = coreModulePath resolvedModule
 
 analyzedModuleFromExpression :: CoreModule 'Resolved -> InferenceResult -> Expr 'Analyzed -> Either SemanticFactInvariantFailure (CoreModule 'Analyzed)
 analyzedModuleFromExpression resolvedModule inference analyzedExpression =
@@ -435,8 +431,7 @@ emptyInferenceInputs settings =
       inferenceImportedDataTypes = Map.empty,
       inferenceImportedConstructorWitnessNames = Map.empty,
       inferenceImportedCapabilities = emptyScopeCapabilityFacts,
-      inferenceImportedClassNames = Set.empty,
-      inferenceCurrentModulePath = Nothing
+      inferenceImportedClassNames = Set.empty
     }
 
 analysisInputsForInference :: InferenceInputs -> AnalysisInputs

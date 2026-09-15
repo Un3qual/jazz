@@ -75,7 +75,7 @@ checkImplMethodBodies inferExpected resultType env initialState (CapabilityId ca
             Just (expectedType, assumptions) -> do
               beforeBody <- get
               let variables = concatMap toList (instanceTypes <> localTypes)
-                  expectedScheme = SemanticScheme (quantifiedVariablesFromPreferred variables (Set.fromList variables)) assumptions [] mempty expectedType
+                  expectedScheme = SemanticScheme (quantifiedVariablesFromPreferred variables (Set.fromList variables)) assumptions [] expectedType
               modify' (\current -> current {inferSolver = (inferSolver current) {solverRigidTypeVars = inferRigidTypeVars current <> Set.fromList variables}})
               methodResult <- state (\current -> inferExpected env current expectedType methodExpr)
               afterBody <- get

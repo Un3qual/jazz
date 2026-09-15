@@ -8,7 +8,6 @@ module Jazz.Compiler.Semantics.BindingSignature.InferenceOwnershipTests
   )
 where
 
-import Data.List.NonEmpty (NonEmpty (..))
 import qualified Data.Map.Strict as Map
 import qualified Data.Sequence as Seq
 import qualified Data.Set as Set
@@ -22,7 +21,6 @@ import Jazz.Compiler.AST
 import Jazz.Compiler.CoreIdentity (CapabilityId (..), ResolvedReference (UnresolvedReference))
 import Jazz.Compiler.DiagnosticCatalog (ErrorCode (E2009))
 import Jazz.Compiler.Diagnostics (DiagnosticOrigin (CompilationOrigin), mkErrorDiagnostic)
-import Jazz.Compiler.ModuleIdentity (mkModulePath)
 import Jazz.Compiler.Name
   ( NameNamespace (CapabilityNamespace, TypeNamespace, ValueNamespace),
     ResolvedName,
@@ -35,9 +33,6 @@ import Jazz.Compiler.RecursiveBindings
   )
 import Jazz.Compiler.Semantics.BindingSignature.Shared (resolvedProgram)
 import Jazz.Compiler.TypeInference (CheckedExpr (..))
-import Jazz.Compiler.TypeInference.Capabilities
-  ( typeSchemeReferencedCapabilityFacts,
-  )
 import Jazz.Compiler.TypeInference.Diagnostics (addTypeError)
 import Jazz.Compiler.TypeInference.ImplChecking (checkImplMethodBodies)
 import qualified Jazz.Compiler.TypeInference.Scope as TypeInferenceScope
@@ -61,10 +56,8 @@ import Jazz.Compiler.TypeInference.State
     DeferredExplicitConstraint (..),
     InferState (..),
     InferenceOutput (..),
-    ModuleInferenceState (..),
     SolverState (..),
     inferClassFacts,
-    inferCurrentModulePath,
     inferDeferredExplicitConstraintCount,
     inferDeferredExplicitConstraints,
     inferErrorCount,
@@ -76,7 +69,6 @@ import Jazz.Compiler.TypeInference.State
     initialInferState,
     modifyDeclarationState,
     modifyInferenceOutput,
-    modifyModuleInferenceState,
   )
 import Jazz.Compiler.TypeInference.Traversal
   ( InferExprWithModeFn,
@@ -136,7 +128,6 @@ inferenceOwnershipTests =
     ("unification path-compresses traversed substitution chains", testUnificationPathCompressesSubstitutionChains),
     ("solver preserves occurs, rigid, and numeric constraints", testSolverPreservesBindingConstraints),
     ("scheme constraint deduplication preserves last-occurrence order", testSchemeConstraintDeduplicationOrder),
-    ("empty scheme constraints do not traverse capability facts", testEmptySchemeConstraintsSkipCapabilityFacts),
     ("type operations collect recursive free variables", testTypeOpsCollectRecursiveFreeVariables),
     ("type operations collect constraint free variables", testTypeOpsCollectConstraintFreeVariables),
     ("type operations replace recursive type variables", testTypeOpsReplaceRecursiveTypeVariables),
@@ -168,25 +159,21 @@ testDuplicateConstraintsReportFirstRepeatedName =
 testStateRecordModifiers :: IO ()
 testStateRecordModifiers = do
   assertEqual "declaration update" (Map.singleton (CapabilityId (capabilityName "Equatable")) (ClassDefinition TypeKind [] Set.empty)) (inferClassFacts updatedState)
-  assertEqual "module update" (Just (mkModulePath (mkIdentifier "App" :| [mkIdentifier "Main"]))) (inferCurrentModulePath updatedState)
   assertEqual "output update" 3 (inferErrorCount updatedState)
   where
     updatedState =
       modifyInferenceOutput
         (\output -> output {outputErrorCount = 3})
-        ( modifyModuleInferenceState
-            (\moduleState -> moduleState {inferenceModulePath = Just (mkModulePath (mkIdentifier "App" :| [mkIdentifier "Main"]))})
-            ( modifyDeclarationState
-                ( \declarations ->
-                    declarations
-                      { declarationCapabilities =
-                          (declarationCapabilities declarations)
-                            { scopeClassFacts = Map.singleton (CapabilityId (capabilityName "Equatable")) (ClassDefinition TypeKind [] Set.empty)
-                            }
-                      }
-                )
-                initialInferState
+        ( modifyDeclarationState
+            ( \declarations ->
+                declarations
+                  { declarationCapabilities =
+                      (declarationCapabilities declarations)
+                        { scopeClassFacts = Map.singleton (CapabilityId (capabilityName "Equatable")) (ClassDefinition TypeKind [] Set.empty)
+                        }
+                  }
             )
+            initialInferState
         )
 
 testInferenceOutputConstraintCursors :: IO ()
@@ -244,13 +231,6 @@ testSchemeConstraintDeduplicationOrder =
   where
     repeatedConstraint = TypeSchemeConstraint (CapabilityId (capabilityName "Equatable")) (SemanticVariable 0)
     middleConstraint = TypeSchemeConstraint (CapabilityId (capabilityName "Comparable")) (SemanticVariable 1)
-
-testEmptySchemeConstraintsSkipCapabilityFacts :: IO ()
-testEmptySchemeConstraintsSkipCapabilityFacts =
-  assertEqual
-    "empty constraints own no capability facts"
-    emptyScopeCapabilityFacts
-    (typeSchemeReferencedCapabilityFacts [] (error "empty constraints forced capability facts"))
 
 testTypeOpsCollectRecursiveFreeVariables :: IO ()
 testTypeOpsCollectRecursiveFreeVariables =
@@ -684,7 +664,7 @@ inferenceOnlyResult mode expressionType state =
 testImplChecksPreserveRollback :: IO ()
 testImplChecksPreserveRollback = do
   let (variable, allocated) = freshTypeVar initialInferState
-      signature = ClassMethodScheme "a" (SemanticScheme (quantifiedVariablesFromPreferred ["a"] (Set.singleton "a")) [] [] mempty (SemanticTuple [SemanticInt, SemanticInt]))
+      signature = ClassMethodScheme "a" (SemanticScheme (quantifiedVariablesFromPreferred ["a"] (Set.singleton "a")) [] [] (SemanticTuple [SemanticInt, SemanticInt]))
       inferBody _ current expected expression =
         case expression of
           ELit _ _ -> ((Just (SemanticTuple [variable, SemanticBool]), resolveType current variable), current)
@@ -702,7 +682,7 @@ testImplChecksPreserveRollback = do
                     }
               )
               allocated
-          targetScheme = SemanticScheme (quantifiedVariablesFromPreferred [] Set.empty) [] [] mempty SemanticInt
+          targetScheme = SemanticScheme (quantifiedVariablesFromPreferred [] Set.empty) [] [] SemanticInt
           (finalState, results) = checkImplMethodBodies inferBody fst Map.empty initialState (CapabilityId capability) targetScheme methods
       assertEqual "both bodies checked in source order" [0, 1] (map fst results)
       assertEqual "failed tuple unification did not leak into next body" [variable, variable] (map (snd . snd . snd) results)

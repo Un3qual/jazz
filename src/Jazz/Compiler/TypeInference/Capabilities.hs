@@ -13,12 +13,9 @@ module Jazz.Compiler.TypeInference.Capabilities
     defaultBindingLiteralTypes,
     defaultLiteralTypes,
     deferExplicitConstraintsWithFacts,
-    enterModuleCapabilityScope,
     finalizeDeferredExplicitConstraintsAt,
     finalizeBindingConstraintsAt,
-    flushCurrentModuleCapabilityFacts,
     freeTypeVariablesInEnv,
-    importModuleCapabilityFacts,
     MethodSelection (..),
     reindexDeclarationScheme,
     instantiateQualifiedMethodType,
@@ -29,7 +26,6 @@ module Jazz.Compiler.TypeInference.Capabilities
     qualifiedMethodClassIsVisible,
     resolveTypeEnvFreeVariables,
     resolveTypeSchemeConstraint,
-    restoreCapabilityFacts,
     registerClassCapabilityFacts,
     registerImplementation,
     implementationsOverlap,
@@ -39,10 +35,7 @@ module Jazz.Compiler.TypeInference.Capabilities
     freshImplementation,
     superclassPath,
     resolveCapabilityEvidence,
-    typeSchemeDefiningFactsFromState,
-    typeSchemeReferencedCapabilityFacts,
     typeEnvFreeVariables,
-    updateRootModuleBaselineFacts,
   )
 where
 
@@ -73,7 +66,6 @@ import Jazz.Compiler.Diagnostics
     DiagnosticContext (SatisfyingConstraint),
     SourceSpan (..),
   )
-import Jazz.Compiler.ModuleIdentity (ModulePath)
 import Jazz.Compiler.Name
   ( Identifier,
     ResolvedName,
@@ -121,23 +113,18 @@ import Jazz.Compiler.TypeInference.State
     EvidenceReference (..),
     InferState (..),
     InferenceOutput (..),
-    ModuleInferenceState (..),
     SolverState (..),
     inferClassFacts,
     inferClassMethodSignatures,
-    inferCurrentModuleLocalCapabilityFacts,
-    inferCurrentModulePath,
     inferDeferredExplicitConstraintCount,
     inferErrorCount,
     inferInferredClassConstraintCount,
     inferInferredClassConstraints,
-    inferModuleCapabilityFacts,
     inferNumericVars,
     inferRigidTypeVars,
     inferStrictEqualityVars,
     modifyDeclarationState,
     modifyInferenceOutput,
-    modifyModuleInferenceState,
   )
 import Jazz.Compiler.TypeInference.TypeOps
   ( freeTypeVariables,
@@ -156,7 +143,6 @@ import Jazz.Compiler.TypeInference.Types
     TypeScheme,
     TypeSchemeConstraint,
     TypeSchemePrimitiveConstraint,
-    emptyScopeCapabilityFacts,
     implementationTarget,
     instantiateDeclarationType,
     quantifiedVariablesFromPreferred,
@@ -167,89 +153,9 @@ import Jazz.Compiler.TypeRepresentation (NumericType (..), semanticApplicationSp
 capabilityFactsFromState :: InferState -> ScopeCapabilityFacts
 capabilityFactsFromState = declarationCapabilities . inferDeclarations
 
-typeSchemeDefiningFactsFromState :: InferState -> [TypeSchemeConstraint] -> ScopeCapabilityFacts
-typeSchemeDefiningFactsFromState state schemeConstraints =
-  case inferCurrentModulePath state of
-    Just _ -> typeSchemeReferencedCapabilityFacts schemeConstraints (capabilityFactsFromState state)
-    Nothing -> capabilityFactsFromState state
-
-typeSchemeReferencedCapabilityFacts :: [TypeSchemeConstraint] -> ScopeCapabilityFacts -> ScopeCapabilityFacts
-typeSchemeReferencedCapabilityFacts [] _ = emptyScopeCapabilityFacts
-typeSchemeReferencedCapabilityFacts schemeConstraints facts =
-  facts
-    { scopeClassFacts =
-        Map.restrictKeys (scopeClassFacts facts) referencedCapabilityNames,
-      scopeClassMethodSignatures =
-        Map.filterWithKey
-          (\methodKey _ -> methodKeyReferencesCapturedCapability methodKey)
-          (scopeClassMethodSignatures facts)
-    }
-  where
-    referencedCapabilityNames =
-      Set.fromList
-        [ constraintName
-        | schemeConstraint <- schemeConstraints,
-          let constraintName = typeSchemeConstraintCapabilityName schemeConstraint
-        ]
-
-    methodKeyReferencesCapturedCapability methodKey =
-      Set.member (fst methodKey) referencedCapabilityNames
-
-typeSchemeConstraintCapabilityName :: TypeSchemeConstraint -> CapabilityId
-typeSchemeConstraintCapabilityName constraint =
-  case constraint of
-    TypeSchemeConstraint constraintName _ -> constraintName
-    TypeSchemeMethodConstraint constraintName _ _ -> constraintName
-
 applyCapabilityFacts :: ScopeCapabilityFacts -> InferState -> InferState
 applyCapabilityFacts facts =
   modifyDeclarationState (\declarations -> declarations {declarationCapabilities = facts})
-
-restoreCapabilityFacts :: InferState -> InferState -> InferState
-restoreCapabilityFacts previousState nextState =
-  modifyModuleInferenceState
-    ( \moduleState ->
-        moduleState
-          { inferenceLocalCapabilities =
-              inferCurrentModuleLocalCapabilityFacts previousState
-          }
-    )
-    (applyCapabilityFacts (capabilityFactsFromState previousState) nextState)
-
-updateRootModuleBaselineFacts :: ScopeCapabilityFacts -> InferState -> InferState -> ScopeCapabilityFacts
-updateRootModuleBaselineFacts moduleBaselineFacts previousState nextState =
-  case inferCurrentModulePath previousState of
-    Nothing -> capabilityFactsFromState nextState
-    Just _ -> moduleBaselineFacts
-
-flushCurrentModuleCapabilityFacts :: InferState -> InferState
-flushCurrentModuleCapabilityFacts state =
-  modifyModuleInferenceState
-    ( \moduleState ->
-        moduleState
-          { inferenceModuleCapabilities = Map.insert (inferCurrentModulePath state) (inferCurrentModuleLocalCapabilityFacts state) (inferModuleCapabilityFacts state)
-          }
-    )
-    state
-
-enterModuleCapabilityScope :: ScopeCapabilityFacts -> ModulePath -> InferState -> InferState
-enterModuleCapabilityScope baselineFacts modulePath state =
-  modifyModuleInferenceState
-    ( \moduleState ->
-        moduleState
-          { inferenceModulePath = Just modulePath,
-            inferenceLocalCapabilities = emptyScopeCapabilityFacts
-          }
-    )
-    (applyCapabilityFacts baselineFacts (flushCurrentModuleCapabilityFacts state))
-
-importModuleCapabilityFacts :: ModulePath -> InferState -> InferState
-importModuleCapabilityFacts modulePath state =
-  applyCapabilityFacts
-    ( capabilityFactsFromState state
-        <> Map.findWithDefault emptyScopeCapabilityFacts (Just modulePath) (inferModuleCapabilityFacts state)
-    )
-    state
 
 registerClassCapabilityFacts :: ResolvedName -> ClassDefinition -> [(ResolvedName, ClassMethodType)] -> InferState -> InferState
 registerClassCapabilityFacts capabilityName definition methods =
@@ -263,8 +169,7 @@ registerClassCapabilityFacts capabilityName definition methods =
 
 modifyCapabilityFacts :: (ScopeCapabilityFacts -> ScopeCapabilityFacts) -> InferState -> InferState
 modifyCapabilityFacts update state =
-  let stateWithVisibleFacts = applyCapabilityFacts (update (capabilityFactsFromState state)) state
-   in modifyModuleInferenceState (\moduleState -> moduleState {inferenceLocalCapabilities = update (inferCurrentModuleLocalCapabilityFacts state)}) stateWithVisibleFacts
+  applyCapabilityFacts (update (capabilityFactsFromState state)) state
 
 registerImplementation :: ImplementationTemplate -> InferState -> InferState
 registerImplementation template = modifyCapabilityFacts $ \facts ->
@@ -326,7 +231,7 @@ reindexDeclarationScheme scheme = do
   constraints <- traverse (traverse (traverse (`Map.lookup` parameters))) (schemeClassConstraints scheme)
   primitives <- traverse (traverse (traverse (`Map.lookup` parameters))) (schemePrimitiveConstraints scheme)
   resultType <- traverse (`Map.lookup` parameters) (schemeResultType scheme)
-  pure (SemanticScheme (quantifiedVariablesFromPreferred order (Set.fromList order)) constraints primitives mempty resultType)
+  pure (SemanticScheme (quantifiedVariablesFromPreferred order (Set.fromList order)) constraints primitives resultType)
   where
     names = quantifiedVariablesOrderedList (schemeQuantifiedVariables scheme)
     parameters = Map.fromList (zip names [0 ..])
