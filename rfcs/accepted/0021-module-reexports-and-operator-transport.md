@@ -1,8 +1,8 @@
 # RFC 0021: Module re-exports and operator transport
 
-Status: Proposed
+Status: Accepted
 Date: 2026-09-15
-Supersedes: On acceptance, the no-re-export boundaries in RFCs 0017 and 0019 and the source-local custom-operator transport restriction retained by RFC 0020. All other decisions in those RFCs remain, including RFC 0019's method and instance rules.
+Supersedes: The no-re-export boundaries in RFCs 0017 and 0019 and the source-local custom-operator transport restriction retained by RFC 0020. All other decisions in those RFCs remain, including RFC 0019's method and instance rules.
 
 ## Decision
 
@@ -11,9 +11,8 @@ operators. A public name denotes its original declaration through any number of
 facades. A custom operator transports its callable binding, precedence, and
 associativity together.
 
-This is a proposed, unimplemented contract. The maintainer approved designing
-these features together; the detailed syntax and rules below remain for review.
-Current public documentation and behavior remain unchanged until implementation.
+Accepted for implementation by the maintainer on 2026-09-15. The implementation
+and conformance checks are tracked in the linked implementation plan.
 
 ### Export and import syntax
 

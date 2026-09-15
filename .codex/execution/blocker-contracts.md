@@ -79,10 +79,9 @@ Each blocked item should answer these questions:
 
 - Current behavior: source-local declarations, signatures, precedence,
   associativity, and RFC 0020 ordinary function dispatch are implemented.
-- Smallest unblocker: review the detailed combined
-  [RFC 0021](../../rfcs/proposed/0021-module-reexports-and-operator-transport.md).
-- Decision needed: explicit operator export syntax, qualified notation,
-  defining-module fixity, and the discovery-before-body-parse boundary.
+- Accepted contract: the detailed combined
+  [RFC 0021](../../rfcs/accepted/0021-module-reexports-and-operator-transport.md).
+- Decision: RFC 0021 accepted by the maintainer for implementation on 2026-09-15.
 - Recommended default: execute the single combined module API plan after RFC
   acceptance; reuse existing compiler records, names, tables, and runtime cells.
 - Candidate child: `JN-MODULE-API-COMPOSITION-001`, shared with
@@ -171,12 +170,8 @@ Each blocked item should answer these questions:
 - Current behavior: namespace-aware explicit exports, grouped constructor
   selectors, private/public separation, alias-qualified classes, and transitive
   implementations are implemented. Imports cannot yet be re-exported.
-- Smallest unblocker: accept the detailed
-  [RFC 0021](../../rfcs/proposed/0021-module-reexports-and-operator-transport.md),
-  then promote its single combined implementation candidate.
-- Decision needed: the batch direction is approved. Review exact selector and
-  operator qualification syntax, default operator privacy, identity/conflict
-  rules, and the explicit diagnostic-order change before implementation.
+- Active child: RFC 0021 is accepted and `JN-MODULE-API-COMPOSITION-001` is executing.
+- Decision: the maintainer authorized the complete RFC 0021 contract on 2026-09-15.
 - Recommended default: extend the existing module records with original public
   names and exported fixity. Reuse the existing reference map, selector types,
   operator payloads, dependency DFS, typed interfaces, and runtime cells.

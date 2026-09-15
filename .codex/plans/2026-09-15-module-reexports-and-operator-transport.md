@@ -1,10 +1,10 @@
 ---
 id: JN-MODULE-API-COMPOSITION-001
-status: blocked
+status: ready
 priority: P1
 size: L
 kind: impl
-autonomous_ready: no
+autonomous_ready: yes
 depends_on: []
 last_verified: 2026-09-15
 plan_section: Implementation
@@ -80,11 +80,10 @@ execution continues using original binding cells.
 **Tech stack:** Pinned GHC 9.14.1, Haskell2010 with per-module extensions,
 `containers`, Megaparsec, Cabal/Nix.
 
-**Spec:** [RFC 0021](../../rfcs/proposed/0021-module-reexports-and-operator-transport.md).
+**Spec:** [RFC 0021](../../rfcs/accepted/0021-module-reexports-and-operator-transport.md).
 
-**Status:** Design and implementation plan for review, based on `fb1ce6b18`.
-The combined direction is approved; detailed RFC acceptance is the remaining
-implementation gate. No compiler behavior is implemented by this document.
+**Status:** In progress. The maintainer authorized RFC 0021 implementation on
+2026-09-15. Execute the complete contract and verify before closing this plan.
 
 > **2026-09-15 amendment:** Accepted RFC 0022 retires the hosted compiler and
 > parity/full-scale obligations in the original plan. Task 4 is retired; the
