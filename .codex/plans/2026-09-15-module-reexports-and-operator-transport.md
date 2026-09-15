@@ -1,10 +1,10 @@
 ---
 id: JN-MODULE-API-COMPOSITION-001
-status: ready
+status: complete
 priority: P1
 size: L
 kind: impl
-autonomous_ready: yes
+autonomous_ready: no
 depends_on: []
 last_verified: 2026-09-15
 plan_section: Implementation
@@ -35,6 +35,7 @@ target_paths:
   - test/Jazz/Compiler/Modules/Loader/DiagnosticsTests.hs
   - test/Jazz/Compiler/Modules/Loader/OperatorsTests.hs
   - test/Jazz/Compiler/Parser/ModuleImportParserSpec.hs
+  - test/Jazz/Compiler/Parser/SourceRangesSpec.hs
   - test/Jazz/Compiler/Parser/OperatorFixitySpec.hs
   - test/Jazz/Compiler/Parser/OperatorInvalidSyntaxSpec.hs
   - test/Jazz/Compiler/Parser/OperatorSectionSpec.hs
@@ -82,13 +83,16 @@ execution continues using original binding cells.
 
 **Spec:** [RFC 0021](../../rfcs/accepted/0021-module-reexports-and-operator-transport.md).
 
-**Status:** In progress. The maintainer authorized RFC 0021 implementation on
-2026-09-15. Execute the complete contract and verify before closing this plan.
+**Status:** Implementation complete. After PR #163 merged at `0c5910a8`,
+the maintainer requested rebasing RFC 0021 onto the hosted-compiler removal.
+The rebased acceptance is `3af21ba0`, Haskell implementation is `19fc0cd6`,
+and import-range fixture correction is `467fcbfd`. Rebase verification is
+recorded below.
 
 > **2026-09-15 amendment:** Accepted RFC 0022 retires the hosted compiler and
-> parity/full-scale obligations in the original plan. Task 4 is retired; the
-> Haskell feature design and its acceptance gate remain unchanged. This removal
-> branch does not include the separate RFC 0021 implementation.
+> parity/full-scale obligations in the original plan. Task 4 is retired. The
+> rebased branch contains only the Haskell feature and its normal verification;
+> removed hosted sources, harnesses, and workloads must not be restored.
 
 ## Global constraints
 
@@ -249,9 +253,14 @@ precedence policy. Error order follows the RFC's explicit phase ordering.
 Add one parser entrypoint using existing types:
 
 ```haskell
-parseSurfaceProgramTokensWithContext ::
-  ParserContext -> [Token] -> Either Diagnostic (SurfaceExpr, [OperatorInfo])
+parseSurfaceProgramTokensWithContextDetailed ::
+  ParserContext -> [Token] -> Either ParserFailure (SurfaceExpr, [OperatorInfo])
 ```
+
+The implementation keeps the structured `ParserFailure` entrypoint so module
+resolution can attach the original import location to a duplicate-operator
+error. A diagnostic-only wrapper was removed after the production Weeder gate showed it was used only by tests.
+Callers render with the existing `parserFailureDiagnostic` when needed.
 
 Callers start from `initialParserContext`, setting only its existing alias set
 and operator table. The supplied statement context remains `TopLevelContext`.
@@ -361,46 +370,46 @@ Tests belong in
 import views. **Produces:** original-name fields on existing resolved facts and
 the typed interface, plus the current inventories and binding references.
 
-- [ ] Add a three-module value fixture: A exports `answer = 42`, B exports
+- [x] Add a three-module value fixture: A exports `answer = 42`, B exports
       `value A::answer` through an alias, C imports B and evaluates `answer`.
       Expect `42`, and assert the public binding reference is identical through A
       and B. Run `loader-spec` and observe the current export rejection first.
-- [ ] Add a fixture with `data Box(a) = Box a` and a generic class method.
+- [x] Add a fixture with `data Box(a) = Box a` and a generic class method.
       Re-export `type A::Box(..)` and `class A::Equal`; consume constructors,
       patterns, `B::Equal::equal`, constraints, and an impl head through the facade.
       Compare direct-plus-facade imports to facade-only execution. Expected type
       identities and selected implementation IDs are the originals.
-- [ ] Resolve export selectors after imports and local declarations are known.
+- [x] Resolve export selectors after imports and local declarations are known.
       Select by namespace; build inventory, targets, and relationship metadata in
       one operation. Coalesce identical targets and reject distinct collisions.
-- [ ] Replace the per-name `BindingOrigin` with `NonEmpty BindingOrigin` in the
+- [x] Replace the per-name `BindingOrigin` with `NonEmpty BindingOrigin` in the
       existing import scope. Preserve every validated selection when deriving
       dependency views; merge constructor visibility by original type identity
       for unqualified selectors and retain separate alias views.
-- [ ] Replace immediate-provider nominal-name construction in `Names` and
+- [x] Replace immediate-provider nominal-name construction in `Names` and
       `importSelectedInterface` with target lookup. Keep provider spans for errors.
       Include re-export selectors in external-use accounting so an exported value
       is retained even when no body expression references it.
-- [ ] Assemble typed publication from local typed declarations and selected
+- [x] Assemble typed publication from local typed declarations and selected
       dependency entries. Keep original schemes/references, reachable private type
       definitions, class defaults, and transitive implementations. Reuse the existing
       defining-declaration reference map; do not insert facade-owned references.
-- [ ] Seed type reachability from original targets of selected public type
+- [x] Seed type reachability from original targets of selected public type
       names. Re-export only abstract `Box(a)` through a facade, with no exported
       values, constructors, or instances referencing it. A consumer signature
       using `API::Box(Int)` must check, and the typed interface must retain the
       original definition and parameter kind while keeping constructors hidden.
-- [ ] Retain ordinary selector locations using `LocatedModuleExportName` and
+- [x] Retain ordinary selector locations using `LocatedModuleExportName` and
       qualify them during lowering. Test `value Left::answer` versus
       `value Right::answer` selecting distinct declarations: `E4015` points to
       the later selector and relates the earlier one. Pair valid
       `value Left::answer` with unavailable `type Left::answer` and verify the
       error points to the type selector.
-- [ ] Cover selected visible constructors, private constructor
+- [x] Cover selected visible constructors, private constructor
       rejection, method-only exports, empty facades carrying instances, and same-text
       names across namespaces. Expected invalid selectors use `E4015` and point to
       the selector. Do not expose hidden metadata as public names.
-- [ ] Run the four module suites plus `loader-spec` and `module-import-parser-spec`;
+- [x] Run the four module suites plus `loader-spec` and `module-import-parser-spec`;
       inspect `git diff --check`, then commit `Support identity-preserving explicit module re-exports`.
 
 ### Task 2: Discover imports and retain parser-owned fixity
@@ -414,41 +423,41 @@ Tests: existing `ModuleImportParserSpec.hs`, `OperatorFixitySpec.hs`,
 
 **Consumes:** source tokens and source-ordered imports. **Produces:**
 existing `SSModule`/`SSImport` statements for discovery and the
-`parseSurfaceProgramTokensWithContext` entrypoint specified above.
+`parseSurfaceProgramTokensWithContextDetailed` entrypoint specified above.
 Existing entrypoints discover aliases once and use the default operator table.
 
-- [ ] Add discovery cases with a late import, no module wrapper, nested braces,
+- [x] Add discovery cases with a late import, no module wrapper, nested braces,
       tuple/list expressions, strings/comments containing `import`, and constructor
       export groups containing `..`. Only real module-scope imports may be loaded.
       Compare discovered import declarations/spans with the ordinary parser on the
       valid fixtures. Malformed bodies stay the full parser's responsibility.
-- [ ] Factor the shared module-prefix and import grammar. Implement the balanced
+- [x] Factor the shared module-prefix and import grammar. Implement the balanced
       token walk without parsing expression precedence, allocating core nodes, or
       duplicating an expression AST. Preserve source-order import metadata.
-- [ ] Replace the old alias token walkers and their parser call sites with alias
+- [x] Replace the old alias token walkers and their parser call sites with alias
       projection from discovery into `ParserContext`. Reuse the same discovery
       path in standalone entrypoints; the resolver's parse must not rediscover
       imports. Reuse existing late-alias and signature-disambiguation fixtures to
       compare standalone and supplied-context parsing, including nested uses
       before a later import in wrapped and unwrapped sources.
-- [ ] Supply imported operators to the existing parser context and retain the
+- [x] Supply imported operators to the existing parser context and retain the
       metadata already produced for local declarations. A local declaration must
       still precede use; duplicate local declarations keep their current failures.
       The module-body context in `parseStatementParser` must inherit the supplied
       aliases and table instead of resetting them. Nested expression blocks inherit
       lookup visibility but still reject operator declarations.
-- [ ] Return the final context through statement-list and module-body callbacks;
+- [x] Return the final context through statement-list and module-body callbacks;
       expression-block callers project statements. Verify wrapped and unwrapped
       sources return their authored fixities, exclude supplied imported fixities,
       and retain declarations after a nested expression block.
-- [ ] Change `visitModule` to the discovery/dependency/body order above. Keep
+- [x] Change `visitModule` to the discovery/dependency/body order above. Keep
       sorted DFS and cycle diagnostics. Use common selection helpers for parse-time
       operator imports and later body-dependent visibility checks.
-- [ ] Lock the intentional mixed-error order with one missing-dependency plus
+- [x] Lock the intentional mixed-error order with one missing-dependency plus
       malformed-body fixture. Retain existing single-error messages and spans.
       Add a loader callback count assertion proving each module source is loaded
       once; do not add AST-shape snapshots of the scanner implementation.
-- [ ] Run `module-import-parser-spec`, `operator-fixity-spec`,
+- [x] Run `module-import-parser-spec`, `operator-fixity-spec`,
       `operator-invalid-syntax-spec`, `module-resolution-spec`, and `loader-spec`;
       commit `Discover module imports before parsing bodies`.
 
@@ -467,7 +476,7 @@ existing parser operator suites.
 **Produces:** explicit operator exports and fixity in existing resolved module
 facts, and ordinary resolved function calls in every notation.
 
-- [ ] Add the complete RFC example to `OperatorsTests.hs`, using
+- [x] Add the complete RFC example to `OperatorsTests.hs`, using
       `runModuleGraphWithPrelude`, `lookupSourceIn`, and the existing fixture map.
       Expected checks are concrete:
 
@@ -478,36 +487,36 @@ facts, and ordinary resolved function calls in every notation.
     (Just "(7, 7, 7, 7, 7, 7, 7, 7, 14, 42)") (runOutput result)
   ```
 
-- [ ] Parse `(%%)` in imports and `(%%)` / `(Ops::%%)` in export selectors.
+- [x] Parse `(%%)` in imports and `(%%)` / `(Ops::%%)` in export selectors.
       Use value namespace and existing internal operator binder encoding. Preserve
       original spelling and precise alias/operator spans for errors.
-- [ ] Extend existing operator payload/table lookup to validated `Alias::%%`
+- [x] Extend existing operator payload/table lookup to validated `Alias::%%`
       spellings. Support all four qualified forms from the RFC. Resolve them using the same
       function lookup and existing section templates as unqualified operators.
       Retain RFC 0020 built-in name mapping and ordinary type/evidence dispatch.
-- [ ] Require a defining declaration and executable binding for public operators;
+- [x] Require a defining declaration and executable binding for public operators;
       imported selectors copy both the original target and its fixity. Add explicit
       selection to local typed publication; omitted lists keep generated operator
       binders private. Declaration-only export fails with `E4015`.
       Publish fixity under the defining unqualified spelling; alias imports prefix
       only the consuming parser's lookup key. A facade never stores an alias as the
       operator's defining spelling.
-- [ ] Reject imported-operator rebinding, signatures, and local fixity collisions.
+- [x] Reject imported-operator rebinding, signatures, and local fixity collisions.
       Permit a same-spelled local operator when the dependency is alias-only.
       Reject distinct unqualified origins regardless of matching fixity. For these
       cases use the current collision/module-syntax family and verify the authored
       operator spelling and related source locations.
-- [ ] With the RFC's left-associative provider, test
+- [x] With the RFC's left-associative provider, test
       `10 API::%% 3 API::%% 1` gives `6`. In a separate provider fixture declaring
       `operator %% precedence 6 right.`, the same qualified subtraction chain
       gives `8`. Import both providers under different aliases to check their
       distinct fixities without redeclaring either imported operator. Also test
       a non-associative chain rejection and an alias-only symbol's unqualified
       rejection.
-- [ ] Test section capture using the existing observable host harness or a
+- [x] Test section capture using the existing observable host harness or a
       captured failing operand, plus generic/constrained operator aliases and
       explicit type application. Preserve the existing hidden-operator tests.
-- [ ] Run the parser/operator and module suites from frontmatter; commit
+- [x] Run the parser/operator and module suites from frontmatter; commit
       `Transport custom operators through imports and re-exports`.
 
 ### Task 4: Retired hosted parity work
@@ -530,33 +539,71 @@ add `examples/modules/src/Example/OperatorLibrary.jz`, `OperatorAPI.jz`, and
 **Consumes:** complete Haskell execution.
 **Produces:** verified public feature, executable examples, and closed dispatcher.
 
-- [ ] Test direct A plus facade B plus facade C as a diamond, then reverse
+- [x] Test direct A plus facade B plus facade C as a diamond, then reverse
       import order. Values, constructors, class methods, defaults, and operators
       must resolve to the original identities. Distinct same-spelled definitions
       fail deterministically. Include a facade-cycle rejection.
-- [ ] Extend the diamond fixture with A exposing `T(C1, C2)` and B exposing
+- [x] Extend the diamond fixture with A exposing `T(C1, C2)` and B exposing
       the same `T(C1)`. A consumer importing both and exporting `type T(..)`
       must retain both constructors in either import order. An alias-qualified
       export through B must retain only `C1`, including when A is also imported.
-- [ ] Test a facade exposing only an operator whose function uses private
+- [x] Test a facade exposing only an operator whose function uses private
       helpers, nominal types, and capability evidence. Its dependency must be
       retained without exposing those helper names. Keep dependencies' top-level
       expressions unexecuted and entry-module effects unchanged.
-- [ ] Add one meaningful generated property in
+- [x] Add one meaningful generated property in
       `test/Jazz/Compiler/GeneratedInvariantsSpec.hs`:
       acyclic chains/diamonds of facade edges carrying one original binding preserve
       target identity and value under import-order permutations; replacing one leaf
       with a distinct same-spelled declaration is rejected. Do not generate a full
       language grammar or test every implementation helper.
-- [ ] Register and execute the three-module example; update documentation for
+- [x] Register and execute the three-module example; update documentation for
       exact syntax, visibility, default privacy, imported fixity, collisions, and
       the deliberate error-order change.
-- [ ] Run focused suites once after the last relevant change, then the Haskell
+- [x] Run focused suites once after the last relevant change, then the Haskell
       quality gate and authoritative `scripts/ci/main-functional.sh` serially in
       the pinned Nix shell with `--jobs=1`.
-- [ ] Confirm queue/docs checks and `git diff --check`. Commit the examples and
+- [x] Confirm queue/docs checks and `git diff --check`. Commit the examples and
       contract updates, record the verified implementation commit, and remove the
       completed candidate/ready row. Do not leave completed work dispatchable.
+
+### Rebase verification
+
+The original implementation was verified before removal: 62 default suites,
+Haskell quality, examples, documentation, and isolated Nix checks passed at
+`996dd8d0`. Those historical results do not verify the rebased branch.
+
+The rebase onto PR #163 preserves its deletion of `jazz/compiler` and
+`test/Jazz/Compiler/Bootstrap`. Hosted-only commits `e3073413` and `6fe7b74a`
+were dropped. The production conflict in `Parser/Lower.hs` retains direct
+module diagnostics from RFC 0022 and operator-selector normalization from
+RFC 0021. Repository example parsing still uses dependency-selected fixity.
+
+- [x] Run the surviving default compiler suites, package checks, and examples.
+- [x] Run Haskell quality, including production and full-component Weeder.
+- [x] Run repository, documentation, RFC, queue, and whitespace checks.
+- [x] Run the isolated Nix check and audit the final diff against `origin/main`.
+
+Fresh verification after the rebase:
+
+- The compiler phase of `scripts/ci/main-functional.sh` passed all 47 surviving
+  default suites, Cabal package checks, and all six executable examples. The
+  module-operator example retains `(7, 7, 7, 7, 7, 7, 7, 7, 14, 42)`.
+- `scripts/ci/haskell-quality.sh` passed HLint, production-only Weeder, a clean
+  build of every retained test/benchmark component, full Weeder, and generated
+  invariants, including facade graph identity and conflicting leaves.
+- The repository phase passed actionlint, policy/release/example checker
+  regressions, documentation, RFC, queue, and whitespace checks.
+- `nix flake check --max-jobs 1 --cores 1` passed on `aarch64-darwin`, including
+  all 47 default suites in the isolated build. Other platforms were not checked
+  locally. Nix used its installed absolute path.
+- No hosted source/test directories or build registrations were restored.
+  The production patch from the pre-rebase RFC 0021 branch to the rebased branch
+  exactly matches the production patch merged in PR #163. The standard library
+  and CI definitions are unchanged from the merged base.
+
+The previously deferred full-scale hosted suites were removed by RFC 0022.
+They are no longer a verification obligation and were not executed.
 
 ### Contract coverage
 
