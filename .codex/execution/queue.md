@@ -8,7 +8,7 @@ public behavior.
 
 ## Ready Now
 
-Current executor status (`2026-09-14`): the operator-as-function batch is complete.
+Current executor status (`2026-09-14`): the capability architecture fixes are complete.
 `Ready Now` is empty. There is no source-backed next curation target and no named
 candidate currently.
 
