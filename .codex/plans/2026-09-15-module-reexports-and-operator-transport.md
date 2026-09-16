@@ -26,15 +26,6 @@ target_paths:
   - src/Jazz/Compiler/Parser/Expression.hs
   - src/Jazz/Compiler/Parser/Operator.hs
   - src/Jazz/Compiler/Parser/Lower.hs
-  - jazz/compiler/ParserTypes.jz
-  - jazz/compiler/ParserContext.jz
-  - jazz/compiler/ParserOperator.jz
-  - jazz/compiler/ParserExpression.jz
-  - jazz/compiler/ParserDeclaration.jz
-  - jazz/compiler/ParserProgram.jz
-  - jazz/compiler/Parser.jz
-  - jazz/compiler/CoreTypes.jz
-  - jazz/compiler/CoreLower.jz
   - jazz.cabal
   - test/Jazz/Compiler/Modules/ModuleExportsSpec.hs
   - test/Jazz/Compiler/Modules/ModuleResolutionSpec.hs
@@ -47,12 +38,6 @@ target_paths:
   - test/Jazz/Compiler/Parser/OperatorFixitySpec.hs
   - test/Jazz/Compiler/Parser/OperatorInvalidSyntaxSpec.hs
   - test/Jazz/Compiler/Parser/OperatorSectionSpec.hs
-  - test/Jazz/Compiler/Bootstrap/CanonicalParserComparison.hs
-  - test/Jazz/Compiler/Bootstrap/CanonicalCoreComparison.hs
-  - test/Jazz/Compiler/Bootstrap/JazzParserTypesDeclarationsModulesSpec.hs
-  - test/Jazz/Compiler/Bootstrap/JazzParserOperatorsFullParitySpec.hs
-  - test/Jazz/Compiler/Bootstrap/JazzCoreSignaturesDeclarationsOperatorsSpec.hs
-  - test/Jazz/Compiler/Bootstrap/JazzCoreModulesCorpusClosureSpec.hs
   - test/Jazz/Compiler/GeneratedInvariantsSpec.hs
   - test/Jazz/Repository/AuditSpec.hs
   - examples/modules/src/Example/OperatorLibrary.jz
@@ -70,14 +55,12 @@ target_paths:
   - .codex/plans/2026-09-15-module-reexports-and-operator-transport.md
 verification:
   - cabal test module-import-parser-spec operator-fixity-spec operator-invalid-syntax-spec operator-section-spec module-resolution-spec module-exports-spec module-pipeline-contract-spec loader-spec --jobs=1 --test-show-details=failures
-  - cabal test jazz-parser-types-declarations-modules-spec jazz-parser-operators-full-parity-spec jazz-core-signatures-declarations-operators-spec jazz-core-modules-corpus-closure-spec jazz-parser-parity-spec canonical-core-comparison-spec --jobs=1 --test-show-details=failures
-  - cabal test jazz-parser-scale-full-expression-spec jazz-parser-scale-full-declarations-spec jazz-parser-scale-full-control-flow-spec jazz-parser-scale-full-operator-spec -ffull-parser-scale --jobs=1 --test-show-details=failures
   - JAZZ_CABAL_JOBS=1 bash scripts/ci/haskell-quality.sh
   - JAZZ_CABAL_JOBS=1 bash scripts/ci/main-functional.sh
   - bash scripts/check-execution-queue.sh
   - python3 scripts/check-rfcs.py .
   - git diff --check
-deliverable: Explicit identity-preserving re-exports and custom operator transport through module facades, with qualified uses, hosted syntax parity, and current public documentation.
+deliverable: Explicit identity-preserving re-exports and custom operator transport through module facades, with qualified uses and current public documentation.
 ---
 
 # Module re-exports and operator transport implementation plan
@@ -95,13 +78,18 @@ first, and supply imported fixity to the existing precedence parser. Runtime
 execution continues using original binding cells.
 
 **Tech stack:** Pinned GHC 9.14.1, Haskell2010 with per-module extensions,
-`containers`, Megaparsec, the current Jazz hosted frontend, Cabal/Nix.
+`containers`, Megaparsec, Cabal/Nix.
 
 **Spec:** [RFC 0021](../../rfcs/proposed/0021-module-reexports-and-operator-transport.md).
 
 **Status:** Design and implementation plan for review, based on `fb1ce6b18`.
 The combined direction is approved; detailed RFC acceptance is the remaining
 implementation gate. No compiler behavior is implemented by this document.
+
+> **2026-09-15 amendment:** Accepted RFC 0022 retires the hosted compiler and
+> parity/full-scale obligations in the original plan. Task 4 is retired; the
+> Haskell feature design and its acceptance gate remain unchanged. This removal
+> branch does not include the separate RFC 0021 implementation.
 
 ## Global constraints
 
@@ -116,7 +104,7 @@ implementation gate. No compiler behavior is implemented by this document.
 - Discover imports without grouping expressions; parse each body once.
 - Reuse the acyclic module graph; no export fixpoint, second interpreter,
   forwarding wrappers, generic pass framework, or new library dependency.
-- Preserve the supported hosted frontend corpus and add parity for this syntax.
+- Implement and verify one frontend in Haskell under RFC 0022.
 - Use advanced Haskell when it removes concrete duplication or invalid states.
   Keep extension choices local and the existing toolchain unchanged.
 - Update public behavior docs with implementation, not with this proposal.
@@ -135,7 +123,6 @@ implementation gate. No compiler behavior is implemented by this document.
 | `ModuleInterface.hs`, `TypeInference.hs`               | Publish local typed bindings and reachable supporting definitions.                                                 | Assemble selected imported bindings alongside local declarations without re-inference.                |
 | `ModuleAnalysis.hs`                                    | Constructs imported nominal names from the immediate dependency.                                                   | Use selected target identity; keep authored aliases only for lookup/diagnostics.                      |
 | `ModuleRuntime.hs`                                     | Publishes and imports existing cells by `ResolvedReference`.                                                       | Consume the complete interface; no forwarding cells or wrapper evaluation.                            |
-| `jazz/compiler/Parser*.jz`, `Core*.jz`                 | Hosted surface parsing and canonical lowering.                                                                     | Extend the same selector/operator payloads and supplied fixity; retain graph ownership in Haskell.    |
 
 ### Extend the existing public boundary
 
@@ -291,8 +278,7 @@ paths must return it; the module branch of `parseStatementParser` must forward
 the body's context instead of restoring the incoming context. Expression-block
 callers project the statements and keep their enclosing context. The public
 entrypoint can then read the final table for wrapped and unwrapped sources.
-Mirror this tuple return in the hosted parser; no new result record or mutable
-parser state is needed.
+No new result record or mutable parser state is needed.
 
 Operator declarations already pass through the parser: retain their fixity
 there, not in a second scanner. Reuse the existing `Text` operator payloads and
@@ -317,9 +303,8 @@ and qualify them with `qualifyModuleExportSelectorSpans`. Duplicate syntax still
 compares rendered selector keys, not spans. Semantic export conflicts use the
 later selector as primary and the earlier selector as related; no token rescans
 or spelling-keyed span table is needed. Convert operator names to the current
-encoded value key only at inventory lookup. Mirror the added location in hosted
-selector constructors and comparison adapters. Avoid a parallel selector
-hierarchy or expanding `NameNamespace`.
+encoded value key only at inventory lookup. Avoid a parallel selector hierarchy
+or expanding `NameNamespace`.
 
 ### Alternatives considered
 
@@ -526,38 +511,11 @@ facts, and ordinary resolved function calls in every notation.
 - [ ] Run the parser/operator and module suites from frontmatter; commit
       `Transport custom operators through imports and re-exports`.
 
-### Task 4: Hosted syntax and canonical-lowering parity
+### Task 4: Retired hosted parity work
 
-**Files:** `jazz/compiler/ParserTypes.jz`, `ParserContext.jz`, `ParserOperator.jz`,
-`ParserExpression.jz`, `ParserDeclaration.jz`, `ParserProgram.jz`, `Parser.jz`,
-`CoreTypes.jz`, `CoreLower.jz`; Haskell comparison adapters
-`test/Jazz/Compiler/Bootstrap/CanonicalParserComparison.hs`,
-`CanonicalCoreComparison.hs`, and their existing module/operator suites.
-
-**Consumes:** the same imported fixity and known aliases through the existing
-hosted `ParserContext`.
-**Produces:** equal surface/canonical values and structured failures for the new
-grammar. Haskell still supplies module graph discovery and semantic compilation.
-
-- [ ] Extend hosted selector/operator spelling parsing and comparison adapters in
-      the same commit, extending existing selector constructors with the retained
-      locations. Add a context-aware entrypoint accepting aliases and operators while
-      preserving the current default-environment entrypoint.
-      Reuse the hosted alias walk to initialize the default parser's module-scope
-      context once; the context-aware path consumes the supplied aliases. Remove
-      per-statement fallback scans without adding hosted graph discovery.
-- [ ] Mirror qualified uses, selector parsing, retained local fixities, and
-      lowering with original spans. Forward the final module-body context as in
-      Task 2, and compare returned local fixities for wrapped and unwrapped sources.
-      Include the RFC example's consumer body with
-      the same supplied `%%` precedence in both parsers.
-- [ ] Compare complete accepted values and rejected diagnostics for qualified
-      selectors, unknown aliases/operators, invalid constructor groups, duplicate
-      selections, non-associative chains, and whitespace around qualification.
-      Do not filter old fixtures or change comparisons to success-count assertions.
-- [ ] Run the hosted suites in frontmatter, including
-      `jazz-parser-parity-spec` and `canonical-core-comparison-spec`.
-      Commit `Match hosted module selectors and imported operator parsing`.
+The original task mirrored selector/operator syntax and canonical lowering in
+the hosted frontend. Accepted RFC 0022 removes that implementation and its
+exclusive comparison and scale tests. No replacement task is required.
 
 ### Task 5: Combined conformance, public documentation, and closeout
 
@@ -570,7 +528,7 @@ add `examples/modules/src/Example/OperatorLibrary.jz`, `OperatorAPI.jz`, and
 `docs/reference/expression-grammar.md`, `docs/reference/diagnostics.md`,
 `docs/project/status.md`, and the active queue/contract/plan.
 
-**Consumes:** complete Haskell execution and hosted syntax support.
+**Consumes:** complete Haskell execution.
 **Produces:** verified public feature, executable examples, and closed dispatcher.
 
 - [ ] Test direct A plus facade B plus facade C as a diamond, then reverse
@@ -593,36 +551,24 @@ add `examples/modules/src/Example/OperatorLibrary.jz`, `OperatorAPI.jz`, and
       language grammar or test every implementation helper.
 - [ ] Register and execute the three-module example; update documentation for
       exact syntax, visibility, default privacy, imported fixity, collisions, and
-      the deliberate error-order change. Describe hosted parity precisely.
+      the deliberate error-order change.
 - [ ] Run focused suites once after the last relevant change, then the Haskell
       quality gate and authoritative `scripts/ci/main-functional.sh` serially in
-      the pinned Nix shell. Run the four `jazz-parser-scale-full-*-spec` suites with
-      `-ffull-parser-scale` for this parser-order change. Use `--jobs=1`.
+      the pinned Nix shell with `--jobs=1`.
 - [ ] Confirm queue/docs checks and `git diff --check`. Commit the examples and
       contract updates, record the verified implementation commit, and remove the
       completed candidate/ready row. Do not leave completed work dispatchable.
 
-The full-scale parser command for Task 5 is:
-
-```bash
-cabal test jazz-parser-scale-full-expression-spec \
-  jazz-parser-scale-full-declarations-spec \
-  jazz-parser-scale-full-control-flow-spec \
-  jazz-parser-scale-full-operator-spec \
-  -ffull-parser-scale --jobs=1 --test-show-details=failures
-```
-
 ### Contract coverage
 
-| RFC requirement                                                                       | Implementation and evidence                                                         |
-| ------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------- |
-| Explicit named, qualified, grouped-constructor, and class re-exports                  | Task 1 parser/selector work and loader fixtures; Task 4 hosted comparisons.         |
-| Original identity, schemes, cells, private support metadata, and transitive instances | Task 1 publication/lookup changes; Task 5 diamond and private-dependency cases.     |
-| Default privacy, duplicate paths, namespace separation, and distinct collisions       | Tasks 1 and 3 negative cases; Task 5 import permutations and generated property.    |
-| All operator notations, fixity, local restrictions, and capture semantics             | Tasks 2-3 parser/lookup/section cases; Task 4 differential tests.                   |
-| Late imports, one body parse, cycle handling, and structured error order              | Task 2 discovery/diagnostic cases; Task 5 facade-cycle case.                        |
-| Existing supported hosted domain and new syntax/lowering parity                       | Task 4 existing and added full-value/failure comparisons; Task 5 full-scale suites. |
-| Executable public contract and dispatcher closeout                                    | Task 5 registered example, public docs, quality/main gates, and queue update.       |
+| RFC requirement                                                                       | Implementation and evidence                                                      |
+| ------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------- |
+| Explicit named, qualified, grouped-constructor, and class re-exports                  | Task 1 parser/selector work and loader fixtures.                                 |
+| Original identity, schemes, cells, private support metadata, and transitive instances | Task 1 publication/lookup changes; Task 5 diamond and private-dependency cases.  |
+| Default privacy, duplicate paths, namespace separation, and distinct collisions       | Tasks 1 and 3 negative cases; Task 5 import permutations and generated property. |
+| All operator notations, fixity, local restrictions, and capture semantics             | Tasks 2-3 parser/lookup/section cases.                                           |
+| Late imports, one body parse, cycle handling, and structured error order              | Task 2 discovery/diagnostic cases; Task 5 facade-cycle case.                     |
+| Executable public contract and dispatcher closeout                                    | Task 5 registered example, public docs, quality/main gates, and queue update.    |
 
 ## Design review and promotion
 

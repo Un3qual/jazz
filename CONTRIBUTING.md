@@ -39,7 +39,7 @@ that choice into an RFC.
 - `src/` owns the active Haskell compiler and runtime.
 - `app/` owns the command-line entry point.
 - `test/` owns compiler, runtime, CLI, contract, and repository tests.
-- `jazz/` owns the Jazz-authored standard library and hosted compiler sources.
+- `jazz/` owns the Jazz-authored standard library.
 - `examples/` owns checked teaching programs; `programs/` owns the larger
   correctness and performance corpus.
 - `docs/language/` and `docs/reference/` are the public language contract.
@@ -150,7 +150,7 @@ are also available locally:
 - `scripts/ci/fast-compiler.sh` runs warning-clean, focused pull-request checks.
 - `scripts/ci/main-functional.sh` runs the complete ordinary test matrix.
 - `scripts/ci/haskell-quality.sh` checks production and full-graph dead code.
-- `scripts/ci/extended.sh` runs exhaustive parser-scale, repeated corpus,
+- `scripts/ci/extended.sh` runs repeated corpus,
   profiling, determinism, and benchmark work.
 - `scripts/ci/release-candidate.sh` combines all release-candidate gates.
 

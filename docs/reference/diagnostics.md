@@ -71,8 +71,7 @@ list, tuple, and block nodes include their closing delimiter. Grouping
 parentheses have no separate AST node, so the enclosed node retains its range.
 
 Structured compiler locations preserve endpoints through lowering, module
-qualification, and analysis. Synthetic locations and the hosted frontend's
-legacy canonical interchange may carry only a start position. Consumers can
+qualification, and analysis. Synthetic locations may carry only a start position. Consumers can
 use `sourceSpanEnd` to distinguish these from complete ranges. The command-line
 renderer continues to print the primary start position.
 

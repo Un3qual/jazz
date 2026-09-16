@@ -6,6 +6,8 @@ Supersedes: RFCs 0005, 0006, 0009, 0010, 0011, 0013, 0014, and 0015; the backend
 
 Amended by: [RFC 0018](0018-direct-analyzed-runtime-facts.md) replaces runtime-plan retention with direct consumption of analyzed semantic facts.
 
+> **2026-09-15 amendment:** The hosted frontend retention and conformance requirements below are superseded by [RFC 0022](0022-hosted-compiler-removal.md). The Jazz-authored compiler and its exclusive support are removed; the standard library and Haskell compiler remain. The optional-backend removal remains in force.
+
 ## Decision
 
 Remove the optional Haskell Typed Core producer, schema, validator, and Lowered

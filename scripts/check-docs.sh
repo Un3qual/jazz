@@ -65,6 +65,7 @@ required_rfcs=(
   "0006-lowered-ir-contract"
   "0007-runtime-host-boundary"
   "0008-parser-scale-and-performance-tiers"
+  "0022-hosted-compiler-removal"
 )
 
 require_file "rfcs/README.md"

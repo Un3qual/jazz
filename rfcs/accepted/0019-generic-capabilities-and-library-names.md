@@ -4,6 +4,8 @@ Status: Accepted
 Date: 2026-09-13
 Supersedes: The concrete-implementation and instance-transport restrictions of RFC 0017; its nominal identities and qualified spellings remain.
 
+> **2026-09-15 amendment:** The hosted frontend parity and full parser-scale verification obligations below are retired by [RFC 0022](0022-hosted-compiler-removal.md). The Haskell compiler, standard-library, and public language contracts remain in force.
+
 ## Decision
 
 Give Jazz ordinary constrained polymorphism through its existing `class` and

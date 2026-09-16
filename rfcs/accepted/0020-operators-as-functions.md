@@ -4,6 +4,8 @@ Status: Accepted
 Date: 2026-09-14
 Supersedes: Separate built-in operator dispatch, implicit structural operator equality, and operator-only mixed numeric promotion.
 
+> **2026-09-15 amendment:** The hosted frontend parity requirement below is retired by [RFC 0022](0022-hosted-compiler-removal.md). The operator-as-function contract remains in force for the Haskell compiler.
+
 ## Decision
 
 `not :: Bool -> Bool` is an ordinary Prelude function. It is neither a keyword

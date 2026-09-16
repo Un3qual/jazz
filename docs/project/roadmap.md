@@ -16,10 +16,10 @@ documentation.
 
 ## Self-hosting
 
-- add Jazz-authored name resolution, type inference, and semantic validation;
-- promote hosted components only after complete differential conformance;
-- integrate the hosted semantic compiler with complete module programs; and
-- compile the compiler's own sources through the canonical hosted pipeline.
+Self-hosting is deferred. Resume only with an explicit execution goal and a
+fresh accepted design for a compiler that can compile its own sources. The
+former hosted frontend has been removed; current development focuses on the
+Haskell compiler and the Jazz standard library.
 
 ## Native backend
 

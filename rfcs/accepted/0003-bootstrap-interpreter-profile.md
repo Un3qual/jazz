@@ -4,9 +4,11 @@ Status: Accepted
 Date: 2026-07-31
 Supersedes: Bootstrap and interpreter decisions dated 2026-03-03, 2026-03-18, 2026-07-10, 2026-07-11, and 2026-07-12.
 
-> The backend requirements of this RFC are superseded by
+> **2026-09-07 amendment (historical):** The backend requirements of this RFC were superseded by
 > [RFC 0016](0016-optional-backend-removal.md). Its stage-0, hosted-frontend, and conformance
-> decisions remain in force.
+> decisions were retained at that time; the later amendment below retires hosted obligations.
+
+> **2026-09-15 amendment:** The hosted compiler, staged implementation, and hosted conformance obligations below are superseded by [RFC 0022](0022-hosted-compiler-removal.md). Ordinary Haskell compilation, interpreter semantics, and the runtime host boundary remain; self-hosting is deferred pending an explicit execution goal and fresh design.
 
 ## Decision
 

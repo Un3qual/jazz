@@ -10,7 +10,7 @@ Before changing Jazz, read the [status](status.md), [roadmap](roadmap.md), and
 ## Repository map
 
 - `src/` contains the active Haskell compiler and runtime.
-- `jazz/` contains the Jazz-authored standard library and hosted compiler.
+- `jazz/` contains the Jazz-authored standard library.
 - `app/` contains the command-line entry point.
 - `test/` contains compiler, runtime, CLI, and repository suites.
 - `examples/` contains checked teaching programs.

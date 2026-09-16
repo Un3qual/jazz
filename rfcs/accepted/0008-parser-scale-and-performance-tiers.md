@@ -4,6 +4,8 @@ Status: Accepted
 Date: 2026-07-31
 Supersedes: Performance, test-gate, parser-scale, and CI decisions dated 2026-07-13, 2026-07-14, 2026-07-21, and 2026-07-31.
 
+> **2026-09-15 amendment:** The hosted parser smoke/full-scale workloads and their scheduling requirements below are retired by [RFC 0022](0022-hosted-compiler-removal.md). Main runs the surviving ordinary suites; extended/release retain program corpus, determinism, Haskell benchmarks, and profiling. The physical-measurement and artifact-isolation policies remain in force.
+
 ## Decision
 
 Jazz separates deterministic correctness and semantic-work budgets from
