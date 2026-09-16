@@ -4,6 +4,8 @@ Status: Accepted
 Date: 2026-09-11
 Supersedes: RFC 0016's retention of runtime plans only.
 
+> **2026-09-15 amendment:** The hosted frontend retention and structural comparison obligations below are retired by [RFC 0022](0022-hosted-compiler-removal.md). Canonical `Lowered` core, direct analyzed execution, and ordinary Haskell compiler/runtime tests remain in force.
+
 ## Decision
 
 The analyzed-core interpreter consumes checked instantiation, evidence, literal,

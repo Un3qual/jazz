@@ -2,7 +2,7 @@
 
 Status: Accepted
 Date: 2026-09-15
-Supersedes: The hosted compiler and conformance obligations of RFCs 0003 and 0004, hosted parser scale obligations of RFC 0008, hosted frontend retention in RFC 0016, and hosted parity obligations or deferrals in RFCs 0017, 0019, and 0020.
+Supersedes: Hosted compiler ownership in RFC 0002, the hosted compiler and conformance obligations of RFCs 0003 and 0004, hosted parser scale obligations of RFC 0008, hosted frontend retention and comparison obligations in RFCs 0016 and 0018, and hosted parity obligations or deferrals in RFCs 0017, 0019, and 0020.
 
 ## Decision
 

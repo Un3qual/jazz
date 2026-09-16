@@ -4,6 +4,8 @@ Status: Accepted
 Date: 2026-07-31
 Supersedes: Repository-productization decision dated 2026-07-31.
 
+> **2026-09-15 amendment:** The hosted compiler ownership below is retired by [RFC 0022](0022-hosted-compiler-removal.md). The `jazz/` tree contains the standard library; the sole active compiler and runtime are Haskell-owned. All other repository boundaries remain in force.
+
 ## Decision
 
 The Jazz repository represents one language, one active compiler, and one CLI.
