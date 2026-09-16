@@ -27,6 +27,12 @@ supersedes: []
 
 # Local CodeRabbit review fixes
 
+> **Retired compiler scope:** [RFC 0016](../../rfcs/accepted/0016-optional-backend-removal.md)
+> and [RFC 0022](../../rfcs/accepted/0022-hosted-compiler-removal.md) retired the
+> optional backend, hosted compiler, and their exclusive verification. References
+> to those paths, schemas, suites, and retention requirements in this record
+> (including frontmatter) are historical and impose no current work or test obligations.
+
 ## Approved implementation
 
 The maintainer requested needed fixes and a push to existing PR 158 after the local CodeRabbit CLI review. Input: `10b63aea`; review base: `b0b7dfca`. CodeRabbit 0.7.6 completed all 132 changed files and reported 14 suggestions (3 minor, 11 trivial). The review log is `/private/tmp/jazz-pr158-coderabbit-local-review.log`; the full initial assessment is `/private/tmp/jazz-pr158-coderabbit-review.md`.

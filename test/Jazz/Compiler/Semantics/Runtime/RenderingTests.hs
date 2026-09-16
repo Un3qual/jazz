@@ -75,10 +75,10 @@ renderingTests =
     ("private text traversal primitives evaluate Unicode scalars", testPrivateTextTraversalRuntimeSuccess),
     ("private itemValue rendering primitive uses deterministic source rendering", testPrivateValueRenderingRuntimeSuccess),
     ("runtime fallback rejects non-Text traversal arguments", testRuntimeFallbackRejectsNonTextTraversalArguments),
-    ("bootstrap collection and scalar primitives evaluate", testBootstrapCollectionScalarRuntimeSuccess),
+    ("collection and scalar primitives evaluate", testCollectionScalarRuntimeSuccess),
     ("Unicode case and bulk text primitives evaluate", testUnicodeCaseAndBulkTextRuntimeSuccess),
     ("checked scalar conversion rejects non-scalars", testCheckedScalarConversionRejectsNonScalars),
-    ("runtime fallback rejects invalid bootstrap primitive arguments", testRuntimeFallbackRejectsInvalidBootstrapPrimitiveArguments),
+    ("runtime fallback rejects invalid primitive arguments", testRuntimeFallbackRejectsInvalidPrimitiveArguments),
     ("direct self alias produces deterministic runtime diagnostic", testDirectSelfAliasRuntimeError),
     ("wrapped direct self alias produces deterministic runtime diagnostic", testWrappedDirectSelfAliasRuntimeError),
     ("same-name non-alias self application produces runtime unbound diagnostic", testSameNameNonAliasSelfApplicationTerminates),
@@ -234,8 +234,8 @@ testRuntimeFallbackRejectsNonTextTraversalArguments = do
   assertRuntimeErrorContains "runtime fallback textUnconsRaw code" "E3029" unconsResult
   assertRuntimeErrorContains "runtime fallback textUnconsRaw actual type" "Int" unconsResult
 
-testBootstrapCollectionScalarRuntimeSuccess :: IO ()
-testBootstrapCollectionScalarRuntimeSuccess = do
+testCollectionScalarRuntimeSuccess :: IO ()
+testCollectionScalarRuntimeSuccess = do
   result <-
     runSource
       defaultWarningSettings
@@ -250,7 +250,7 @@ testBootstrapCollectionScalarRuntimeSuccess = do
   assertEqual "compile errors" [] (runCompileErrors result)
   assertEqual "runtime errors" [] (runRuntimeErrors result)
   assertEqual
-    "bootstrap primitive output"
+    "primitive output"
     (Just "([\"first\", \"second\"], [\"second\", \"first\"], 128578, ['🙂'], (True, True, True, True, True), \"Jazz\", \"J🙂z\")")
     (runOutput result)
 
@@ -281,8 +281,8 @@ testCheckedScalarConversionRejectsNonScalars = do
   assertEqual "runtime errors" [] (runRuntimeErrors result)
   assertEqual "non-scalar conversion" (Just "([], [])") (runOutput result)
 
-testRuntimeFallbackRejectsInvalidBootstrapPrimitiveArguments :: IO ()
-testRuntimeFallbackRejectsInvalidBootstrapPrimitiveArguments = do
+testRuntimeFallbackRejectsInvalidPrimitiveArguments :: IO ()
+testRuntimeFallbackRejectsInvalidPrimitiveArguments = do
   let prependResult =
         evaluateFixture
           (runtimeExpr (expressionApply (expressionApply (expressionVariable "__kernel_listPrependRaw") (expressionLiteral (LInt 1))) (expressionLiteral (LInt 2))))

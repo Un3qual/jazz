@@ -1,5 +1,11 @@
 # Haskell and compiler practices that could simplify Jazz
 
+> **Retired compiler scope:** [RFC 0016](../../rfcs/accepted/0016-optional-backend-removal.md)
+> and [RFC 0022](../../rfcs/accepted/0022-hosted-compiler-removal.md) retired the
+> optional backend, hosted compiler, and their exclusive verification. References
+> to those paths, schemas, suites, and retention requirements in this record
+> (including frontmatter) are historical and impose no current work or test obligations.
+
 Historical research snapshot completed 2026-09-12 against Jazz `ff15d166` on
 `codex/simplify-haskell-compiler`. Descriptions and source links below refer to
 that baseline. All six recommendations and the targeted readability conventions

@@ -1,5 +1,11 @@
 # Compiler performance branch de-slop follow-up
 
+> **Retired compiler scope:** [RFC 0016](../../rfcs/accepted/0016-optional-backend-removal.md)
+> and [RFC 0022](../../rfcs/accepted/0022-hosted-compiler-removal.md) retired the
+> optional backend, hosted compiler, and their exclusive verification. References
+> to those paths, schemas, suites, and retention requirements in this record
+> (including frontmatter) are historical and impose no current work or test obligations.
+
 Status: Complete
 Branch: `codex/compiler-performance-program`
 Base: `codex/typed-core-closure-recursion` at `6e3381f285357b4f9113589b318f8b0feb049ce2`

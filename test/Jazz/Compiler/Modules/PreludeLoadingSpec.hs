@@ -85,7 +85,7 @@ tests =
     ("compile without prelude rejects public prelude aliases", testCompileWithoutPreludeRejectsPreludeAliases),
     ("compile without prelude keeps kernel bridge names available", testCompileWithoutPreludeKeepsKernelBridgeNamesAvailable),
     ("compile without prelude keeps missing binding behavior unchanged", testCompileWithoutPreludeStillFailsMissingBinding),
-    ("bootstrap Maybe and Result modules stay outside the bundled prelude", testBootstrapModulesStayOutsideBundledPrelude)
+    ("explicit-import library APIs stay outside the bundled prelude", testExplicitImportModulesStayOutsideBundledPrelude)
   ]
 
 testCompileWithPreludeBindingVisibility :: IO ()
@@ -994,8 +994,8 @@ testCompileWithoutPreludeStillFailsMissingBinding = do
     "E1001"
     (compileErrors result)
 
-testBootstrapModulesStayOutsideBundledPrelude :: IO ()
-testBootstrapModulesStayOutsideBundledPrelude =
+testExplicitImportModulesStayOutsideBundledPrelude :: IO ()
+testExplicitImportModulesStayOutsideBundledPrelude =
   mapM_ assertBundledPreludeNameUnavailable unavailableCases
   where
     unavailableCases =

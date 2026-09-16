@@ -55,9 +55,6 @@
     name: "Use <$>"
     within: ["Jazz.Compiler.ModuleResolver.resolveProgramWithAmbientExports", "Main.resolveTestModuleGraph"]
 - ignore:
-    name: "Use elem"
-    within: ["Jazz.Compiler.Bootstrap.CanonicalValue.normalizeCanonicalSourcePath"]
-- ignore:
     name: "Use first"
     within: ["Jazz.Compiler.Runtime.Semantics.qualifyRuntimeType", "Main.testSemanticTypeBitraversal", "Main.traversalIdentity"]
 - ignore:
@@ -88,7 +85,7 @@
     within: ["Jazz.Compiler.ModuleGraph.DeclaredModuleFacts", "Main.SyntheticBenchmark"]
 - ignore:
     name: "Use record patterns"
-    within: ["Jazz.Compiler.TypeInference.Scope.inferScopeTypeInternal", "Jazz.Repository.SourceLayout.sourceModuleFromSurface"]
+    within: ["Jazz.Compiler.TypeInference.Scope.inferScopeTypeInternal"]
 - ignore:
     name: "Use second"
     within: ["Main.testSemanticTypeBitraversal", "Main.traversalIdentity"]

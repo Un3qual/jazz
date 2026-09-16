@@ -18,7 +18,7 @@ The canonical product identity is `jazz`:
 - generated Cabal module: `Paths_jazz`.
 
 The active compiler is rooted at conventional repository paths. `src/` owns
-the Haskell stage-0 compiler and runtime, `jazz/` owns the Jazz-authored
+the Haskell compiler and runtime, `jazz/` owns the Jazz-authored
 standard library, `app/` owns the CLI entry point, and
 `test/` owns verification. `benchmark/`, `program-support/`, `programs/`, and
 `editors/` own their corresponding project surfaces. The package remains an

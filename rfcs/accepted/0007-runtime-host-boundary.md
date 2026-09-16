@@ -6,7 +6,7 @@ Supersedes: Runtime-host and stack-safe evaluation decisions dated 2026-07-10 an
 
 ## Decision
 
-All effectful stage-0 execution passes through a typed `RuntimeHost m`
+All effectful interpreter execution passes through a typed `RuntimeHost m`
 capability record owned by `src/Jazz/Compiler/RuntimeHost.hs`. The host provides
 only:
 
@@ -59,7 +59,7 @@ LLVM intrinsics.
 ## Context
 
 Running the evaluator directly in concrete Haskell `IO` would couple every
-test and embedding to stage 0. Returning deferred effects for the driver to
+test and embedding to real host I/O. Returning deferred effects for the driver to
 execute would require a second continuation system and would not correctly
 resume effects nested inside control flow. The earlier recursive pure and host
 evaluators also duplicated semantics and consumed host stack for tail-recursive

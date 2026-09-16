@@ -21,6 +21,12 @@ last_verified: 2026-08-11
 
 # Jazz Compiler Performance Follow-up
 
+> **Retired compiler scope:** [RFC 0016](../../rfcs/accepted/0016-optional-backend-removal.md)
+> and [RFC 0022](../../rfcs/accepted/0022-hosted-compiler-removal.md) retired the
+> optional backend, hosted compiler, and their exclusive verification. References
+> to those paths, schemas, suites, and retention requirements in this record
+> (including frontmatter) are historical and impose no current work or test obligations.
+
 > **For agentic workers:** use test-driven development for each task. Subagents
 > may inspect or edit independent files, but only the coordinator may run Cabal,
 > Jazz, benchmark, profiling, or Nix commands, exactly one process at a time.

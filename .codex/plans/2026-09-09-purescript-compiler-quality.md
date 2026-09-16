@@ -19,6 +19,12 @@ last_verified: 2026-09-09
 
 # PureScript compiler quality implementation
 
+> **Retired compiler scope:** [RFC 0016](../../rfcs/accepted/0016-optional-backend-removal.md)
+> and [RFC 0022](../../rfcs/accepted/0022-hosted-compiler-removal.md) retired the
+> optional backend, hosted compiler, and their exclusive verification. References
+> to those paths, schemas, suites, and retention requirements in this record
+> (including frontmatter) are historical and impose no current work or test obligations.
+
 The user approved both comparison recommendations on 2026-09-09. This plan
 records that design and its execution; no additional design approval is needed.
 Base: `49d815e3`. Work stays in the existing isolated checkout.
