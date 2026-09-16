@@ -8,10 +8,10 @@ public behavior.
 
 ## Ready Now
 
-Current executor status (`2026-09-15`): The maintainer approved hosted compiler
-removal under RFC 0022; its [plan](../plans/2026-09-15-remove-hosted-compiler.md)
-tracks the independent removal branch. Historical hosted parity and scale
-requirements are retired. RFC 0021 implementation is coordinated separately
+Current executor status (`2026-09-15`): Hosted compiler removal under RFC 0022
+is complete on its independent branch, with 47 default suites, quality, docs,
+and isolated Nix checks passing. The [plan](../plans/2026-09-15-remove-hosted-compiler.md)
+records the evidence. Historical hosted parity and scale requirements are retired. RFC 0021 implementation is coordinated separately
 and must rebase only after the removal PR merges.
 
 Main-base proposal status: RFCs 0019 and 0020, their cleanup, and review fixes are complete.
