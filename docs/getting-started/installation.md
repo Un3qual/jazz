@@ -28,6 +28,6 @@ Run the test suite:
 cabal test all --test-show-details=direct
 ```
 
-Parser-scale suites, profiling builds, and full benchmarks are separate from
-the ordinary test command. See [Project status](../project/status.md) for the
+Profiling builds and full benchmarks are separate from the ordinary test
+command. See [Project status](../project/status.md) for the
 current maturity boundary.

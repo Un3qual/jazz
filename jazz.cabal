@@ -32,7 +32,6 @@ extra-source-files:
     examples/README.md
     examples/**/*.jz
     jazz/stdlib/*.jz
-    jazz/compiler/*.jz
     jazz/stdlib/README.md
     programs/README.md
     programs/corpus.json
@@ -68,11 +67,6 @@ flag development
 
 flag profiling-workflow
   description: Link opt-in profiling executables with unrestricted RTS options.
-  default: False
-  manual: True
-
-flag full-parser-scale
-  description: Build exhaustive hosted parser scale test components.
   default: False
   manual: True
 
@@ -399,7 +393,6 @@ test-suite loader-spec
       Jazz.Compiler.Modules.Loader.Shared
       Jazz.Compiler.Modules.Loader.VisibilityTests
       Jazz.Repository.Root
-      Jazz.Repository.SourceLayout
       Jazz.TestSource
 
 test-suite module-resolution-spec
@@ -435,247 +428,6 @@ test-suite stdlib-spec
       Jazz.Compiler.Stdlib.Shared
       Jazz.Compiler.Stdlib.TextTests
       Jazz.Repository.Root
-      Jazz.Repository.SourceLayout
-      Jazz.TestSource
-
-test-suite canonical-lexer-comparison-spec
-  import: test-common
-  type: exitcode-stdio-1.0
-  main-is: Jazz/Compiler/Bootstrap/CanonicalLexerComparisonSpec.hs
-  other-modules:
-      Jazz.Compiler.Bootstrap.CanonicalLexerComparison
-      Jazz.Compiler.Bootstrap.CanonicalValue
-      Jazz.Compiler.Parser.FixtureCorpus
-      Jazz.Repository.Root
-      Jazz.Repository.SourceLayout
-      Jazz.TestSource
-
-test-suite canonical-parser-comparison-spec
-  import: test-common
-  type: exitcode-stdio-1.0
-  main-is: Jazz/Compiler/Bootstrap/CanonicalParserComparisonSpec.hs
-  other-modules:
-      Jazz.Compiler.Bootstrap.CanonicalLexerComparison
-      Jazz.Compiler.Bootstrap.CanonicalParserComparison
-      Jazz.Compiler.Bootstrap.CanonicalValue
-      Jazz.Compiler.Parser.FixtureCorpus
-      Jazz.Repository.Root
-      Jazz.Repository.SourceLayout
-      Jazz.TestSource
-
-test-suite canonical-core-comparison-spec
-  import: test-common
-  type: exitcode-stdio-1.0
-  main-is: Jazz/Compiler/Bootstrap/CanonicalCoreComparisonSpec.hs
-  other-modules:
-      Jazz.Compiler.Bootstrap.CanonicalCoreComparison
-      Jazz.Compiler.Bootstrap.CanonicalLexerComparison
-      Jazz.Compiler.Bootstrap.CanonicalParserComparison
-      Jazz.Compiler.Bootstrap.CanonicalValue
-      Jazz.Repository.Root
-      Jazz.Repository.SourceLayout
-      Jazz.TestSource
-
-test-suite jazz-core-expression-foundation-spec
-  import: test-common
-  type: exitcode-stdio-1.0
-  main-is: Jazz/Compiler/Bootstrap/JazzCoreExpressionFoundationSpec.hs
-  other-modules:
-      Jazz.Compiler.Bootstrap.CanonicalCoreComparison
-      Jazz.Compiler.Bootstrap.CanonicalLexerComparison
-      Jazz.Compiler.Bootstrap.CanonicalParserComparison
-      Jazz.Compiler.Bootstrap.CanonicalValue
-      Jazz.Compiler.Bootstrap.JazzCoreParity
-      Jazz.Repository.Root
-      Jazz.Repository.SourceLayout
-      Jazz.TestSource
-
-test-suite jazz-core-control-flow-patterns-spec
-  import: test-common
-  type: exitcode-stdio-1.0
-  main-is: Jazz/Compiler/Bootstrap/JazzCoreControlFlowPatternsSpec.hs
-  other-modules:
-      Jazz.Compiler.Bootstrap.CanonicalCoreComparison
-      Jazz.Compiler.Bootstrap.CanonicalLexerComparison
-      Jazz.Compiler.Bootstrap.CanonicalParserComparison
-      Jazz.Compiler.Bootstrap.CanonicalValue
-      Jazz.Compiler.Bootstrap.JazzCoreParity
-      Jazz.Repository.Root
-      Jazz.Repository.SourceLayout
-      Jazz.TestSource
-
-test-suite jazz-core-signatures-declarations-operators-spec
-  import: test-common
-  type: exitcode-stdio-1.0
-  main-is: Jazz/Compiler/Bootstrap/JazzCoreSignaturesDeclarationsOperatorsSpec.hs
-  other-modules:
-      Jazz.Compiler.Bootstrap.CanonicalCoreComparison
-      Jazz.Compiler.Bootstrap.CanonicalLexerComparison
-      Jazz.Compiler.Bootstrap.CanonicalParserComparison
-      Jazz.Compiler.Bootstrap.CanonicalValue
-      Jazz.Compiler.Bootstrap.JazzCoreParity
-      Jazz.Repository.Root
-      Jazz.Repository.SourceLayout
-      Jazz.TestSource
-
-test-suite jazz-core-modules-corpus-closure-spec
-  import: test-common
-  type: exitcode-stdio-1.0
-  main-is: Jazz/Compiler/Bootstrap/JazzCoreModulesCorpusClosureSpec.hs
-  other-modules:
-      Jazz.Compiler.Bootstrap.CanonicalCoreComparison
-      Jazz.Compiler.Bootstrap.CanonicalLexerComparison
-      Jazz.Compiler.Bootstrap.CanonicalParserComparison
-      Jazz.Compiler.Bootstrap.CanonicalValue
-      Jazz.Compiler.Bootstrap.JazzCoreParity
-      Jazz.Compiler.Parser.FixtureCorpus
-      Jazz.Repository.Root
-      Jazz.Repository.SourceLayout
-      Jazz.TestSource
-
-test-suite parser-core-spec
-  import: test-common
-  type: exitcode-stdio-1.0
-  main-is: Jazz/Compiler/Bootstrap/ParserCoreSpec.hs
-  other-modules:
-      Jazz.Repository.Root
-      Jazz.Repository.SourceLayout
-      Jazz.TestSource
-
-test-suite jazz-parser-component-spec
-  import: test-common
-  type: exitcode-stdio-1.0
-  main-is: Jazz/Compiler/Bootstrap/JazzParserComponentSpec.hs
-  other-modules:
-      Jazz.Repository.Root
-      Jazz.Repository.SourceLayout
-      Jazz.TestSource
-
-test-suite jazz-parser-types-declarations-modules-spec
-  import: test-common
-  type: exitcode-stdio-1.0
-  main-is: Jazz/Compiler/Bootstrap/JazzParserTypesDeclarationsModulesSpec.hs
-  other-modules:
-      Jazz.Compiler.Bootstrap.CanonicalLexerComparison
-      Jazz.Compiler.Bootstrap.CanonicalParserComparison
-      Jazz.Compiler.Bootstrap.CanonicalValue
-      Jazz.Compiler.Parser.FixtureCorpus
-      Jazz.Repository.Root
-      Jazz.Repository.SourceLayout
-      Jazz.TestSource
-
-test-suite jazz-parser-control-flow-patterns-spec
-  import: test-common
-  type: exitcode-stdio-1.0
-  main-is: Jazz/Compiler/Bootstrap/JazzParserControlFlowPatternsSpec.hs
-  other-modules:
-      Jazz.Compiler.Bootstrap.CanonicalLexerComparison
-      Jazz.Compiler.Bootstrap.CanonicalParserComparison
-      Jazz.Compiler.Bootstrap.CanonicalValue
-      Jazz.Repository.Root
-      Jazz.Repository.SourceLayout
-      Jazz.TestSource
-
-test-suite jazz-parser-operators-full-parity-spec
-  import: test-common
-  type: exitcode-stdio-1.0
-  main-is: Jazz/Compiler/Bootstrap/JazzParserOperatorsFullParitySpec.hs
-  other-modules:
-      Jazz.Compiler.Bootstrap.CanonicalLexerComparison
-      Jazz.Compiler.Bootstrap.CanonicalParserComparison
-      Jazz.Compiler.Bootstrap.CanonicalValue
-      Jazz.Compiler.Parser.FixtureCorpus
-      Jazz.Repository.Root
-      Jazz.Repository.SourceLayout
-      Jazz.TestSource
-
-test-suite jazz-parser-parity-spec
-  import: test-common
-  type: exitcode-stdio-1.0
-  main-is: Jazz/Compiler/Bootstrap/JazzParserParitySpec.hs
-  other-modules:
-      Jazz.Compiler.Bootstrap.CanonicalLexerComparison
-      Jazz.Compiler.Bootstrap.CanonicalParserComparison
-      Jazz.Compiler.Bootstrap.CanonicalValue
-      Jazz.Compiler.Bootstrap.JazzParserParity
-      Jazz.Compiler.Parser.FixtureCorpus
-      Jazz.Repository.Root
-      Jazz.Repository.SourceLayout
-      Jazz.TestSource
-
-test-suite jazz-parser-scale-spec
-  import: test-common
-  type: exitcode-stdio-1.0
-  main-is: Jazz/Compiler/Bootstrap/JazzParserScaleSpec.hs
-  other-modules:
-      Jazz.Compiler.Bootstrap.JazzParserScale
-      Jazz.Compiler.Bootstrap.JazzParserScaleAssertions
-      Jazz.Repository.Root
-      Jazz.Repository.SourceLayout
-      Jazz.TestSource
-
-test-suite jazz-parser-scale-full-expression-spec
-  import: test-common
-  type: exitcode-stdio-1.0
-  main-is: Jazz/Compiler/Bootstrap/JazzParserScaleFullExpressionSpec.hs
-  if !flag(full-parser-scale)
-    buildable: False
-  other-modules:
-      Jazz.Compiler.Bootstrap.JazzParserScale
-      Jazz.Compiler.Bootstrap.JazzParserScaleAssertions
-      Jazz.Repository.Root
-      Jazz.Repository.SourceLayout
-      Jazz.TestSource
-
-test-suite jazz-parser-scale-full-declarations-spec
-  import: test-common
-  type: exitcode-stdio-1.0
-  main-is: Jazz/Compiler/Bootstrap/JazzParserScaleFullDeclarationsSpec.hs
-  if !flag(full-parser-scale)
-    buildable: False
-  other-modules:
-      Jazz.Compiler.Bootstrap.JazzParserScale
-      Jazz.Compiler.Bootstrap.JazzParserScaleAssertions
-      Jazz.Repository.Root
-      Jazz.Repository.SourceLayout
-      Jazz.TestSource
-
-test-suite jazz-parser-scale-full-control-flow-spec
-  import: test-common
-  type: exitcode-stdio-1.0
-  main-is: Jazz/Compiler/Bootstrap/JazzParserScaleFullControlFlowSpec.hs
-  if !flag(full-parser-scale)
-    buildable: False
-  other-modules:
-      Jazz.Compiler.Bootstrap.JazzParserScale
-      Jazz.Compiler.Bootstrap.JazzParserScaleAssertions
-      Jazz.Repository.Root
-      Jazz.Repository.SourceLayout
-      Jazz.TestSource
-
-test-suite jazz-parser-scale-full-operator-spec
-  import: test-common
-  type: exitcode-stdio-1.0
-  main-is: Jazz/Compiler/Bootstrap/JazzParserScaleFullOperatorSpec.hs
-  if !flag(full-parser-scale)
-    buildable: False
-  other-modules:
-      Jazz.Compiler.Bootstrap.JazzParserScale
-      Jazz.Compiler.Bootstrap.JazzParserScaleAssertions
-      Jazz.Repository.Root
-      Jazz.Repository.SourceLayout
-      Jazz.TestSource
-
-test-suite jazz-lexer-parity-spec
-  import: test-common
-  type: exitcode-stdio-1.0
-  main-is: Jazz/Compiler/Bootstrap/JazzLexerParitySpec.hs
-  other-modules:
-      Jazz.Compiler.Bootstrap.CanonicalLexerComparison
-      Jazz.Compiler.Bootstrap.CanonicalValue
-      Jazz.Compiler.Parser.FixtureCorpus
-      Jazz.Repository.Root
-      Jazz.Repository.SourceLayout
       Jazz.TestSource
 
 test-suite adt-pattern-parser-spec
@@ -793,7 +545,6 @@ test-suite builtin-catalog-spec
       Jazz.Compiler.Semantics.Runtime.Fixtures
       Jazz.Compiler.Semantics.Runtime.ResolvedFixture
       Jazz.Repository.Root
-      Jazz.Repository.SourceLayout
       Jazz.TestSource
 
 test-suite core-normalization-spec
@@ -882,4 +633,3 @@ test-suite repository-audit-spec
       Jazz.Repository.OpaqueCarrierContracts
       Jazz.Repository.PackagePolicy
       Jazz.Repository.Root
-      Jazz.Repository.SourceLayout

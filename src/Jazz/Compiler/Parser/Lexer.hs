@@ -3,7 +3,7 @@
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE OverloadedStrings #-}
 
--- | Bootstrap lexer for the current surface syntax. It keeps the token set
+-- | Lexer for the current surface syntax. It keeps the token set
 -- intentionally small while preserving spans for diagnostics.
 module Jazz.Compiler.Parser.Lexer
   ( LexicalFailure (..),

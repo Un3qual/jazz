@@ -41,32 +41,23 @@ Each blocked item should answer these questions:
 
 ### JN-BOOTSTRAP-INTERPRETER-PROFILE-PLAN-001
 
-- Retained implementation: the working Haskell compiler and analyzed-core
-  interpreter, shared semantic types, nominal identities, runtime plans,
-  standard library, runtime host boundary, and stack-safe evaluation machine.
-  Jazz-authored lexing, parsing, and canonical-core lowering retain structural
-  differential coverage against stage 0.
-- Accepted frontend decision: [RFC 0004](../../rfcs/accepted/0004-hosted-canonical-compiler.md).
-  Its backend requirements are superseded by
-  [RFC 0016](../../rfcs/accepted/0016-optional-backend-removal.md), which removes
-  the optional Typed Core/Lowered IR backend and its mirrors. Historical backend
-  child plans do not authorize restoring or extending it.
-- Verified removal: [approved removal plan](../plans/2026-09-07-remove-optional-backend.md).
-  The completed [architecture plan](../plans/2026-08-31-jazz-compiler-architecture-simplification.md)
-  remains implementation history; its backend and interpreter-cutover proposals
-  are superseded. The analyzed-core interpreter remains the execution path.
-- Smallest unblocker: choose a concrete hosted-compiler or native-execution goal
-  following the completed removal.
-- Decision needed: the executable goal, integration boundary, and acceptance
-  evidence for that goal. Native work requires a fresh accepted design.
-- Recommended default: keep the tested compiler and hosted frontend; do not
-  restore speculative representations or schedule a second interpreter.
-- Candidate child: none. The approved removal is complete at `6a646a18`,
-  with all 60 retained suites and the isolated Nix gate passing.
-- Target paths: determined by a new concrete goal, not the retired backend.
-- Verification: a new child must name focused behavioral and integration checks.
-- Not in scope: automatic interpreter cutover, restoring IR schema mirroring,
-  native target selection, or language changes without a separate decision.
+- Retained implementation: the Haskell compiler, analyzed-core interpreter,
+  Jazz standard library, runtime host boundary, and stack-safe evaluation.
+- Historical frontend decision: [RFC 0004](../../rfcs/accepted/0004-hosted-canonical-compiler.md).
+  Its hosted obligations and [RFC 0016](../../rfcs/accepted/0016-optional-backend-removal.md)'s
+  frontend retention are superseded by
+  [RFC 0022](../../rfcs/accepted/0022-hosted-compiler-removal.md).
+- Removal plan: [hosted compiler removal](../plans/2026-09-15-remove-hosted-compiler.md).
+  Historical hosted/backend plans do not authorize restoring a second compiler.
+- Smallest unblocker: an explicit self-hosting or native execution goal and a
+  fresh accepted design for integration and verification.
+- Decision needed: the executable goal, implementation boundary, and evidence.
+- Recommended default: focus on the Haskell compiler and Jazz standard library.
+- Candidate child: none; self-hosting is deferred.
+- Target paths: determined by a fresh design, not a retained alternate frontend.
+- Verification: a future child must name behavioral and integration checks.
+- Not in scope: restoring hosted code, mirrored schemas, automatic interpreter
+  cutover, or native target selection without a separate accepted decision.
 
 ### JN-ABSTRACTION-SEMANTICS-PLAN-001
 
@@ -193,13 +184,13 @@ Each blocked item should answer these questions:
 - Plan: [module re-exports and operator transport](../plans/2026-09-15-module-reexports-and-operator-transport.md).
 - Target paths: the complete `target_paths` list in the
   [implementation plan](../plans/2026-09-15-module-reexports-and-operator-transport.md),
-  mirrored in the curation row. It covers the existing Haskell and hosted
+  mirrored in the curation row. It covers the existing Haskell
   compiler owners, behavioral tests, examples, public docs, and dispatcher
   closeout for Tasks 1-5.
 - Verification: `bash scripts/check-execution-queue.sh`;
   `python3 scripts/check-rfcs.py .`; `bash scripts/check-docs.sh` for design
-  publication. Implementation requires the focused module/operator and hosted
-  suites, full-scale parser checks, Haskell quality, and the full serialized
+  publication. Implementation requires focused module/operator
+  suites, Haskell quality, and the full serialized
   main gate; exact commands are recorded in the plan and curation row.
 - Not in scope: whole-module wildcard re-exports, renamed exports, new operator
   characters, cyclic modules, package resolution, effect-system changes, or

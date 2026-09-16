@@ -28,13 +28,6 @@ test_components=(
   module-pipeline-contract-spec
   prelude-loading-spec
   stdlib-spec
-  canonical-lexer-comparison-spec
-  canonical-parser-comparison-spec
-  canonical-core-comparison-spec
-  parser-core-spec
-  jazz-parser-parity-spec
-  jazz-parser-scale-spec
-  jazz-lexer-parity-spec
   parser-foundation-spec
   binding-signature-coherence-spec
   purity-semantics-spec

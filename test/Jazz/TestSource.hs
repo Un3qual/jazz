@@ -1,11 +1,9 @@
 {-# LANGUAGE OverloadedStrings #-}
 
 module Jazz.TestSource
-  ( JazzSourceRole (..),
-    checkedInJazzSourcePath,
+  ( checkedInJazzSourcePath,
     readCheckedInJazzSource,
     readCheckedInJazzModuleSource,
-    readCheckedInJazzProjectModuleSource,
     readCheckedInJazzTestFixture,
   )
 where
@@ -13,49 +11,40 @@ where
 import qualified Data.Text as Text
 import qualified Data.Text.IO as TextIO
 import Jazz.Repository.Root (findJazzPackageRoot)
-import Jazz.Repository.SourceLayout (JazzSourceRole (..))
 import System.Directory (doesFileExist)
 import System.FilePath
   ( isAbsolute,
     joinPath,
     normalise,
     splitDirectories,
-    (</>)
+    (</>),
   )
 
-checkedInJazzSourcePath :: FilePath -> JazzSourceRole -> FilePath -> FilePath
-checkedInJazzSourcePath packageRoot role fileName =
-  packageRoot </> "jazz" </> roleDirectory role </> fileName
-  where
-    roleDirectory StandardLibrarySource = "stdlib"
-    roleDirectory CompilerSource = "compiler"
+checkedInJazzSourcePath :: FilePath -> FilePath -> FilePath
+checkedInJazzSourcePath packageRoot fileName =
+  packageRoot </> "jazz" </> "stdlib" </> fileName
 
-readCheckedInJazzSource :: JazzSourceRole -> FilePath -> IO Text.Text
-readCheckedInJazzSource role fileName = do
+readCheckedInJazzSource :: FilePath -> IO Text.Text
+readCheckedInJazzSource fileName = do
   rootResult <- findJazzPackageRoot
   packageRoot <-
     case rootResult of
       Left message -> ioError (userError (Text.unpack message))
       Right root -> pure root
-  let path = checkedInJazzSourcePath packageRoot role fileName
+  let path = checkedInJazzSourcePath packageRoot fileName
   exists <- doesFileExist path
   if exists
     then TextIO.readFile path
     else
       ioError
         ( userError
-            ( "could not find checked-in "
-                <> roleLabel role
-                <> " Jazz source at "
+            ( "could not find checked-in standard-library Jazz source at "
                 <> path
             )
         )
-  where
-    roleLabel StandardLibrarySource = "standard-library"
-    roleLabel CompilerSource = "compiler"
 
-readCheckedInJazzModuleSource :: JazzSourceRole -> FilePath -> IO (Maybe Text.Text)
-readCheckedInJazzModuleSource role sourcePath =
+readCheckedInJazzModuleSource :: FilePath -> IO (Maybe Text.Text)
+readCheckedInJazzModuleSource sourcePath =
   case safeSourceRelativePath sourcePath of
     Nothing -> pure Nothing
     Just relativePath -> do
@@ -64,18 +53,11 @@ readCheckedInJazzModuleSource role sourcePath =
         case rootResult of
           Left message -> ioError (userError (Text.unpack message))
           Right root -> pure root
-      let path = checkedInJazzSourcePath packageRoot role relativePath
+      let path = checkedInJazzSourcePath packageRoot relativePath
       exists <- doesFileExist path
       if exists
         then Just <$> TextIO.readFile path
         else pure Nothing
-
-readCheckedInJazzProjectModuleSource :: FilePath -> IO (Maybe Text.Text)
-readCheckedInJazzProjectModuleSource sourcePath = do
-  compilerSource <- readCheckedInJazzModuleSource CompilerSource sourcePath
-  case compilerSource of
-    Just source -> pure (Just source)
-    Nothing -> readCheckedInJazzModuleSource StandardLibrarySource sourcePath
 
 readCheckedInJazzTestFixture :: FilePath -> IO Text.Text
 readCheckedInJazzTestFixture relativePath = do

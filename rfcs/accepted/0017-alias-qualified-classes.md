@@ -8,6 +8,8 @@ Scope amendment: During implementation the maintainer explicitly deferred all
 bootstrap-related work. This batch implements the Haskell compiler only;
 hosted syntax and lowering parity are deferred.
 
+> **2026-09-15 amendment:** The deferred hosted frontend work and hosted regression obligations below are retired by [RFC 0022](0022-hosted-compiler-removal.md). The Haskell alias-qualified class contract remains in force.
+
 ## Decision
 
 Aliased module imports expose public classes through the import alias in the

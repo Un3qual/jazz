@@ -6,6 +6,8 @@ Supersedes: RFCs 0005, 0006, 0009, 0010, 0011, 0013, 0014, and 0015; the backend
 
 Amended by: [RFC 0018](0018-direct-analyzed-runtime-facts.md) replaces runtime-plan retention with direct consumption of analyzed semantic facts.
 
+> **2026-09-15 amendment:** The hosted frontend retention and conformance requirements below are superseded by [RFC 0022](0022-hosted-compiler-removal.md). The Jazz-authored compiler and its exclusive support are removed; the standard library and Haskell compiler remain. The optional-backend removal remains in force.
+
 ## Decision
 
 Remove the optional Haskell Typed Core producer, schema, validator, and Lowered
@@ -14,24 +16,32 @@ exclusive tests, and benchmarks. These representations are no longer required
 steps toward self-hosting or a future interpreter migration.
 
 Keep the Haskell compiler and analyzed-core interpreter, phase-indexed AST,
-semantic types, nominal identities, attached analysis facts, and runtime plans.
-Keep the Jazz-authored lexer, parser, canonical-core lowerer, and their
-structural differential tests. Canonical core's `Lowered` phase remains the
-output of surface lowering; it is independent of the removed Lowered IR.
+semantic types, nominal identities, and attached analysis facts. RFC 0018
+replaces runtime-plan retention with direct consumption of those facts.
+Canonical core's `Lowered` phase remains the output of surface lowering;
+it is independent of the removed Lowered IR.
+
+Historically, this decision also retained the Jazz-authored lexer, parser,
+canonical-core lowerer, and their structural differential tests. RFC 0022
+retired that requirement and removed those components.
 
 The backend contracts in RFCs 0005, 0006, 0009, 0010, 0011, 0013, 0014, and
-0015 are retired. RFCs 0003 and 0004 retain their stage-0, hosted-frontend, and
-conformance decisions, but no longer prescribe these backend representations,
-their mirrors, or a mandatory backend route to self-hosting. Public language
-semantics, including the pattern coverage contract in RFC 0012, are unchanged.
+0015 are retired. This decision originally retained RFCs 0003 and 0004's stage-0,
+hosted-frontend, and conformance decisions without prescribing the backend
+representations, their mirrors, or a mandatory backend route to self-hosting.
+RFC 0022 subsequently retired the staged hosted-compiler implementation,
+hosted-frontend retention, and conformance obligations. The Haskell compiler
+and interpreter, historically called stage 0, remain the active implementation.
+Public language semantics, including the pattern coverage contract in RFC 0012,
+are unchanged.
 
 ## Context
 
 The optional backend duplicated representations and validation for a bounded
 subset of the language without an emitter or an execution consumer. Maintaining
 that path alongside the working interpreter added substantial code and tests
-without delivering another way to run Jazz. The hosted frontend has an
-independent tested purpose and does not depend on those backend schemas.
+without delivering another way to run Jazz. At acceptance, the hosted frontend
+had an independent tested purpose and did not depend on those backend schemas.
 
 ## Consequences
 

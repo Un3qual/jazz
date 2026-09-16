@@ -30,15 +30,7 @@ corpus_log_root="$(mktemp -d "${TMPDIR:-/tmp}/jazz-corpus-logs.XXXXXX")"
 trap 'rm -r -- "$corpus_log_root"' EXIT
 mkdir -p "$corpus_log_root/first" "$corpus_log_root/second"
 
-full_scale_components=(
-  jazz-parser-scale-full-expression-spec
-  jazz-parser-scale-full-declarations-spec
-  jazz-parser-scale-full-control-flow-spec
-  jazz-parser-scale-full-operator-spec
-)
-
-cabal test all "${full_scale_components[@]}" \
-  -ffull-parser-scale \
+cabal test all \
   --test-show-details=always \
   --test-log="$corpus_log_root/first/\$test-suite.log" \
   --jobs="$JAZZ_CABAL_JOBS"

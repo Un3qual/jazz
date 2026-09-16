@@ -15,7 +15,7 @@ Make sure you commit along the way as needed.
 ## Active Compiler Paths
 
 - `src/` contains the active Haskell compiler and runtime implementation.
-- `jazz/` contains the active Jazz-authored standard library and hosted compiler sources.
+- `jazz/` contains the active Jazz-authored standard library.
 - `app/` contains the active command-line entry point.
 - `test/` contains the active compiler, runtime, CLI, and repository tests.
 - These root directories are the only active compiler paths.
@@ -28,3 +28,11 @@ Make sure you commit along the way as needed.
 - Point implementation documentation to root paths such as `src/Jazz/`, `jazz/`, `app/`, and `test/Jazz/`.
 - Treat `docs/language/` and `docs/reference/` as the public language contract.
 - Treat current `src/`, `jazz/`, and `test/` behavior as implementation evidence, accepted RFCs as authoritative durable decisions, and roadmap material as non-normative.
+
+## Compiler Implementation Policy
+
+- The Haskell compiler is the sole active compiler implementation; new features
+  do not require hosted frontend parity or mirrored schemas.
+- Preserve the Jazz standard library and ordinary language/runtime coverage.
+- Self-hosting is deferred under RFC 0022 and requires an explicit execution
+  goal and fresh accepted design. Historical plans do not authorize restoration.

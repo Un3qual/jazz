@@ -28,37 +28,12 @@ roots = [
   # Shared resolved runtime fixtures are used by three separate components.
   '^Jazz\.Compiler\.Semantics\.Runtime\.ResolvedFixture\.(observeFixture|evaluateFixture|evaluateFixtureWithHost|fixtureDeclarations)$',
   # Shared test-support API; each Cabal component uses only a subset.
-  # test/Jazz/Compiler/Bootstrap/CanonicalCoreComparison.hs
-  '^Jazz\.Compiler\.Bootstrap\.CanonicalCoreComparison\.(canonicalCoreModuleResultRuntimeValue|canonicalCoreModuleRuntimeValue|canonicalCoreSourceResultRuntimeValue)$',
-  # Shared test-support API; each Cabal component uses only a subset.
-  # test/Jazz/Compiler/Bootstrap/CanonicalLexerComparison.hs
-  '^Jazz\.Compiler\.Bootstrap\.CanonicalLexerComparison\.(CanonicalKeyword|CanonicalLexError|CanonicalLexErrorReason|CanonicalLexResult|CanonicalLiteralKind|CanonicalPunctuation|CanonicalToken|CanonicalTokenKind|canonicalLexErrorRuntimeValue|canonicalLexResultRuntimeValue|canonicalTokenKindRuntimeValue|canonicalTokenRuntimeValue|canonicalizeFailure|canonicalizeLexResult|canonicalizeTokenKind|renderCanonicalLexResult)$',
-  # Shared test-support API; each Cabal component uses only a subset.
-  # test/Jazz/Compiler/Bootstrap/CanonicalParserComparison.hs
-  '^Jazz\.Compiler\.Bootstrap\.CanonicalParserComparison\.(CanonicalParserResult|CanonicalSourceResult|canonicalParserResultRuntimeValue|canonicalSourceResultRuntimeValue|canonicalizeParserResult|canonicalizeSourceResult|parserFailureRuntimeValue|renderCanonicalParserResult|renderCanonicalSourceResult|surfaceExprRuntimeValue)$',
-  # Shared test-support API; each Cabal component uses only a subset.
-  # test/Jazz/Compiler/Bootstrap/CanonicalValue.hs
-  '^Jazz\.Compiler\.Bootstrap\.CanonicalValue\.(CanonicalSpan|canonicalSpanRuntimeValue|canonicalizeSpan)$',
-  # Shared test-support API; each Cabal component uses only a subset.
-  # test/Jazz/Compiler/Bootstrap/JazzCoreParity.hs
-  '^Jazz\.Compiler\.Bootstrap\.JazzCoreParity\.(expectedCanonicalExpressionBatchRendering|expectedControlFlowPatternsBatchRendering|expectedControlFlowPatternsSourceBatchRendering|expectedCoreCorpusRendering|expectedCoreSourceBatchRendering|expectedFoundationBatchRendering|expectedFoundationSourceBatchRendering|expectedModuleBatchRendering|expectedParserSourceBatchRendering|expectedSignaturesDeclarationsOperatorsBatchRendering|expectedSignaturesDeclarationsOperatorsSourceBatchRendering|runJazzCanonicalExpressionBatch|runJazzControlFlowPatternsBatch|runJazzControlFlowPatternsSourceBatch|runJazzCoreCorpus|runJazzCoreSourceBatch|runJazzFoundationBatch|runJazzFoundationSourceBatch|runJazzModuleBatch|runJazzParserSourceBatch|runJazzSignaturesDeclarationsOperatorsBatch|runJazzSignaturesDeclarationsOperatorsSourceBatch)$',
-  # Shared scale runner: full components use one family; smoke uses all four.
-  '^Jazz\.Compiler\.Bootstrap\.JazzParserScale\.(runJazzParserControlFlowScale|runJazzParserDeclarationsScale|runJazzParserOperatorScale|runJazzParserScale)$',
-  # Shared test-support API; each Cabal component uses only a subset.
-  # test/Jazz/Compiler/Bootstrap/JazzParserScaleAssertions.hs
-  '^Jazz\.Compiler\.Bootstrap\.JazzParserScaleAssertions\.(fullControlFlowLimits|fullDeclarationsLimits|fullExpressionLimits|fullOperatorLimits|fullScaleWorkload|assertDeterministicScalePair|smokeControlFlowLimits|smokeDeclarationsLimits|smokeExpressionLimits|smokeOperatorLimits|smokeScaleWorkload)$',
-  # Shared test-support API; each Cabal component uses only a subset.
-  # test/Jazz/Compiler/Parser/FixtureCorpus.hs
-  '^Jazz\.Compiler\.Parser\.FixtureCorpus\.(ParserFixture|ParserFixtureExpectation|ParserFixtureFamily|ParserFixtureManifestViolation|lookupParserFixtureFamily|parserFixtureCorpus|parserFixtureFamilyNames|validateParserFixtureManifest)$',
-  # Shared test-support API; each Cabal component uses only a subset.
   # test/Jazz/Compiler/Parser/TestSupport.hs
   '^Jazz\.Compiler\.Parser\.TestSupport\.(surfaceExprAt|surfacePatternAt)$',
   # Shared test-support API; each Cabal component uses only a subset.
   # test/Jazz/Compiler/Semantics/Runtime/Fixtures.hs
   '^Jazz\.Compiler\.Semantics\.Runtime\.Fixtures\.(caseArm|classMethodSignature|dataConstructor|expressionBinary|expressionConstrainedAs|expressionConstructor|expressionIf|expressionLambda|expressionOperatorValue|expressionPatternCase|expressionQualifiedMethod|expressionSectionLeft|expressionSectionRight|expressionTuple|expressionTypeApplication|fixtureResolvedTypeName|fixtureTypeVariable|fixtureValueName|implMethod|patternConstructor|patternLiteral|patternTuple|patternVariable|patternWildcard|statementClass|statementData|statementImpl|statementLet|statementSignature)$',
   # Shared test-support API; each Cabal component uses only a subset.
-  # test/Jazz/Repository/SourceLayout.hs
-  '^Jazz\.Repository\.SourceLayout\.(JazzSourceModule|SourceLayoutViolation|renderSourceLayoutViolation|sourceModuleFromSurface|validateSourceLayering)$',
   # Shared test-support API; each Cabal component uses only a subset.
   # test/Jazz/TestCore.hs
   '^Jazz\.TestCore\.(assertLoweredCoreEqual|loweredApply|loweredAsPattern|loweredBinary|loweredBlock|loweredCaseArm|loweredClass|loweredClassMethodSignature|loweredConsListPattern|loweredConstructor|loweredConstructorAt|loweredConstructorPattern|loweredData|loweredExpression|loweredIf|loweredImpl|loweredImplMethod|loweredImport|loweredLambda|loweredLet|loweredList|loweredListPattern|loweredLiteral|loweredLiteralPattern|loweredModule|loweredOperatorValue|loweredOrPattern|loweredPatternCase|loweredSectionLeft|loweredSectionRight|loweredSignature|loweredTuple|loweredTuplePattern|loweredTypeApplication|loweredVariable|loweredVariablePattern|loweredWildcardPattern|parseSurfaceProgramPoints)$',
@@ -67,7 +42,7 @@ roots = [
   '^Jazz\.TestHarness\.(assertContains|assertDiagnosticContains|assertEqual|assertLeftContains|assertLeftDiagnosticCodeAndContains|assertLeftDiagnosticContains|assertRight|assertSingleDiagnosticCode|assertSingleDiagnosticContains|assertSingleDiagnosticPrimaryStart|assertSingleDiagnosticRelatedStart|assertSingleDiagnosticSubject|assertSingleErrorContains)$',
   # Shared test-support API; each Cabal component uses only a subset.
   # test/Jazz/TestSource.hs
-  '^Jazz\.TestSource\.(readCheckedInJazzModuleSource|readCheckedInJazzProjectModuleSource|readCheckedInJazzSource|readCheckedInJazzTestFixture)$',
+  '^Jazz\.TestSource\.(readCheckedInJazzModuleSource|readCheckedInJazzSource|readCheckedInJazzTestFixture)$',
 ]
 
 type-class-roots = false
@@ -102,7 +77,6 @@ root-instances = [
   { module = '^src/Jazz/Compiler/Name\.hs$', instance = '(^|=> )(Eq|Ord|Show|Generic|NFData|Enum|Bounded|Functor|Foldable|Traversable) (Name)$' },
   { module = '^src/Jazz/Compiler/Parser/Context\.hs$', instance = '(^|=> )(Eq|Ord|Show|Generic|NFData|Enum|Bounded|Functor|Foldable|Traversable) (ParserContext|StatementContext)$' },
   { module = '^src/Jazz/Compiler/Parser/Lexer\.hs$', instance = '(^|=> )(Eq|Ord|Show|Generic|NFData|Enum|Bounded|Functor|Foldable|Traversable) (LexerError)$' },
-  { module = '^src/Jazz/Compiler/Parser/Lower\.hs$', instance = '(^|=> )(Eq|Ord|Show|Generic|NFData|Enum|Bounded|Functor|Foldable|Traversable) (ModuleDeclaration|ModuleLoweringFailure)$' },
   { module = '^src/Jazz/Compiler/Parser/Operator\.hs$', instance = '(^|=> )(Eq|Ord|Show|Generic|NFData|Enum|Bounded|Functor|Foldable|Traversable) (Associativity|OperatorInfo|OperatorTable)$' },
   { module = '^src/Jazz/Compiler/Parser/TokenParser\.hs$', instance = '(^|=> )(Eq|Ord|Show|Generic|NFData|Enum|Bounded|Functor|Foldable|Traversable) (ParserError)$' },
   { module = '^src/Jazz/Compiler/PatternCoverage\.hs$', instance = '(^|=> )(Eq|Ord|Show|Generic|NFData|Enum|Bounded|Functor|Foldable|Traversable) (ConstructorWitnessName|DataConstructorInventory|VisibleConstructor)$' },
@@ -120,12 +94,6 @@ root-instances = [
   { module = '^src/Jazz/Compiler/TypeInference/Traversal\.hs$', instance = '(^|=> )(Eq|Ord|Show|Generic|NFData|Enum|Bounded|Functor|Foldable|Traversable) (InferenceMode)$' },
   { module = '^src/Jazz/Compiler/TypeRepresentation\.hs$', instance = '(^|=> )(Eq|Ord|Show|Generic|NFData|Enum|Bounded|Functor|Foldable|Traversable) (\(SignatureConstraint typeName variable\)|\(SignatureConstraint typeName\)|\(SignaturePayload typeName variable tokenName\)|\(SignatureToken name\)|\(SignatureType typeName variable\)|\(SignatureType typeName\)|SignatureToken)$' },
   { module = '^src/Jazz/Compiler/WarningConfig\.hs$', instance = '(^|=> )(Eq|Ord|Show|Generic|NFData|Enum|Bounded|Functor|Foldable|Traversable) (WarningSettings)$' },
-  { module = '^test/Jazz/Compiler/Bootstrap/CanonicalLexerComparison\.hs$', instance = '(^|=> )(Eq|Ord|Show|Generic|NFData|Enum|Bounded|Functor|Foldable|Traversable) (CanonicalKeyword|CanonicalLexError|CanonicalLexErrorReason|CanonicalLexResult|CanonicalLiteralKind|CanonicalPunctuation|CanonicalToken|CanonicalTokenKind)$' },
-  { module = '^test/Jazz/Compiler/Bootstrap/CanonicalParserComparison\.hs$', instance = '(^|=> )(Eq|Ord|Show|Generic|NFData|Enum|Bounded|Functor|Foldable|Traversable) (CanonicalParserResult|CanonicalSourceResult)$' },
-  { module = '^test/Jazz/Compiler/Bootstrap/CanonicalValue\.hs$', instance = '(^|=> )(Eq|Ord|Show|Generic|NFData|Enum|Bounded|Functor|Foldable|Traversable) (CanonicalSourcePath|CanonicalSpan)$' },
-  { module = '^test/Jazz/Compiler/Bootstrap/JazzCoreModulesCorpusClosureSpec\.hs$', instance = '(^|=> )(Eq|Ord|Show|Generic|NFData|Enum|Bounded|Functor|Foldable|Traversable) (CoreCorpusManifestEntry)$' },
-  { module = '^test/Jazz/Compiler/Parser/FixtureCorpus\.hs$', instance = '(^|=> )(Eq|Ord|Show|Generic|NFData|Enum|Bounded|Functor|Foldable|Traversable) (ParserFixture|ParserFixtureExpectation|ParserFixtureFamily|ParserFixtureManifestViolation)$' },
-  { module = '^test/Jazz/Repository/SourceLayout\.hs$', instance = '(^|=> )(Eq|Ord|Show|Generic|NFData|Enum|Bounded|Functor|Foldable|Traversable) (JazzSourceModule|JazzSourceRole|SourceLayoutViolation)$' },
   { module = '^src/Jazz/Compiler/SemanticDeclarations\.hs$', instance = '(^|=> )(Ord IntegerLiteralRange|Traversable SchemePrimitiveConstraint)$' },
   # Literal construction interfaces used by test/tooling clients.
   { instance = '^IsString (Identifier|UnresolvedName)$' },

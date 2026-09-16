@@ -10,7 +10,7 @@ Before changing Jazz, read the [status](status.md), [roadmap](roadmap.md), and
 ## Repository map
 
 - `src/` contains the active Haskell compiler and runtime.
-- `jazz/` contains the Jazz-authored standard library and hosted compiler.
+- `jazz/` contains the Jazz-authored standard library.
 - `app/` contains the command-line entry point.
 - `test/` contains compiler, runtime, CLI, and repository suites.
 - `examples/` contains checked teaching programs.
@@ -25,7 +25,7 @@ the same change.
 
 Enter the reproducible Nix development shell and use focused tests while
 working. Before review, run the verification tier appropriate to the change.
-Long parser-scale, corpus, profiling, and benchmark workloads run weekly,
+Extended corpus, profiling, and benchmark workloads run weekly,
 manually, or for release candidates rather than on every pull request.
 
 The

@@ -121,7 +121,6 @@ root-instances = [
   { module = '^src/Jazz/Compiler/Parser/Context\.hs$', instance = '(^|=> )(Eq|Ord|Show|Generic|NFData|Enum|Bounded|Functor|Foldable|Traversable) (ParserContext|StatementContext)$' },
   { module = '^src/Jazz/Compiler/Parser/Failure\.hs$', instance = '(^|=> )(Eq|Ord|Show|Generic|NFData|Enum|Bounded|Functor|Foldable|Traversable) (ParserDeclarationFailure|ParserDeclarationKind|ParserDuplicateNameRole|ParserEncountered|ParserFailure|ParserFailureReason|ParserInternalInvariant|ParserListKind|ParserNameRole|ParserOperatorUse|ParserPatternFailure|ParserUnsupportedFeature)$' },
   { module = '^src/Jazz/Compiler/Parser/Lexer\.hs$', instance = '(^|=> )(Eq|Ord|Show|Generic|NFData|Enum|Bounded|Functor|Foldable|Traversable) (LexerError|LexicalFailure|LexicalFailureReason|LexicalLiteralKind|Token|TokenKind)$' },
-  { module = '^src/Jazz/Compiler/Parser/Lower\.hs$', instance = '(^|=> )(Eq|Ord|Show|Generic|NFData|Enum|Bounded|Functor|Foldable|Traversable) (ModuleDeclaration|ModuleLoweringFailure)$' },
   { module = '^src/Jazz/Compiler/Parser/Operator\.hs$', instance = '(^|=> )(Eq|Ord|Show|Generic|NFData|Enum|Bounded|Functor|Foldable|Traversable) (Associativity|OperatorInfo|OperatorTable)$' },
   { module = '^src/Jazz/Compiler/Parser/TokenParser\.hs$', instance = '(^|=> )(Eq|Ord|Show|Generic|NFData|Enum|Bounded|Functor|Foldable|Traversable) (ParserError)$' },
   { module = '^src/Jazz/Compiler/Parser/TokenStream\.hs$', instance = '(^|=> )(Eq|Ord|Show|Generic|NFData|Enum|Bounded|Functor|Foldable|Traversable) (TokenStream)$' },

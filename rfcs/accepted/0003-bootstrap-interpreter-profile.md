@@ -4,11 +4,20 @@ Status: Accepted
 Date: 2026-07-31
 Supersedes: Bootstrap and interpreter decisions dated 2026-03-03, 2026-03-18, 2026-07-10, 2026-07-11, and 2026-07-12.
 
-> The backend requirements of this RFC are superseded by
+> **2026-09-07 amendment (historical):** The backend requirements of this RFC were superseded by
 > [RFC 0016](0016-optional-backend-removal.md). Its stage-0, hosted-frontend, and conformance
-> decisions remain in force.
+> decisions were retained at that time; the later amendment below retires hosted obligations.
+>
+> **2026-09-15 amendment:** The hosted compiler, staged implementation, and hosted conformance obligations below are superseded by [RFC 0022](0022-hosted-compiler-removal.md). Ordinary Haskell compilation, interpreter semantics, and the runtime host boundary remain; self-hosting is deferred pending an explicit execution goal and fresh design.
 
 ## Decision
+
+**Historical bootstrap plan:** The staged implementation and hosted conformance
+requirements in this section record the original decision. RFC 0016 retired
+the optional backend requirements; RFC 0022 retired the staged hosted-compiler
+implementation and conformance obligations. Neither authorizes new compiler or
+backend work. The ordinary Haskell interpreter and general runtime host boundary
+remain in force.
 
 The Haskell compiler and interpreter under `src/` are Jazz stage 0. Stage 0 is
 the executable semantic reference while compiler components are introduced as
@@ -62,7 +71,7 @@ named types, explicit-import library modules, deterministic host I/O, and
 tail-safe hosted traversal. It does not authorize Haskell compiler callbacks
 inside Jazz-authored compiler modules.
 
-The current hosted boundary includes a Jazz-authored lexer, complete parser,
+At acceptance, the hosted boundary included a Jazz-authored lexer, complete parser,
 and canonical-core lowerer with differential parity evidence. Matching typed-
 core and lowered-IR contracts also exist, and a bounded single-module scalar/
 direct-call path can produce and lower typed core when explicitly requested.
@@ -84,13 +93,14 @@ interpreter useful without confusing hosted execution with native self-hosting.
 
 ## Consequences
 
-- Every hosted stage uses ordinary Jazz values and deterministic comparison
-  contracts rather than ad hoc serialization.
+- Historical hosted requirement, retired by RFC 0022: every hosted stage used
+  ordinary Jazz values and deterministic comparison contracts rather than ad hoc
+  serialization.
 - New host services must be general semantic runtime services behind Jazz APIs,
   not compiler-specific escape hatches.
 - The reference interpreter and future native backend consume different
   permanent boundaries: canonical core and lowered IR respectively.
 - Native-backend work requires separate accepted designs for LLVM lowering,
   the runtime ABI, allocation, object production, and linking.
-- Documentation must distinguish hosted parity, opt-in stage-0 production, and
-  the unachieved self-hosting fixed point.
+- Historical documentation requirement, retired by RFC 0022: distinguish hosted
+  parity, opt-in stage-0 production, and the unachieved self-hosting fixed point.

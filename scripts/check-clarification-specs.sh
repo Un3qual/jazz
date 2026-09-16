@@ -139,7 +139,7 @@ for file in "${execution_files[@]}"; do
   require_pattern "$file" "current public reference owner" 'docs/reference/'
 done
 
-require_pattern ".codex/execution/blocker-contracts.md" "hosted compiler RFC" 'rfcs/accepted/0004-hosted-canonical-compiler\.md'
+require_pattern ".codex/execution/blocker-contracts.md" "hosted compiler removal RFC" 'rfcs/accepted/0022-hosted-compiler-removal\.md'
 
 require_pattern ".codex/execution/blocker-contracts.md" "backend removal RFC" 'rfcs/accepted/0016-optional-backend-removal\.md'
 

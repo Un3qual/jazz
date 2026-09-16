@@ -4,7 +4,7 @@ description: See the implemented, partial, and planned Jazz language and compile
 sidebar_position: 1
 ---
 
-Updated: 2026-09-14
+Updated: 2026-09-15
 
 Jazz is experimental and pre-1.0. This matrix separates implemented behavior
 from partial areas and planned work.
@@ -22,19 +22,16 @@ from partial areas and planned work.
 | Structured errors and opt-in warning policy                           | Implemented | [Diagnostics](../reference/diagnostics.md)                            |
 | Generic capabilities, constructor kinds, defaults, and superclasses   | Implemented | [Capabilities](../language/capabilities.md)                           |
 | Name-based purity analysis                                            | Partial     | [Purity](../language/purity.md)                                       |
-| Jazz-authored lexer, parser, and canonical-core lowering              | Partial     | [Bootstrapping](../compiler/bootstrapping.md)                         |
-| Canonical Jazz-authored semantic compiler                             | Planned     | [Roadmap](roadmap.md)                                                 |
+| Self-hosting (deferred)                                               | Planned     | [Roadmap](roadmap.md)                                                 |
 | Native code generation, linking, and runtime                          | Planned     | [Roadmap](roadmap.md)                                                 |
 | Stable releases, package ecosystem, and language server               | Planned     | [Roadmap](roadmap.md)                                                 |
 
 `Partial` means that working, tested behavior has an explicit boundary.
-Purity uses the current name-based rules. The Jazz-authored frontend has differential coverage
-but is not yet the canonical semantic compiler. Ordinary execution uses the
-Haskell compiler and analyzed-core interpreter; native compilation remains
-planned.
+Purity uses the current name-based rules. Ordinary execution uses the Haskell
+compiler and analyzed-core interpreter. The former Jazz-authored frontend and
+its comparison harnesses have been removed; the Jazz standard library remains.
+Self-hosting requires a new execution goal and design; native compilation is
+also deferred.
 
 The Haskell compiler supports alias-qualified class methods, constraints, and
-impl heads. Hosted parsing and canonical lowering now preserve three-component
-qualified method names, and hosted signature parsing matches the current
-qualification boundaries and diagnostics. Broader hosted class and impl
-qualification support remains deferred.
+impl heads.

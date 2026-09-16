@@ -78,10 +78,13 @@ compile-only checks.
 
 - Complete capability method dispatch and extend the current direct-call purity
   checks to higher-order and cross-module analysis.
-- A fully Jazz-authored canonical compiler pipeline.
 - Native code generation, linking, and a production runtime.
 - Stable releases, package distribution, editor tooling, and a broader
   ecosystem.
+
+Self-hosting is deferred and requires an explicit execution goal and a fresh
+design. The Haskell compiler is the sole active compiler implementation; the
+Jazz standard library remains part of the language.
 
 Planned work is tracked separately from implemented behavior and is not
 presented as runnable language syntax.

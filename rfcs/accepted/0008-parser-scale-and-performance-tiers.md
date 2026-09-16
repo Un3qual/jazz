@@ -4,6 +4,8 @@ Status: Accepted
 Date: 2026-07-31
 Supersedes: Performance, test-gate, parser-scale, and CI decisions dated 2026-07-13, 2026-07-14, 2026-07-21, and 2026-07-31.
 
+> **2026-09-15 amendment:** The hosted parser smoke/full-scale workloads and their scheduling requirements below are retired by [RFC 0022](0022-hosted-compiler-removal.md). Main runs the surviving ordinary suites; extended/release retain program corpus, determinism, Haskell benchmarks, and profiling. The physical-measurement and artifact-isolation policies remain in force.
+
 ## Decision
 
 Jazz separates deterministic correctness and semantic-work budgets from
@@ -12,21 +14,21 @@ budget regressions are gating. Wall-clock time, physical allocation, heap
 residency, and sampled profiles are advisory evidence unless a separate
 reproducible regression has been validated.
 
-Hosted-parser scale has two deterministic tiers:
+**Historical hosted-parser policy (retired by RFC 0022):** Hosted-parser scale
+had two deterministic tiers:
 
-- The default `jazz-parser-scale-spec` runs expression, declaration,
-  control-flow, and operator profiles twice at 65 parsed statements. It checks
+- The default `jazz-parser-scale-spec` ran expression, declaration,
+  control-flow, and operator profiles twice at 65 parsed statements. It checked
   exact output, termination, byte-identical complete runtime statistics, zero
   host operations, and measured upper bounds for evaluator transitions,
   applications, list construction, and continuation depth.
-- Four full components retain the 513-statement profiles behind the
-  default-disabled `full-parser-scale` Cabal flag. Each runs once, checks exact
-  output and the landed semantic ceilings, and can be selected independently.
+- Four full components retained the 513-statement profiles behind the
+  default-disabled `full-parser-scale` Cabal flag. Each ran once, checked exact
+  output and the landed semantic ceilings, and could be selected independently.
 
-The full profiles are correctness tests, not benchmarks. They are excluded
-from ordinary local and pull-request test matrices. Their generators and
-ceilings remain versioned so a scale regression can be reproduced without
-making every feedback loop pay the exhaustive cost.
+The full profiles were correctness tests, excluded from ordinary local and
+pull-request test matrices. These suites, generators, ceilings, and Cabal flag
+were removed by RFC 0022; they impose no current test obligations.
 
 The production-shaped program corpus is shared by correctness and measurement.
 Its manifest owns exact results and deterministic upper budgets. Running less
@@ -53,13 +55,12 @@ Repository CI uses four scheduling tiers:
 1. **Pull request:** warning-clean focused compiler/runtime/CLI/contract tests,
    repository and source audits, documentation and website checks, and user
    example smoke tests. The target is ten minutes or less. This tier excludes
-   `cabal bench`, full parser scale, profiling builds, and the complete
+   `cabal bench`, profiling builds, and the complete
    production corpus.
-2. **Main:** the complete ordinary Cabal test matrix, default deterministic
-   parity and parser smoke suites, package checks, and repository validation.
-   It still excludes full parser scale, benchmarks, and profiling.
-3. **Extended:** weekly and manual runs execute full parser scale, the complete
-   corpus, profiling builds, benchmarks, and repeated determinism checks, and
+2. **Main:** the complete surviving ordinary Cabal test matrix, package checks,
+   and repository validation. It still excludes benchmarks and profiling.
+3. **Extended:** weekly and manual runs execute the complete corpus, profiling
+   builds, benchmarks, and repeated determinism checks, and
    retain useful artifacts.
 4. **Release:** release candidates and version tags run functional and
    extended checks, clean package and documentation builds, and distributable

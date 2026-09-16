@@ -567,7 +567,6 @@ class CiPolicyCheckerTests(unittest.TestCase):
         for forbidden in (
             "cabal bench",
             "jazz-bench",
-            "full-parser-scale",
             "profile-hotspots",
             "profile-stages",
             "program-corpus-spec",
@@ -653,7 +652,6 @@ class CiPolicyCheckerTests(unittest.TestCase):
         for forbidden in (
             "cabal bench",
             "jazz-bench",
-            "full-parser-scale",
             "profile-hotspots",
             "profile-stages",
         ):
@@ -785,12 +783,9 @@ class CiPolicyCheckerTests(unittest.TestCase):
         )
         self.assert_violation("determinism tier must compare distinct output paths")
 
-    def test_extended_tier_requires_exhaustive_components_and_second_corpus_run(self) -> None:
+    def test_extended_tier_requires_both_corpus_runs(self) -> None:
         for required in (
-            "jazz-parser-scale-full-expression-spec",
-            "jazz-parser-scale-full-declarations-spec",
-            "jazz-parser-scale-full-control-flow-spec",
-            "jazz-parser-scale-full-operator-spec",
+            "cabal test all",
             "cabal test program-corpus-spec",
         ):
             with self.subTest(required=required):
@@ -1726,7 +1721,6 @@ class CiPolicyCheckerTests(unittest.TestCase):
         for token in (
             "cabal bench",
             "jazz-bench",
-            "full-parser-scale",
             "profile-hotspots",
             "profile-stages",
         ):
@@ -1938,7 +1932,6 @@ class CiPolicyCheckerTests(unittest.TestCase):
         for token in (
             "cabal bench",
             "jazz-bench",
-            "full-parser-scale",
             "profile-hotspots",
             "profile-stages",
             "program-corpus-spec",

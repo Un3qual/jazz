@@ -138,40 +138,6 @@ ceilings come from deterministic runtime observations with bounded headroom;
 they are full workloads and therefore do not lengthen the default fast smoke
 selection.
 
-### Hosted parser scale tiers
-
-Hosted-parser scale correctness has two deterministic semantic-budget tiers:
-
-- The default `jazz-parser-scale-spec` smoke tier runs expression,
-  declarations, control-flow, and operator profiles twice at 65 parsed
-  statements. It requires exact output, successful termination, zero host
-  operations, complete-statistics equality between runs, and measured semantic
-  ceilings. It is included in the routine matrix:
-
-  ```bash
-  cabal test all --test-show-details=failures
-  ```
-
-- The full tier preserves one 513-statement semantic-budget check per grammar
-  family behind the default-disabled `full-parser-scale` flag. It is a niche
-  manual diagnostic, not routine verification. Run it only when a maintainer
-  explicitly requests it, a full-scale generator or ceiling changes, or smoke
-  evidence needs full-scale reproduction:
-
-  ```bash
-  cabal test -ffull-parser-scale \
-    jazz-parser-scale-full-expression-spec \
-    jazz-parser-scale-full-declarations-spec \
-    jazz-parser-scale-full-control-flow-spec \
-    jazz-parser-scale-full-operator-spec \
-    --test-show-details=failures
-  ```
-
-Both tiers assert logical Jazz work rather than physical duration. They have no
-wall-clock threshold and are not benchmarks. Use the `tasty-bench` workflows
-below for repeated physical timing, environment metadata, and comparison
-artifacts.
-
 ## Benchmarks
 
 The benchmark tree has nine boundaries:

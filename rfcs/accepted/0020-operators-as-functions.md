@@ -4,6 +4,8 @@ Status: Accepted
 Date: 2026-09-14
 Supersedes: Separate built-in operator dispatch, implicit structural operator equality, and operator-only mixed numeric promotion.
 
+> **2026-09-15 amendment:** The hosted frontend parity requirement below is retired by [RFC 0022](0022-hosted-compiler-removal.md). The operator-as-function contract remains in force for the Haskell compiler.
+
 ## Decision
 
 `not :: Bool -> Bool` is an ordinary Prelude function. It is neither a keyword
@@ -65,8 +67,11 @@ operator registry for inference or runtime dispatch. Remove replaced operator
 alias schemes, checked operand projections, mixed numeric promotion and runtime
 operator values. Private kernel primitives own only primitive semantics.
 
-The hosted frontend retains the same surface grammar and canonical lowered
-representation as Haskell. This decision does not add hosted inference or a new
-compiler backend. Update maintained programs and public contracts for the
-intentional equality and numeric changes, and test custom implementations,
+Historically, this decision required the hosted frontend to retain the same
+surface grammar and canonical lowered representation as Haskell. RFC 0022
+retired that parity requirement and removed the hosted frontend.
+
+This decision does not add hosted inference or a new compiler backend.
+Update maintained programs and public contracts for the intentional equality
+and numeric changes, and test custom implementations,
 lexical resolution, first-class values, sections, numeric widths and diagnostics.

@@ -45,8 +45,7 @@ import Jazz.Compiler.WarningConfig
   )
 import Jazz.TestHarness (NamedTest, assertEqual, failTest, runTestSuite)
 import Jazz.TestSource
-  ( JazzSourceRole (StandardLibrarySource),
-    readCheckedInJazzProjectModuleSource,
+  ( readCheckedInJazzModuleSource,
     readCheckedInJazzSource,
   )
 import System.Timeout (timeout)
@@ -188,7 +187,7 @@ testBootstrapTextModule = do
       }
       """
     lookupSource "src/App/Main.jz" = pure (Just entrySource)
-    lookupSource path = readCheckedInJazzProjectModuleSource path
+    lookupSource path = readCheckedInJazzModuleSource path
 
 testBootstrapCollectionScalarModules :: IO ()
 testBootstrapCollectionScalarModules = do
@@ -218,7 +217,7 @@ testBootstrapCollectionScalarModules = do
       }
       """
     lookupSource "src/App/Main.jz" = pure (Just entrySource)
-    lookupSource path = readCheckedInJazzProjectModuleSource path
+    lookupSource path = readCheckedInJazzModuleSource path
 
 testBootstrapListReversePreservesConcreteHints :: IO ()
 testBootstrapListReversePreservesConcreteHints = do
@@ -377,4 +376,4 @@ failingIOHost =
 
 readStdlibSource :: FilePath -> IO (Maybe Text)
 readStdlibSource fileName =
-  Just <$> readCheckedInJazzSource StandardLibrarySource fileName
+  Just <$> readCheckedInJazzSource fileName

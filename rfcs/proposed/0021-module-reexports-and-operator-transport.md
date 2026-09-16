@@ -219,12 +219,11 @@ and effects. The dependency-first diagnostic order applies to all modules,
 including those using no new selectors. Jazz is unreleased; this becomes the
 single parsing path, without an opt-in flag or legacy parsing mode.
 
-The hosted frontend must retain its existing supported domain and gain the new
-selector and qualified-operator syntax, explicit imported-fixity input, and
-corresponding canonical lowering. Differential tests compare complete values
-and structured failures using the same supplied operator environment. The
-Haskell module resolver continues owning graph loading and semantic analysis;
-this proposal does not claim a Jazz-authored semantic compiler.
+The original proposal required hosted syntax and lowering parity. That
+requirement was retired by accepted [RFC 0022](../accepted/0022-hosted-compiler-removal.md)
+on 2026-09-15. Implement and verify this proposal in the Haskell compiler;
+there is no Jazz-authored frontend to extend. The module resolver continues
+owning graph loading and semantic analysis.
 
 ## Context
 

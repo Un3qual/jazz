@@ -3,7 +3,9 @@
 
 module Main (main) where
 
+import Control.Monad (forM_)
 import Data.List (nub)
+import Data.List.NonEmpty (NonEmpty (..))
 import Data.Text (Text)
 import qualified Data.Text as Text
 import Jazz.Compiler.AST
@@ -19,15 +21,18 @@ import Jazz.Compiler.AST
     Statement (..),
   )
 import Jazz.Compiler.CoreIdentity (ResolvedNodeFacts (..), ResolvedReference (..))
-import Jazz.Compiler.Diagnostics (SourceSpan (..))
+import Jazz.Compiler.DiagnosticCatalog (ErrorCode (E4005, E4006, E4010), errorCode)
+import Jazz.Compiler.Diagnostics (SourceSpan (..), diagnosticCode, diagnosticPrimarySpan, diagnosticSummary)
 import Jazz.Compiler.ModuleAnalysis
   ( analyzeResolvedExpression,
   )
 import Jazz.Compiler.ModuleExports (exportInventory)
+import Jazz.Compiler.ModuleIdentity (mkModulePath, mkSourceFile, moduleIdentity)
 import Jazz.Compiler.ModuleResolver (resolveStandaloneExprNames)
 import Jazz.Compiler.Name (identifierText)
 import Jazz.Compiler.Parser (parseSurfaceProgram)
-import Jazz.Compiler.Parser.Lower (lowerSurfaceExpr)
+import Jazz.Compiler.Parser.AST (SurfaceExpr (..), SurfaceExprForm (..), SurfaceStatement (..))
+import Jazz.Compiler.Parser.Lower (lowerSurfaceExpr, lowerSurfaceModule)
 import Jazz.Compiler.WarningConfig (defaultWarningSettings)
 import Jazz.TestHarness
   ( NamedTest,
@@ -47,7 +52,8 @@ tests =
     ("operator values resolve to callable references", testOperatorValuesResolveToReferences),
     ("declared sections and binary operators resolve to applications", testDeclaredOperatorsResolveToApplications),
     ("lowering assigns deterministic pre-order node identities", testDeterministicNodeIdentities),
-    ("lowering preserves a complete span on every canonical node", testCompleteCanonicalSpans)
+    ("lowering preserves a complete span on every canonical node", testCompleteCanonicalSpans),
+    ("module lowering preserves declaration and import diagnostics", testModuleLoweringDiagnostics)
   ]
 
 testIfRemainsCanonicalIf :: IO ()
@@ -195,3 +201,40 @@ implMethodNodeFacts (ImplMethod node _ body) = nodeFact node <> canonicalNodeFac
 
 nodeFact :: CoreNode phase sort -> [(CoreNodeId, SourceSpan)]
 nodeFact node = [(coreNodeId node, coreNodeSpan node)]
+
+-- These invalid surface trees cannot be constructed by the parser. Keep the
+-- lowering boundary covered directly after retiring the comparison harness.
+testModuleLoweringDiagnostics :: IO ()
+testModuleLoweringDiagnostics =
+  forM_ cases $ \(statements, code, message, location) ->
+    case lowerSurfaceModule identity (SurfaceExpr spanValue (SEBlock statements)) of
+      Left diagnostic -> do
+        assertEqual "module diagnostic code" (errorCode code) (diagnosticCode diagnostic)
+        assertEqual "module diagnostic" message (diagnosticSummary diagnostic)
+        assertEqual "module diagnostic location" location (diagnosticPrimarySpan diagnostic)
+      Right _ -> failTest "invalid module lowered successfully"
+  where
+    identity = moduleIdentity (mkModulePath ("App" :| ["Main"])) (mkSourceFile "src/App/Main.jz")
+    spanValue = SourceSpan 2 3
+    cases =
+      [ ( [SSModule spanValue ["App", "First"] Nothing, SSModule spanValue ["App", "Second"] Nothing],
+          E4005,
+          "multiple module declarations in 'src/App/Main.jz': App::First, App::Second",
+          Nothing
+        ),
+        ( [SSModule spanValue ["Wrong"] Nothing],
+          E4006,
+          "module declaration mismatch at 'src/App/Main.jz': expected 'App::Main', found 'Wrong'",
+          Nothing
+        ),
+        ( [SSImport spanValue ["Library"] Nothing (Just [])],
+          E4010,
+          "invalid empty module import in 'src/App/Main.jz' for 'Library'",
+          Just spanValue
+        ),
+        ( [SSImport spanValue [] Nothing Nothing],
+          E4010,
+          "invalid empty module import in 'src/App/Main.jz' for ''",
+          Just spanValue
+        )
+      ]
