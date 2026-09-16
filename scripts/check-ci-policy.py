@@ -22,13 +22,6 @@ FAST_COMPONENTS = (
     "module-pipeline-contract-spec",
     "prelude-loading-spec",
     "stdlib-spec",
-    "canonical-lexer-comparison-spec",
-    "canonical-parser-comparison-spec",
-    "canonical-core-comparison-spec",
-    "parser-core-spec",
-    "jazz-parser-parity-spec",
-    "jazz-parser-scale-spec",
-    "jazz-lexer-parity-spec",
     "parser-foundation-spec",
     "binding-signature-coherence-spec",
     "purity-semantics-spec",
@@ -39,7 +32,6 @@ FAST_COMPONENTS = (
 FAST_FORBIDDEN = (
     "cabal bench",
     "jazz-bench",
-    "full-parser-scale",
     "profile-hotspots",
     "profile-stages",
     "program-corpus-spec",
@@ -48,7 +40,6 @@ FAST_FORBIDDEN = (
 MAIN_FORBIDDEN = (
     "cabal bench",
     "jazz-bench",
-    "full-parser-scale",
     "profile-hotspots",
     "profile-stages",
     "scripts/ci/extended.sh",
@@ -97,7 +88,6 @@ IMMUTABLE_REVISION_RE = re.compile(r"[0-9a-f]{40}")
 PR_FORBIDDEN = (
     "cabal bench",
     "jazz-bench",
-    "full-parser-scale",
     "profile-hotspots",
     "profile-stages",
     "program-corpus-spec",
@@ -540,22 +530,12 @@ def check_extended(contents: str, violations: list[str]) -> None:
         r'mkdir\s+-p\s+"\$JAZZ_ARTIFACT_ROOT/corpus"\s+"\$JAZZ_ARTIFACT_ROOT/benchmarks"',
     )
 
-    full_components = array_body(contents, "full_scale_components")
-    for component in (
-        "jazz-parser-scale-full-expression-spec",
-        "jazz-parser-scale-full-declarations-spec",
-        "jazz-parser-scale-full-control-flow-spec",
-        "jazz-parser-scale-full-operator-spec",
-    ):
-        if component not in full_components:
-            violations.append(f"{tier} is missing required token: {component}")
-
     require_command(
         violations,
         tier,
         contents,
         "cabal test all",
-        r'cabal\s+test\s+all\s+"\$\{full_scale_components\[@\]\}".*-ffull-parser-scale.*--test-log=.*first.*',
+        r'cabal\s+test\s+all.*--test-log=.*first.*',
     )
     require_command(
         violations,
@@ -564,9 +544,6 @@ def check_extended(contents: str, violations: list[str]) -> None:
         "cabal test program-corpus-spec",
         r"cabal\s+test\s+program-corpus-spec.*--test-log=.*second.*",
     )
-    if "-ffull-parser-scale" not in joined_text(contents):
-        violations.append(f"{tier} is missing required token: -ffull-parser-scale")
-
     freshness_tokens = (
         'if [[ -d "$JAZZ_ARTIFACT_ROOT"',
         'find "$JAZZ_ARTIFACT_ROOT" -mindepth 1 -print -quit',

@@ -20,7 +20,6 @@ import System.FilePath (makeRelative, takeExtension, (</>))
 
 data AuthoredSourceRole
   = StandardLibrarySource
-  | CompilerSource
   | ExampleSource
   | ProgramSource
   | EditorFixtureSource
@@ -40,7 +39,6 @@ readAuthoredSources packageRoot =
     ( mapM
         (uncurry (readSourceRoot packageRoot))
         [ (StandardLibrarySource, "jazz" </> "stdlib"),
-          (CompilerSource, "jazz" </> "compiler"),
           (ExampleSource, "examples"),
           (ProgramSource, "programs"),
           (EditorFixtureSource, "editors" </> "vscode-jazz" </> "fixtures")

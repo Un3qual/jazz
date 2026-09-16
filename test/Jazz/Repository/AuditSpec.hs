@@ -55,14 +55,6 @@ import Jazz.Repository.PackagePolicy
     validatePackagePolicy,
   )
 import Jazz.Repository.Root (findJazzPackageRoot)
-import Jazz.Repository.SourceLayout
-  ( JazzSourceModule,
-    JazzSourceRole (..),
-    SourceLayoutViolation (..),
-    renderSourceLayoutViolation,
-    sourceModuleFromSurface,
-    validateSourceLayering,
-  )
 import Jazz.TestHarness
   ( NamedTest,
     assertEqual,
@@ -117,8 +109,6 @@ tests =
     ("rejects an unnamed public Cabal library", testPublicLibraryPolicy),
     ("rejects a named public Cabal library", testNamedPublicLibraryPolicy),
     ("rejects a private library without private visibility", testMissingPrivateVisibility),
-    ("rejects stdlib imports of compiler modules", testRejectsStdlibCompilerImport),
-    ("accepts compiler imports of stdlib modules", testAcceptsCompilerStdlibImport),
     ("uses the locked checked-in Jazz source tree", testCheckedInJazzSourceTree),
     ("validates the Jazz editor package metadata", testEditorPackageMetadata),
     ("parses the representative editor fixture", testEditorFixtureParses),
@@ -194,7 +184,6 @@ testAuthoredSourceInventory =
     assertEqual
       "authored source roles"
       [ AuthoredSources.StandardLibrarySource,
-        AuthoredSources.CompilerSource,
         AuthoredSources.ExampleSource,
         AuthoredSources.ProgramSource,
         AuthoredSources.EditorFixtureSource
@@ -317,22 +306,6 @@ expectedAuthoredSourcePaths =
     "examples/modules/src/Example/Greeting.jz",
     "examples/modules/src/Example/Main.jz",
     "examples/patterns/result.jz",
-    "jazz/compiler/Core.jz",
-    "jazz/compiler/CoreLower.jz",
-    "jazz/compiler/CoreTypes.jz",
-    "jazz/compiler/Lexer.jz",
-    "jazz/compiler/LexerTypes.jz",
-    "jazz/compiler/Parser.jz",
-    "jazz/compiler/ParserContext.jz",
-    "jazz/compiler/ParserCore.jz",
-    "jazz/compiler/ParserDeclaration.jz",
-    "jazz/compiler/ParserExpression.jz",
-    "jazz/compiler/ParserOperator.jz",
-    "jazz/compiler/ParserPattern.jz",
-    "jazz/compiler/ParserProgram.jz",
-    "jazz/compiler/ParserSignature.jz",
-    "jazz/compiler/ParserToken.jz",
-    "jazz/compiler/ParserTypes.jz",
     "jazz/stdlib/Char.jz",
     "jazz/stdlib/Dictionary.jz",
     "jazz/stdlib/IO.jz",
@@ -698,60 +671,15 @@ testMissingPrivateVisibility =
         )
     )
 
-testRejectsStdlibCompilerImport :: IO ()
-testRejectsStdlibCompilerImport = do
-  compilerModule <-
-    parsedSourceModule
-      CompilerSource
-      "jazz/compiler/Lexer.jz"
-      "module Lexer { 0. }"
-  stdlibModule <-
-    parsedSourceModule
-      StandardLibrarySource
-      "jazz/stdlib/Bad.jz"
-      "module Bad { import Lexer. 0. }"
-  assertEqual
-    "stdlib compiler dependency"
-    [StandardLibraryImportsCompiler "jazz/stdlib/Bad.jz" ["Lexer"]]
-    (validateSourceLayering [compilerModule, stdlibModule])
-
-testAcceptsCompilerStdlibImport :: IO ()
-testAcceptsCompilerStdlibImport = do
-  stdlibModule <-
-    parsedSourceModule
-      StandardLibrarySource
-      "jazz/stdlib/Text.jz"
-      "module Text { 0. }"
-  compilerModule <-
-    parsedSourceModule
-      CompilerSource
-      "jazz/compiler/Lexer.jz"
-      "module Lexer { import Text as Text. 0. }"
-  assertEqual
-    "compiler stdlib dependency"
-    []
-    (validateSourceLayering [stdlibModule, compilerModule])
-
-parsedSourceModule :: JazzSourceRole -> FilePath -> Text -> IO JazzSourceModule
-parsedSourceModule role path source =
-  case parseSurfaceProgram source of
-    Left diagnostic ->
-      failTest ("fixture did not parse: " <> renderDiagnostic diagnostic)
-    Right surfaceProgram ->
-      pure (sourceModuleFromSurface role path surfaceProgram)
-
 testCheckedInJazzSourceTree :: IO ()
 testCheckedInJazzSourceTree =
   withPackageRoot $ \packageRoot -> do
     let jazzRoot = packageRoot </> "jazz"
         stdlibRoot = jazzRoot </> "stdlib"
-        compilerRoot = jazzRoot </> "compiler"
         legacyRoot = packageRoot </> "stdlib"
     stdlibExists <- doesDirectoryExist stdlibRoot
-    compilerExists <- doesDirectoryExist compilerRoot
     legacyExists <- doesDirectoryExist legacyRoot
     assertEqual "stdlib source root exists" True stdlibExists
-    assertEqual "compiler source root exists" True compilerExists
     assertEqual "legacy stdlib root is absent" False legacyExists
 
 testEditorPackageMetadata :: IO ()
@@ -1094,55 +1022,19 @@ testCanonicalRepositoryLayout =
 testCheckedInJazzSources :: IO ()
 testCheckedInJazzSources =
   withPackageRoot $ \packageRoot -> do
-    (stdlibFormatViolations, stdlibModules) <-
-      readSourceRole
-        packageRoot
-        StandardLibrarySource
-        ("jazz" </> "stdlib")
-    (compilerFormatViolations, compilerModules) <-
-      readSourceRole
-        packageRoot
-        CompilerSource
-        ("jazz" </> "compiler")
-    let formatViolations =
-          stdlibFormatViolations <> compilerFormatViolations
-        layoutViolations =
-          validateSourceLayering (stdlibModules <> compilerModules)
-        renderedViolations =
-          map renderJazzSourceFormatViolation formatViolations
-            <> map renderSourceLayoutViolation layoutViolations
-    unless (null renderedViolations) $ do
-      failTest (Text.intercalate "\n" renderedViolations)
-
-readSourceRole ::
-  FilePath ->
-  JazzSourceRole ->
-  FilePath ->
-  IO ([JazzSourceFormatViolation], [JazzSourceModule])
-readSourceRole packageRoot role relativeDirectory = do
-  let sourceRoot = packageRoot </> relativeDirectory
-  exists <- doesDirectoryExist sourceRoot
-  unless exists $ do
-    failTest (Text.pack relativeDirectory <> ": source directory does not exist")
-  paths <- listJazzFiles sourceRoot
-  when (null paths) $ do
-    failTest (Text.pack relativeDirectory <> ": contains no .jz files")
-  results <- forM paths $ \path -> do
-    source <- TextIO.readFile path
-    let relativePath = makeRelative packageRoot path
-        formatViolations = validateJazzModule relativePath source
-    sourceModule <-
+    let sourceRoot = packageRoot </> "jazz" </> "stdlib"
+    paths <- listJazzFiles sourceRoot
+    when (null paths) $ failTest "jazz/stdlib: contains no .jz files"
+    forM_ paths $ \path -> do
+      source <- TextIO.readFile path
+      let relativePath = makeRelative packageRoot path
+          violations = validateJazzModule relativePath source
+      unless (null violations) $
+        failTest (Text.intercalate "\n" (map renderJazzSourceFormatViolation violations))
       case parseSurfaceProgram source of
         Left diagnostic ->
-          failTest
-            ( Text.pack relativePath
-                <> ": failed to parse: "
-                <> renderDiagnostic diagnostic
-            )
-        Right surfaceProgram ->
-          pure (sourceModuleFromSurface role relativePath surfaceProgram)
-    pure (formatViolations, sourceModule)
-  pure (concatMap fst results, map snd results)
+          failTest (Text.pack relativePath <> ": failed to parse: " <> renderDiagnostic diagnostic)
+        Right _ -> pure ()
 
 listJazzFiles :: FilePath -> IO [FilePath]
 listJazzFiles root = sort <$> go root

@@ -58,9 +58,6 @@ import Jazz.Compiler.Runtime.Observation
 import Jazz.Compiler.WarningConfig
   ( defaultWarningSettings,
   )
-import Jazz.Repository.SourceLayout
-  ( JazzSourceRole (StandardLibrarySource),
-  )
 import Jazz.TestHarness
   ( assertContains,
     assertEqual,
@@ -117,7 +114,7 @@ runStdlibPrivateProbeValue targetModulePath probeSource = do
   where
     targetSourcePath = "src/" <> modulePathFile targetModulePath <> ".jz"
     probeSourceLookup sourcePath = do
-      maybeSource <- readCheckedInJazzModuleSource StandardLibrarySource sourcePath
+      maybeSource <- readCheckedInJazzModuleSource sourcePath
       pure
         ( if sourcePath == targetSourcePath
             then injectPrivateProbe probeSource <$> maybeSource
@@ -136,7 +133,7 @@ runStdlibSource modulePath entrySource =
 
     lookupSource path
       | path == entryPath = pure (Just entrySource)
-      | otherwise = readCheckedInJazzModuleSource StandardLibrarySource path
+      | otherwise = readCheckedInJazzModuleSource path
 
 runStdlibSourceObserved :: RuntimeObservationRequest -> [Text] -> Text -> IO RunResult
 runStdlibSourceObserved observationRequest modulePath entrySource =
@@ -151,7 +148,7 @@ runStdlibSourceObserved observationRequest modulePath entrySource =
 
     lookupSource path
       | path == entryPath = pure (Just entrySource)
-      | otherwise = readCheckedInJazzModuleSource StandardLibrarySource path
+      | otherwise = readCheckedInJazzModuleSource path
 
 resolverConfig :: ModuleResolutionConfig
 resolverConfig =

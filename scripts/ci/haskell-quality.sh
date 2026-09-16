@@ -24,11 +24,11 @@ cabal build exe:jazz --disable-tests --disable-benchmarks \
 weeder --config=weeder-production.toml --hie-directory="$quality_build" --no-default-fields
 
 # Only after production passes do benchmark/tooling and test entry points enter
-# the graph. Include opt-in scale suites so their support code is checked too.
-cabal build all --enable-tests --enable-benchmarks -ffull-parser-scale \
+# the graph.
+cabal build all --enable-tests --enable-benchmarks \
   --builddir="$quality_build" --ghc-options=-fwrite-ide-info \
   --jobs="$JAZZ_CABAL_JOBS"
 weeder --config=weeder.toml --hie-directory="$quality_build" --no-default-fields
-cabal test generated-invariants-spec -ffull-parser-scale \
+cabal test generated-invariants-spec \
   --builddir="$quality_build" --ghc-options=-fwrite-ide-info \
   --test-show-details=direct --jobs="$JAZZ_CABAL_JOBS"

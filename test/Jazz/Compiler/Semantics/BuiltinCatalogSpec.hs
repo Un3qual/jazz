@@ -73,8 +73,7 @@ import Jazz.TestHarness
     runTestSuite,
   )
 import Jazz.TestSource
-  ( JazzSourceRole (StandardLibrarySource),
-    readCheckedInJazzSource,
+  ( readCheckedInJazzSource,
   )
 
 main :: IO ()
@@ -228,7 +227,7 @@ testDefaultConversionAliasesStayPreludeOnly = do
 
 testBundledPreludeFileStaysReproducibleFromCatalog :: IO ()
 testBundledPreludeFileStaysReproducibleFromCatalog = do
-  checkedInPrelude <- readCheckedInJazzSource StandardLibrarySource "Prelude.jz"
+  checkedInPrelude <- readCheckedInJazzSource "Prelude.jz"
   assertEqual
     "checked-in bundled prelude file matches catalog-generated prelude"
     bundledPreludeSource

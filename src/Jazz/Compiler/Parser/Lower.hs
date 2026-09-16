@@ -12,10 +12,7 @@
 -- removes only surface forms with an established core equivalent; it never
 -- erases source ranges when allocating/reindexing nodes or qualifying modules.
 module Jazz.Compiler.Parser.Lower
-  ( ModuleDeclaration (..),
-    ModuleLoweringFailure (..),
-    lowerSurfaceExpr,
-    lowerSurfaceModuleDetailed,
+  ( lowerSurfaceExpr,
     lowerSurfaceModule,
     reindexLoweredExpr,
   )
@@ -28,7 +25,6 @@ import Data.Functor.Identity (Identity (..))
 import Data.List.NonEmpty (NonEmpty)
 import qualified Data.List.NonEmpty as NonEmpty
 import Data.Maybe (catMaybes)
-import Data.Text (Text)
 import qualified Data.Text as Text
 import Jazz.Compiler.AST
   ( CaseArm (..),
@@ -111,36 +107,10 @@ import Jazz.Compiler.Parser.AST
   )
 import qualified Jazz.Compiler.TypeRepresentation as TypeRepresentation
 
--- | The declaration inputs retained when module validation fails. Keeping
--- these values structured lets hosted-lowering parity compare semantic inputs
--- without recovering them from rendered diagnostics.
-data ModuleDeclaration = ModuleDeclaration
-  { moduleDeclarationSpan :: SourceSpan,
-    moduleDeclarationPath :: [Text]
-  }
-  deriving (Eq, Show)
-
--- | Failures owned specifically by module lowering, before they are rendered
--- into the compiler's shared diagnostic representation.
-data ModuleLoweringFailure
-  = MultipleModuleDeclarations FilePath [ModuleDeclaration]
-  | ModulePathMismatch FilePath [Text] ModuleDeclaration
-  | EmptyImportSymbolList FilePath SourceSpan [Text]
-  deriving (Eq, Show)
-
 -- | Validate and lower one parsed module exactly once. Module/import forms are
 -- retained as graph metadata and removed from the executable core scope.
 lowerSurfaceModule :: ModuleIdentity -> SurfaceExpr -> Either Diagnostic (CoreModule 'Lowered)
 lowerSurfaceModule identity surfaceExpr =
-  case lowerSurfaceModuleDetailed identity surfaceExpr of
-    Left failure -> Left (moduleLoweringFailureDiagnostic failure)
-    Right coreModule -> Right coreModule
-
--- | Preserve the semantic inputs for the two module-lowering failures. The
--- public compiler entry point above renders these into the existing E4005 and
--- E4006 diagnostics, so production behavior remains unchanged.
-lowerSurfaceModuleDetailed :: ModuleIdentity -> SurfaceExpr -> Either ModuleLoweringFailure (CoreModule 'Lowered)
-lowerSurfaceModuleDetailed identity surfaceExpr =
   {-# SCC "jazz-stage:lowering" #-}
   do
     declaredExports <- validateDeclaration
@@ -163,7 +133,7 @@ lowerSurfaceModuleDetailed identity surfaceExpr =
         _ -> []
 
     declarations =
-      [ (ModuleDeclaration spanValue modulePath, moduleExports)
+      [ (spanValue, modulePath, moduleExports)
       | SSModule spanValue modulePath moduleExports <- statements
       ]
 
@@ -194,7 +164,7 @@ lowerSurfaceModuleDetailed identity surfaceExpr =
           pure $ do
             importedPath <-
               maybe
-                (Left (EmptyImportSymbolList sourcePath spanValue modulePath))
+                (Left (emptyImportDiagnostic spanValue modulePath))
                 (Right . mkModulePath . fmap mkIdentifier)
                 (NonEmpty.nonEmpty modulePath)
             exposure <-
@@ -202,7 +172,7 @@ lowerSurfaceModuleDetailed identity surfaceExpr =
                 Nothing -> Right (DeclaredImportAll qualifier)
                 Just symbols ->
                   maybe
-                    (Left (EmptyImportSymbolList sourcePath spanValue modulePath))
+                    (Left (emptyImportDiagnostic spanValue modulePath))
                     (Right . DeclaredImportOnly qualifier . fmap mkIdentifier)
                     (NonEmpty.nonEmpty symbols)
             Right
@@ -218,44 +188,39 @@ lowerSurfaceModuleDetailed identity surfaceExpr =
     validateDeclaration =
       case declarations of
         [] -> Right Nothing
-        [(declaration, declaredExportSelectors)]
-          | moduleDeclarationPath declaration == expectedPath ->
+        [(spanValue, declaredPath, declaredExportSelectors)]
+          | declaredPath == expectedPath ->
               Right
                 ( DeclaredModuleExports
-                    (qualifySourceSpan sourcePath (moduleDeclarationSpan declaration))
+                    (qualifySourceSpan sourcePath spanValue)
                     . map (qualifyModuleExportSelectorSpans sourcePath)
                     <$> declaredExportSelectors
                 )
           | otherwise ->
-              Left (ModulePathMismatch sourcePath expectedPath declaration)
+              Left $
+                mkErrorDiagnostic
+                  E4006
+                  CompilationOrigin
+                  ( "module declaration mismatch at '"
+                      <> Text.pack sourcePath
+                      <> "': expected '"
+                      <> Text.intercalate "::" expectedPath
+                      <> "', found '"
+                      <> Text.intercalate "::" declaredPath
+                      <> "'"
+                  )
         declaredModules ->
-          Left (MultipleModuleDeclarations sourcePath (map fst declaredModules))
+          Left $
+            mkErrorDiagnostic
+              E4005
+              CompilationOrigin
+              ( "multiple module declarations in '"
+                  <> Text.pack sourcePath
+                  <> "': "
+                  <> Text.intercalate ", " [Text.intercalate "::" path | (_, path, _) <- declaredModules]
+              )
 
-moduleLoweringFailureDiagnostic :: ModuleLoweringFailure -> Diagnostic
-moduleLoweringFailureDiagnostic failure =
-  case failure of
-    MultipleModuleDeclarations sourcePath declarations ->
-      mkErrorDiagnostic
-        E4005
-        CompilationOrigin
-        ( "multiple module declarations in '"
-            <> Text.pack sourcePath
-            <> "': "
-            <> Text.intercalate ", " (map (renderModulePath . moduleDeclarationPath) declarations)
-        )
-    ModulePathMismatch sourcePath expectedPath declaration ->
-      mkErrorDiagnostic
-        E4006
-        CompilationOrigin
-        ( "module declaration mismatch at '"
-            <> Text.pack sourcePath
-            <> "': expected '"
-            <> renderModulePath expectedPath
-            <> "', found '"
-            <> renderModulePath (moduleDeclarationPath declaration)
-            <> "'"
-        )
-    EmptyImportSymbolList sourcePath spanValue modulePath ->
+    emptyImportDiagnostic spanValue modulePath =
       setDiagnosticPrimarySpan spanValue $
         mkErrorDiagnostic
           E4010
@@ -266,8 +231,6 @@ moduleLoweringFailureDiagnostic failure =
               <> Text.intercalate "::" modulePath
               <> "'"
           )
-  where
-    renderModulePath = Text.intercalate "::"
 
 qualifyLoweredNode :: FilePath -> CoreNode 'Lowered sort -> CoreNode 'Lowered sort
 qualifyLoweredNode sourcePath (CoreNode nodeId spanValue facts) =
