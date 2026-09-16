@@ -1,0 +1,3 @@
+module Example::OperatorAPI (value (Ops::%%), value Ops::answer) {
+  import Example::OperatorLibrary as Ops.
+}

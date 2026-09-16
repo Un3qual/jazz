@@ -55,7 +55,8 @@ import Jazz.Compiler.Diagnostics
     setDiagnosticPrimarySpan,
   )
 import Jazz.Compiler.ModuleExports
-  ( qualifyModuleExportSelectorSpans,
+  ( moduleExportLookupName,
+    qualifyModuleExportSelectorSpans,
   )
 import Jazz.Compiler.ModuleGraph
   ( CoreModule (..),
@@ -173,7 +174,7 @@ lowerSurfaceModule identity surfaceExpr =
                 Just symbols ->
                   maybe
                     (Left (emptyImportDiagnostic spanValue modulePath))
-                    (Right . DeclaredImportOnly qualifier . fmap mkIdentifier)
+                    (Right . DeclaredImportOnly qualifier . fmap (mkIdentifier . moduleExportLookupName))
                     (NonEmpty.nonEmpty symbols)
             Right
               ( Left

@@ -29,6 +29,12 @@ supersedes: []
 
 # Architecture review fixes
 
+> **Retired compiler scope:** [RFC 0016](../../rfcs/accepted/0016-optional-backend-removal.md)
+> and [RFC 0022](../../rfcs/accepted/0022-hosted-compiler-removal.md) retired the
+> optional backend, hosted compiler, and their exclusive verification. References
+> to those paths, schemas, suites, and retention requirements in this record
+> (including frontmatter) are historical and impose no current work or test obligations.
+
 ## Approved implementation
 
 Input: `59b5762f`. The maintainer approved all six findings in the [architecture review](2026-09-12-architecture-review.md), plus explicit retirement of the historical `VQualifiedMethod` compatibility pattern. That approval supersedes its earlier retention instruction. All changes remain local; no push or PR-comment refresh is authorized.

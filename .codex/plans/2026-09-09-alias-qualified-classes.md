@@ -22,6 +22,12 @@ last_verified: 2026-09-09
 
 # Alias-qualified Classes Implementation Plan
 
+> **Retired compiler scope:** [RFC 0016](../../rfcs/accepted/0016-optional-backend-removal.md)
+> and [RFC 0022](../../rfcs/accepted/0022-hosted-compiler-removal.md) retired the
+> optional backend, hosted compiler, and their exclusive verification. References
+> to those paths, schemas, suites, and retention requirements in this record
+> (including frontmatter) are historical and impose no current work or test obligations.
+
 Execute the remaining implementation, review and verification inline in this
 existing isolated worktree, as requested by the maintainer during implementation.
 

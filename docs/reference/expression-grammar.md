@@ -62,6 +62,12 @@ by the head; superclass contexts apply classes to the class parameter. Ordinary
 method and value signatures may constrain compound types. See
 [capabilities](../language/capabilities.md) for kind, head, and overlap rules.
 
-Built-in precedence and source-local operator declarations are documented in
+Custom operator values and sections also admit adjacent `Alias::symbol`
+qualification. Module export selectors admit qualified names and parenthesized
+custom operators; selective imports admit parenthesized custom operators.
+Imported fixity is available throughout a module, while local declarations
+remain source-ordered.
+
+Built-in precedence and custom operator declarations are documented in
 [operators](../language/operators.md). Declaration scope restrictions are in
 [source and blocks](../language/source-and-blocks.md).

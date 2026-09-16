@@ -2,7 +2,10 @@
 
 module Main (main) where
 
+import Control.Monad (forM_)
+import Data.Bifunctor (first)
 import Data.List.NonEmpty (NonEmpty (..))
+import qualified Data.Set as Set
 import Data.Text (Text)
 import Jazz.Compiler.Diagnostics
   ( Diagnostic,
@@ -12,6 +15,7 @@ import Jazz.Compiler.ModuleExports
   ( LocatedModuleExportName (..),
     ModuleExportSelector (..),
     ModuleTypeConstructorSelector (..),
+    renderModuleExportSelector,
   )
 import Jazz.Compiler.ModuleGraph
   ( CoreModule (coreModuleFacts),
@@ -29,6 +33,7 @@ import Jazz.Compiler.Name
     NameNamespace (..),
     qualifiedName,
   )
+import Jazz.Compiler.Parser (parseSurfaceProgramTokens, parseSurfaceProgramTokensWithContextDetailed)
 import Jazz.Compiler.Parser.AST
   ( Literal (..),
     SurfaceExpr (..),
@@ -36,10 +41,14 @@ import Jazz.Compiler.Parser.AST
     SurfaceImplMethod (..),
     SurfaceStatement (..),
   )
+import Jazz.Compiler.Parser.Context (ParserContext (..), initialParserContext)
+import Jazz.Compiler.Parser.Failure (parserFailureDiagnostic)
+import Jazz.Compiler.Parser.Lexer (tokenize)
 import Jazz.Compiler.Parser.Lower
   ( lowerSurfaceExpr,
     lowerSurfaceModule,
   )
+import Jazz.Compiler.Parser.ModuleDeclaration (discoverModuleDeclarations, registerImportAliases)
 import Jazz.Compiler.TypeRepresentation
   ( SignaturePayload (..),
     SignatureType (..),
@@ -66,7 +75,11 @@ main = runTestSuite "ModuleImportParser" tests
 
 tests :: [NamedTest]
 tests =
-  [ ("parses module declaration statement", testParsesModuleDeclaration),
+  [ ("discovery shares module-scope declarations and spans", testModuleDiscovery),
+    ("discovery skips malformed nested bodies", testDiscoverySkipsNestedImports),
+    ("supplied aliases preserve standalone late-import parsing", testSuppliedAliasParsing),
+    ("parses operator imports and qualified export selectors", testOperatorSelectors),
+    ("parses module declaration statement", testParsesModuleDeclaration),
     ("parses populated module export list", testParsesModuleExportList),
     ("parses namespace-aware module export list", testParsesNamespaceAwareModuleExportList),
     ("parses grouped type constructor exports", testParsesGroupedTypeConstructorExports),
@@ -155,10 +168,10 @@ testParsesModuleExportList =
                 (SourceSpan 1 1)
                 ["Lib", "Maybe"]
                 ( Just
-                    [ ModuleExportSelector Nothing "Maybe",
-                      ModuleExportSelector Nothing "Just",
-                      ModuleExportSelector Nothing "Nothing",
-                      ModuleExportSelector Nothing "mapMaybe"
+                    [ ModuleExportSelector Nothing (LocatedModuleExportName "Maybe" (SourceSpan 1 20)),
+                      ModuleExportSelector Nothing (LocatedModuleExportName "Just" (SourceSpan 1 27)),
+                      ModuleExportSelector Nothing (LocatedModuleExportName "Nothing" (SourceSpan 1 33)),
+                      ModuleExportSelector Nothing (LocatedModuleExportName "mapMaybe" (SourceSpan 1 42))
                     ]
                 ),
               SSLet "mapMaybe" (SourceSpan 2 1) (seLit (LInt 1))
@@ -184,10 +197,10 @@ testParsesNamespaceAwareModuleExportList =
                 ["Lib", "Box"]
                 ( Just
                     [ ModuleTypeExportSelector "Box" (SourceSpan 1 23) AbstractType,
-                      ModuleExportSelector (Just ConstructorNamespace) "Box",
-                      ModuleExportSelector (Just ValueNamespace) "Box",
-                      ModuleExportSelector (Just CapabilityNamespace) "Printable",
-                      ModuleExportSelector Nothing "legacy"
+                      ModuleExportSelector (Just ConstructorNamespace) (LocatedModuleExportName "Box" (SourceSpan 1 40)),
+                      ModuleExportSelector (Just ValueNamespace) (LocatedModuleExportName "Box" (SourceSpan 1 51)),
+                      ModuleExportSelector (Just CapabilityNamespace) (LocatedModuleExportName "Printable" (SourceSpan 1 62)),
+                      ModuleExportSelector Nothing (LocatedModuleExportName "legacy" (SourceSpan 1 73))
                     ]
                 ),
               SSLet "legacy" (SourceSpan 2 1) (seLit (LInt 1))
@@ -239,9 +252,9 @@ testParsesNamespacePrefixWordsAsBareExports =
                 (SourceSpan 1 1)
                 ["Lib", "Keywords"]
                 ( Just
-                    [ ModuleExportSelector Nothing "constructor",
-                      ModuleExportSelector Nothing "type",
-                      ModuleExportSelector Nothing "class"
+                    [ ModuleExportSelector Nothing (LocatedModuleExportName "constructor" (SourceSpan 1 23)),
+                      ModuleExportSelector Nothing (LocatedModuleExportName "type" (SourceSpan 1 36)),
+                      ModuleExportSelector Nothing (LocatedModuleExportName "class" (SourceSpan 1 42))
                     ]
                 ),
               SSLet "answer" (SourceSpan 2 1) (seLit (LInt 1))
@@ -293,7 +306,7 @@ testLowersModuleExportList =
               ( Just
                   ( DeclaredModuleExports
                       (SourceSpanIn "src/Lib/Value.jz" 1 1)
-                      [ModuleExportSelector Nothing "answer"]
+                      [ModuleExportSelector Nothing (LocatedModuleExportName "answer" (SourceSpanIn "src/Lib/Value.jz" 1 20))]
                   )
               )
           )
@@ -1092,3 +1105,58 @@ seQualifiedVar qualifier member = SurfaceExpr fixtureSpan (SEQualifiedVar qualif
 
 seVar :: Identifier -> SurfaceExpr
 seVar = SurfaceExpr fixtureSpan . SEVar
+
+testModuleDiscovery :: IO ()
+testModuleDiscovery = forM_
+  [ "module App (type T(..)) { x = (1, [2, 3], { \"import Fake.\". }). import Real as R. }",
+    "x = (1, [2, 3], { 4. }). # import Fake.\nimport Real as R."
+  ]
+  $ \source -> assertRight "tokenize discovery fixture" (tokenize source) $ \tokens -> do
+    assertRight "discover declarations" (discoverModuleDeclarations tokens) $ \discovered ->
+      assertRight "parse discovery fixture" (parseSurfaceProgramTokens tokens) $ \parsed ->
+        case surfaceExprForm parsed of
+          SEBlock statements -> assertEqual "shared declarations and ranges" (filter isDeclaration statements) discovered
+          other -> fail (show other)
+  where
+    isDeclaration SSModule {} = True
+    isDeclaration SSImport {} = True
+    isDeclaration _ = False
+
+testDiscoverySkipsNestedImports :: IO ()
+testDiscoverySkipsNestedImports =
+  assertRight
+    "tokenize malformed nested fixture"
+    (tokenize "module App { x = ({ import Hidden. }, [import HiddenToo.]). import Real. broken = . }")
+    $ \tokens ->
+      assertRight "discover without parsing malformed body" (discoverModuleDeclarations tokens) $ \declarations ->
+        assertEqual "only root imports" [["Real"]] [path | SSImport _ path _ _ <- declarations]
+
+testSuppliedAliasParsing :: IO ()
+testSuppliedAliasParsing = forM_
+  [ "{ util::answer. }. import Lib as util.",
+    "module App { { util::answer. }. import Lib as util. }"
+  ]
+  $ \source -> assertRight "tokenize late alias fixture" (tokenize source) $ \tokens ->
+    assertRight "discover late aliases" (discoverModuleDeclarations tokens) $ \declarations -> do
+      let context = initialParserContext {parserKnownAliases = registerImportAliases Set.empty declarations}
+      assertEqual
+        "standalone and supplied context agree"
+        (parseSurfaceProgramTokens tokens)
+        (first parserFailureDiagnostic (fst <$> parseSurfaceProgramTokensWithContextDetailed context tokens))
+
+testOperatorSelectors :: IO ()
+testOperatorSelectors = do
+  assertRight
+    "parse qualified and operator selectors"
+    (parseNormalized "module API (value Ops::answer, type Ops::Box(..), class Ops::Equal, value (Ops::%%), (&&)) { import Lib ((%%), answer). }")
+    $ \parsed ->
+      case surfaceExprForm parsed of
+        SEBlock [SSModule _ _ (Just selectors), SSImport _ _ Nothing (Just symbols)] -> do
+          assertEqual
+            "authored selectors"
+            ["value 'Ops::answer'", "type 'Ops::Box(..)'", "class 'Ops::Equal'", "value '(Ops::%%)'", "'(&&)'"]
+            (map renderModuleExportSelector selectors)
+          assertEqual "authored operator import" ["(%%)", "answer"] symbols
+        other -> fail (show other)
+  forM_ ["module A (type (%%)) {}", "module A ((+)) {}", "import A ((+)).", "import A ((Ops::%%))."] $ \source ->
+    assertLeftDiagnosticContains "invalid operator selector" "expected" (parseNormalized source)

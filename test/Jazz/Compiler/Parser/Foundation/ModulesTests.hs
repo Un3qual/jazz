@@ -12,7 +12,8 @@ import Jazz.Compiler.Diagnostics
   ( SourceSpan (..),
   )
 import Jazz.Compiler.ModuleExports
-  ( ModuleExportSelector (..),
+  ( LocatedModuleExportName (..),
+    ModuleExportSelector (..),
   )
 import Jazz.Compiler.Name
   ( NameNamespace (ValueNamespace),
@@ -69,7 +70,7 @@ testParsesValueExportSelector =
               [ SSModule
                   (SourceSpan 1 1)
                   ["Example"]
-                  (Just [ModuleExportSelector (Just ValueNamespace) "answer"]),
+                  (Just [ModuleExportSelector (Just ValueNamespace) (LocatedModuleExportName "answer" (SourceSpan 1 23))]),
                 SSLet "answer" (SourceSpan 2 3) (e 2 12 $ SELit (LInt 42))
               ]
         )

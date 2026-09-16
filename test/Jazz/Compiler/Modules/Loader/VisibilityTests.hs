@@ -39,7 +39,11 @@ import Jazz.TestHarness
 
 visibilityTests :: [NamedTest]
 visibilityTests =
-  [ ("case arms retain independent attachment facts", testCaseArmInstantiation),
+  [ ("empty facades carry instances and method facades retain lexical defaults", testFacadeEvidence),
+    ("facade groups use the original type and class view", testFacadeGroupShadowing),
+    ("facade diamonds retain nominal classes and constructors", testFacadeNominal),
+    ("explicit facade re-exports preserve values", testFacadeValue),
+    ("case arms retain independent attachment facts", testCaseArmInstantiation),
     ("failed dependencies retain their original diagnostics", testFailedDependencyInstantiation),
     ("standalone Prelude constructors match authored patterns", testStandalonePreludePattern),
     ("future constructors do not suppress recursive values", testFutureConstructorBinding),
@@ -1803,3 +1807,84 @@ testFutureConstructorBinding = do
   assertEqual "future constructor compile errors" [] (runCompileErrors result)
   assertEqual "future constructor runtime errors" [] (runRuntimeErrors result)
   assertEqual "recursive binding output" (Just "7") (runOutput result)
+
+-- A facade must publish the original value even without a body reference.
+testFacadeValue :: IO ()
+testFacadeValue = do
+  result <- runModuleGraphWithPrelude defaultWarningSettings Nothing resolverConfig ["App", "Main"] (lookupSourceIn sources)
+  assertEqual "facade compile errors" [] (runCompileErrors result)
+  assertEqual "facade runtime errors" [] (runRuntimeErrors result)
+  assertEqual "facade output" (Just "42") (runOutput result)
+  where
+    sources =
+      Map.fromList
+        [ ("src/Lib/Original.jz", "module Lib::Original { answer = 42. }"),
+          ("src/Lib/API.jz", "module Lib::API (value A::answer) { import Lib::Original as A. }"),
+          ("src/App/Main.jz", "module App::Main { import Lib::API. answer. }")
+        ]
+
+testFacadeNominal :: IO ()
+testFacadeNominal =
+  mapM_
+    check
+    ["import Lib::Original. import Lib::API.", "import Lib::API. import Lib::Original."]
+  where
+    check imports = do
+      let sources =
+            Map.fromList
+              [ ("src/Lib/Original.jz", "module Lib::Original (type Box(..), class Equal) { data Box a = Box a. class Equal(a) { equal :: a -> a -> Bool. }. impl Equal(Box(a)) { equal = \\(x, y) -> True. }. }"),
+                ("src/Lib/API.jz", "module Lib::API (type A::Box(..), class A::Equal) { import Lib::Original as A. }"),
+                ("src/App/Main.jz", "module App::Main { " <> imports <> " import Lib::API as API. x :: API::Box(Int). x = API::Box 1. same :: @{API::Equal(a)}: a -> Bool. same = \\(x) -> API::Equal::equal x x. data Local = Local. impl API::Equal(Local) { equal = \\(x, y) -> True. }. (same x, API::Equal::equal Local Local, case x { | Box(n) -> n }). }")
+              ]
+      result <- runModuleGraphWithPrelude defaultWarningSettings Nothing resolverConfig ["App", "Main"] (lookupSourceIn sources)
+      assertEqual "nominal facade compile errors" [] (runCompileErrors result)
+      assertEqual "nominal facade runtime errors" [] (runRuntimeErrors result)
+      assertEqual "nominal facade output" (Just "(True, True, 1)") (runOutput result)
+
+testFacadeGroupShadowing :: IO ()
+testFacadeGroupShadowing =
+  mapM_
+    check
+    [ ( "module Lib::Base (type T(..)) { data T = C. }",
+        "module Lib::API (type T(..)) { import Lib::Base. data Other = C. }",
+        "x :: T. x = C. x.",
+        "C"
+      ),
+      ( "module Lib::Base (class C) { class C(a) { method :: a -> Int. }. impl C(Int) { method = \\(x) -> 1. }. }",
+        "module Lib::API (class C) { import Lib::Base. method = \\(x) -> 9. }",
+        "method 0.",
+        "1"
+      )
+    ]
+  where
+    check (base, api, body, expected) = do
+      let sources =
+            Map.fromList
+              [ ("src/Lib/Base.jz", base),
+                ("src/Lib/API.jz", api),
+                ("src/App/Main.jz", "module App::Main { import Lib::API. " <> body <> " }")
+              ]
+      result <- runModuleGraphWithPrelude defaultWarningSettings Nothing resolverConfig ["App", "Main"] (lookupSourceIn sources)
+      assertEqual "grouped facade compile errors" [] (runCompileErrors result)
+      assertEqual "grouped facade runtime errors" [] (runRuntimeErrors result)
+      assertEqual "grouped facade original member" (Just expected) (runOutput result)
+
+testFacadeEvidence :: IO ()
+testFacadeEvidence =
+  mapM_
+    check
+    ["import Lib::Base. import Lib::Methods.", "import Lib::Methods. import Lib::Base."]
+  where
+    check imports = do
+      let sources =
+            Map.fromList
+              [ ("src/Lib/Base.jz", "module Lib::Base (class Same) { helper = \\(x) -> if x then False else True. class Same(a) { same :: a -> a -> Bool. different :: a -> a -> Bool. different = \\(x, y) -> helper (same x y). }. }"),
+                ("src/Lib/Methods.jz", "module Lib::Methods (value B::different) { import Lib::Base as B. helper = \\(x) -> False. }"),
+                ("src/Lib/Instances.jz", "module Lib::Instances () { import Lib::Base. impl Same(Int) { same = __kernel_equals. }. }"),
+                ("src/Lib/Empty.jz", "module Lib::Empty () { import Lib::Instances. }"),
+                ("src/App/Main.jz", "module App::Main { " <> imports <> " import Lib::Empty as Empty. different 1 2. }")
+              ]
+      result <- runModuleGraphWithPrelude defaultWarningSettings Nothing resolverConfig ["App", "Main"] (lookupSourceIn sources)
+      assertEqual "facade evidence compile errors" [] (runCompileErrors result)
+      assertEqual "facade evidence runtime errors" [] (runRuntimeErrors result)
+      assertEqual "original default and transitive instance" (Just "True") (runOutput result)

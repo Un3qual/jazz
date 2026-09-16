@@ -19,6 +19,12 @@ last_verified: 2026-09-09
 
 # Polymorphism and effects simplification
 
+> **Retired compiler scope:** [RFC 0016](../../rfcs/accepted/0016-optional-backend-removal.md)
+> and [RFC 0022](../../rfcs/accepted/0022-hosted-compiler-removal.md) retired the
+> optional backend, hosted compiler, and their exclusive verification. References
+> to those paths, schemas, suites, and retention requirements in this record
+> (including frontmatter) are historical and impose no current work or test obligations.
+
 The user authorized compiler architectural changes in this task when they
 preserve functionality and improve code. The audit starts from `325220df`.
 RFC 0016 retains analyzed core, phase indexing, nominal identities, runtime

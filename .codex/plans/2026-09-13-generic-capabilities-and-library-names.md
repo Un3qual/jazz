@@ -4,7 +4,7 @@ status: complete
 priority: P1
 size: L
 kind: impl
-autonomous_ready: yes
+autonomous_ready: no
 depends_on: []
 plan_section: "Implementation"
 target_paths:
@@ -17,14 +17,12 @@ target_paths:
   - src/Jazz/Compiler/Runtime/Engine.hs
   - jazz/stdlib/Prelude.jz
   - jazz/stdlib/Reduce.jz
-  - jazz/compiler/ParserDeclaration.jz
   - test/Jazz/Compiler/Stdlib/GenericCapabilitiesTests.hs
   - test/Jazz/Compiler/Stdlib/OperatorFunctionsTests.hs
   - docs/language/capabilities.md
   - docs/language/operators.md
 verification:
-  - cabal test all -f-full-parser-scale --jobs=1 --test-show-details=failures
-  - cabal test jazz-parser-scale-full-expression-spec jazz-parser-scale-full-declarations-spec jazz-parser-scale-full-control-flow-spec jazz-parser-scale-full-operator-spec -ffull-parser-scale --jobs=1 --test-show-details=failures
+  - cabal test all --jobs=1 --test-show-details=failures
   - JAZZ_CABAL_JOBS=1 bash scripts/ci/haskell-quality.sh
   - bash scripts/check-docs.sh
   - bash scripts/check-execution-queue.sh
@@ -34,6 +32,12 @@ last_verified: 2026-09-14
 ---
 
 # Generic capabilities, library names, and operators
+
+> **Retired compiler scope:** [RFC 0016](../../rfcs/accepted/0016-optional-backend-removal.md)
+> and [RFC 0022](../../rfcs/accepted/0022-hosted-compiler-removal.md) retired the
+> optional backend, hosted compiler, and their exclusive verification. References
+> to those paths, schemas, suites, and retention requirements in this record
+> (including frontmatter) are historical and impose no current work or test obligations.
 
 Completed implementation and review record for this thread. This consolidates
 its core, library, quality-review, legacy-audit, operator, and architecture plans.

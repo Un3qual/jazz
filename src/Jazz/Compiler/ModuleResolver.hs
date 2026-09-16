@@ -14,6 +14,7 @@ module Jazz.Compiler.ModuleResolver
   ( ModuleResolutionConfig (..),
     ResolutionContext,
     parseModulePathText,
+    importedOperators,
     resolveExprNames,
     resolvePreludeArtifact,
     resolveStandaloneExprNames,
@@ -89,6 +90,7 @@ import Jazz.Compiler.Diagnostics
     qualifySourceSpan,
     setDiagnosticErrorCode,
     setDiagnosticPrimarySpan,
+    setDiagnosticRelatedSpan,
     setDiagnosticSubject,
   )
 import Jazz.Compiler.ModuleExports
@@ -102,11 +104,14 @@ import Jazz.Compiler.ModuleExports
     exportInventoryEntries,
     exportNamesInNamespace,
     exportNamesInNamespaces,
+    exportedConstructorOwners,
     inventoryHasSelector,
     moduleExportSelectorName,
-    moduleExportSelectorNamespace,
+    moduleExportSelectorSpan,
     renderModuleExportSelector,
+    restrictExportInventory,
     selectValidatedModuleExportSelectors,
+    unqualifiedModuleExportSelector,
     withClassMethods,
   )
 import qualified Jazz.Compiler.ModuleGraph as ModuleGraph
@@ -121,6 +126,7 @@ import Jazz.Compiler.ModuleIdentity
     renderModulePath,
     sourceUnitOwnerModulePath,
   )
+import Jazz.Compiler.ModuleImportScope (BindingOrigin (..), dependencyImportViews, importScopeAliases, importScopeNames)
 import Jazz.Compiler.ModuleResolver.Imports
   ( ResolverImport,
     ValidatedImportScope,
@@ -138,16 +144,20 @@ import Jazz.Compiler.ModuleResolver.Names
   )
 import Jazz.Compiler.Name
   ( IdentifierLike,
+    Name (..),
     NameNamespace (..),
     ResolvedName,
     ResolvedNameOrigin (..),
+    ResolvedUserName (..),
     identifierText,
     isOperatorBindingIdentifierText,
     mkIdentifier,
+    operatorBindingIdentifierText,
+    renderOperatorBindingIdentifier,
     splitQualifiedIdentifierText,
   )
 import Jazz.Compiler.Parser
-  ( parseSurfaceProgram,
+  ( parseSurfaceProgramTokensWithContextDetailed,
   )
 import Jazz.Compiler.Parser.AST
   ( SurfaceCaseArm (..),
@@ -166,10 +176,14 @@ import Jazz.Compiler.Parser.AST
     SurfaceSignatureType,
     SurfaceStatement (..),
   )
+import Jazz.Compiler.Parser.Context (ParserContext (..), initialParserContext)
+import Jazz.Compiler.Parser.Failure (ParserDeclarationFailure (..), ParserFailure (..), ParserFailureReason (..), parserFailureDiagnostic)
+import Jazz.Compiler.Parser.Lexer (Token, tokenize)
 import Jazz.Compiler.Parser.Lower
   ( lowerSurfaceModule,
   )
-import Jazz.Compiler.Parser.Operator (builtinOperatorFunction)
+import Jazz.Compiler.Parser.ModuleDeclaration (discoverModuleDeclarations, registerImportAliases)
+import Jazz.Compiler.Parser.Operator (OperatorInfo (..), builtinOperatorFunction, operatorTableFromDeclarations)
 import Jazz.Compiler.SourceProgram (standaloneSourceModule)
 import Jazz.Compiler.TypeRepresentation
   ( pattern ConstrainedSignature,
@@ -198,8 +212,9 @@ data ModuleResolutionConfig = ModuleResolutionConfig
 
 data ModuleDiscoveryFacts = ModuleDiscoveryFacts
   { discoveryLocalInventory :: ModuleExportInventory,
-    discoveryPublicInventory :: ModuleExportInventory,
+    discoveryConstructorOwners :: Map Text (Set Text),
     discoveryReferences :: ReferenceInventory,
+    discoveryOperators :: [OperatorInfo],
     discoveryCoreModule :: ModuleGraph.CoreModule 'Lowered
   }
 
@@ -213,7 +228,7 @@ data ReferenceInventory = ReferenceInventory
 data ResolvedState = ResolvedState
   { resolvedSetState :: Set ModulePath,
     resolvedModulesState :: Seq (ModuleGraph.CoreModule 'Resolved),
-    resolvedExportInventoriesState :: Map ModulePath ModuleExportInventory,
+    resolvedModuleFactsState :: Map ModulePath ModuleGraph.ResolvedModuleFacts,
     resolvedPublicReferencesState :: Map ResolvedName ResolvedReference
   }
 
@@ -264,7 +279,7 @@ resolveStandaloneProgram ::
 resolveStandaloneProgram prelude ambientExports expression = do
   resolvedModule <-
     first NonEmpty.head $
-      resolveCoreModuleNames owner ambientReferences ambientExports inventory inventory emptyImportScope [] loweredModule
+      resolveCoreModuleNames owner ambientReferences ambientExports inventory inventory (localExportNames CurrentModule inventory) Map.empty [] emptyImportScope [] loweredModule
   first (\failures -> mkErrorDiagnostic E4016 CompilationOrigin ("standalone program invariant failed: " <> Text.pack (show failures))) $
     ModuleGraph.mkCoreProgram prelude modulePath (NonEmpty.singleton resolvedModule)
   where
@@ -302,7 +317,7 @@ resolveStateWithLookupAndVisibleSymbols config ambientExports ambientReferences 
       ResolvedState
         { resolvedSetState = Set.empty,
           resolvedModulesState = Seq.empty,
-          resolvedExportInventoriesState = Map.empty,
+          resolvedModuleFactsState = Map.empty,
           resolvedPublicReferencesState = ambientReferences
         }
 
@@ -311,13 +326,25 @@ resolveStateWithLookupAndVisibleSymbols config ambientExports ambientReferences 
       | modulePath `elem` callStack = throwE (mkCycleError modulePath callStack)
       | otherwise = do
           (sourcePath, sourceText) <- ExceptT (loadModuleSource callStack modulePath)
-          discovery <- except (parseModuleDetails sourcePath modulePath sourceText)
+          tokens <- except (first (moduleParseDiagnostic sourcePath) (tokenize sourceText))
+          declarations <- except (first (moduleParseDiagnostic sourcePath) (discoverModuleDeclarations tokens))
+          header <- except (lowerSurfaceModule (moduleIdentity modulePath (mkSourceFile sourcePath)) (SurfaceExpr (SourceSpan 1 1) (SEBlock declarations)))
           let nextStack = modulePath : callStack
-              coreModule = discoveryCoreModule discovery
-              imports = ModuleGraph.coreModuleImports coreModule
-              references = discoveryReferences discovery
+              imports = ModuleGraph.coreModuleImports header
               sortedImports = sortModulePaths (collectImportPaths imports)
           stateAfterDeps <- foldM (visitModule nextStack) state sortedImports
+          let dependencyFacts = resolvedModuleFactsState stateAfterDeps
+              inventories = Map.map ModuleGraph.resolvedModuleExports dependencyFacts
+              names = Map.map ModuleGraph.resolvedModuleExportNames dependencyFacts
+          earlyScope <- except (validateImportBindings sourcePath modulePath imports Set.empty Set.empty Set.empty Set.empty Map.empty ambientVisibleSymbols ambientVisibleClassNames inventories names)
+          let context =
+                initialParserContext
+                  { parserKnownAliases = registerImportAliases Set.empty declarations,
+                    parserDeclaredOperators = operatorTableFromDeclarations (importedOperators earlyScope dependencyFacts)
+                  }
+          discovery <- except (parseModuleDetails sourcePath modulePath earlyScope context tokens)
+          let coreModule = discoveryCoreModule discovery
+              references = discoveryReferences discovery
           importScope <-
             except $
               validateImportBindings
@@ -331,7 +358,18 @@ resolveStateWithLookupAndVisibleSymbols config ambientExports ambientReferences 
                 (referenceFactQualifiedClasses references)
                 ambientVisibleSymbols
                 ambientVisibleClassNames
-                (resolvedExportInventoriesState stateAfterDeps)
+                (Map.map ModuleGraph.resolvedModuleExports (resolvedModuleFactsState stateAfterDeps))
+                (Map.map ModuleGraph.resolvedModuleExportNames (resolvedModuleFactsState stateAfterDeps))
+          (publicInventory, publicNames) <-
+            except $
+              validatePublicExportInventory
+                sourcePath
+                modulePath
+                (ModuleGraph.declaredModuleExports (ModuleGraph.coreModuleFacts coreModule))
+                (discoveryConstructorOwners discovery)
+                (discoveryLocalInventory discovery)
+                importScope
+                (resolvedModuleFactsState stateAfterDeps)
           resolvedModule <-
             except $
               first NonEmpty.head $
@@ -340,7 +378,10 @@ resolveStateWithLookupAndVisibleSymbols config ambientExports ambientReferences 
                   (resolvedPublicReferencesState stateAfterDeps)
                   ambientExports
                   (discoveryLocalInventory discovery)
-                  (discoveryPublicInventory discovery)
+                  publicInventory
+                  publicNames
+                  (Map.map ModuleGraph.resolvedModuleExportNames (resolvedModuleFactsState stateAfterDeps))
+                  (publicOperators modulePath publicNames (discoveryOperators discovery) dependencyFacts)
                   importScope
                   imports
                   coreModule
@@ -348,8 +389,8 @@ resolveStateWithLookupAndVisibleSymbols config ambientExports ambientReferences 
             stateAfterDeps
               { resolvedSetState = Set.insert modulePath (resolvedSetState stateAfterDeps),
                 resolvedModulesState = resolvedModulesState stateAfterDeps Seq.|> resolvedModule,
-                resolvedExportInventoriesState = Map.insert modulePath (discoveryPublicInventory discovery) (resolvedExportInventoriesState stateAfterDeps),
-                resolvedPublicReferencesState = Map.union (resolvedPublicReferences (ImportedModule modulePath) (discoveryPublicInventory discovery) (ModuleGraph.coreModuleStatements resolvedModule)) (resolvedPublicReferencesState stateAfterDeps)
+                resolvedModuleFactsState = Map.insert modulePath (ModuleGraph.coreModuleFacts resolvedModule) (resolvedModuleFactsState stateAfterDeps),
+                resolvedPublicReferencesState = Map.union (resolvedPublicReferences (ImportedModule modulePath) (discoveryLocalInventory discovery) (ModuleGraph.coreModuleStatements resolvedModule)) (resolvedPublicReferencesState stateAfterDeps)
               }
 
     ambientVisibleSymbols =
@@ -448,39 +489,61 @@ appendRelativePath relativePath root
 
 -- | Parse a module's surface source and extract only the details needed by the
 -- resolver: declarations, imports, and top-level exports.
-parseModuleDetails :: FilePath -> ModulePath -> Text -> Either Diagnostic ModuleDiscoveryFacts
-parseModuleDetails sourcePath expectedModulePath sourceText =
-  {-# SCC "jazz-stage:module-resolution" #-}
-  case parseSurfaceProgram sourceText of
-    Left parseError ->
-      Left
-        ( setDiagnosticErrorCode
-            E4004
-            ( prependDiagnosticSummary
-                ("module parse error at '" <> Text.pack sourcePath <> "': ")
-                (qualifyDiagnosticSpans sourcePath parseError)
-            )
-        )
-    Right surfaceExpr -> do
-      coreModule <-
-        lowerSurfaceModule
-          (moduleIdentity expectedModulePath (mkSourceFile sourcePath))
-          surfaceExpr
-      let (localInventory, constructorOwners, references) = discoverModuleFacts surfaceExpr
-      publicInventory <-
-        validatePublicExportInventory
-          sourcePath
-          expectedModulePath
-          (ModuleGraph.declaredModuleExports (ModuleGraph.coreModuleFacts coreModule))
-          constructorOwners
-          localInventory
-      Right
-        ModuleDiscoveryFacts
-          { discoveryLocalInventory = localInventory,
-            discoveryPublicInventory = publicInventory,
-            discoveryReferences = references {referenceFactQualifiedClasses = Map.map (bimap (qualifySourceSpan sourcePath) (qualifySourceSpan sourcePath)) (referenceFactQualifiedClasses references)},
-            discoveryCoreModule = coreModule
-          }
+moduleParseDiagnostic :: FilePath -> Diagnostic -> Diagnostic
+moduleParseDiagnostic sourcePath =
+  setDiagnosticErrorCode E4004
+    . prependDiagnosticSummary ("module parse error at '" <> Text.pack sourcePath <> "': ")
+    . qualifyDiagnosticSpans sourcePath
+
+parseModuleDetails :: FilePath -> ModulePath -> ValidatedImportScope -> ParserContext -> [Token] -> Either Diagnostic ModuleDiscoveryFacts
+parseModuleDetails sourcePath expectedModulePath scope context tokens = do
+  (surfaceExpr, operators) <- first contextualFailure (parseSurfaceProgramTokensWithContextDetailed context tokens)
+  coreModule <- lowerSurfaceModule (moduleIdentity expectedModulePath (mkSourceFile sourcePath)) surfaceExpr
+  let (localInventory, constructorOwners, references) = discoverModuleFacts surfaceExpr
+  Right
+    ModuleDiscoveryFacts
+      { discoveryLocalInventory = localInventory,
+        discoveryConstructorOwners = constructorOwners,
+        discoveryOperators = operators,
+        discoveryReferences = references {referenceFactQualifiedClasses = Map.map (bimap (qualifySourceSpan sourcePath) (qualifySourceSpan sourcePath)) (referenceFactQualifiedClasses references)},
+        discoveryCoreModule = coreModule
+      }
+  where
+    contextualFailure failure =
+      let diagnostic = moduleParseDiagnostic sourcePath (parserFailureDiagnostic failure)
+          origin = case parserFailureReason failure of
+            DeclarationFailure (DuplicateOperatorDeclaration symbol) ->
+              case splitQualifiedIdentifierText symbol of
+                Just (alias, _) -> Map.lookup alias (importScopeAliases scope)
+                Nothing -> NonEmpty.head <$> (Map.lookup ValueNamespace (importScopeNames scope) >>= Map.lookup (operatorBindingIdentifierText symbol))
+            _ -> Nothing
+       in maybe diagnostic (\earlier -> setDiagnosticRelatedSpan (qualifySourceSpan sourcePath (bindingOriginSpan earlier)) diagnostic) origin
+
+importedOperators :: ValidatedImportScope -> Map ModulePath ModuleGraph.ResolvedModuleFacts -> [OperatorInfo]
+importedOperators scope dependencies =
+  [ info {operatorSymbol = maybe (operatorSymbol info) (\qualifier -> qualifier <> "::" <> operatorSymbol info) alias}
+  | (path, facts) <- Map.toAscList dependencies,
+    (alias, inventory) <- dependencyImportViews path scope,
+    info <- ModuleGraph.resolvedModuleOperators facts,
+    Set.member (operatorBindingIdentifierText (operatorSymbol info)) (exportNamesInNamespace ValueNamespace inventory)
+  ]
+
+publicOperators :: ModulePath -> Map ModuleExport ResolvedName -> [OperatorInfo] -> Map ModulePath ModuleGraph.ResolvedModuleFacts -> [OperatorInfo]
+publicOperators path names authored dependencies =
+  Map.elems $
+    Map.fromList
+      [ (operatorSymbol info, info)
+      | (target, info) <-
+          [(UserName (ResolvedUserName (ImportedModule path) ValueNamespace (mkIdentifier (operatorBindingIdentifierText (operatorSymbol info)))), info) | info <- authored]
+            <> [(target, info) | facts <- Map.elems dependencies, info <- ModuleGraph.resolvedModuleOperators facts, Just target <- [Map.lookup (ModuleExport ValueNamespace (operatorBindingIdentifierText (operatorSymbol info))) (ModuleGraph.resolvedModuleExportNames facts)]],
+        Map.lookup (ModuleExport ValueNamespace (operatorBindingIdentifierText (operatorSymbol info))) names == Just target
+      ]
+
+localExportNames :: ResolvedNameOrigin -> ModuleExportInventory -> Map ModuleExport ResolvedName
+localExportNames origin inventory =
+  Map.fromSet
+    (\entry -> UserName (ResolvedUserName origin (moduleExportNamespace entry) (mkIdentifier (moduleExportName entry))))
+    (exportInventoryEntries inventory)
 
 validatePublicExportInventory ::
   FilePath ->
@@ -488,112 +551,97 @@ validatePublicExportInventory ::
   Maybe ModuleGraph.DeclaredModuleExports ->
   Map Text (Set Text) ->
   ModuleExportInventory ->
-  Either Diagnostic ModuleExportInventory
-validatePublicExportInventory sourcePath modulePath maybeExplicitExports constructorOwners localInventory =
+  ValidatedImportScope ->
+  Map ModulePath ModuleGraph.ResolvedModuleFacts ->
+  Either Diagnostic (ModuleExportInventory, Map ModuleExport ResolvedName)
+validatePublicExportInventory sourcePath modulePath maybeExplicitExports constructorOwners localInventory scope dependencies =
   case maybeExplicitExports of
-    Nothing -> Right localInventory
-    Just declaredExports ->
-      let moduleSpan = ModuleGraph.declaredModuleExportsSpan declaredExports
-          selectors = ModuleGraph.declaredModuleExportSelectors declaredExports
-       in case firstInvalidExport moduleSpan selectors of
-            Nothing -> Right (selectValidatedModuleExportSelectors constructorOwners selectors localInventory)
-            Just invalidExport ->
-              Left
-                ( setDiagnosticSubject
-                    (invalidExportName invalidExport)
-                    ( setDiagnosticPrimarySpan
-                        (invalidExportSpan invalidExport)
-                        ( mkErrorDiagnostic
-                            E4015
-                            CompilationOrigin
-                            ( invalidExportSummary invalidExport
-                                <> " module '"
-                                <> renderModulePath modulePath
-                                <> "' in '"
-                                <> Text.pack sourcePath
-                                <> "'; available declarations: "
-                                <> renderAvailableDeclarations (invalidExportSelector invalidExport)
-                            )
-                        )
-                    )
-                )
+    Nothing -> Right (defaultInventory, Map.restrictKeys localNames (exportInventoryEntries defaultInventory))
+    Just declarations -> do
+      (inventory, targets, _) <- foldM select (mempty, Map.empty, Map.empty) (ModuleGraph.declaredModuleExportSelectors declarations)
+      pure (inventory, targets)
   where
-    firstInvalidExport _ [] = Nothing
-    firstInvalidExport moduleSpan (selector : rest) =
-      case validateSelector moduleSpan selector of
-        Nothing -> firstInvalidExport moduleSpan rest
-        invalid -> invalid
+    defaultInventory = restrictExportInventory (Set.filter (not . isOperatorBindingIdentifierText . moduleExportName) (exportInventoryEntries localInventory)) localView
+    localNames = localExportNames (ImportedModule modulePath) localInventory
+    localView =
+      localInventory
+        <> selectValidatedModuleExportSelectors
+          constructorOwners
+          [ModuleTypeExportSelector name (SourceSpan 1 1) (AllTypeConstructors (SourceSpan 1 1)) | name <- Map.keys constructorOwners]
+          localInventory
+    importedViews =
+      [ (inventory, Map.restrictKeys (ModuleGraph.resolvedModuleExportNames facts) (exportInventoryEntries inventory))
+      | (path, facts) <- Map.toAscList dependencies,
+        (Nothing, inventory) <- dependencyImportViews path scope
+      ]
+    -- Groups select constructors/methods from the chosen type/class view,
+    -- independently of same-spelled declarations in the facade's other scopes.
+    view Nothing selector
+      | inventoryHasSelector selector localView = Right (localView, localNames)
+      | otherwise =
+          let matches = filter (inventoryHasSelector selector . fst) importedViews
+           in Right (foldMap fst matches, Map.unions (map snd matches))
+    view (Just alias) _ = case Map.lookup alias (importScopeAliases scope) >>= (\origin -> Map.lookup (bindingOriginModulePath origin) dependencies) of
+      Just facts -> Right (ModuleGraph.resolvedModuleExports facts, ModuleGraph.resolvedModuleExportNames facts)
+      Nothing -> Left ("unknown import alias '" <> alias <> "'")
 
-    validateSelector moduleSpan selector =
+    select accumulated authored =
+      let (alias, selector) = unqualifiedModuleExportSelector authored
+          parts = case (alias, selector) of
+            (Nothing, ModuleExportSelector Nothing located) ->
+              [ part
+              | namespace <- [ValueNamespace, ConstructorNamespace, TypeNamespace, CapabilityNamespace],
+                let part = ModuleExportSelector (Just namespace) located,
+                inventoryHasSelector part localView || any (inventoryHasSelector part . fst) importedViews
+              ]
+            _ -> [selector]
+       in foldM (selectPart authored alias) accumulated (if null parts then [selector] else parts)
+
+    selectPart authored alias (published, targets, locations) selector = do
+      let spanValue = moduleExportSelectorSpan authored
+          selectedView = view alias selector
+          available = either (const Set.empty) (declarationExportNames . fst) selectedView
+          failure message at =
+            setDiagnosticSubject (moduleExportSelectorName authored) $
+              setDiagnosticPrimarySpan at $
+                mkErrorDiagnostic
+                  E4015
+                  CompilationOrigin
+                  (message <> " module '" <> renderModulePath modulePath <> "' in '" <> Text.pack sourcePath <> "'; available declarations: " <> if Set.null available then "<none>" else Text.intercalate ", " (map renderOperatorBindingIdentifier (Set.toAscList available)))
+      (inventory, names) <- first (\message -> failure message spanValue) selectedView
+      let owners =
+            Map.fromListWith
+              Set.union
+              [ (owner, Set.singleton constructor)
+              | constructor <- Set.toList (exportNamesInNamespace ConstructorNamespace inventory),
+                owner <- Set.toList (exportedConstructorOwners constructor inventory)
+              ]
+      if inventoryHasSelector selector inventory
+        then pure ()
+        else Left (failure ("module export " <> renderModuleExportSelector authored <> " is not declared by") spanValue)
       case selector of
-        ModuleExportSelector {}
-          | inventoryHasSelector selector localInventory -> Nothing
-          | otherwise ->
-              Just
-                InvalidModuleExport
-                  { invalidExportSelector = selector,
-                    invalidExportName = moduleExportSelectorName selector,
-                    invalidExportSpan = moduleSpan,
-                    invalidExportSummary = "module export " <> renderModuleExportSelector selector <> " is not declared by"
-                  }
-        ModuleTypeExportSelector typeName typeSpan constructorSelector ->
-          case Map.lookup typeName constructorOwners of
-            Nothing ->
-              Just
-                InvalidModuleExport
-                  { invalidExportSelector = selector,
-                    invalidExportName = typeName,
-                    invalidExportSpan = typeSpan,
-                    invalidExportSummary = "module export " <> renderModuleExportSelector selector <> " is not declared by"
-                  }
-            Just ownedConstructors -> validateConstructors selector typeName ownedConstructors constructorSelector
+        ModuleTypeExportSelector typeName _ (SelectedTypeConstructors constructors) ->
+          case find ((`Set.notMember` Map.findWithDefault Set.empty typeName owners) . locatedModuleExportName) (NonEmpty.toList constructors) of
+            Nothing -> pure ()
+            Just constructor -> Left (setDiagnosticSubject (locatedModuleExportName constructor) (failure ("module export constructor '" <> locatedModuleExportName constructor <> "' is not declared by type '" <> typeName <> "' in") (locatedModuleExportSpan constructor)))
+        _ -> pure ()
+      let selected = selectValidatedModuleExportSelectors owners [selector] inventory
+      (nextTargets, nextLocations) <-
+        foldM
+          (addTarget failure spanValue names)
+          (targets, locations)
+          (Set.toAscList (exportInventoryEntries selected))
+      pure (published <> selected, nextTargets, nextLocations)
 
-    validateConstructors selector typeName ownedConstructors constructorSelector =
-      case constructorSelector of
-        AbstractType -> Nothing
-        AllTypeConstructors _ -> Nothing
-        SelectedTypeConstructors constructors ->
-          case find ((`Set.notMember` ownedConstructors) . locatedModuleExportName) (NonEmpty.toList constructors) of
-            Nothing -> Nothing
-            Just constructor ->
-              Just
-                InvalidModuleExport
-                  { invalidExportSelector = selector,
-                    invalidExportName = locatedModuleExportName constructor,
-                    invalidExportSpan = locatedModuleExportSpan constructor,
-                    invalidExportSummary =
-                      "module export constructor '"
-                        <> locatedModuleExportName constructor
-                        <> "' is not declared by type '"
-                        <> typeName
-                        <> "' in"
-                  }
-
-    availableNames = declarationExportNames localInventory
-    renderAvailableDeclarations selector =
-      case moduleExportSelectorNamespace selector of
-        Nothing -> renderDeclarationNames availableNames
-        Just _ ->
-          renderDeclarationLabels
-            [ renderModuleExportSelector
-                (ModuleExportSelector (Just (moduleExportNamespace export)) (moduleExportName export))
-            | export <- Set.toAscList (exportInventoryEntries localInventory)
-            ]
-
-renderDeclarationNames :: Set Text -> Text
-renderDeclarationNames = renderDeclarationLabels . Set.toAscList
-
-renderDeclarationLabels :: [Text] -> Text
-renderDeclarationLabels labels
-  | null labels = "<none>"
-  | otherwise = Text.intercalate ", " labels
-
-data InvalidModuleExport = InvalidModuleExport
-  { invalidExportSelector :: ModuleExportSelector,
-    invalidExportName :: Text,
-    invalidExportSpan :: SourceSpan,
-    invalidExportSummary :: Text
-  }
+    addTarget failure spanValue names (targets, locations) entry = case Map.lookup entry names of
+      Nothing -> Left (failure "missing original declaration for export in" spanValue)
+      Just target -> case Map.lookup entry targets of
+        Just earlier
+          | earlier /= target ->
+              Left $
+                maybe id setDiagnosticRelatedSpan (Map.lookup entry locations) $
+                  failure ("conflicting module export '" <> renderOperatorBindingIdentifier (moduleExportName entry) <> "' in") spanValue
+        _ -> Right (Map.insert entry target targets, Map.insertWith (const id) entry spanValue locations)
 
 discoverModuleFacts :: SurfaceExpr -> (ModuleExportInventory, Map Text (Set Text), ReferenceInventory)
 discoverModuleFacts surfaceExpr =
@@ -640,9 +688,8 @@ discoverModuleFacts surfaceExpr =
 
     collectExports statement exportsRev =
       case statement of
-        SSLet bindingName _ _
-          | not (isOperatorBindingIdentifierText (identifierText bindingName)) ->
-              ModuleExport ValueNamespace (identifierText bindingName) : exportsRev
+        SSLet bindingName _ _ ->
+          ModuleExport ValueNamespace (identifierText bindingName) : exportsRev
         SSData _ typeName _ constructors ->
           foldl'
             ( \current (SurfaceDataConstructor constructorName _) ->
@@ -680,11 +727,14 @@ resolveCoreModuleNames ::
   ModuleExportInventory ->
   ModuleExportInventory ->
   ModuleExportInventory ->
+  Map ModuleExport ResolvedName ->
+  Map ModulePath (Map ModuleExport ResolvedName) ->
+  [OperatorInfo] ->
   ValidatedImportScope ->
   [ModuleGraph.ModuleImport 'Lowered] ->
   ModuleGraph.CoreModule 'Lowered ->
   Either (NonEmpty Diagnostic) (ModuleGraph.CoreModule 'Resolved)
-resolveCoreModuleNames owner externalReferences ambientExports localInventory publicInventory importScope imports coreModule = do
+resolveCoreModuleNames owner externalReferences ambientExports localInventory publicInventory publicNames importNames operators importScope imports coreModule = do
   let resolvedExpr = resolveExprNames context (ModuleGraph.coreModuleExpr coreModule)
   resolvedImports <-
     either
@@ -702,6 +752,8 @@ resolveCoreModuleNames owner externalReferences ambientExports localInventory pu
             ModuleGraph.coreModuleFacts =
               ModuleGraph.ResolvedModuleFacts
                 { ModuleGraph.resolvedModuleExports = publicInventory,
+                  ModuleGraph.resolvedModuleExportNames = publicNames,
+                  ModuleGraph.resolvedModuleOperators = operators,
                   ModuleGraph.resolvedModuleImportScope = importScope,
                   ModuleGraph.resolvedModuleExportSelectors =
                     ModuleGraph.declaredModuleExportSelectors
@@ -720,6 +772,7 @@ resolveCoreModuleNames owner externalReferences ambientExports localInventory pu
           resolutionExternalReferences = externalReferences,
           resolutionAmbientExports = ambientExports,
           resolutionLocalInventory = localInventory,
+          resolutionImportNames = importNames,
           resolutionImportScope = importScope
         }
 
@@ -737,6 +790,9 @@ resolvePreludeArtifact publicInventory artifact =
         (exportInventory [])
         publicInventory
         publicInventory
+        (localExportNames AmbientPrelude publicInventory)
+        Map.empty
+        []
         emptyImportScope
         (ModuleGraph.coreModuleImports loweredModule)
         loweredModule of
@@ -821,7 +877,9 @@ collectExprReferenceFacts boundNames surfaceExpr facts =
   where
     operatorFacts symbol = case builtinOperatorFunction symbol of
       Just name | Set.notMember name boundNames -> facts {referenceFactUnqualified = Set.insert name (referenceFactUnqualified facts)}
-      _ -> facts
+      _ -> case splitQualifiedIdentifierText symbol of
+        Just (alias, spelling) -> facts {referenceFactQualifiedValues = Set.insert (alias, operatorBindingIdentifierText spelling) (referenceFactQualifiedValues facts)}
+        Nothing -> facts {referenceFactUnqualified = Set.insert (operatorBindingIdentifierText symbol) (referenceFactUnqualified facts)}
 
 collectExprReferenceFactList :: Set Text -> [SurfaceExpr] -> ReferenceInventory -> ReferenceInventory
 collectExprReferenceFactList boundNames expressions initialFacts =

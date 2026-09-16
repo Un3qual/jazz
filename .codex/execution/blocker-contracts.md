@@ -77,19 +77,21 @@ Each blocked item should answer these questions:
 
 ### JN-USER-DEFINED-OPERATORS-PLAN-001
 
-- Current behavior: source-local declarations, signatures, precedence,
-  associativity, and RFC 0020 ordinary function dispatch are implemented.
-- Smallest unblocker: review the detailed combined
-  [RFC 0021](../../rfcs/proposed/0021-module-reexports-and-operator-transport.md).
-- Decision needed: explicit operator export syntax, qualified notation,
-  defining-module fixity, and the discovery-before-body-parse boundary.
-- Recommended default: execute the single combined module API plan after RFC
-  acceptance; reuse existing compiler records, names, tables, and runtime cells.
-- Candidate child: `JN-MODULE-API-COMPOSITION-001`, shared with
-  [the module umbrella](#jn-module-rebase-plan-001). Do not create a second row.
-- Target paths and verification: the shared
-  [implementation plan](../plans/2026-09-15-module-reexports-and-operator-transport.md)
-  owns the exact file list and focused/full commands.
+- Current behavior: source-local fixity and RFC 0020 ordinary dispatch remain
+  implemented. RFC 0021 adds explicit operator import/export, qualified infix
+  uses, function values, and sections carrying the original defining fixity.
+- Completed contract: [RFC 0021](../../rfcs/accepted/0021-module-reexports-and-operator-transport.md),
+  implemented through `467fcbfd` by the shared module API child.
+- Smallest unblocker: none currently promotion-ready.
+- Decision needed: accept a concrete further operator delta separately.
+- Recommended default: retain the existing compiler records, ordinary function
+  dispatch, parser tables, and original runtime cells.
+- Ready child: none.
+- Candidate child: none.
+- Implementation receipt: [module API plan](../plans/2026-09-15-module-reexports-and-operator-transport.md).
+  Verification after rebasing onto PR #163 is recorded in that plan.
+  Hosted parity and scale obligations are retired under RFC 0022.
+- Target paths and verification: determined by a separately accepted child.
 - Not in scope: new operator spellings, new precedence ranges, a separate
   operator runtime, or restoring the removed backend.
 
@@ -168,34 +170,25 @@ Each blocked item should answer these questions:
 
 ### JN-MODULE-REBASE-PLAN-001
 
-- Current behavior: namespace-aware explicit exports, grouped constructor
-  selectors, private/public separation, alias-qualified classes, and transitive
-  implementations are implemented. Imports cannot yet be re-exported.
-- Smallest unblocker: accept the detailed
-  [RFC 0021](../../rfcs/proposed/0021-module-reexports-and-operator-transport.md),
-  then promote its single combined implementation candidate.
-- Decision needed: the batch direction is approved. Review exact selector and
-  operator qualification syntax, default operator privacy, identity/conflict
-  rules, and the explicit diagnostic-order change before implementation.
-- Recommended default: extend the existing module records with original public
-  names and exported fixity. Reuse the existing reference map, selector types,
-  operator payloads, dependency DFS, typed interfaces, and runtime cells.
-- Candidate child: `JN-MODULE-API-COMPOSITION-001`.
-- Plan: [module re-exports and operator transport](../plans/2026-09-15-module-reexports-and-operator-transport.md).
-- Target paths: the complete `target_paths` list in the
-  [implementation plan](../plans/2026-09-15-module-reexports-and-operator-transport.md),
-  mirrored in the curation row. It covers the existing Haskell
-  compiler owners, behavioral tests, examples, public docs, and dispatcher
-  closeout for Tasks 1-5.
-- Verification: `bash scripts/check-execution-queue.sh`;
-  `python3 scripts/check-rfcs.py .`; `bash scripts/check-docs.sh` for design
-  publication. Implementation requires focused module/operator
-  suites, Haskell quality, and the full serialized
-  main gate; exact commands are recorded in the plan and curation row.
+- Current behavior: explicit local and imported exports, namespace separation,
+  grouped constructors/classes from the chosen owner's public view, original
+  nominal and runtime identity, diamond coalescing, transitive implementations,
+  and qualified custom operators with imported fixity are implemented.
+- Completed contract: [RFC 0021](../../rfcs/accepted/0021-module-reexports-and-operator-transport.md),
+  implemented through `467fcbfd` by `JN-MODULE-API-COMPOSITION-001`.
+- Smallest unblocker: none currently promotion-ready.
+- Decision needed: accept a concrete further module API delta separately.
+- Recommended default: keep original public targets and fixity in the existing
+  module records, with dependency discovery before the single full body parse.
+- Ready child: none.
+- Candidate child: none.
+- Implementation receipt: [module re-exports and operator transport](../plans/2026-09-15-module-reexports-and-operator-transport.md).
+  Verification after rebasing onto PR #163 is recorded in that plan.
+  Hosted parity and scale obligations are retired under RFC 0022.
+- Target paths and verification: determined by a separately accepted child.
 - Not in scope: whole-module wildcard re-exports, renamed exports, new operator
   characters, cyclic modules, package resolution, effect-system changes, or
-  unrelated compiler representations. Existing constructor-group selectors are
-  supported by the proposed re-export contract.
+  unrelated compiler representations.
 
 ### JN-WARNING-DEPRECATED-SYNTAX-CONTRACT-001
 

@@ -44,6 +44,20 @@ arm is still checked for reachability, so earlier unguarded arms can make it
 report `E2019`. Existing analysis or type errors suppress pattern-coverage
 follow-on reports.
 
+## Module diagnostic order
+
+Source loading, tokenization, and header/import syntax precede dependency
+resolution. Dependencies are resolved before parsing an importer's body, so a
+missing dependency can precede an unrelated body syntax error. Public export
+validation follows body and name discovery. Within each phase, source order and
+structured source locations are retained.
+
+`E4015` covers unavailable or conflicting export selections, including re-exports.
+Conflicting exports label the later selector and relate the earlier one.
+Imported operator collisions use the existing import diagnostic families;
+redeclaring or rebinding an imported operator is a module syntax error (`E4004`).
+Diagnostics show authored operator spellings.
+
 ## Warning categories and IDs
 
 The warning catalog is:

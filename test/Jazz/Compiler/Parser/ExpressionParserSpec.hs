@@ -377,7 +377,7 @@ parseExpressionTokens knownAliases declaredOperators =
           parserStatementContext = NestedBlockContext
         }
     expressionParser = parseExpressionParser blockParser
-    statementParser = parseStatementParser expressionParser blockParser
+    statementParser = parseStatementParser (parserDeclaredOperators initialContext) expressionParser blockParser
     blockParser = parseStatementsUntilBrace statementParser
 
 parseExpressionTokensDetailed ::
@@ -395,7 +395,7 @@ parseExpressionTokensDetailed knownAliases declaredOperators =
           parserStatementContext = NestedBlockContext
         }
     expressionParser = parseExpressionParser blockParser
-    statementParser = parseStatementParser expressionParser blockParser
+    statementParser = parseStatementParser (parserDeclaredOperators initialContext) expressionParser blockParser
     blockParser = parseStatementsUntilBrace statementParser
 
 fromString :: String -> Text

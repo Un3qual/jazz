@@ -2,8 +2,8 @@
 {-# LANGUAGE RankNTypes #-}
 
 -- | Typed host capabilities used by effectful runtime evaluation. The record
--- keeps stage-0 Haskell operations outside Jazz values and can be replaced by
--- a native-runtime implementation without changing the public Jazz modules.
+-- keeps host I/O operations outside Jazz values and supplies production or
+-- deterministic test implementations without changing the public Jazz modules.
 module Jazz.Compiler.RuntimeHost
   ( HostIOCategory (..),
     HostIOFailure (..),

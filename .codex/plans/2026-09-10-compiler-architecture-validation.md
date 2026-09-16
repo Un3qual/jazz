@@ -1,5 +1,11 @@
 # Compiler architecture audit validation
 
+> **Retired compiler scope:** [RFC 0016](../../rfcs/accepted/0016-optional-backend-removal.md)
+> and [RFC 0022](../../rfcs/accepted/0022-hosted-compiler-removal.md) retired the
+> optional backend, hosted compiler, and their exclusive verification. References
+> to those paths, schemas, suites, and retention requirements in this record
+> (including frontmatter) are historical and impose no current work or test obligations.
+
 Date: 2026-09-10. Scope: the active Haskell compiler and interpreter in `src/Jazz/Compiler`, with callers and tests inspected where they establish a boundary or observable behavior.
 
 This is the final validation report for the three supplied audits. It preserves every finding and its disposition after withdrawing the two Luna drafts, whose unsupported claims and rejected recommendations should not remain standalone guidance. It does not treat agreement between auditors as corroborating implementation evidence. The compiler-source baseline is `2695289b1e9a7555855eb6b00147a478ae010c6d`, the main-branch parent of this documentation work. Compiler, runtime, CLI, hosted sources, and tests remain unchanged from that revision. No compiler behavior was changed during validation.

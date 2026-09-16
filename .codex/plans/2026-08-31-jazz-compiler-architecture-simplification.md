@@ -27,6 +27,12 @@ last_verified: 2026-09-04
 
 # Jazz Compiler Architecture Simplification Implementation Plan
 
+> **Retired compiler scope:** [RFC 0016](../../rfcs/accepted/0016-optional-backend-removal.md)
+> and [RFC 0022](../../rfcs/accepted/0022-hosted-compiler-removal.md) retired the
+> optional backend, hosted compiler, and their exclusive verification. References
+> to those paths, schemas, suites, and retention requirements in this record
+> (including frontmatter) are historical and impose no current work or test obligations.
+
 > Backend scope superseded on 2026-09-07 by
 > [RFC 0016](../../rfcs/accepted/0016-optional-backend-removal.md) and the
 > [approved removal plan](2026-09-07-remove-optional-backend.md). Backend

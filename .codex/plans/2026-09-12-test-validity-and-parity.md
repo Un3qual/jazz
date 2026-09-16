@@ -1,5 +1,11 @@
 # Test validity and passing-suite repair
 
+> **Retired compiler scope:** [RFC 0016](../../rfcs/accepted/0016-optional-backend-removal.md)
+> and [RFC 0022](../../rfcs/accepted/0022-hosted-compiler-removal.md) retired the
+> optional backend, hosted compiler, and their exclusive verification. References
+> to those paths, schemas, suites, and retention requirements in this record
+> (including frontmatter) are historical and impose no current work or test obligations.
+
 Latest maintainer request: get all tests passing and determine whether existing
 tests remain necessary and valid. Continue on `codex/simplify-haskell-compiler`
 from `4ad818a1`; do not use Ponytail. This request authorizes the narrow hosted

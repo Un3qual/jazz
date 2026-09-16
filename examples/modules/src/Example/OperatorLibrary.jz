@@ -1,0 +1,6 @@
+module Example::OperatorLibrary (value (%%), value answer) {
+  operator %% precedence 6 left.
+  (%%) :: Int -> Int -> Int.
+  (%%) = \(left, right) -> left - right.
+  answer = 42.
+}

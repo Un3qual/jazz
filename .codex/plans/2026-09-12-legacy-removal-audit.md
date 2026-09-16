@@ -23,6 +23,12 @@ supersedes: []
 
 # PR 158 legacy-removal audit
 
+> **Retired compiler scope:** [RFC 0016](../../rfcs/accepted/0016-optional-backend-removal.md)
+> and [RFC 0022](../../rfcs/accepted/0022-hosted-compiler-removal.md) retired the
+> optional backend, hosted compiler, and their exclusive verification. References
+> to those paths, schemas, suites, and retention requirements in this record
+> (including frontmatter) are historical and impose no current work or test obligations.
+
 Audit input: `f1738904`, including the architecture branch from `b0b7dfca` and the first review-fix pass. This audit follows the existing [architecture deletion criteria](2026-09-10-compiler-architecture-remediation.md) and [quality audit](2026-09-11-compiler-quality-audit.md).
 
 ## Removal audit

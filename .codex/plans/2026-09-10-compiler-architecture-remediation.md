@@ -20,6 +20,12 @@ supersedes: []
 
 # Compiler architecture remediation implementation plan
 
+> **Retired compiler scope:** [RFC 0016](../../rfcs/accepted/0016-optional-backend-removal.md)
+> and [RFC 0022](../../rfcs/accepted/0022-hosted-compiler-removal.md) retired the
+> optional backend, hosted compiler, and their exclusive verification. References
+> to those paths, schemas, suites, and retention requirements in this record
+> (including frontmatter) are historical and impose no current work or test obligations.
+
 > Execute inline, task by task, using the executing-plans workflow. This document proposes implementation; its creation does not start compiler changes. If delegation is subsequently requested, the user's restriction is GPT-5.6-Luna at Max reasoning only.
 
 **Goal:** Reduce the compiler's architectural complexity by giving binding identity, lexical scope, module interfaces, checked expressions, and runtime scope execution one authoritative owner each, while preserving current language and CLI behavior.

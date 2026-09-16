@@ -56,24 +56,24 @@ main = runTestSuite "Loader" tests
 tests :: [NamedTest]
 tests =
   [ ( "checked-in Maybe and Result modules transport generic ADTs through the loader",
-      testBootstrapMaybeAndResultModules
+      testStdlibMaybeAndResultModules
     ),
     ( "checked-in Text module traverses Unicode through Maybe",
-      testBootstrapTextModule
+      testStdlibTextModule
     ),
-    ( "checked-in List Char and Text modules expose bootstrap construction APIs",
-      testBootstrapCollectionScalarModules
+    ( "checked-in List Char and Text modules expose collection and scalar APIs",
+      testStdlibCollectionScalarModules
     ),
     ( "checked-in List reverse preserves concrete hints for non-empty and empty lists",
-      testBootstrapListReversePreservesConcreteHints
+      testStdlibListReversePreservesConcreteHints
     ),
     ( "checked-in IO modules transport successful host operations",
-      testBootstrapIOSuccesses
+      testStdlibIOSuccesses
     ),
     ( "checked-in IO modules decode every host error category",
-      testBootstrapIOErrors
+      testStdlibIOErrors
     ),
-    ( "imported tail-recursive closures are stack safe at bootstrap depth",
+    ( "imported tail-recursive closures are stack safe at 20,000 calls",
       testImportedTailRecursiveClosureIsStackSafe
     )
   ]
@@ -128,8 +128,8 @@ testImportedTailRecursiveClosureIsStackSafe = do
     lookupSource "src/App/Main.jz" = pure (Just entrySource)
     lookupSource _ = pure Nothing
 
-testBootstrapMaybeAndResultModules :: IO ()
-testBootstrapMaybeAndResultModules = do
+testStdlibMaybeAndResultModules :: IO ()
+testStdlibMaybeAndResultModules = do
   result <-
     runModuleGraphWithPrelude
       defaultWarningSettings
@@ -160,8 +160,8 @@ testBootstrapMaybeAndResultModules = do
     lookupSource "src/Result.jz" = readStdlibSource "Result.jz"
     lookupSource _ = pure Nothing
 
-testBootstrapTextModule :: IO ()
-testBootstrapTextModule = do
+testStdlibTextModule :: IO ()
+testStdlibTextModule = do
   result <-
     runModuleGraph
       defaultWarningSettings
@@ -189,8 +189,8 @@ testBootstrapTextModule = do
     lookupSource "src/App/Main.jz" = pure (Just entrySource)
     lookupSource path = readCheckedInJazzModuleSource path
 
-testBootstrapCollectionScalarModules :: IO ()
-testBootstrapCollectionScalarModules = do
+testStdlibCollectionScalarModules :: IO ()
+testStdlibCollectionScalarModules = do
   result <-
     runModuleGraph
       defaultWarningSettings
@@ -219,8 +219,8 @@ testBootstrapCollectionScalarModules = do
     lookupSource "src/App/Main.jz" = pure (Just entrySource)
     lookupSource path = readCheckedInJazzModuleSource path
 
-testBootstrapListReversePreservesConcreteHints :: IO ()
-testBootstrapListReversePreservesConcreteHints = do
+testStdlibListReversePreservesConcreteHints :: IO ()
+testStdlibListReversePreservesConcreteHints = do
   result <-
     runModuleGraph
       defaultWarningSettings
@@ -250,8 +250,8 @@ testBootstrapListReversePreservesConcreteHints = do
     lookupSource "src/Maybe.jz" = readStdlibSource "Maybe.jz"
     lookupSource _ = pure Nothing
 
-testBootstrapIOSuccesses :: IO ()
-testBootstrapIOSuccesses = do
+testStdlibIOSuccesses :: IO ()
+testStdlibIOSuccesses = do
   callsRef <- newIORef []
   result <-
     runModuleGraphWithPreludeAndHost
@@ -294,8 +294,8 @@ testBootstrapIOSuccesses = do
       """
     lookupSource = lookupIOSource entrySource
 
-testBootstrapIOErrors :: IO ()
-testBootstrapIOErrors = do
+testStdlibIOErrors :: IO ()
+testStdlibIOErrors = do
   result <-
     runModuleGraphWithPreludeAndHost
       failingIOHost

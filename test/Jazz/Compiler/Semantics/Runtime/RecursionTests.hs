@@ -92,7 +92,7 @@ import System.Timeout
 
 recursionScaleTests :: [NamedTest]
 recursionScaleTests =
-  [ ("tail-recursive closure is stack safe at bootstrap depth", testTailRecursiveClosureIsStackSafe),
+  [ ("tail-recursive closure is stack safe at 50,000 calls", testTailRecursiveClosureIsStackSafe),
     ("tail-recursive case arm is stack safe", testTailRecursiveCaseArmIsStackSafe),
     ("typed tail-recursive closure preserves result hints", testTypedTailRecursiveClosureIsStackSafe),
     ("explicitly hinted tail recursion preserves result obligations", testExplicitlyHintedTailRecursionPreservesResultObligations),

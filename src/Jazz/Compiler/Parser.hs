@@ -8,6 +8,7 @@ module Jazz.Compiler.Parser
     parseSurfaceProgram,
     parseSurfaceProgramTokens,
     parseSurfaceProgramTokensDetailed,
+    parseSurfaceProgramTokensWithContextDetailed,
   )
 where
 
@@ -26,13 +27,10 @@ import Jazz.Compiler.Parser.AST
 import Jazz.Compiler.Parser.Context
   ( ParserContext (..),
     StatementBlockParser,
-    StatementContext (..),
     initialParserContext,
   )
 import Jazz.Compiler.Parser.Declaration
-  ( collectImportAliasesUntilBrace,
-    collectImportAliasesUntilEnd,
-    parseStatementParser,
+  ( parseStatementParser,
   )
 import Jazz.Compiler.Parser.Expression (parseExpressionParser)
 import Jazz.Compiler.Parser.Failure
@@ -47,6 +45,11 @@ import Jazz.Compiler.Parser.Lexer
     TokenKind (..),
     tokenize,
   )
+import Jazz.Compiler.Parser.ModuleDeclaration
+  ( discoverModuleDeclarationsDetailed,
+    registerImportAliases,
+  )
+import Jazz.Compiler.Parser.Operator (OperatorInfo, declaredOperatorsSince)
 import Jazz.Compiler.Parser.TokenParser
   ( Parser,
     failTokenParser,
@@ -56,7 +59,6 @@ import Jazz.Compiler.Parser.TokenParser
     runTokenParserDetailed,
     withConsumedSpan,
   )
-import qualified Text.Megaparsec as MP
 
 type StatementParser = ParserContext -> Parser ([SurfaceStatement], ParserContext)
 
@@ -72,40 +74,42 @@ parseSurfaceProgramTokens =
   first parserFailureDiagnostic . parseSurfaceProgramTokensDetailed
 
 parseSurfaceProgramTokensDetailed :: [Token] -> Either ParserFailure SurfaceExpr
-parseSurfaceProgramTokensDetailed tokens =
+parseSurfaceProgramTokensDetailed tokens = do
+  declarations <- discoverModuleDeclarationsDetailed tokens
+  let context = initialParserContext {parserKnownAliases = registerImportAliases Set.empty declarations}
+  fst <$> parseSurfaceProgramTokensWithContextDetailed context tokens
+
+-- | Parse a body once with the aliases and operator fixities selected by its
+-- dependency resolver. The result retains only this source unit's fixities.
+parseSurfaceProgramTokensWithContextDetailed :: ParserContext -> [Token] -> Either ParserFailure (SurfaceExpr, [OperatorInfo])
+parseSurfaceProgramTokensWithContextDetailed context tokens =
   {-# SCC "jazz-stage:parsing" #-}
   runTokenParserDetailed "program" programParser tokens
   where
+    suppliedOperators = parserDeclaredOperators context
     expressionParser = parseExpressionParser blockParser
-    statementParser = parseStatementParser expressionParser blockParser
+    statementParser = parseStatementParser suppliedOperators expressionParser blockParser
     blockParser = parseStatementsUntilBrace statementParser
-    programParser = withConsumedSpan (\spanValue expression -> expression {surfaceExprSpan = spanValue}) $ do
+    programParser = withConsumedSpan (\spanValue (expression, operators) -> (expression {surfaceExprSpan = spanValue}, operators)) $ do
       maybeFirstToken <- peekToken
-      statements <- parseProgramStatements statementParser initialParserContext
+      (statements, finalContext) <- parseProgramStatements statementParser context
       pure
         ( SurfaceExpr
             (maybe (SourceSpan 1 1) tokenSpan maybeFirstToken)
-            (SEBlock statements)
+            (SEBlock statements),
+          declaredOperatorsSince suppliedOperators (parserDeclaredOperators finalContext)
         )
 
 -- | Stable prefix parser retained for callers that parse an expression from an
 -- already-tokenized stream.
-parseProgramStatements :: StatementParser -> ParserContext -> Parser [SurfaceStatement]
-parseProgramStatements parseStatement context = do
-  tokens <- MP.getInput
-  let scopeContext =
-        context
-          { parserKnownAliases =
-              Set.union
-                (parserKnownAliases context)
-                (collectImportAliasesUntilEnd tokens)
-          }
-  go False [] scopeContext
+parseProgramStatements :: StatementParser -> ParserContext -> Parser ([SurfaceStatement], ParserContext)
+parseProgramStatements parseStatement context =
+  go False [] context
   where
     go seenPriorTopLevelForm reversedStatements currentContext = do
       maybeToken <- peekToken
       case maybeToken of
-        Nothing -> pure (reverse reversedStatements)
+        Nothing -> pure (reverse reversedStatements, currentContext)
         Just _ -> do
           (statements, nextContext) <- parseStatement currentContext
           case leadingModuleDeclaration statements of
@@ -118,7 +122,7 @@ parseProgramStatements parseStatement context = do
                   trailingToken <- peekToken
                   case trailingToken of
                     Nothing ->
-                      pure (reverse (reversePrepend statements reversedStatements))
+                      pure (reverse (reversePrepend statements reversedStatements), nextContext)
                     Just token ->
                       failTokenParserAt
                         (tokenSpan token)
@@ -133,20 +137,8 @@ parseProgramStatements parseStatement context = do
                 nextContext
 
 parseStatementsUntilBrace :: StatementParser -> StatementBlockParser
-parseStatementsUntilBrace parseStatement context = do
-  scopeContext <-
-    case parserStatementContext context of
-      NestedBlockContext -> pure context
-      _ -> do
-        tokens <- MP.getInput
-        pure
-          context
-            { parserKnownAliases =
-                Set.union
-                  (parserKnownAliases context)
-                  (collectImportAliasesUntilBrace tokens)
-            }
-  go [] scopeContext
+parseStatementsUntilBrace parseStatement context =
+  go [] context
   where
     go reversedStatements currentContext = do
       maybeToken <- peekToken
@@ -154,7 +146,7 @@ parseStatementsUntilBrace parseStatement context = do
         Nothing -> failTokenParser (ExpectedSyntax "'}'" ParserEndOfInput)
         Just Token {tokenKind = TRBrace} -> do
           _ <- parseAnyToken
-          pure (reverse reversedStatements)
+          pure (reverse reversedStatements, currentContext)
         Just _ -> do
           (statements, nextContext) <- parseStatement currentContext
           go (reversePrepend statements reversedStatements) nextContext

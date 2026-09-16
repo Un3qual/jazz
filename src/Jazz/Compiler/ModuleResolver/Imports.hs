@@ -30,9 +30,7 @@ import Data.Map.Strict
   ( Map,
   )
 import qualified Data.Map.Strict as Map
-import Data.Maybe
-  ( listToMaybe,
-  )
+import Data.Maybe (fromMaybe, listToMaybe)
 import Data.Set
   ( Set,
   )
@@ -58,7 +56,8 @@ import Jazz.Compiler.Diagnostics
     setDiagnosticSubject,
   )
 import Jazz.Compiler.ModuleExports
-  ( ModuleExportInventory,
+  ( ModuleExport (..),
+    ModuleExportInventory,
     exportInventory,
     exportNamesInNamespace,
     exportNamesInNamespaces,
@@ -74,7 +73,9 @@ import Jazz.Compiler.ModuleIdentity
 import Jazz.Compiler.ModuleImportScope
 import Jazz.Compiler.Name
   ( NameNamespace (..),
+    ResolvedName,
     identifierText,
+    renderOperatorBindingIdentifier,
   )
 import Jazz.Compiler.SourceSpan (unqualifySourceSpan)
 
@@ -119,10 +120,10 @@ validateImportBindings ::
   Set Text ->
   Set Text ->
   Map ModulePath ModuleExportInventory ->
+  Map ModulePath (Map ModuleExport ResolvedName) ->
   Either Diagnostic ValidatedImportScope
-validateImportBindings sourcePath importerPath imports localClassNames referencedNames qualifiedReferences qualifiedTypeReferences qualifiedClassReferences ambientVisibleSymbols ambientVisibleClassNames inventoriesByModule = do
-  aliases <- go Map.empty Map.empty Map.empty imports
-  scope <- foldM collectImportScope (ValidatedImportScope aliases Map.empty inventoriesByModule) imports
+validateImportBindings sourcePath importerPath imports localClassNames referencedNames qualifiedReferences qualifiedTypeReferences qualifiedClassReferences ambientVisibleSymbols ambientVisibleClassNames inventoriesByModule namesByModule = do
+  scope <- foldM validateImport (ValidatedImportScope Map.empty Map.empty inventoriesByModule) imports
   let visibleSymbols = Set.union (visibleNames ValueNamespace scope) (visibleNames ConstructorNamespace scope)
       visibleClassNames = visibleNames CapabilityNamespace scope
   validateQualifiedReferences (Set.unions [localClassNames, visibleClassNames, ambientVisibleClassNames])
@@ -138,6 +139,11 @@ validateImportBindings sourcePath importerPath imports localClassNames reference
           Left (mkHiddenAliasImportSymbolError symbolName importDecl aliasName)
         Nothing -> Right scope
   where
+    validateImport current declaration = do
+      aliases <- validateImportAlias (importScopeAliases current) declaration
+      validateSelection declaration
+      collectImportScope (current {importScopeAliases = aliases}) declaration
+
     visibleNames namespace = Map.keysSet . importedNameOrigins namespace
 
     dependencyInventory importDecl =
@@ -175,16 +181,6 @@ validateImportBindings sourcePath importerPath imports localClassNames reference
     valueAndConstructorNames =
       exportNamesInNamespaces [ValueNamespace, ConstructorNamespace]
 
-    go seenSymbols seenTypes seenAliases remainingImports =
-      case remainingImports of
-        [] ->
-          Right seenAliases
-        importDecl : rest -> do
-          seenAliasesAfterImport <- validateImportAlias seenAliases importDecl
-          seenSymbolsAfterImport <- validateImportSymbols seenSymbols importDecl
-          seenTypesAfterImport <- validateImportTypes seenTypes importDecl
-          go seenSymbolsAfterImport seenTypesAfterImport seenAliasesAfterImport rest
-
     validateImportAlias :: Map Text BindingOrigin -> ResolverImport -> Either Diagnostic (Map Text BindingOrigin)
     validateImportAlias seenAliases importDecl =
       case resolverImportAlias importDecl of
@@ -197,52 +193,12 @@ validateImportBindings sourcePath importerPath imports localClassNames reference
             Nothing ->
               Right (Map.insert aliasName (importOrigin importDecl) seenAliases)
 
-    validateImportSymbols :: Map Text BindingOrigin -> ResolverImport -> Either Diagnostic (Map Text BindingOrigin)
-    validateImportSymbols seenSymbols importDecl =
-      case resolverImportAlias importDecl of
-        Just _ ->
-          Right seenSymbols
-        Nothing -> do
-          inventory <- requireDependencyInventory "imports" importDecl
-          let exportedImportSymbols = selectorEligibleNames inventory
-              importedSymbolNames =
-                case resolverImportSymbols importDecl of
-                  Nothing -> Set.toAscList exportedImportSymbols
-                  Just explicitSymbolNames -> explicitSymbolNames
-          foldM
-            (validateImportSymbol importDecl exportedImportSymbols)
-            seenSymbols
-            importedSymbolNames
-
-    validateImportTypes :: Map Text BindingOrigin -> ResolverImport -> Either Diagnostic (Map Text BindingOrigin)
-    validateImportTypes seenTypes importDecl =
-      case resolverImportAlias importDecl of
-        Just _ ->
-          Right seenTypes
-        Nothing -> do
-          inventory <- requireDependencyInventory "type imports" importDecl
-          foldM
-            (validateImportName (mkImportNameCollisionError "type collision for") importDecl)
-            seenTypes
-            ( Set.toAscList
-                (exportNamesInNamespace TypeNamespace (visibleUnqualifiedInventory importDecl inventory))
-            )
-
-    validateImportName ::
-      (Text -> BindingOrigin -> ResolverImport -> Diagnostic) ->
-      ResolverImport ->
-      Map Text BindingOrigin ->
-      Text ->
-      Either Diagnostic (Map Text BindingOrigin)
-    validateImportName collisionError importDecl seenNames name =
-      case Map.lookup name seenNames of
-        Just previousOrigin
-          | bindingOriginModulePath previousOrigin == resolverImportModulePath importDecl ->
-              Right seenNames
-          | otherwise ->
-              Left (collisionError name previousOrigin importDecl)
-        Nothing ->
-          Right (Map.insert name (importOrigin importDecl) seenNames)
+    validateSelection importDecl = do
+      inventory <- requireDependencyInventory "imports" importDecl
+      let available = selectorEligibleNames inventory
+      mapM_
+        (\name -> unless (Set.member name available) (Left (mkMissingImportSymbolError name importDecl available)))
+        (fromMaybe [] (resolverImportSymbols importDecl))
 
     validateQualifiedReferences :: Set Text -> Either Diagnostic ()
     validateQualifiedReferences visibleClassNames =
@@ -281,28 +237,16 @@ validateImportBindings sourcePath importerPath imports localClassNames reference
     findAliasImport aliasName =
       find ((== Just aliasName) . resolverImportAlias) imports
 
-    validateImportSymbol ::
-      ResolverImport ->
-      Set Text ->
-      Map Text BindingOrigin ->
-      Text ->
-      Either Diagnostic (Map Text BindingOrigin)
-    validateImportSymbol importDecl exportedSymbols seenSymbols symbolName
-      | not (Set.member symbolName exportedSymbols) =
-          Left (mkMissingImportSymbolError symbolName importDecl exportedSymbols)
-      | otherwise =
-          validateImportName (mkImportNameCollisionError "binding collision for symbol") importDecl seenSymbols symbolName
-
     mkMissingImportSymbolError :: Text -> ResolverImport -> Set Text -> Diagnostic
     mkMissingImportSymbolError symbolName importDecl exportedSymbols =
-      setDiagnosticSubject symbolName $
+      setDiagnosticSubject (renderOperatorBindingIdentifier symbolName) $
         setDiagnosticPrimarySpan
           (resolverImportSpan importDecl)
           ( mkErrorDiagnostic
               E4007
               CompilationOrigin
               ( "import symbol '"
-                  <> symbolName
+                  <> renderOperatorBindingIdentifier symbolName
                   <> "' is not exported by module '"
                   <> renderModulePath (resolverImportModulePath importDecl)
                   <> "' imported by '"
@@ -316,7 +260,7 @@ validateImportBindings sourcePath importerPath imports localClassNames reference
 
     mkImportNameCollisionError :: Text -> Text -> BindingOrigin -> ResolverImport -> Diagnostic
     mkImportNameCollisionError nameKind name previousOrigin importDecl =
-      setDiagnosticSubject name $
+      setDiagnosticSubject (renderOperatorBindingIdentifier name) $
         setDiagnosticRelatedSpan
           (bindingOriginSpan previousOrigin)
           ( setDiagnosticPrimarySpan
@@ -327,7 +271,7 @@ validateImportBindings sourcePath importerPath imports localClassNames reference
                   ( "import "
                       <> nameKind
                       <> " '"
-                      <> name
+                      <> renderOperatorBindingIdentifier name
                       <> "' in module '"
                       <> renderModulePath importerPath
                       <> "' at '"
@@ -354,7 +298,7 @@ validateImportBindings sourcePath importerPath imports localClassNames reference
               <> "' while resolving '"
               <> aliasName
               <> "::"
-              <> symbolName
+              <> renderOperatorBindingIdentifier symbolName
               <> "' in '"
               <> Text.pack sourcePath
               <> "'"
@@ -362,14 +306,14 @@ validateImportBindings sourcePath importerPath imports localClassNames reference
 
     mkMissingQualifiedAliasSymbolError :: Text -> ResolverImport -> Text -> Set Text -> Diagnostic
     mkMissingQualifiedAliasSymbolError symbolName importDecl aliasName exportedSymbols =
-      setDiagnosticSubject symbolName $
+      setDiagnosticSubject (renderOperatorBindingIdentifier symbolName) $
         setDiagnosticPrimarySpan
           (resolverImportSpan importDecl)
           ( mkErrorDiagnostic
               E4014
               CompilationOrigin
               ( "qualified import symbol '"
-                  <> symbolName
+                  <> renderOperatorBindingIdentifier symbolName
                   <> "' is not exported by module '"
                   <> renderModulePath (resolverImportModulePath importDecl)
                   <> "' imported as '"
@@ -389,9 +333,37 @@ validateImportBindings sourcePath importerPath imports localClassNames reference
       inventory <- requireDependencyInventory "imports" importDecl
       let selected = visibleUnqualifiedInventory importDecl inventory
           origin = importOrigin importDecl
-          addNamespace current namespace =
-            Map.insertWith Map.union namespace (Map.fromSet (const origin) (exportNamesInNamespace namespace selected)) current
-      Right scope {importScopeNames = foldl' addNamespace (importScopeNames scope) [ValueNamespace, ConstructorNamespace, TypeNamespace, CapabilityNamespace]}
+          addNamespace current namespace = do
+            names <-
+              foldM
+                (addName namespace origin importDecl)
+                (Map.findWithDefault Map.empty namespace current)
+                (Set.toAscList (exportNamesInNamespace namespace selected))
+            pure (Map.insert namespace names current)
+      names <- foldM addNamespace (importScopeNames scope) [ValueNamespace, ConstructorNamespace, TypeNamespace, CapabilityNamespace]
+      Right scope {importScopeNames = names}
+
+    addName namespace origin importDecl names name = case Map.lookup name names of
+      Nothing -> Right (Map.insert name (NonEmpty.singleton origin) names)
+      Just origins
+        | all (sameTarget namespace name origin) origins ->
+            Right (Map.insert name (origins <> NonEmpty.singleton origin) names)
+        | otherwise ->
+            Left
+              ( mkImportNameCollisionError
+                  (if namespace == TypeNamespace then "type collision for" else "binding collision for symbol")
+                  name
+                  (NonEmpty.head origins)
+                  importDecl
+              )
+
+    sameTarget namespace name left right
+      | bindingOriginModulePath left == bindingOriginModulePath right = True
+      | otherwise = case (target left, target right) of
+          (Just a, Just b) -> a == b
+          _ -> False
+      where
+        target origin = Map.lookup (bindingOriginModulePath origin) namesByModule >>= Map.lookup (ModuleExport namespace name)
 
     findHiddenExplicitImportReference :: Set Text -> Maybe (Text, ResolverImport)
     findHiddenExplicitImportReference visibleSymbols =
@@ -422,14 +394,14 @@ validateImportBindings sourcePath importerPath imports localClassNames reference
 
     mkHiddenExplicitImportSymbolError :: Text -> ResolverImport -> Diagnostic
     mkHiddenExplicitImportSymbolError symbolName importDecl =
-      setDiagnosticSubject symbolName $
+      setDiagnosticSubject (renderOperatorBindingIdentifier symbolName) $
         setDiagnosticPrimarySpan
           (resolverImportSpan importDecl)
           ( mkErrorDiagnostic
               E4011
               CompilationOrigin
               ( "import symbol '"
-                  <> symbolName
+                  <> renderOperatorBindingIdentifier symbolName
                   <> "' is not visible from explicit import of module '"
                   <> renderModulePath (resolverImportModulePath importDecl)
                   <> "' by '"
@@ -442,14 +414,14 @@ validateImportBindings sourcePath importerPath imports localClassNames reference
 
     mkHiddenAliasImportSymbolError :: Text -> ResolverImport -> Text -> Diagnostic
     mkHiddenAliasImportSymbolError symbolName importDecl aliasName =
-      setDiagnosticSubject symbolName $
+      setDiagnosticSubject (renderOperatorBindingIdentifier symbolName) $
         setDiagnosticPrimarySpan
           (resolverImportSpan importDecl)
           ( mkErrorDiagnostic
               E4012
               CompilationOrigin
               ( "import symbol '"
-                  <> symbolName
+                  <> renderOperatorBindingIdentifier symbolName
                   <> "' is not visible unqualified from alias import of module '"
                   <> renderModulePath (resolverImportModulePath importDecl)
                   <> "' as '"
@@ -490,4 +462,4 @@ validateImportBindings sourcePath importerPath imports localClassNames reference
     renderExports :: Set Text -> Text
     renderExports exports
       | Set.null exports = "<none>"
-      | otherwise = Text.intercalate ", " (Set.toAscList exports)
+      | otherwise = Text.intercalate ", " (map renderOperatorBindingIdentifier (Set.toAscList exports))

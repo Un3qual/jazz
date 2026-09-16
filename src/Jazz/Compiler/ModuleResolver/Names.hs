@@ -59,7 +59,7 @@ import Jazz.Compiler.ModuleExports
     inventoryHasExport,
     withClassMethods,
   )
-import Jazz.Compiler.ModuleIdentity (SourceUnitOwner (..), mkModulePath, standaloneModulePath)
+import Jazz.Compiler.ModuleIdentity (ModulePath, SourceUnitOwner (..), mkModulePath, standaloneModulePath)
 import Jazz.Compiler.ModuleResolver.Imports
   ( BindingOrigin (..),
     ValidatedImportScope,
@@ -78,12 +78,14 @@ import Jazz.Compiler.Name
     SourceName (..),
     identifierText,
     mkIdentifier,
+    operatorBindingIdentifierText,
     operatorBindingName,
     qualifiedMemberName,
+    qualifiedName,
     resolveDeclarationOwner,
     resolvedAmbientName,
-    resolvedImportedName,
     sourceName,
+    splitQualifiedIdentifierText,
   )
 import Jazz.Compiler.Parser.Operator (builtinOperatorFunction)
 import Jazz.Compiler.RecursiveBindings (publishResolvedCaptures, resolveLexicalScopes)
@@ -99,6 +101,7 @@ data ResolutionContext = ResolutionContext
     resolutionExternalReferences :: Map ResolvedName ResolvedReference,
     resolutionAmbientExports :: ModuleExportInventory,
     resolutionLocalInventory :: ModuleExportInventory,
+    resolutionImportNames :: Map ModulePath (Map ModuleExport ResolvedName),
     resolutionImportScope :: ValidatedImportScope
   }
 
@@ -125,10 +128,23 @@ resolveExprNames context rootExpression = publishResolvedCaptures (resolveLexica
     localConstructors = exportNamesInNamespace ConstructorNamespace localInventory
 
     aliasPaths = Map.map bindingOriginModulePath (importScopeAliases importScope)
-    visibleValueOrigins = importedNameOrigins ValueNamespace importScope
-    visibleConstructorOrigins = importedNameOrigins ConstructorNamespace importScope
-    visibleTypeOrigins = importedNameOrigins TypeNamespace importScope
-    visibleClassOrigins = importedNameOrigins CapabilityNamespace importScope
+    visibleValueOrigins = Map.map NonEmpty.head (importedNameOrigins ValueNamespace importScope)
+    visibleConstructorOrigins = Map.map NonEmpty.head (importedNameOrigins ConstructorNamespace importScope)
+    visibleTypeOrigins = Map.map NonEmpty.head (importedNameOrigins TypeNamespace importScope)
+    visibleClassOrigins = Map.map NonEmpty.head (importedNameOrigins CapabilityNamespace importScope)
+
+    importedTarget dependency namespace identifier =
+      let names = Map.findWithDefault Map.empty dependency (resolutionImportNames context)
+          fallback = UserName (ResolvedUserName (ImportedModule dependency) namespace identifier)
+       in fromMaybe
+            ( case splitQualifiedIdentifierText (identifierText identifier) of
+                Just (className, _) | namespace == ValueNamespace ->
+                  case Map.lookup (ModuleExport CapabilityNamespace className) names of
+                    Just (UserName (ResolvedUserName origin _ _)) -> UserName (ResolvedUserName origin namespace identifier)
+                    _ -> fallback
+                _ -> fallback
+            )
+            (Map.lookup (ModuleExport namespace (identifierText identifier)) names)
 
     resolveName boundValues namespace name =
       case name of
@@ -138,12 +154,7 @@ resolveExprNames context rootExpression = publishResolvedCaptures (resolveLexica
               memberText = identifierText member
            in case Map.lookup qualifierText aliasPaths of
                 Just dependencyPath ->
-                  UserName
-                    ( ResolvedUserName
-                        (ImportedModule dependencyPath)
-                        (importedNamespace dependencyPath memberText namespace)
-                        member
-                    )
+                  importedTarget dependencyPath (importedNamespace dependencyPath memberText namespace) member
                 Nothing ->
                   UserName
                     ( ResolvedUserName
@@ -155,7 +166,7 @@ resolveExprNames context rootExpression = publishResolvedCaptures (resolveLexica
           let member = mkIdentifier (identifierText className <> "::" <> identifierText method)
            in case Map.lookup (identifierText alias) aliasPaths of
                 Just dependencyPath ->
-                  UserName (ResolvedUserName (ImportedModule dependencyPath) ValueNamespace member)
+                  importedTarget dependencyPath ValueNamespace member
                 Nothing ->
                   -- Keep an unresolved alias in the name rather than falling back
                   -- to a same-spelled local or ambient class.
@@ -174,12 +185,7 @@ resolveExprNames context rootExpression = publishResolvedCaptures (resolveLexica
       | localName namespace nameText =
           UserName (ResolvedUserName CurrentModule namespace identifier)
       | Just dependencyPath <- importedOrigin namespace nameText =
-          UserName
-            ( ResolvedUserName
-                (ImportedModule dependencyPath)
-                (importedNamespace dependencyPath nameText namespace)
-                identifier
-            )
+          importedTarget dependencyPath (importedNamespace dependencyPath nameText namespace) identifier
       | ambientName namespace nameText =
           UserName (ResolvedUserName AmbientPrelude namespace identifier)
       | namespace == ValueNamespace,
@@ -219,7 +225,9 @@ resolveExprNames context rootExpression = publishResolvedCaptures (resolveLexica
 
     classOrigin className
       | localName CapabilityNamespace className = CurrentModule
-      | Just dependencyPath <- Map.lookup className visibleClassOrigins = ImportedModule dependencyPath
+      | Just dependencyPath <- Map.lookup className visibleClassOrigins,
+        UserName (ResolvedUserName origin _ _) <- importedTarget dependencyPath CapabilityNamespace (mkIdentifier className) =
+          origin
       | ambientName CapabilityNamespace className = AmbientPrelude
       | otherwise = CurrentModule
 
@@ -306,9 +314,14 @@ resolveExprNames context rootExpression = publishResolvedCaptures (resolveLexica
     resolveOperator owner boundValues node symbol = case builtinOperatorFunction symbol of
       Just function -> resolveExpr owner boundValues (EVar node (sourceName (mkIdentifier function)))
       Nothing ->
-        let name = operatorBindingName symbol
-            resolved = resolveNode owner node
-         in EVar (resolved {coreNodeFacts = (coreNodeFacts resolved) {resolvedNodeReference = Just (UnresolvedReference name), resolvedOperatorSpelling = Just symbol}}) name
+        let name = case splitQualifiedIdentifierText symbol of
+              Just (alias, spelling) -> resolveName boundValues ValueNamespace (qualifiedName (mkIdentifier alias) (mkIdentifier (operatorBindingIdentifierText spelling)))
+              Nothing
+                | Just dependency <- Map.lookup (operatorBindingIdentifierText symbol) visibleValueOrigins ->
+                    importedTarget dependency ValueNamespace (mkIdentifier (operatorBindingIdentifierText symbol))
+              Nothing -> operatorBindingName symbol
+            resolved = resolveReferenceNode owner name node
+         in EVar (resolved {coreNodeFacts = (coreNodeFacts resolved) {resolvedOperatorSpelling = Just symbol}}) name
 
     sectionName kind sourceNode = let CoreNodeId sourceId = coreNodeId sourceNode in GeneratedName (kind sourceId)
 
@@ -321,8 +334,9 @@ resolveExprNames context rootExpression = publishResolvedCaptures (resolveLexica
           Set.map (BuiltinName . mkIdentifier) kernelBuiltinNames,
           Set.map (resolvedAmbientName ValueNamespace . mkIdentifier) kernelBuiltinNames
         ]
-    importedNames namespace origins = Set.fromList [resolvedImportedName path namespace (mkIdentifier name) | (name, path) <- Map.toList origins]
+    importedNames namespace origins = Set.fromList [importedTarget path namespace (mkIdentifier name) | (name, path) <- Map.toList origins]
 
+    resolveReferenceNode :: SourceUnitOwner -> ResolvedName -> CoreNode 'Lowered sort -> CoreNode 'Resolved sort
     resolveReferenceNode owner name node =
       (resolveNode owner node) {coreNodeFacts = (emptyResolvedNodeFacts owner) {resolvedNodeReference = Just (referenceTarget owner name)}}
 
@@ -530,6 +544,7 @@ resolveStandaloneExprNames ambientExports expression =
         resolutionExternalReferences = Map.empty,
         resolutionAmbientExports = ambientExports,
         resolutionLocalInventory = standaloneLocalInventory expression,
+        resolutionImportNames = Map.empty,
         resolutionImportScope = emptyImportScope
       }
     expression

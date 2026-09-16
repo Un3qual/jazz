@@ -56,6 +56,7 @@ import Jazz.Compiler.Parser.Lexer
     TokenKind (..),
     isImmediatelyAfter,
   )
+import Jazz.Compiler.Parser.ModuleDeclaration (operatorTokenPrefix)
 import Jazz.Compiler.Parser.Operator
   ( Associativity (..),
     OperatorInfo (..),
@@ -143,7 +144,8 @@ parseApplicationTailUntil parseBlock context stop applicationSpan functionExpr =
           applicationSpan
           (SurfaceExpr (spanThrough applicationSpan argumentSpan) (SETypeApplication functionExpr (spanThrough (tokenSpan typeApplicationToken) argumentSpan) typeArgument))
       firstToken :< _
-        | startsPrimaryExpr firstToken -> do
+        | Nothing <- operatorTokenPrefix tokens,
+          startsPrimaryExpr firstToken -> do
             (argumentSpan, argumentExpr) <- parseRangedExpr (parsePrimaryExpr parseBlock context stop)
             parseApplicationTailUntil
               parseBlock
@@ -201,8 +203,8 @@ parseInfixTailWithUntil context stop boundary parseRhs minPrecedence expressionS
   tokens <- MP.getInput
   if stop tokens || boundary leftExpr tokens
     then pure leftExpr
-    else case tokens of
-      operatorToken@Token {tokenKind = TOperator symbol} :< tokensAfterOperator
+    else case operatorTokenPrefix tokens of
+      Just (operatorToken@Token {tokenKind = TOperator symbol}, operatorTokenCount, tokensAfterOperator)
         | startsRightParen tokensAfterOperator ->
             pure leftExpr
         | otherwise ->
@@ -213,7 +215,7 @@ parseInfixTailWithUntil context stop boundary parseRhs minPrecedence expressionS
                 | operatorPrecedence operatorInfo < minPrecedence ->
                     pure leftExpr
                 | otherwise -> do
-                    void parseAnyToken
+                    void (MP.takeP Nothing operatorTokenCount)
                     let rhsStop =
                           samePrecedenceNonAssociativeRhsStop
                             (parserDeclaredOperators context)
@@ -240,9 +242,9 @@ operatorNextMinPrecedence operatorInfo =
 
 rejectNonAssociativeContinuation :: ParserContext -> OperatorInfo -> Token -> Parser ()
 rejectNonAssociativeContinuation context operatorInfo operatorToken = do
-  maybeToken <- peekToken
-  case maybeToken of
-    Just Token {tokenKind = TOperator nextSymbol} ->
+  tokens <- MP.getInput
+  case operatorTokenPrefix tokens of
+    Just (Token {tokenKind = TOperator nextSymbol}, _, _) ->
       case lookupOperatorInfoIn (parserDeclaredOperators context) nextSymbol of
         Just nextInfo
           | operatorPrecedence nextInfo == operatorPrecedence operatorInfo,
@@ -265,8 +267,8 @@ samePrecedenceNonAssociativeRhsStop ::
   Stop
 samePrecedenceNonAssociativeRhsStop declaredOperators operatorInfo stop tokens =
   stop tokens
-    || case tokens of
-      Token {tokenKind = TOperator nextSymbol} :< _ ->
+    || case operatorTokenPrefix tokens of
+      Just (Token {tokenKind = TOperator nextSymbol}, _, _) ->
         case lookupOperatorInfoIn declaredOperators nextSymbol of
           Just nextInfo ->
             operatorPrecedence nextInfo == operatorPrecedence operatorInfo
@@ -311,7 +313,7 @@ parsePrimaryExpr parseBlock context stop = withConsumedSpan locateExprRange $ do
         TLParen ->
           parseParenExpr parseBlock context token
         TLBrace -> do
-          statements <-
+          (statements, _) <-
             parseBlock
               context
                 { parserStatementContext = NestedBlockContext
@@ -506,8 +508,8 @@ parseParenExpr parseBlock context leftParenToken = do
     Token {tokenKind = TRParen} :< _ -> do
       void parseAnyToken
       pure (locatedExpr leftParenToken (SETuple []))
-    operatorToken@Token {tokenKind = TOperator symbol} :< rest -> do
-      void parseAnyToken
+    _ | Just (operatorToken@Token {tokenKind = TOperator symbol}, count, rest) <- operatorTokenPrefix tokens -> do
+      void (MP.takeP Nothing count)
       requireOperatorVisible context operatorToken
       case rest of
         Token {tokenKind = TRParen} :< _ -> do
@@ -526,11 +528,12 @@ parseParenExpr parseBlock context leftParenToken = do
           tupleElements <- (innerExpr :) <$> parseListElements parseBlock context
           void (parseToken TRParen)
           pure (locatedExpr leftParenToken (SETuple tupleElements))
-        operatorToken@Token {tokenKind = TOperator symbol} :< Token {tokenKind = TRParen} :< _ -> do
-          void parseAnyToken
-          void parseAnyToken
-          requireOperatorVisible context operatorToken
-          pure (locatedExpr leftParenToken (SESectionLeft innerExpr symbol))
+        _
+          | Just (operatorToken@Token {tokenKind = TOperator symbol}, count, rest) <- operatorTokenPrefix afterInner,
+            startsRightParen rest -> do
+              void (MP.takeP Nothing (count + 1))
+              requireOperatorVisible context operatorToken
+              pure (locatedExpr leftParenToken (SESectionLeft innerExpr symbol))
         _ -> do
           void (parseToken TRParen)
           pure innerExpr

@@ -26,6 +26,12 @@ last_verified: 2026-08-11
 
 # Jazz Compiler Performance and Memory Program
 
+> **Retired compiler scope:** [RFC 0016](../../rfcs/accepted/0016-optional-backend-removal.md)
+> and [RFC 0022](../../rfcs/accepted/0022-hosted-compiler-removal.md) retired the
+> optional backend, hosted compiler, and their exclusive verification. References
+> to those paths, schemas, suites, and retention requirements in this record
+> (including frontmatter) are historical and impose no current work or test obligations.
+
 **Goal:** Measure, prioritize, and remove real Jazz compiler/runtime CPU,
 allocation, and peak-residency problems without changing public language
 semantics, diagnostic ordering, binder identity, or artifact schemas.

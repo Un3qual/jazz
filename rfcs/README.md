@@ -40,11 +40,12 @@ only `docs/` and does not publish this directory.
 | [0018](accepted/0018-direct-analyzed-runtime-facts.md)            | Direct analyzed runtime facts            |
 | [0019](accepted/0019-generic-capabilities-and-library-names.md)   | Generic capabilities and library names   |
 | [0020](accepted/0020-operators-as-functions.md)                   | Operators as functions                   |
+| [0021](accepted/0021-module-reexports-and-operator-transport.md)  | Module re-exports and operator transport |
 | [0022](accepted/0022-hosted-compiler-removal.md)                  | Hosted compiler removal                  |
 
 ## Proposed decisions
 
-- [0021: Module re-exports and operator transport](proposed/0021-module-reexports-and-operator-transport.md) — explicit facade exports, original identities, and imported custom-operator fixity; detailed proposal awaiting review.
+None currently.
 
 ## Process
 

@@ -149,4 +149,4 @@ testDeclarationTargets =
               assertEqual "lambda parameter has its own declaration identity" (Just parameterBinder) (resolvedNodeBinder (coreNodeFacts parameterNode))
               assertEqual "lambda use selects parameter" (Just (LexicalReference parameterBinder)) (resolvedNodeReference (coreNodeFacts parameterUse))
             _ -> fail ("unexpected rebinding core: " <> show resolved)
-    context owner = ResolutionContext owner Map.empty (exportInventory []) (exportInventory []) emptyImportScope
+    context owner = ResolutionContext owner Map.empty (exportInventory []) (exportInventory []) Map.empty emptyImportScope

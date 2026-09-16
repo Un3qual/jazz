@@ -200,7 +200,8 @@ main = runTestSuite "ModulePipelineContract" tests
 
 tests :: [NamedTest]
 tests =
-  [ ("standalone source and prelude keep separate graph identities", testStandaloneProgramOwnership),
+  [ ("facades preserve binding and abstract nominal definitions", testFacadeIdentity),
+    ("standalone source and prelude keep separate graph identities", testStandaloneProgramOwnership),
     ("standalone prelude expressions retain effects and terminal values", testStandalonePreludeExecution),
     ("single-module analysis consumes complete imported interfaces", testSingleModuleAnalysis),
     ("exported scheme parameters are independent of private solver allocation", testExportedSchemeParameterIdentity),
@@ -516,7 +517,7 @@ testCheckedSubtreeOwnership = do
           (ELit (node 2) (LBool True))
           (ETuple (node 3) [EList (node 4) [ELit (node 5) (LInt 1)], EIf (node 11) (ELit (node 12) (LBool True)) (ELit (node 6) (LBool True)) (ELit (node 13) (LBool False))])
           (ETuple (node 7) [EList (node 8) [ELit (node 9) (LInt 2)], ELit (node 10) (LBool False)])
-      inputs = InferenceInputs Nothing defaultWarningSettings Set.empty Map.empty Map.empty Map.empty emptyScopeCapabilityFacts Set.empty
+      inputs = InferenceInputs Nothing Map.empty defaultWarningSettings Set.empty Map.empty Map.empty Map.empty emptyScopeCapabilityFacts Set.empty
       (checked, state, _) = inferExpressionWork inputs expression
       erased = state {inferOutput = inferOutput initialInferState}
   expected <- either (fail . show) pure (finalizeCheckedExpression state checked)
@@ -1906,3 +1907,23 @@ testPrelude =
 
 nominalModulePath :: NonEmpty Text -> ModulePath
 nominalModulePath = mkModulePath . fmap mkIdentifier
+
+testFacadeIdentity :: IO ()
+testFacadeIdentity = do
+  (_, analyzed) <- analyzeFixtureProgram sources
+  original <- lookupInterface analyzed "Original"
+  facade <- lookupInterface analyzed "API"
+  assertEqual "same reference and scheme" (interfaceValueBindings original) (interfaceValueBindings facade)
+  assertEqual "abstract definition retains parameter kind" (interfaceDataTypes original) (interfaceDataTypes facade)
+  assertEqual "same original published names" (interfacePublicNames original) (interfacePublicNames facade)
+  assertEqual "no constructor leaks" Set.empty (Set.filter ((== ConstructorNamespace) . moduleExportNamespace) (exportInventoryEntries (interfacePublicExports facade)))
+  where
+    lookupInterface program name = case lookupCoreModule (nominalModulePath ("Lib" :| [name])) program of
+      Just coreModule -> pure (analyzedInterface coreModule)
+      Nothing -> fail "missing facade fixture module"
+    sources =
+      Map.fromList
+        [ ("src/Lib/Original.jz", "module Lib::Original (value answer, type Box) { data Box a = Box a. answer = 42. }"),
+          ("src/Lib/API.jz", "module Lib::API (value A::answer, type A::Box) { import Lib::Original as A. }"),
+          ("src/App/Main.jz", "module App::Main { import Lib::API as API. identity :: API::Box(Int) -> API::Box(Int). identity = \\(x) -> x. API::answer. }")
+        ]

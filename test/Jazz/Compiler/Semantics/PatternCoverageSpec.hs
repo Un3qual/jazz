@@ -687,6 +687,7 @@ hiddenConstructorInputs :: InferenceInputs
 hiddenConstructorInputs =
   InferenceInputs
     { inferencePublicExports = Nothing,
+      inferencePublicNames = Map.empty,
       inferenceWarningSettings = defaultWarningSettings,
       inferenceExternalUses = Set.empty,
       inferenceImportedTypes =

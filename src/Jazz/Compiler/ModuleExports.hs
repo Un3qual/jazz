@@ -11,6 +11,9 @@ module Jazz.Compiler.ModuleExports
     ModuleExportSelector (..),
     moduleExportSelectorName,
     moduleExportSelectorNamespace,
+    moduleExportSelectorSpan,
+    moduleExportLookupName,
+    unqualifiedModuleExportSelector,
     qualifyModuleExportSelectorSpans,
     ModuleExport (..),
     ModuleExportInventory,
@@ -40,13 +43,14 @@ import Data.List.NonEmpty (NonEmpty)
 import qualified Data.List.NonEmpty as NonEmpty
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
+import Data.Maybe (fromMaybe)
 import Data.Set (Set)
 import qualified Data.Set as Set
 import Data.Text (Text)
 import qualified Data.Text as Text
 import GHC.Generics (Generic)
 import Jazz.Compiler.Diagnostics (SourceSpan, qualifySourceSpan)
-import Jazz.Compiler.Name (NameNamespace (..))
+import Jazz.Compiler.Name (NameNamespace (..), operatorBindingIdentifierText, splitQualifiedIdentifierText)
 
 data LocatedModuleExportName = LocatedModuleExportName
   { locatedModuleExportName :: Text,
@@ -63,7 +67,7 @@ data ModuleTypeConstructorSelector
   deriving anyclass (NFData)
 
 data ModuleExportSelector
-  = ModuleExportSelector (Maybe NameNamespace) Text
+  = ModuleExportSelector (Maybe NameNamespace) LocatedModuleExportName
   | ModuleTypeExportSelector Text SourceSpan ModuleTypeConstructorSelector
   deriving stock (Eq, Generic, Ord, Show)
   deriving anyclass (NFData)
@@ -71,7 +75,7 @@ data ModuleExportSelector
 moduleExportSelectorName :: ModuleExportSelector -> Text
 moduleExportSelectorName selector =
   case selector of
-    ModuleExportSelector _ name -> name
+    ModuleExportSelector _ name -> locatedModuleExportName name
     ModuleTypeExportSelector name _ _ -> name
 
 moduleExportSelectorNamespace :: ModuleExportSelector -> Maybe NameNamespace
@@ -80,10 +84,33 @@ moduleExportSelectorNamespace selector =
     ModuleExportSelector namespace _ -> namespace
     ModuleTypeExportSelector {} -> Just TypeNamespace
 
+moduleExportSelectorSpan :: ModuleExportSelector -> SourceSpan
+moduleExportSelectorSpan (ModuleExportSelector _ name) = locatedModuleExportSpan name
+moduleExportSelectorSpan (ModuleTypeExportSelector _ spanValue _) = spanValue
+
+-- Authored operator parentheses are retained until inventory lookup.
+moduleExportLookupName :: Text -> Text
+moduleExportLookupName name = maybe name operatorBindingIdentifierText (Text.stripPrefix "(" name >>= Text.stripSuffix ")")
+
+unqualifiedModuleExportSelector :: ModuleExportSelector -> (Maybe Text, ModuleExportSelector)
+unqualifiedModuleExportSelector selector =
+  let authored = moduleExportSelectorName selector
+      operator = Text.stripPrefix "(" authored >>= Text.stripSuffix ")"
+      (alias, member) = case splitQualifiedIdentifierText (fromMaybe authored operator) of
+        Just (qualifier, selectedName) -> (Just qualifier, selectedName)
+        Nothing -> (Nothing, fromMaybe authored operator)
+      name = maybe member (const ("(" <> member <> ")")) operator
+      key = moduleExportLookupName name
+   in ( alias,
+        case selector of
+          ModuleExportSelector namespace located -> ModuleExportSelector namespace (located {locatedModuleExportName = key})
+          ModuleTypeExportSelector _ spanValue constructors -> ModuleTypeExportSelector key spanValue constructors
+      )
+
 qualifyModuleExportSelectorSpans :: FilePath -> ModuleExportSelector -> ModuleExportSelector
 qualifyModuleExportSelectorSpans sourcePath selector =
   case selector of
-    ModuleExportSelector {} -> selector
+    ModuleExportSelector namespace name -> ModuleExportSelector namespace (qualifyLocatedName name)
     ModuleTypeExportSelector typeName typeSpan constructorSelector ->
       ModuleTypeExportSelector
         typeName
@@ -180,9 +207,9 @@ inventoryHasSelector selector =
 renderModuleExportSelector :: ModuleExportSelector -> Text
 renderModuleExportSelector selector =
   case selector of
-    ModuleExportSelector Nothing name -> "'" <> name <> "'"
+    ModuleExportSelector Nothing name -> "'" <> locatedModuleExportName name <> "'"
     ModuleExportSelector (Just namespace) name ->
-      moduleExportNamespaceKeyword namespace <> " '" <> name <> "'"
+      moduleExportNamespaceKeyword namespace <> " '" <> locatedModuleExportName name <> "'"
     ModuleTypeExportSelector typeName _ constructorSelector ->
       "type '" <> typeName <> renderConstructorSelector constructorSelector <> "'"
   where

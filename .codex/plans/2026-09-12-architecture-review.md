@@ -20,6 +20,12 @@ supersedes: []
 
 # Compiler architecture review
 
+> **Retired compiler scope:** [RFC 0016](../../rfcs/accepted/0016-optional-backend-removal.md)
+> and [RFC 0022](../../rfcs/accepted/0022-hosted-compiler-removal.md) retired the
+> optional backend, hosted compiler, and their exclusive verification. References
+> to those paths, schemas, suites, and retention requirements in this record
+> (including frontmatter) are historical and impose no current work or test obligations.
+
 ## Review
 
 Reviewed `b0b7dfca564b35613319fe1855479a74c6d509d0..171b22abbdc838f97e4b6317eccab0314d97ed60`: PR 158's architecture rewrite and the two local cleanup commits. Line references below name the reviewed head. This report records review completion, not implementation of its recommendations. No implementation work is dispatched by this report.

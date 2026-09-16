@@ -23,6 +23,12 @@ supersedes: []
 
 # Compiler quality audit and improvements
 
+> **Retired compiler scope:** [RFC 0016](../../rfcs/accepted/0016-optional-backend-removal.md)
+> and [RFC 0022](../../rfcs/accepted/0022-hosted-compiler-removal.md) retired the
+> optional backend, hosted compiler, and their exclusive verification. References
+> to those paths, schemas, suites, and retention requirements in this record
+> (including frontmatter) are historical and impose no current work or test obligations.
+
 **Request:** Find as many supported performance, quality, simplification, maintainability, and readability notes as possible and use parallel investigators to improve the branch.
 
 **Baseline:** `4ad33d131353ff6321d13220f17621c365962178` on PR #158; comparison base `b0b7dfca564b35613319fe1855479a74c6d509d0`. The prior narrow reviews did not classify optional cleanups as findings. This audit includes those opportunities and potential hotspots, clearly separated from demonstrated defects.

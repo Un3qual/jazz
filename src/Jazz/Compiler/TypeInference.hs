@@ -50,12 +50,14 @@ import Jazz.Compiler.FractionalLiteral
 import Jazz.Compiler.ModuleExports (ModuleExport (..), ModuleExportInventory, exportInventory, withClassMethods)
 import Jazz.Compiler.ModuleInterface
   ( ModuleInterface (..),
+    ModuleValueBinding (..),
     emptyModuleInterface,
     moduleExportForBinding,
     publishModuleInterface,
   )
 import Jazz.Compiler.Name
-  ( Name (..),
+  ( GeneratedNameKind (..),
+    Name (..),
     NameNamespace (..),
     ResolvedName,
     UnresolvedName,
@@ -134,6 +136,7 @@ import Jazz.Compiler.WarningConfig (WarningSettings)
 
 data InferenceInputs = InferenceInputs
   { inferencePublicExports :: Maybe ModuleExportInventory,
+    inferencePublicNames :: Map ModuleExport ResolvedName,
     inferenceWarningSettings :: WarningSettings,
     inferenceExternalUses :: Set CoreBinderId,
     inferenceImportedTypes :: Map TypeEnvKey (SemanticBinding DeclarationVariable),
@@ -201,17 +204,26 @@ moduleInterfaceFromState :: InferenceInputs -> Expr 'Resolved -> InferState -> M
 moduleInterfaceFromState inputs expr state =
   publishModuleInterface (Just (fromMaybe declaredInventory (inferencePublicExports inputs))) (inferDataTypes state) $
     emptyModuleInterface
-      { interfaceValueBindings =
-          closeModuleBindings
-            state
-            [ (moduleExportForBinding (renderName name) binding, binder, binding)
-            | (name, binder) <- Map.toList declaredValues,
-              Just binding <- [Map.lookup (TypeEnvKey binder name) (inferVisibleTypes state)]
-            ],
-        interfaceDataTypes = Map.restrictKeys (inferDataTypes state) declaredDataTypes,
+      { interfacePublicNames = inferencePublicNames inputs,
+        interfaceValueBindings =
+          Map.union importedPublicBindings $
+            closeModuleBindings
+              state
+              [ (moduleExportForBinding (renderName name) binding, binder, binding)
+              | (name, binder) <- Map.toList declaredValues,
+                Just binding <- [Map.lookup (TypeEnvKey binder name) (inferVisibleTypes state)]
+              ],
+        interfaceDataTypes = Map.restrictKeys (inferDataTypes state) (declaredDataTypes <> Set.fromList [target | (entry, target) <- Map.toList (inferencePublicNames inputs), moduleExportNamespace entry == TypeNamespace]),
         interfaceCapabilities = capabilityFactsFromState state
       }
   where
+    importedPublicBindings =
+      Map.fromList
+        [ (entry, ModuleValueBinding reference binding)
+        | (entry, target) <- Map.toList (inferencePublicNames inputs),
+          (TypeEnvKey reference name, binding) <- Map.toList (inferenceImportedTypes inputs),
+          target == name
+        ]
     (declaredValues, declaredDataTypes) = declaredModuleBindings expr
     declaredClasses = [(capability, methods) | SClass _ capability _ methods _ _ <- case expr of EBlock _ statements -> statements; _ -> []]
     declaredInventory =
@@ -250,6 +262,7 @@ declaredModuleBindings expression =
 
     publicModuleValue name =
       case name of
+        GeneratedName (OperatorBinding _) -> True
         GeneratedName {} -> False
         _ -> True
 

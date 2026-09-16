@@ -37,8 +37,8 @@ scalarPrimitiveTests :: [NamedTest]
 scalarPrimitiveTests =
   [ ("source pipeline types private text traversal primitives", testSourcePipelineTypesPrivateTextTraversalPrimitives),
     ("source pipeline rejects non-Text traversal arguments", testSourcePipelineRejectsNonTextTraversalArguments),
-    ("source pipeline types bootstrap collection and scalar primitives", testSourcePipelineTypesBootstrapCollectionScalarPrimitives),
-    ("source pipeline rejects invalid bootstrap scalar arguments", testSourcePipelineRejectsInvalidBootstrapScalarArguments),
+    ("source pipeline types collection and scalar primitives", testSourcePipelineTypesCollectionScalarPrimitives),
+    ("source pipeline rejects invalid scalar arguments", testSourcePipelineRejectsInvalidScalarArguments),
     ("source pipeline types private host IO primitives", testSourcePipelineTypesPrivateHostIOPrimitives),
     ("source pipeline rejects invalid host IO arguments", testSourcePipelineRejectsInvalidHostIOArguments)
   ]
@@ -93,8 +93,8 @@ testSourcePipelineRejectsNonTextTraversalArguments = do
     "textUnconsRaw argument type mismatch"
     "E2006"
 
-testSourcePipelineTypesBootstrapCollectionScalarPrimitives :: IO ()
-testSourcePipelineTypesBootstrapCollectionScalarPrimitives =
+testSourcePipelineTypesCollectionScalarPrimitives :: IO ()
+testSourcePipelineTypesCollectionScalarPrimitives =
   assertCompiles
     ( """
       items :: [Text].
@@ -120,8 +120,8 @@ testSourcePipelineTypesBootstrapCollectionScalarPrimitives =
       """
     )
 
-testSourcePipelineRejectsInvalidBootstrapScalarArguments :: IO ()
-testSourcePipelineRejectsInvalidBootstrapScalarArguments = do
+testSourcePipelineRejectsInvalidScalarArguments :: IO ()
+testSourcePipelineRejectsInvalidScalarArguments = do
   assertCompileError "bad = __kernel_charToUInt32 1." "charToUInt32 argument type mismatch" "E2006"
   assertCompileError "bad = __kernel_charFromUInt32Raw 'a'." "charFromUInt32Raw argument type mismatch" "E2006"
   assertCompileError "bad = __kernel_charIsAlpha \"a\"." "charIsAlpha argument type mismatch" "E2006"
