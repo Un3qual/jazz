@@ -25,7 +25,7 @@ the same change.
 
 Enter the reproducible Nix development shell and use focused tests while
 working. Before review, run the verification tier appropriate to the change.
-Long parser-scale, corpus, profiling, and benchmark workloads run weekly,
+Extended corpus, profiling, and benchmark workloads run weekly,
 manually, or for release candidates rather than on every pull request.
 
 The

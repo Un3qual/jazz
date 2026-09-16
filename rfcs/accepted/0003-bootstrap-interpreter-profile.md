@@ -13,9 +13,11 @@ Supersedes: Bootstrap and interpreter decisions dated 2026-03-03, 2026-03-18, 20
 ## Decision
 
 **Historical bootstrap plan:** The staged implementation and hosted conformance
-requirements in this section record the original decision. They are retired by
-RFCs 0016 and 0022 and do not authorize new compiler or backend work. The ordinary
-Haskell interpreter and general runtime host boundary remain in force.
+requirements in this section record the original decision. RFC 0016 retired
+the optional backend requirements; RFC 0022 retired the staged hosted-compiler
+implementation and conformance obligations. Neither authorizes new compiler or
+backend work. The ordinary Haskell interpreter and general runtime host boundary
+remain in force.
 
 The Haskell compiler and interpreter under `src/` are Jazz stage 0. Stage 0 is
 the executable semantic reference while compiler components are introduced as

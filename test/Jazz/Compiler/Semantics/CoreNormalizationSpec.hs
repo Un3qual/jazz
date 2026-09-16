@@ -21,7 +21,8 @@ import Jazz.Compiler.AST
     Statement (..),
   )
 import Jazz.Compiler.CoreIdentity (ResolvedNodeFacts (..), ResolvedReference (..))
-import Jazz.Compiler.Diagnostics (SourceSpan (..), diagnosticPrimarySpan, diagnosticSummary)
+import Jazz.Compiler.DiagnosticCatalog (ErrorCode (E4005, E4006, E4010), errorCode)
+import Jazz.Compiler.Diagnostics (SourceSpan (..), diagnosticCode, diagnosticPrimarySpan, diagnosticSummary)
 import Jazz.Compiler.ModuleAnalysis
   ( analyzeResolvedExpression,
   )
@@ -205,9 +206,10 @@ nodeFact node = [(coreNodeId node, coreNodeSpan node)]
 -- lowering boundary covered directly after retiring the comparison harness.
 testModuleLoweringDiagnostics :: IO ()
 testModuleLoweringDiagnostics =
-  forM_ cases $ \(statements, message, location) ->
+  forM_ cases $ \(statements, code, message, location) ->
     case lowerSurfaceModule identity (SurfaceExpr spanValue (SEBlock statements)) of
       Left diagnostic -> do
+        assertEqual "module diagnostic code" (errorCode code) (diagnosticCode diagnostic)
         assertEqual "module diagnostic" message (diagnosticSummary diagnostic)
         assertEqual "module diagnostic location" location (diagnosticPrimarySpan diagnostic)
       Right _ -> failTest "invalid module lowered successfully"
@@ -216,18 +218,22 @@ testModuleLoweringDiagnostics =
     spanValue = SourceSpan 2 3
     cases =
       [ ( [SSModule spanValue ["App", "First"] Nothing, SSModule spanValue ["App", "Second"] Nothing],
+          E4005,
           "multiple module declarations in 'src/App/Main.jz': App::First, App::Second",
           Nothing
         ),
         ( [SSModule spanValue ["Wrong"] Nothing],
+          E4006,
           "module declaration mismatch at 'src/App/Main.jz': expected 'App::Main', found 'Wrong'",
           Nothing
         ),
         ( [SSImport spanValue ["Library"] Nothing (Just [])],
+          E4010,
           "invalid empty module import in 'src/App/Main.jz' for 'Library'",
           Just spanValue
         ),
         ( [SSImport spanValue [] Nothing Nothing],
+          E4010,
           "invalid empty module import in 'src/App/Main.jz' for ''",
           Just spanValue
         )

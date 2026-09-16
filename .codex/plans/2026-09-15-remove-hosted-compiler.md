@@ -16,6 +16,7 @@ target_paths:
   - scripts
   - docs
   - rfcs
+  - release-notes/0.1.0-alpha.1.md
   - AGENTS.md
   - CONTRIBUTING.md
   - PERFORMANCE.md

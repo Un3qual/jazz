@@ -29,7 +29,9 @@ The backend contracts in RFCs 0005, 0006, 0009, 0010, 0011, 0013, 0014, and
 0015 are retired. This decision originally retained RFCs 0003 and 0004's stage-0,
 hosted-frontend, and conformance decisions without prescribing the backend
 representations, their mirrors, or a mandatory backend route to self-hosting.
-RFC 0022 subsequently retired the hosted-frontend and conformance obligations.
+RFC 0022 subsequently retired the staged hosted-compiler implementation,
+hosted-frontend retention, and conformance obligations. The Haskell compiler
+and interpreter, historically called stage 0, remain the active implementation.
 Public language semantics, including the pattern coverage contract in RFC 0012,
 are unchanged.
 
