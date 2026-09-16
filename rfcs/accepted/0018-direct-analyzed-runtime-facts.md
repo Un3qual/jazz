@@ -33,9 +33,10 @@ recover semantic facts from instructions.
 This amendment authorizes direct consumption without changing public language
 semantics, evaluation order, laziness, host effects, diagnostics, or result
 projections. RFC 0016's optional-backend removal, phase-indexed AST, analyzed
-interpreter, nominal identities, attached semantic facts, and hosted-frontend
-boundaries remain in force. Canonical `Lowered` core and its structural
-comparison tests remain independent of runtime representation decisions.
+interpreter, nominal identities, and attached semantic facts remain in force.
+Canonical `Lowered` core remains independent of runtime representation decisions.
+Historically, this amendment also retained the hosted frontend and its canonical
+`Lowered` structural comparison tests; RFC 0022 retired those obligations.
 
 Maintainer approval of the architecture remediation plan covers this narrow
 amendment. Acceptance authorizes the implementation; it does not claim that

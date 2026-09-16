@@ -58,7 +58,7 @@ Runnable examples shown in public docs must come from checked files under
 While developing, run the smallest relevant test component:
 
 ```bash
-cabal test parser-core-spec --test-show-details=direct
+cabal test parser-foundation-spec --test-show-details=direct
 ```
 
 Before requesting review, run the checks appropriate to the change. The normal

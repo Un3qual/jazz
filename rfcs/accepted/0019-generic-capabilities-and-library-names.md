@@ -409,16 +409,17 @@ outputs and outstanding constraints. Keep that distinct speculation behavior.
    Generic equality uses custom element evidence; equal FIFO contents compare
    equal across different Queue construction histories. Pairs and triples use
    component evidence while builtin tuple equality remains unchanged.
-8. All 183 renamed exports and their consumers agree. Existing supported hosted
-   syntax/lowering comparisons are extended for declaration contexts and default
-   bodies; the surface type-application encoding is retained. This does not
-   resume the separate hosted semantic compiler project.
+8. All 183 renamed exports and their consumers agree.
 
-Run the compiler/stdlib/module suites, retained hosted frontend comparisons,
-examples, quality gates, and repository checks in the implementation plan.
-Run all four opt-in full parser-scale suites before closing the compiler core
-child; compiling those suites in the quality gate does not execute them.
-Previous run-specific full-scale-test waivers do not apply automatically.
+Run the compiler/stdlib/module suites, examples, quality gates, and repository
+checks in the implementation plan.
+
+Historical acceptance evidence, retired by RFC 0022: the original plan required
+extending hosted syntax/lowering comparisons for declaration contexts and default
+bodies while retaining the surface type-application encoding. It also required
+running the hosted frontend comparisons and all four opt-in full parser-scale
+suites before closing the compiler core child, without inheriting earlier
+run-specific waivers. Those removed suites are no longer verification obligations.
 
 ## Consequences
 

@@ -19,11 +19,14 @@ The canonical product identity is `jazz`:
 
 The active compiler is rooted at conventional repository paths. `src/` owns
 the Haskell stage-0 compiler and runtime, `jazz/` owns the Jazz-authored
-standard library and hosted compiler, `app/` owns the CLI entry point, and
+standard library, `app/` owns the CLI entry point, and
 `test/` owns verification. `benchmark/`, `program-support/`, `programs/`, and
 `editors/` own their corresponding project surfaces. The package remains an
 internal compiler package; this decision does not create a supported Haskell
 embedding API.
+
+Historically, `jazz/` also owned the hosted compiler. RFC 0022 retired that
+ownership and removed its implementation.
 
 The pre-migration multi-implementation layout is preserved by the annotated
 tag:

@@ -783,8 +783,9 @@ class CiPolicyCheckerTests(unittest.TestCase):
         )
         self.assert_violation("determinism tier must compare distinct output paths")
 
-    def test_extended_tier_requires_second_corpus_run(self) -> None:
+    def test_extended_tier_requires_both_corpus_runs(self) -> None:
         for required in (
+            "cabal test all",
             "cabal test program-corpus-spec",
         ):
             with self.subTest(required=required):

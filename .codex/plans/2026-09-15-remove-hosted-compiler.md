@@ -10,12 +10,21 @@ last_verified: 2026-09-15
 plan_section: Implementation
 target_paths:
   - jazz/compiler
-  - src/Jazz/Compiler/Parser/Lower.hs
-  - test/Jazz/Compiler/Bootstrap
+  - src/Jazz/Compiler/Parser
+  - test/Jazz
   - jazz.cabal
   - scripts
   - docs
   - rfcs
+  - AGENTS.md
+  - CONTRIBUTING.md
+  - PERFORMANCE.md
+  - README.md
+  - weeder-production.toml
+  - weeder.toml
+  - .codex/execution
+  - .codex/plans/2026-09-15-module-reexports-and-operator-transport.md
+  - .codex/plans/2026-09-15-remove-hosted-compiler.md
 verification:
   - cabal test all --jobs=1 --test-show-details=failures
   - JAZZ_CABAL_JOBS=1 bash scripts/ci/haskell-quality.sh

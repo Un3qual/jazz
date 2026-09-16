@@ -7,7 +7,7 @@ Supersedes: Hosted lexer, parser, and core decisions dated 2026-07-11, 2026-07-1
 > **2026-09-07 amendment (historical):** The backend requirements of this RFC were superseded by
 > [RFC 0016](0016-optional-backend-removal.md). Its stage-0, hosted-frontend, and conformance
 > decisions were retained at that time; the later amendment below retires hosted obligations.
-
+>
 > **2026-09-15 amendment:** The hosted frontend and its differential conformance requirements below are superseded by [RFC 0022](0022-hosted-compiler-removal.md). The implementation and exclusive harnesses are removed. This RFC remains a historical record, not an instruction to maintain or restore a second compiler.
 
 ## Decision
