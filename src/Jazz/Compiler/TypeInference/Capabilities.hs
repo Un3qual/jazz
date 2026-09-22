@@ -495,8 +495,9 @@ addInferredConstraint constraint state =
     state
 
 typeSchemePrimitiveConstraints :: InferState -> Set InferenceVariable -> [TypeSchemePrimitiveConstraint]
-typeSchemePrimitiveConstraints state schemeVariables =
-  numericConstraints ++ equalityConstraints
+typeSchemePrimitiveConstraints state schemeVariables
+  | Set.null schemeVariables = []
+  | otherwise = numericConstraints ++ equalityConstraints
   where
     targetTypeFor typeVar =
       let targetType = resolveType state (SemanticVariable typeVar)
