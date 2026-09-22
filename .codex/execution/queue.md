@@ -8,20 +8,17 @@ public behavior.
 
 ## Ready Now
 
-Current executor status (`2026-09-15`): RFC 0021 implementation is complete
-through `467fcbfd` after rebasing onto PR #163 (`0c5910a8`). Explicit re-exports
-and operator transport remain in the Haskell compiler. All 47 default suites,
-Haskell quality, examples, repository/docs, and isolated Nix checks pass.
-The [plan](../plans/2026-09-15-module-reexports-and-operator-transport.md) records
-the rebase and verification evidence.
-RFC 0022 retires the hosted compiler and its parity/scale obligations.
-Ready Now is empty; there is no source-backed next curation target and no named
-candidate currently.
+Current executor status (`2026-09-22`): the maintainer selected interpreter
+memory reduction for the existing queue workload. The bounded implementation
+preserves language behavior and uses measured evidence to select the fix.
+RFC 0021 is complete; RFC 0022 keeps self-hosting deferred. No other candidate
+is currently selected.
 
 `Ready Now` should contain implementation-first entries by default. `kind: docs` or `kind: coordination` items belong here only when they are the smallest verified unblocker for the next implementation batch.
 
 | id  | title | priority | size | kind | autonomous_ready | depends_on | plan | plan_section | target_paths | deliverable | verification | last_verified |
 | --- | ----- | -------- | ---- | ---- | ---------------- | ---------- | ---- | ------------ | ------------ | ----------- | ------------ | ------------- |
+| `JN-INTERPRETER-MEMORY-001` | Reduce interpreter queue-workload memory | `P1` | `M` | `impl` | `yes` | `-` | [memory reduction plan](../plans/2026-09-22-interpreter-memory-reduction.md) | `Implementation` | `src/Jazz/Compiler/Runtime/Semantics.hs`, `src/Jazz/Compiler/Runtime/Engine.hs`, `test/Jazz/Compiler/Stdlib/LinearCollectionsTests.hs`, `PERFORMANCE.md` | Reduce measured queue-workload allocation and residency while preserving runtime behavior. | `cabal test all --jobs=1 --test-show-details=direct`; `bash scripts/ci/haskell-quality.sh`; `bash scripts/check-docs.sh`; `bash scripts/check-execution-queue.sh`; `git diff --check` | `2026-09-22` |
 
 ## Next Curation Target
 
