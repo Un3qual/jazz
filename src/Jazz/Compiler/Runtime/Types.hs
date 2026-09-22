@@ -129,7 +129,7 @@ data DeferredHostBindingState
 
 data RuntimeHostEvaluationState = RuntimeHostEvaluationState
   { runtimeHostEvaluationBindingCache :: Map DeferredHostBindingKey DeferredHostBindingState,
-    runtimeHostEvaluationNextScopeId :: Int,
+    runtimeHostEvaluationNextScopeId :: !Int,
     runtimeHostEvaluationActiveMachineCount :: Int,
     runtimeHostEvaluationContinuationDepth :: Word64,
     runtimeHostEvaluationObservation :: RuntimeObservationState
