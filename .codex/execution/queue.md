@@ -8,13 +8,12 @@ public behavior.
 
 ## Ready Now
 
-Current executor status (`2026-09-15`): RFC 0021 implementation is complete
-through `467fcbfd` after rebasing onto PR #163 (`0c5910a8`). Explicit re-exports
-and operator transport remain in the Haskell compiler. All 47 default suites,
-Haskell quality, examples, repository/docs, and isolated Nix checks pass.
-The [plan](../plans/2026-09-15-module-reexports-and-operator-transport.md) records
-the rebase and verification evidence.
-RFC 0022 retires the hosted compiler and its parity/scale obligations.
+Current executor status (`2026-09-22`): the three approved small performance
+fixes are complete through `0d3065e1`. The inference probes allocate about 84%
+less; block-countdown live heap falls 61%. All 47 default suites and Haskell
+quality checks pass. See the [completed plan](../plans/2026-09-22-small-performance-fixes.md)
+for measurements and their limits. RFC 0021 is complete and self-hosting remains
+deferred under RFC 0022. Remaining audit findings are exploratory.
 Ready Now is empty; there is no source-backed next curation target and no named
 candidate currently.
 

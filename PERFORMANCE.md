@@ -74,10 +74,10 @@ JAZZ_CABAL_JOBS=4 bash scripts/ci/main-functional.sh
 
 Test executables accept RTS options for measurement, for example
 `cabal test stdlib-spec --test-options="+RTS -s"`. Choose test concurrency from
-peak memory as well as CPU count: the 50,000-element queue workload in
-`stdlib-spec` currently pushes the suite into tens of gigabytes. A 4 GiB heap
-limit exhausts the heap; it does not make that workload safe to run alongside
-several other suites on a small runner. CI therefore retains one test worker.
+measured peak memory as well as CPU count. The queue workload's former
+quadratic allocation is addressed below; its isolated live heap is much smaller
+than cumulative allocation. CI retains one test worker so larger suites do not
+compete for memory.
 
 With no phase selection, `main-functional.sh` remains the authoritative main
 gate: repository preflight, the ordinary Cabal build and complete test suite,
@@ -308,6 +308,48 @@ library bindings can raise it without changing a case's algorithm. The
 case-specific ceilings in `programs/corpus.json` are deterministic regression
 guards; recorded machine timings remain evidence and are not universal
 pass/fail thresholds.
+
+### Queue return-value sharing
+
+The 50,000-element build/drain case in
+`test/Jazz/Compiler/Stdlib/LinearCollectionsTests.hs` exposed repeated copying
+of persistent list tails. Return-value integer defaulting walked lists even
+when their concrete runtime type hints had already checked every element.
+Defaulting now reuses those lists. Open or absent hints still take the original
+recursive path; the queue implementation and its scale test are unchanged.
+
+Measurements on 2026-09-22 used the same aarch64 macOS machine, pinned GHC
+9.14.1, Cabal's ordinary `-O1` build, and `+RTS -s`, with runtime observation
+disabled. Baseline code was `3bc22e6d`. These are individual runs, not portable
+performance thresholds. GB and MB below are decimal units.
+
+| Queue elements | Allocated before (GB) | Allocated after (GB) |
+| -------------- | --------------------- | -------------------- |
+| 1,000          | 0.293                 | 0.197                |
+| 4,000          | 2.196                 | 0.525                |
+| 8,000          | 7.909                 | 0.962                |
+| 50,000         | 285.506               | 5.553                |
+
+For 50,000 elements, the ordinary CLI run decreased from 136.1 to 1.4 seconds
+elapsed and from 15.1 to 9.7 MB maximum live residency. The pure driver used by
+the tests independently decreased from 285.508 to 5.552 GB allocated and from
+15.1 to 6.0 MB maximum live residency, with a fixed `-M512m` ceiling in both
+runs. Both paths returned `(50000, 1250025000)`. The earlier report of tens of
+gigabytes of live queue memory was not reproduced on this baseline; the
+confirmed problem was quadratic cumulative allocation and GC copying.
+
+To reproduce, copy the test's build/drain source into a temporary `Main.jz`,
+rename its module to `Main`, and change only the element count between runs:
+
+```sh
+cabal build exe:jazz --jobs=1
+"$(cabal list-bin exe:jazz)" --run --entry-module Main \
+  --module-root /path/to/queue-probe --module-root jazz/stdlib +RTS -s -RTS
+```
+
+Compare identical source, build, and RTS settings. The standard-library suite
+retains behavioral coverage for FIFO order, persistent versions, and the full
+50,000-element workload; physical memory and elapsed time remain measurements.
 
 ## Jazz runtime statistics
 

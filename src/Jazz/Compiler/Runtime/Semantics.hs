@@ -945,6 +945,10 @@ attachDefaultBindingIntegerTarget runtimeValue =
       | runtimeIntTargetType metadata == Nothing,
         integerValueMatchesTarget NumericInt64 integerValue ->
           Right (VInt integerValue (targetedIntMetadata NumericInt64))
+    -- A closed list hint has already checked/defaulted every element. Reusing
+    -- it preserves shared tails instead of copying them at every return.
+    VList _ (Just (SemanticList elementType))
+      | Foldable.null elementType -> Right runtimeValue
     VList elements maybeTypeHint ->
       (`VList` maybeTypeHint) <$> traverse attachDefaultBindingIntegerTarget elements
     VTuple elements ->

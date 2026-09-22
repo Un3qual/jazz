@@ -973,7 +973,7 @@ inferScopeTypeInternal
                                     )
                             _ -> stateAfterBindingSeedCheck
                         inferredEntailments =
-                          let environmentVariables = freeTypeVariablesInEnv stateAfterSignatureCheck generalizationEnv
+                          let environmentVariables = generalizationEnvVariables stateAfterSignatureCheck
                               schemeVariables = case valueType of
                                 Just inferredType
                                   | shouldGeneralizeOrdinaryBinding statementIndex generalizationEnv valueExpr matchingPendingSignature ->
@@ -988,7 +988,7 @@ inferScopeTypeInternal
                             finalizeBindingConstraintsAt
                               bindingSpan
                               (maybe inferredEntailments (\pending -> pendingSignatureExplicitConstraints pending <> inferredEntailments) matchingPendingSignature)
-                              (freeTypeVariablesInEnv stateAfterSignatureCheck generalizationEnv)
+                              (generalizationEnvVariables stateAfterSignatureCheck)
                               stateForStatement
                               stateAfterContractValidation
                         nextBindingType =
@@ -1001,16 +1001,16 @@ inferScopeTypeInternal
                                 (Map.lookup statementIndex bindingSeedsByStatement)
                         generalizationEnv =
                           generalizationEnvForStatement statementIndex envForStatement
-                        generalizationEnvVariables =
+                        generalizationEnvVariables generalizationState =
                           if Map.notMember statementIndex recursiveGroupsByStatement
                             && Map.notMember statementIndex recursiveGroupsByInterveningLet
-                            then resolveTypeEnvFreeVariables stateAfterSignatureContractCheck envFreeVariables
-                            else freeTypeVariablesInEnv stateAfterSignatureContractCheck generalizationEnv
+                            then resolveTypeEnvFreeVariables generalizationState envFreeVariables
+                            else freeTypeVariablesInEnv generalizationState generalizationEnv
                         maybeNextBinding =
                           nextBindingForValue
                             statementIndex
                             envForStatement
-                            generalizationEnvVariables
+                            (generalizationEnvVariables stateAfterSignatureContractCheck)
                             valueExpr
                             nextBindingType
                             matchingPendingSignature
