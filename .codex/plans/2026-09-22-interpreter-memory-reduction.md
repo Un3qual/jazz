@@ -1,10 +1,10 @@
 ---
 id: JN-INTERPRETER-MEMORY-001
-status: ready
+status: complete
 priority: P1
 size: M
 kind: impl
-autonomous_ready: yes
+autonomous_ready: no
 depends_on: []
 last_verified: 2026-09-22
 plan_section: Implementation
@@ -59,7 +59,7 @@ or library API changes.
       checked them. Test reuse of existing closed type hints; retain defaulting for
       polymorphic or unhinted values. Keep only a change demonstrated to improve
       the workload. Inspect every caller before changing its contract.
-- [ ] **Verify and close.** Repeat identical before/after inputs and build/RTS
+- [x] **Verify and close.** Repeat identical before/after inputs and build/RTS
       settings. Run the existing persistence, numeric, recursion, observation, and
       host-I/O tests, then the complete default suite and the checks above. Update
       the measured caveat in `PERFORMANCE.md`, record results below, commit the fix,
@@ -99,3 +99,9 @@ Full default verification: all 47 suites (1,998 named tests) passed with
 `cabal test all --jobs=1 --test-show-details=direct --test-options='+RTS -s -RTS'`.
 The unchanged standard-library suite, including its 50,000-element queue case,
 completed in 10.9 seconds with 14,925,616 bytes maximum live residency.
+
+Fix commit: `2ca0684d`. Ormolu, HLint, production and full Weeder checks,
+generated invariants, documentation/queue checks, `cabal check`, executable
+examples, and `git diff --check` passed. Physical measurements and builds were
+serialized. No behavioral tests, corpus budgets, language contracts, or runtime
+APIs needed changing. The completed queue row has been removed.

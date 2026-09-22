@@ -8,17 +8,19 @@ public behavior.
 
 ## Ready Now
 
-Current executor status (`2026-09-22`): the maintainer selected interpreter
-memory reduction for the existing queue workload. The bounded implementation
-preserves language behavior and uses measured evidence to select the fix.
-RFC 0021 is complete; RFC 0022 keeps self-hosting deferred. No other candidate
-is currently selected.
+Current executor status (`2026-09-22`): interpreter memory reduction is complete
+through `2ca0684d`. The existing 50,000-element queue workload allocates 98% less
+memory; all 47 default suites, Haskell quality, docs, and examples pass. See the
+[memory reduction plan](../plans/2026-09-22-interpreter-memory-reduction.md) for
+measurements and verification. RFC 0021 is complete and self-hosting remains
+deferred under RFC 0022.
+Ready Now is empty; there is no source-backed next curation target and no named
+candidate currently.
 
 `Ready Now` should contain implementation-first entries by default. `kind: docs` or `kind: coordination` items belong here only when they are the smallest verified unblocker for the next implementation batch.
 
-| id                          | title                                    | priority | size | kind   | autonomous_ready | depends_on | plan                                                                         | plan_section     | target_paths                                                                                                                                             | deliverable                                                                                | verification                                                                                                                                                                          | last_verified |
-| --------------------------- | ---------------------------------------- | -------- | ---- | ------ | ---------------- | ---------- | ---------------------------------------------------------------------------- | ---------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------- |
-| `JN-INTERPRETER-MEMORY-001` | Reduce interpreter queue-workload memory | `P1`     | `M`  | `impl` | `yes`            | `-`        | [memory reduction plan](../plans/2026-09-22-interpreter-memory-reduction.md) | `Implementation` | `src/Jazz/Compiler/Runtime/Semantics.hs`, `src/Jazz/Compiler/Runtime/Engine.hs`, `test/Jazz/Compiler/Stdlib/LinearCollectionsTests.hs`, `PERFORMANCE.md` | Reduce measured queue-workload allocation and residency while preserving runtime behavior. | `cabal test all --jobs=1 --test-show-details=direct`; `bash scripts/ci/haskell-quality.sh`; `bash scripts/check-docs.sh`; `bash scripts/check-execution-queue.sh`; `git diff --check` | `2026-09-22`  |
+| id  | title | priority | size | kind | autonomous_ready | depends_on | plan | plan_section | target_paths | deliverable | verification | last_verified |
+| --- | ----- | -------- | ---- | ---- | ---------------- | ---------- | ---- | ------------ | ------------ | ----------- | ------------ | ------------- |
 
 ## Next Curation Target
 
