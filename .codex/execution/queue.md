@@ -8,19 +8,18 @@ public behavior.
 
 ## Ready Now
 
-Current executor status (`2026-09-22`): interpreter memory reduction is complete
-through `2ca0684d`. The existing 50,000-element queue workload allocates 98% less
-memory; all 47 default suites, Haskell quality, docs, and examples pass. See the
-[memory reduction plan](../plans/2026-09-22-interpreter-memory-reduction.md) for
-measurements and verification. RFC 0021 is complete and self-hosting remains
-deferred under RFC 0022.
-Ready Now is empty; there is no source-backed next curation target and no named
-candidate currently.
+Current executor status (`2026-09-22`): implement the three user-approved small
+performance fixes from the measured audit: closed-binding constraint collection,
+inference environment summaries, and the runtime scope counter. The earlier
+typed-list sharing fix is complete. RFC 0021 is complete and self-hosting remains
+deferred under RFC 0022. There is no source-backed next curation target and no
+named candidate currently beyond this approved batch.
 
 `Ready Now` should contain implementation-first entries by default. `kind: docs` or `kind: coordination` items belong here only when they are the smallest verified unblocker for the next implementation batch.
 
-| id  | title | priority | size | kind | autonomous_ready | depends_on | plan | plan_section | target_paths | deliverable | verification | last_verified |
-| --- | ----- | -------- | ---- | ---- | ---------------- | ---------- | ---- | ------------ | ------------ | ----------- | ------------ | ------------- |
+| id                               | title                                             | priority | size | kind   | autonomous_ready | depends_on | plan                                                                      | plan_section     | target_paths                                                                                                                        | deliverable                                                                            | verification                                                                                                                                 | last_verified |
+| -------------------------------- | ------------------------------------------------- | -------- | ---- | ------ | ---------------- | ---------- | ------------------------------------------------------------------------- | ---------------- | ----------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- | ------------- |
+| `JN-SMALL-PERFORMANCE-FIXES-001` | Remove measured inference and scope-counter costs | `P1`     | `S`  | `impl` | `yes`            | `-`        | [small performance fixes](../plans/2026-09-22-small-performance-fixes.md) | `Implementation` | `src/Jazz/Compiler/TypeInference/Capabilities.hs`, `src/Jazz/Compiler/TypeInference/Scope.hs`, `src/Jazz/Compiler/Runtime/Types.hs` | Remove the three approved inference and scope-counter costs without changing behavior. | `cabal test all --jobs=1 --test-show-details=direct`; `bash scripts/ci/haskell-quality.sh`; `bash scripts/check-docs.sh`; `git diff --check` | `2026-09-22`  |
 
 ## Next Curation Target
 
